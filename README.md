@@ -56,23 +56,43 @@ Columns: `id,name,category,fuelRole,side,tankNo,fuelGrade,calcType,capacity,pipe
 
 After import, open **Calibration DB** to paste sounding tables.
 
-## Proxmox LXC (Debian) — one-liner
+## Proxmox LXC (Debian)
 
-Create a Debian CT, open its shell as **root**, then:
+### Create LXC + install (run on Proxmox **host** as root)
 
 ```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/tsogs66/tank-management/main/deploy/create-lxc.sh)"
+```
+
+Creates a Debian CT (auto CTID from 130), installs Fuel TMS, starts systemd on port **3080**.
+
+Useful overrides:
+
+```bash
+CTID=140 HOSTNAME=fuel-tms PASSWORD='YourStrongPass' MEMORY=2048 DISK=16 \
+  IP=static STATIC_IP=192.168.1.50/24 GATEWAY=192.168.1.1 \
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/tsogs66/tank-management/main/deploy/create-lxc.sh)"
+```
+
+### Update existing LXC (host)
+
+```bash
+CTID=130 bash -c "$(curl -fsSL https://raw.githubusercontent.com/tsogs66/tank-management/main/deploy/update-lxc.sh)"
+```
+
+### Install / update inside an existing CT
+
+```bash
+# install
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/tsogs66/tank-management/main/deploy/proxmox.sh)"
+
+# update (preserves data/vessels)
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/tsogs66/tank-management/main/deploy/update.sh)"
 ```
 
-Before merge to `main`, use the feature branch:
+Optional: `PORT=3080 APP_DIR=/opt/tank-management BRANCH=main STORAGE=local-lvm BRIDGE=vmbr0`.
 
-```bash
-BRANCH=cursor/fuel-tank-management-system-fcd2 bash -c "$(curl -fsSL https://raw.githubusercontent.com/tsogs66/tank-management/cursor/fuel-tank-management-system-fcd2/deploy/proxmox.sh)"
-```
-
-Optional: `PORT=3080 APP_DIR=/opt/tank-management`. From a local clone: `sudo bash deploy/install-debian.sh`.
-
-App listens on **port 3080**. Point a second instance (ship laptop / office) at the LXC URL under **Backup / Sync → Peer sync URL**, then **Push** or **Pull**.
+Point a second instance (ship laptop / office) at the LXC URL under **Backup / Sync → Peer sync URL**, then **Push** or **Pull**.
 
 ## Original workbook UI
 
