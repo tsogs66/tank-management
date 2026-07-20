@@ -58,19 +58,19 @@ After import, open **Calibration DB** to paste sounding tables.
 
 ## Proxmox LXC (Debian) — one-liner
 
-Create a Debian CT, open its shell as root, then:
+Create a Debian CT, open its shell as **root**, then:
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/tsogs66/tank-management/main/deploy/proxmox.sh)"
 ```
 
-Custom port / branch:
+Before merge to `main`, use the feature branch:
 
 ```bash
-PORT=3080 BRANCH=main bash -c "$(curl -fsSL https://raw.githubusercontent.com/tsogs66/tank-management/main/deploy/proxmox.sh)"
+BRANCH=cursor/fuel-tank-management-system-fcd2 bash -c "$(curl -fsSL https://raw.githubusercontent.com/tsogs66/tank-management/cursor/fuel-tank-management-system-fcd2/deploy/proxmox.sh)"
 ```
 
-Or from a local clone: `sudo bash deploy/install-debian.sh`
+Optional: `PORT=3080 APP_DIR=/opt/tank-management`. From a local clone: `sudo bash deploy/install-debian.sh`.
 
 App listens on **port 3080**. Point a second instance (ship laptop / office) at the LXC URL under **Backup / Sync → Peer sync URL**, then **Push** or **Pull**.
 
