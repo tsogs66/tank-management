@@ -4,44 +4,63 @@
  */
 'use strict';
 
-function linearInterp(xArr, yArr, x) {
-  const n = xArr.length;
-  if (n === 0) return 0;
-  if (n === 1) return yArr[0];
-  let lo = 0, hi = n - 1;
-  if (x <= xArr[0]) { lo = 0; hi = 1; }
-  else if (x >= xArr[n - 1]) { lo = n - 2; hi = n - 1; }
-  else {
-    // binary search for bracketing segment
-    let a = 0, b = n - 1;
-    while (b - a > 1) {
-      const m = Math.floor((a + b) / 2);
-      if (xArr[m] <= x) a = m; else b = m;
-    }
-    lo = a; hi = b;
+/** True when axis runs low→high (e.g. -2,-1,0,1,2). False for high→low (2,1,0,-1,-2). */
+function isAscending(arr) {
+  if (!arr || arr.length < 2) return true;
+  // Prefer endpoints; fall back to first non-equal neighbor
+  if (arr[arr.length - 1] !== arr[0]) return arr[arr.length - 1] > arr[0];
+  for (let i = 1; i < arr.length; i++) {
+    if (arr[i] !== arr[0]) return arr[i] > arr[0];
   }
-  const x1 = xArr[lo], x2 = xArr[hi];
-  const y1 = yArr[lo], y2 = yArr[hi];
-  if (x2 === x1) return y1;
-  return y1 + (y2 - y1) * (x - x1) / (x2 - x1);
+  return true;
 }
 
-/** Find bracketing indices [lo, hi] in a sorted array for value v (clamped at edges). */
+/**
+ * Find bracketing indices [lo, hi] for value v on a monotonic axis.
+ * Supports ascending (-2,-1,0,1,2) and descending (2,1,0,-1,-2) tables.
+ * Values outside the axis clamp to the nearest end segment.
+ */
 function bracket(arr, v) {
   const n = arr.length;
+  if (n === 0) return [0, 0];
   if (n === 1) return [0, 0];
-  if (v <= arr[0]) return [0, 1];
-  if (v >= arr[n - 1]) return [n - 2, n - 1];
+  const asc = isAscending(arr);
+
+  if (asc) {
+    if (v <= arr[0]) return [0, 1];
+    if (v >= arr[n - 1]) return [n - 2, n - 1];
+  } else {
+    if (v >= arr[0]) return [0, 1];
+    if (v <= arr[n - 1]) return [n - 2, n - 1];
+  }
+
   let a = 0, b = n - 1;
   while (b - a > 1) {
     const m = Math.floor((a + b) / 2);
-    if (arr[m] <= v) a = m; else b = m;
+    if (asc) {
+      if (arr[m] <= v) a = m; else b = m;
+    } else {
+      if (arr[m] >= v) a = m; else b = m;
+    }
   }
   return [a, b];
 }
 
+function linearInterp(xArr, yArr, x) {
+  const n = xArr.length;
+  if (n === 0) return 0;
+  if (n === 1) return yArr[0];
+  const [lo, hi] = bracket(xArr, x);
+  const x1 = xArr[lo], x2 = xArr[hi];
+  const y1 = yArr[lo], y2 = yArr[hi];
+  if (x2 === x1) return y1;
+  // Works for both ascending and descending x (signs cancel)
+  return y1 + (y2 - y1) * (x - x1) / (x2 - x1);
+}
+
 /**
  * Bilinear ("double") interpolation over a 2-D grid, equivalent to VBA Interp2().
+ * xAxis/yAxis may be ascending or descending (e.g. trim -2…+2 or +2…-2).
  * xAxis: row axis (length n), yAxis: column axis (length m), grid: n x m values.
  */
 function bilinearInterp(xAxis, yAxis, grid, x, y) {
@@ -189,6 +208,7 @@ function computeTank(tank, inputs) {
 
 
 module.exports = {
+  isAscending,
   linearInterp,
   bracket,
   bilinearInterp,
