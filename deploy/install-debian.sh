@@ -14,12 +14,12 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y curl ca-certificates gnupg
+apt-get update -qq
+apt-get install -y -qq curl ca-certificates gnupg rsync
 
 if ! command -v node >/dev/null 2>&1; then
   curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-  apt-get install -y nodejs
+  apt-get install -y -qq nodejs
 fi
 
 id -u "$APP_USER" >/dev/null 2>&1 || useradd --system --home "$APP_DIR" --shell /usr/sbin/nologin "$APP_USER"
@@ -28,11 +28,13 @@ mkdir -p "$APP_DIR"
 # Copy from current working tree if running from repo
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-rsync -a --delete \
-  --exclude node_modules \
-  --exclude .git \
-  --exclude 'data/vessels/*' \
-  "$REPO_DIR/" "$APP_DIR/" || cp -a "$REPO_DIR/." "$APP_DIR/"
+if [[ "$REPO_DIR" != "$APP_DIR" ]]; then
+  rsync -a --delete \
+    --exclude node_modules \
+    --exclude .git \
+    --exclude 'data/vessels/*' \
+    "$REPO_DIR/" "$APP_DIR/"
+fi
 
 cd "$APP_DIR"
 npm install --omit=dev
