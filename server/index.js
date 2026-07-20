@@ -8,6 +8,8 @@ const cors = require('cors');
 const multer = require('multer');
 const store = require('./store');
 const { computeTank } = require('./calc');
+const excelImport = require('./excel-import');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3080;
@@ -411,6 +413,88 @@ app.post('/api/sync/push', asyncHandler(async (req, res) => {
   const result = await resp.json();
   res.json({ ok: true, remote: result, to: url });
 }));
+
+/* ---------- Excel workbook import (Tank1–Tank4) ---------- */
+app.post('/api/vessels/:id/import-excel', upload.single('file'), asyncHandler(async (req, res) => {
+  let result;
+  if (req.file) {
+    result = await excelImport.importWorkbookBuffer(req.file.buffer, req.file.originalname || 'upload.xlsm');
+  } else if (req.body?.useRepoFile) {
+    result = await excelImport.importWorkbook(excelImport.defaultWorkbookPath());
+  } else if (req.body?.path) {
+    result = await excelImport.importWorkbook(req.body.path);
+  } else {
+    return res.status(400).json({ error: 'Upload a .xlsm/.xlsx file or pass useRepoFile:true' });
+  }
+
+  // Merge imported tanks into vessel (match by fuzzy name across categories)
+  const bundle = store.getVesselBundle(req.params.id);
+  const tanks = bundle.tanks || store.emptyTanks();
+  const createMissing = req.body?.createMissing === true || req.body?.createMissing === 'true';
+  let updated = 0;
+  let created = 0;
+  let skipped = 0;
+  const norm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  function findExisting(name) {
+    const n = norm(name);
+    for (const cat of Object.keys(tanks)) {
+      const idx = (tanks[cat] || []).findIndex((t) => {
+        const tn = norm(t.name);
+        return tn === n || tn.includes(n) || n.includes(tn);
+      });
+      if (idx >= 0) return { cat, idx };
+    }
+    return null;
+  }
+
+  for (const [cat, arr] of Object.entries(result.tanks || {})) {
+    if (!tanks[cat]) tanks[cat] = [];
+    for (const incoming of arr) {
+      const hit = findExisting(incoming.name);
+      if (hit) {
+        const prev = tanks[hit.cat][hit.idx];
+        // Refresh calibration grids from Excel; keep validated local metadata/calcType
+        tanks[hit.cat][hit.idx] = {
+          ...prev,
+          trimAxis: incoming.trimAxis,
+          trimVals: incoming.trimVals,
+          trimGrid: incoming.trimGrid,
+          listAxis: incoming.listAxis,
+          listVals: incoming.listVals,
+          listGrid: incoming.listGrid,
+          volumeCurve: incoming.volumeCurve,
+          pipeHeight: incoming.pipeHeight != null ? incoming.pipeHeight : prev.pipeHeight,
+          capacity: incoming.capacity || prev.capacity,
+          updatedAt: new Date().toISOString(),
+          excelSource: incoming.name,
+        };
+        updated++;
+      } else if (createMissing) {
+        const id = incoming.id || `${cat}${Date.now().toString(36)}${created}`;
+        tanks[cat].push({ ...incoming, id, category: cat });
+        created++;
+      } else {
+        skipped++;
+      }
+    }
+  }
+  store.saveVesselPart(req.params.id, 'tanks', tanks);
+  res.json({
+    ok: true,
+    found: result.found,
+    setup: result.setup,
+    updated,
+    created,
+    skipped,
+  });
+}));
+
+app.get('/api/reference/conversion', (req, res) => {
+  const p = path.join(__dirname, '..', 'seed', 'conversion.json');
+  if (!fs.existsSync(p)) return res.status(404).json({ error: 'conversion.json not found' });
+  res.json(JSON.parse(fs.readFileSync(p, 'utf8')));
+});
 
 /* ---------- CSV tank template / import ---------- */
 app.get('/api/templates/tanks.csv', (req, res) => {

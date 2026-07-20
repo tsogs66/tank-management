@@ -1,0 +1,76 @@
+{
+  "tanks": [
+    {
+      "name": "NO.1 HFO TANK (P)",
+      "pipeHeightBook": 777.1,
+      "pipeHeightActual": 777.1,
+      "capacity100": 740.33,
+      "capacity85": 629.28
+    },
+    {
+      "name": "NO.1 HFO TANK (S)",
+      "pipeHeightBook": 781.2,
+      "pipeHeightActual": 781.2,
+      "capacity100": 740.33,
+      "capacity85": 629.28
+    },
+    {
+      "name": "NO.2 HFO TANK (P)",
+      "pipeHeightBook": 1778.8,
+      "pipeHeightActual": 1778.8,
+      "capacity100": 2343.98,
+      "capacity85": 1992.38
+    },
+    {
+      "name": "NO.2 HFO TANK (S)",
+      "pipeHeightBook": 1779.5,
+      "pipeHeightActual": 1779.5,
+      "capacity100": 1845.33,
+      "capacity85": 1568.53
+    },
+    {
+      "name": "HFO SETTLING TK",
+      "pipeHeightBook": 11257,
+      "pipeHeightActual": 11257,
+      "capacity100": 42,
+      "capacity85": 35.7
+    },
+    {
+      "name": "HFO SERVICE TK",
+      "pipeHeightBook": 11256,
+      "pipeHeightActual": 11256,
+      "capacity100": 56.08,
+      "capacity85": 47.67
+    },
+    {
+      "name": "HFO OVERFLOW TK",
+      "pipeHeightBook": 2680,
+      "pipeHeightActual": 2680,
+      "capacity100": 42.98,
+      "capacity85": 36.53
+    },
+    {
+      "name": "MDO TANK (1)",
+      "pipeHeightBook": 1353.2,
+      "pipeHeightActual": 1353.2,
+      "capacity100": 173,
+      "capacity85": 147.05
+    },
+    {
+      "name": "MDO TANK (2)",
+      "pipeHeightBook": 1255.8,
+      "pipeHeightActual": 1255.8,
+      "capacity100": 141.63,
+      "capacity85": 120.39
+    },
+    {
+      "name": "MDO SERVICE TK",
+      "pipeHeightBook": 5994,
+      "pipeHeightActual": 5994,
+      "capacity100": 40.66,
+      "capacity85": 34.56
+    }
+  ],
+  "chiefEngineer": "MARVIN C. ENDOZO",
+  "source": "Setup sheet"
+}
