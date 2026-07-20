@@ -1,0 +1,11 @@
+id,name,category,fuelRole,side,tankNo,fuelGrade,calcType,capacity,pipeHeight,soundingMethod,correctionDivisor
+fuel_new1,NO.3 H.F.O. TANK (P),fuel,storage,port,3,hfo,correction,500,800,ullage,10
+fuel_new2,NO.3 H.F.O. TANK (S),fuel,storage,starboard,3,hfo,correction,500,800,ullage,10
+fuel_sett_new,H.F.O. SETTLING TANK 2,fuel,settling,center,,hfo,direct,50,0,sounding,1
+fuel_svc_new,H.F.O. SERVICE TANK 2,fuel,service,center,,hfo,direct,50,0,sounding,1
+# category: fuel | lube | misc | water
+# fuelRole: storage | settling | service | overflow | other
+# side: port | starboard | center
+# fuelGrade: hfo | lsfo | mdo | mgo | other
+# calcType: correction (trim+list then volume curve) | direct (trim×heel volume grid)
+# After import, open Calibration editor to paste trim/list grids and volume curve values.
