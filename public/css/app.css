@@ -191,7 +191,20 @@ table.leg-table input, table.calib-table input {
 
 .section-title {
   font-size: 15px; font-weight: 700; margin: 22px 0 10px;
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+table.calib-table { font-variant-numeric: tabular-nums; }
+table.calib-table th {
+  position: sticky; top: 0; background: var(--bg-panel); z-index: 1;
+  white-space: nowrap;
+}
+table.calib-table th:first-child,
+table.calib-table td:first-child {
+  position: sticky; left: 0; background: var(--bg-card); z-index: 2;
+}
+table.calib-table thead th:first-child { z-index: 3; }
+table.calib-table input[type="number"] {
+  min-width: 72px; text-align: right;
 }
 .kv-row {
   display: flex; justify-content: space-between; align-items: center;
