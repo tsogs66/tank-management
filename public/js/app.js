@@ -1566,7 +1566,7 @@ function renderAbout(main) {
     <b>Direct tanks</b> use trim×heel volume grids. Weight uses ASTM Table 54B VCF and WCF (ρ15 − 0.0011).</p>
     <p>Each vessel is stored under <code>data/vessels/&lt;id&gt;/</code>. The app runs as a local web server (Debian / Proxmox LXC) and as a mobile-friendly PWA for Android. Offline edits queue until the server is reachable; peer sync pushes/pulls full vessel databases.</p>
     <p>Original CAPTAIN VENIAMIS calibration tables are seeded as the default vessel.</p>
-    <p><b>Import:</b> Excel workbook (Tank1–Tank4), CSV tank list, or PDF sounding tables (Calibration DB → Import PDF; needs <code>pdfplumber</code>).</p>
+    <p><b>Import / edit:</b> Excel workbook (Tank1–Tank4), tank-list CSV, per-tank calibration CSV/Excel, or PDF sounding tables (Calibration DB).</p>
   </div>`;
 }
 
