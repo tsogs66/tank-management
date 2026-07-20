@@ -56,15 +56,23 @@ Columns: `id,name,category,fuelRole,side,tankNo,fuelGrade,calcType,capacity,pipe
 
 After import, open **Calibration DB** to paste sounding tables.
 
-## Proxmox LXC (Debian)
+## Proxmox LXC (Debian) — one-liner
+
+Create a Debian CT, open its shell as root, then:
 
 ```bash
-# Inside the CT as root:
-sudo bash deploy/install-debian.sh
-# App listens on port 3080
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/tsogs66/tank-management/main/deploy/proxmox.sh)"
 ```
 
-Point a second instance (ship laptop / office) at the LXC URL under **Backup / Sync → Peer sync URL**, then **Push** or **Pull**.
+Custom port / branch:
+
+```bash
+PORT=3080 BRANCH=main bash -c "$(curl -fsSL https://raw.githubusercontent.com/tsogs66/tank-management/main/deploy/proxmox.sh)"
+```
+
+Or from a local clone: `sudo bash deploy/install-debian.sh`
+
+App listens on **port 3080**. Point a second instance (ship laptop / office) at the LXC URL under **Backup / Sync → Peer sync URL**, then **Push** or **Pull**.
 
 ## Original workbook UI
 
