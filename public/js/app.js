@@ -426,12 +426,25 @@ function renderResultSteps(panel, tank, r, inputs) {
     defs.push({ label: 'Volume gauge', formula: 'direct reading', value: fmt(inputs.reading,3)+' m³' });
     defs.push({ label: 'Observed volume', formula: 'clamped to capacity', value: fmt(r.volumeObserved,3)+' m³', highlight: true });
   } else if (tank.calcType === 'correction') {
-    defs.push({ label: 'Trim correction', formula: `bilinear ÷ ${tank.correctionDivisor}`, value: fmt((r.trimCorrection||0)/(tank.correctionDivisor||1),3) });
-    defs.push({ label: 'List correction', formula: `bilinear ÷ ${tank.correctionDivisor}`, value: fmt((r.listCorrection||0)/(tank.correctionDivisor||1),3) });
+    defs.push({
+      label: 'Trim correction',
+      formula: `Interp2 FLOOR/CEILING inc=${r.soundingIncrement ?? '?'} ÷ ${tank.correctionDivisor}`,
+      value: fmt((r.trimCorrection||0)/(tank.correctionDivisor||1),3),
+    });
+    defs.push({
+      label: 'List correction',
+      formula: `Interp2 FLOOR/CEILING inc=${r.heelIncrement ?? '?'} ÷ ${tank.correctionDivisor}`,
+      value: fmt((r.listCorrection||0)/(tank.correctionDivisor||1),3),
+    });
     defs.push({ label: 'Corrected reading', formula: 'reading + corrections', value: fmt(r.correctedReading,2) });
     defs.push({ label: 'Observed volume', formula: 'volume curve interp', value: fmt(r.volumeObserved,3)+' m³', highlight: true });
   } else {
-    defs.push({ label: 'Observed volume', formula: 'trim×heel volume grid', value: fmt(r.volumeObserved,3)+' m³', highlight: true });
+    defs.push({
+      label: 'Observed volume',
+      formula: `trim×heel grid · sounding inc=${r.soundingIncrement ?? '?'} · heel inc=${r.heelIncrement ?? '?'}`,
+      value: fmt(r.volumeObserved,3)+' m³',
+      highlight: true,
+    });
   }
   if (r.vcf != null) {
     defs.push({ label: 'VCF (ASTM 54B)', formula: `ρ15=${inputs.density15}, T=${inputs.tempC}°C`, value: fmt(r.vcf,4) });
@@ -621,6 +634,18 @@ function renderCalibrationEditor(main, tankId) {
 
   const meta = document.createElement('div');
   meta.className = 'form-panel';
+  const detectedInc = (typeof detectIncrement === 'function')
+    ? detectIncrement(tank.trimAxis || [])
+    : 1;
+  const soundingInc = tank.soundingIncrement || detectedInc || 1;
+  const heelInc = tank.heelIncrement || ((typeof detectIncrement === 'function')
+    ? detectIncrement(tank.listAxis || tank.trimAxis || [])
+    : soundingInc);
+  const incOpts = [1, 2, 5, 10, 20, 25, 50];
+  const optHtml = (selected) => incOpts.map((n) =>
+    `<option value="${n}" ${Number(selected) === n ? 'selected' : ''}>${n}</option>`
+  ).join('');
+
   meta.innerHTML = `
     <div class="form-row-3">
       <div class="form-row"><label>Calc type</label>
@@ -639,6 +664,17 @@ function renderCalibrationEditor(main, tankId) {
           <option value="sounding" ${tank.soundingMethod==='sounding'?'selected':''}>sounding</option>
         </select></div>
       <div class="form-row"><label>85% volume (ref)</label><input value="${fmt((tank.capacity||0)*0.85,2)}" disabled></div>
+    </div>
+    <div class="form-row-3">
+      <div class="form-row"><label>Sounding table increment</label>
+        <select id="c-sound-inc">${optHtml(soundingInc)}</select>
+        <div class="hint">Excel-style FLOOR/CEILING double interp · detected ${detectedInc}</div></div>
+      <div class="form-row"><label>List / heel increment</label>
+        <select id="c-heel-inc">${optHtml(heelInc)}</select>
+        <div class="hint">Usually same as sounding step (1, 2, 5, 10…)</div></div>
+      <div class="form-row"><label>Table order</label>
+        <input value="${(tank.trimVals||[])[0] > (tank.trimVals||[]).slice(-1)[0] ? 'Descending trim cols' : 'Ascending trim cols'}" disabled>
+        <div class="hint">Both −2…+2 and +2…−2 are supported</div></div>
     </div>`;
   main.appendChild(meta);
 
@@ -652,6 +688,8 @@ function renderCalibrationEditor(main, tankId) {
       correctionDivisor: parseFloat(document.getElementById('c-div').value) || 10,
       pipeHeight: parseFloat(document.getElementById('c-pipe').value) || 0,
       soundingMethod: document.getElementById('c-method').value,
+      soundingIncrement: parseFloat(document.getElementById('c-sound-inc').value) || 1,
+      heelIncrement: parseFloat(document.getElementById('c-heel-inc').value) || 1,
       ...parsed,
     };
     await Api.saveCalibration(STATE.activeVesselId, tankId, calibration);

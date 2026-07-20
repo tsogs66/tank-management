@@ -373,6 +373,8 @@ function updateCalibration(vesselId, tankId, calibration) {
     'capacity',
     'pipeHeight',
     'soundingMethod',
+    'soundingIncrement',
+    'heelIncrement',
   ];
   for (const f of fields) {
     if (calibration[f] !== undefined) tank[f] = calibration[f];

@@ -91,12 +91,28 @@ def parse_correction(ws, title_row):
     vs = [vol_map[x] for x in xs]
     capacity = max(vs) if vs else 0
     meta = guess_meta(name)
+
+    def detect_inc(axis):
+        if len(axis) < 2:
+            return 1
+        diffs = [round(abs(axis[i] - axis[i - 1]) * 1000) / 1000 for i in range(1, len(axis)) if axis[i] != axis[i - 1]]
+        if not diffs:
+            return 1
+        from collections import Counter
+        best = Counter(diffs).most_common(1)[0][0]
+        for p in (1, 2, 5, 10, 20, 25, 50):
+            if abs(best - p) < 1e-6:
+                return p
+        return best
+
     return {
         'name': name,
         'category': 'fuel',
         'calcType': 'correction',
         'correctionDivisor': 10,
         'soundingMethod': 'ullage',
+        'soundingIncrement': detect_inc(trim_axis),
+        'heelIncrement': detect_inc(list_axis) if list_axis else detect_inc(trim_axis),
         'trimAxis': trim_axis,
         'trimVals': trim_vals,
         'trimGrid': trim_grid,

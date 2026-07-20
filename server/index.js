@@ -464,6 +464,8 @@ app.post('/api/vessels/:id/import-excel', upload.single('file'), asyncHandler(as
           listVals: incoming.listVals,
           listGrid: incoming.listGrid,
           volumeCurve: incoming.volumeCurve,
+          soundingIncrement: incoming.soundingIncrement || prev.soundingIncrement,
+          heelIncrement: incoming.heelIncrement || prev.heelIncrement,
           pipeHeight: incoming.pipeHeight != null ? incoming.pipeHeight : prev.pipeHeight,
           capacity: incoming.capacity || prev.capacity,
           updatedAt: new Date().toISOString(),

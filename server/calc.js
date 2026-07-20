@@ -90,6 +90,87 @@ function bilinearInterp(xAxis, yAxis, grid, x, y) {
   return fxy;
 }
 
+/** Preferred sounding-table increments (cm), matching ship calibration books. */
+const PREFERRED_INCREMENTS = [1, 2, 5, 10, 20, 25, 50];
+
+/**
+ * Detect the dominant step of a sounding/depth axis.
+ * Prefers 1, 2, 5, 10 (also accepts 20/25/50 as used in some HFO tables).
+ */
+function detectIncrement(axis) {
+  if (!axis || axis.length < 2) return 1;
+  const diffs = [];
+  for (let i = 1; i < axis.length; i++) {
+    const d = Math.abs(axis[i] - axis[i - 1]);
+    if (d > 0) diffs.push(Math.round(d * 1000) / 1000);
+  }
+  if (!diffs.length) return 1;
+
+  // Mode of diffs
+  const counts = new Map();
+  for (const d of diffs) counts.set(d, (counts.get(d) || 0) + 1);
+  let best = diffs[0], bestN = 0;
+  for (const [d, n] of counts) {
+    if (n > bestN) { best = d; bestN = n; }
+  }
+
+  // Snap to a preferred increment when very close
+  for (const p of PREFERRED_INCREMENTS) {
+    if (Math.abs(best - p) < 1e-6) return p;
+  }
+  return best;
+}
+
+/** Excel-compatible FLOOR(n, significance) toward −∞. */
+function excelFloor(n, significance) {
+  const s = Math.abs(Number(significance) || 0);
+  if (!s) return n;
+  return Math.floor(n / s) * s;
+}
+
+/** Excel-compatible CEILING(n, significance) toward +∞. */
+function excelCeiling(n, significance) {
+  const s = Math.abs(Number(significance) || 0);
+  if (!s) return n;
+  return Math.ceil(n / s) * s;
+}
+
+/**
+ * Double interpolation with sounding-table increment (Excel Tank-sheet style):
+ *   FLOOR/CEILING the sounding to the table step (1, 2, 5, 10, …),
+ *   Interp2 at both bounds, then Interp1 between those results.
+ * Works with ascending or descending trim/list column axes.
+ */
+function bilinearInterpInc(xAxis, yAxis, grid, x, y, xInc) {
+  const inc = Number(xInc) > 0 ? Number(xInc) : detectIncrement(xAxis);
+  if (!inc || !xAxis || xAxis.length < 2) {
+    return bilinearInterp(xAxis, yAxis, grid, x, y);
+  }
+
+  const xLo = excelFloor(x, inc);
+  const xHi = excelCeiling(x, inc);
+  if (xLo === xHi) {
+    return bilinearInterp(xAxis, yAxis, grid, x, y);
+  }
+
+  const vLo = bilinearInterp(xAxis, yAxis, grid, xLo, y);
+  const vHi = bilinearInterp(xAxis, yAxis, grid, xHi, y);
+  return linearInterp([xLo, xHi], [vLo, vHi], x);
+}
+
+/** Resolve sounding / heel increments from tank metadata or axis spacing. */
+function resolveIncrements(tank) {
+  const soundingInc = Number(tank.soundingIncrement) > 0
+    ? Number(tank.soundingIncrement)
+    : detectIncrement(tank.trimAxis);
+  const heelInc = Number(tank.heelIncrement) > 0
+    ? Number(tank.heelIncrement)
+    : (tank.listAxis && tank.listAxis.length
+      ? detectIncrement(tank.listAxis)
+      : soundingInc);
+  return { soundingInc, heelInc };
+}
+
 /**
  * ASTM Table 54B Volume Correction Factor (VCF), reconstructed from the
  * 'ASTM Tables' sheet formulas (columns K..W). Selects a density-dependent
@@ -144,18 +225,24 @@ function computeTank(tank, inputs) {
 
   let trimCorr = 0, listCorr = 0, corrected = reading;
 
+  const { soundingInc, heelInc } = resolveIncrements(tank);
+
   if (gaugeType === 'volume') {
     // Volume gauge: the reading IS the observed volume already -- no interpolation.
     var volumeObserved = reading;
     var correctedReadingOut = reading;
     var soundingBottomOut = reading;
   } else if (tank.calcType === 'correction') {
-    // Stage 1: trim correction (bilinear), applied to the raw reading
-    trimCorr = bilinearInterp(tank.trimAxis, tank.trimVals, tank.trimGrid, reading, trim);
+    // Stage 1: trim correction — Excel-style double interp at sounding increment
+    trimCorr = bilinearInterpInc(
+      tank.trimAxis, tank.trimVals, tank.trimGrid, reading, trim, soundingInc
+    );
     corrected = reading + trimCorr / divisor;
-    // Stage 2: list/heel correction (bilinear), applied to the trim-corrected reading
+    // Stage 2: list/heel correction at heel/list increment
     if (tank.listAxis && tank.listAxis.length) {
-      listCorr = bilinearInterp(tank.listAxis, tank.listVals, tank.listGrid, corrected, list);
+      listCorr = bilinearInterpInc(
+        tank.listAxis, tank.listVals, tank.listGrid, corrected, list, heelInc
+      );
       corrected = corrected + listCorr / divisor;
     }
     // Convert ullage -> sounding-from-bottom if this tank is read by ullage
@@ -163,20 +250,23 @@ function computeTank(tank, inputs) {
     if (tank.soundingMethod && tank.soundingMethod.toLowerCase() === 'ullage' && tank.pipeHeight) {
       soundingFromBottom = tank.pipeHeight - corrected;
     }
+    // Volume curve is usually 1 cm steps; linearInterp handles any increment
     var volumeObserved = tank.volumeCurve
       ? linearInterp(tank.volumeCurve.x, tank.volumeCurve.v, soundingFromBottom)
       : 0;
     var correctedReadingOut = corrected;
     var soundingBottomOut = soundingFromBottom;
   } else {
-    // Direct type: heel correction first (to the reading), then a bilinear
-    // lookup on the trim grid (which holds volume directly) at the
-    // heel-corrected reading & trim.
+    // Direct type: heel correction first, then trim×volume grid (both stepped)
     if (tank.listAxis && tank.listAxis.length) {
-      listCorr = bilinearInterp(tank.listAxis, tank.listVals, tank.listGrid, reading, list);
+      listCorr = bilinearInterpInc(
+        tank.listAxis, tank.listVals, tank.listGrid, reading, list, heelInc
+      );
       corrected = reading + listCorr / divisor;
     }
-    volumeObserved = bilinearInterp(tank.trimAxis, tank.trimVals, tank.trimGrid, corrected, trim);
+    volumeObserved = bilinearInterpInc(
+      tank.trimAxis, tank.trimVals, tank.trimGrid, corrected, trim, soundingInc
+    );
     correctedReadingOut = corrected;
     soundingBottomOut = corrected;
   }
@@ -193,6 +283,8 @@ function computeTank(tank, inputs) {
 
   return {
     gaugeType,
+    soundingIncrement: soundingInc,
+    heelIncrement: heelInc,
     trimCorrection: trimCorr,
     listCorrection: listCorr,
     correctedReading: correctedReadingOut,
@@ -212,6 +304,12 @@ module.exports = {
   linearInterp,
   bracket,
   bilinearInterp,
+  bilinearInterpInc,
+  detectIncrement,
+  excelFloor,
+  excelCeiling,
+  resolveIncrements,
+  PREFERRED_INCREMENTS,
   vcf54B,
   wcf56,
   computeTank
