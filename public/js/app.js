@@ -175,16 +175,16 @@ function render() {
 
   const page = STATE.route.page;
   if (page === 'dashboard') renderDashboard(main);
-  else if (CATS.some((c) => c.id === page) && !STATE.route.tankId) renderCategory(main, page);
-  else if (STATE.route.tankId) renderTankDetail(main, STATE.route.tankId);
-  else if (page === 'add-tank') renderAddTank(main);
   else if (page === 'calibration') renderCalibrationList(main);
+  else if (page === 'add-tank') renderAddTank(main);
   else if (page === 'voyage') renderVoyage(main);
   else if (page === 'bunkering') renderBunkering(main);
   else if (page === 'report') renderReport(main);
   else if (page === 'setup') renderSetup(main);
   else if (page === 'settings') renderSettings(main);
   else if (page === 'about') renderAbout(main);
+  else if (CATS.some((c) => c.id === page) && !STATE.route.tankId) renderCategory(main, page);
+  else if (STATE.route.tankId) renderTankDetail(main, STATE.route.tankId);
 }
 
 /* ---------- Dashboard ---------- */
@@ -541,78 +541,303 @@ function renderCalibrationEditor(main, tankId) {
   const tank = findTank(tankId);
   if (!tank) { main.innerHTML += '<div class="empty-state">Tank not found</div>'; return; }
 
+  const c = CATS.find((x) => x.id === tank.category);
   const back = document.createElement('div');
   back.className = 'back-link';
   back.textContent = '← All tanks';
   back.onclick = () => navigate('calibration');
   main.appendChild(back);
 
-  main.innerHTML += `<div class="page-head"><div><h1>Calibration — ${tank.name}</h1>
-    <div class="desc">Paste comma/space separated numbers. Grids are row-major (one sounding row per line).</div></div></div>`;
+  const head = document.createElement('div');
+  head.className = 'page-head';
+  head.innerHTML = `<div><h1>Calibration — ${escapeHtml(tank.name)}</h1>
+    <div class="desc">Edit correction / volume tables cell-by-cell. Changes are saved to this vessel's database.</div></div>
+    <div class="btn-row">
+      <button class="btn small" id="btn-back-tank">Back to tank</button>
+      <button class="btn small" id="btn-export-tank">Export JSON</button>
+      <button class="btn primary" id="btn-save-calib">Save calibration</button>
+    </div>`;
+  main.appendChild(head);
+  document.getElementById('btn-back-tank').onclick = () => navigate(tank.category || 'fuel', tankId);
 
-  const panel = document.createElement('div');
-  panel.className = 'form-panel';
-  panel.innerHTML = `
+  const meta = document.createElement('div');
+  meta.className = 'form-panel';
+  meta.innerHTML = `
     <div class="form-row-3">
       <div class="form-row"><label>Calc type</label>
-        <select id="c-type"><option value="correction" ${tank.calcType==='correction'?'selected':''}>correction</option>
-        <option value="direct" ${tank.calcType==='direct'?'selected':''}>direct</option></select></div>
+        <select id="c-type">
+          <option value="correction" ${tank.calcType==='correction'?'selected':''}>correction (trim+list + volume curve)</option>
+          <option value="direct" ${tank.calcType==='direct'?'selected':''}>direct (trim×heel volume grid)</option>
+        </select></div>
       <div class="form-row"><label>Capacity m³</label><input id="c-cap" type="number" step="any" value="${tank.capacity||0}"></div>
       <div class="form-row"><label>Correction divisor</label><input id="c-div" type="number" step="any" value="${tank.correctionDivisor||10}"></div>
     </div>
-    <div class="form-row-2">
+    <div class="form-row-3">
       <div class="form-row"><label>Pipe height</label><input id="c-pipe" type="number" step="any" value="${tank.pipeHeight||0}"></div>
       <div class="form-row"><label>Sounding method</label>
-        <select id="c-method"><option ${tank.soundingMethod==='ullage'?'selected':''}>ullage</option>
-        <option ${tank.soundingMethod==='sounding'?'selected':''}>sounding</option></select></div>
-    </div>
-    <div class="form-row"><label>Trim axis (sounding/ullage points)</label>
-      <textarea id="c-trimAxis" class="textarea-json" style="min-height:70px">${(tank.trimAxis||[]).join(', ')}</textarea></div>
-    <div class="form-row"><label>Trim values (m)</label>
-      <textarea id="c-trimVals" class="textarea-json" style="min-height:50px">${(tank.trimVals||[]).join(', ')}</textarea></div>
-    <div class="form-row"><label>Trim grid (one row per trim-axis point, comma-separated)</label>
-      <textarea id="c-trimGrid" class="textarea-json">${gridToText(tank.trimGrid)}</textarea></div>
-    <div class="form-row"><label>List axis</label>
-      <textarea id="c-listAxis" class="textarea-json" style="min-height:70px">${(tank.listAxis||[]).join(', ')}</textarea></div>
-    <div class="form-row"><label>List values (deg)</label>
-      <textarea id="c-listVals" class="textarea-json" style="min-height:50px">${(tank.listVals||[]).join(', ')}</textarea></div>
-    <div class="form-row"><label>List grid</label>
-      <textarea id="c-listGrid" class="textarea-json">${gridToText(tank.listGrid)}</textarea></div>
-    <div class="form-row"><label>Volume curve X (sounding)</label>
-      <textarea id="c-vx" class="textarea-json" style="min-height:70px">${(tank.volumeCurve?.x||[]).join(', ')}</textarea></div>
-    <div class="form-row"><label>Volume curve V (m³)</label>
-      <textarea id="c-vv" class="textarea-json" style="min-height:70px">${(tank.volumeCurve?.v||[]).join(', ')}</textarea></div>
-    <div class="btn-row">
-      <button class="btn primary" id="btn-save-calib">Save calibration</button>
-      <button class="btn" id="btn-export-tank">Export tank JSON</button>
+        <select id="c-method">
+          <option value="ullage" ${tank.soundingMethod==='ullage'?'selected':''}>ullage</option>
+          <option value="sounding" ${tank.soundingMethod==='sounding'?'selected':''}>sounding</option>
+        </select></div>
+      <div class="form-row"><label>Category</label><input value="${escapeHtml(c?.label || tank.category || '')}" disabled></div>
     </div>`;
-  main.appendChild(panel);
+  main.appendChild(meta);
+
+  const trimTitle = tank.calcType === 'direct'
+    ? 'Trim × depth volume grid (direct tanks)'
+    : 'Trim correction grid';
+  const listTitle = tank.calcType === 'direct'
+    ? 'Heel / list correction grid'
+    : 'List / heel correction grid';
+
+  main.appendChild(buildAxisEditor('Trim / depth axis (row labels)', 'trimAxis', tank.trimAxis || []));
+  main.appendChild(buildAxisEditor('Trim values — columns (m)', 'trimVals', tank.trimVals || []));
+  main.appendChild(buildGridEditor(trimTitle, 'trimGrid', tank.trimAxis || [], tank.trimVals || [], tank.trimGrid || []));
+
+  main.appendChild(buildAxisEditor('List / heel axis (row labels)', 'listAxis', tank.listAxis || []));
+  main.appendChild(buildAxisEditor('List / heel values — columns (deg)', 'listVals', tank.listVals || []));
+  main.appendChild(buildGridEditor(listTitle, 'listGrid', tank.listAxis || [], tank.listVals || [], tank.listGrid || []));
+
+  main.appendChild(buildVolumeCurveEditor(tank.volumeCurve || { x: [], v: [] }));
+
+  const raw = document.createElement('details');
+  raw.className = 'form-panel';
+  raw.style.marginTop = '14px';
+  raw.innerHTML = `<summary style="cursor:pointer;font-weight:700;margin-bottom:10px">Advanced: raw paste (CSV / text)</summary>
+    <div class="hint" style="color:var(--text-faint);font-size:12px;margin-bottom:8px">Optional. Saving prefers the editable tables above unless you check “Use raw paste”.</div>
+    <label style="display:flex;gap:8px;align-items:center;margin-bottom:10px;font-size:13px;color:var(--text-dim)">
+      <input type="checkbox" id="c-use-raw"> Use raw paste instead of tables</label>
+    <div class="form-row"><label>Trim axis</label><textarea id="c-trimAxis" class="textarea-json" style="min-height:60px">${(tank.trimAxis||[]).join(', ')}</textarea></div>
+    <div class="form-row"><label>Trim values</label><textarea id="c-trimVals" class="textarea-json" style="min-height:50px">${(tank.trimVals||[]).join(', ')}</textarea></div>
+    <div class="form-row"><label>Trim grid</label><textarea id="c-trimGrid" class="textarea-json">${gridToText(tank.trimGrid)}</textarea></div>
+    <div class="form-row"><label>List axis</label><textarea id="c-listAxis" class="textarea-json" style="min-height:60px">${(tank.listAxis||[]).join(', ')}</textarea></div>
+    <div class="form-row"><label>List values</label><textarea id="c-listVals" class="textarea-json" style="min-height:50px">${(tank.listVals||[]).join(', ')}</textarea></div>
+    <div class="form-row"><label>List grid</label><textarea id="c-listGrid" class="textarea-json">${gridToText(tank.listGrid)}</textarea></div>
+    <div class="form-row"><label>Volume curve X</label><textarea id="c-vx" class="textarea-json" style="min-height:60px">${(tank.volumeCurve?.x||[]).join(', ')}</textarea></div>
+    <div class="form-row"><label>Volume curve V</label><textarea id="c-vv" class="textarea-json" style="min-height:60px">${(tank.volumeCurve?.v||[]).join(', ')}</textarea></div>`;
+  main.appendChild(raw);
 
   document.getElementById('btn-save-calib').onclick = async () => {
-    const calibration = {
-      calcType: document.getElementById('c-type').value,
-      capacity: parseFloat(document.getElementById('c-cap').value) || 0,
-      correctionDivisor: parseFloat(document.getElementById('c-div').value) || 10,
-      pipeHeight: parseFloat(document.getElementById('c-pipe').value) || 0,
-      soundingMethod: document.getElementById('c-method').value,
-      trimAxis: parseNumList(document.getElementById('c-trimAxis').value),
-      trimVals: parseNumList(document.getElementById('c-trimVals').value),
-      trimGrid: parseGrid(document.getElementById('c-trimGrid').value),
-      listAxis: parseNumList(document.getElementById('c-listAxis').value),
-      listVals: parseNumList(document.getElementById('c-listVals').value),
-      listGrid: parseGrid(document.getElementById('c-listGrid').value),
-      volumeCurve: {
-        x: parseNumList(document.getElementById('c-vx').value),
-        v: parseNumList(document.getElementById('c-vv').value),
-      },
-    };
+    const useRaw = document.getElementById('c-use-raw')?.checked;
+    let calibration;
+    if (useRaw) {
+      calibration = {
+        calcType: document.getElementById('c-type').value,
+        capacity: parseFloat(document.getElementById('c-cap').value) || 0,
+        correctionDivisor: parseFloat(document.getElementById('c-div').value) || 10,
+        pipeHeight: parseFloat(document.getElementById('c-pipe').value) || 0,
+        soundingMethod: document.getElementById('c-method').value,
+        trimAxis: parseNumList(document.getElementById('c-trimAxis').value),
+        trimVals: parseNumList(document.getElementById('c-trimVals').value),
+        trimGrid: parseGrid(document.getElementById('c-trimGrid').value),
+        listAxis: parseNumList(document.getElementById('c-listAxis').value),
+        listVals: parseNumList(document.getElementById('c-listVals').value),
+        listGrid: parseGrid(document.getElementById('c-listGrid').value),
+        volumeCurve: {
+          x: parseNumList(document.getElementById('c-vx').value),
+          v: parseNumList(document.getElementById('c-vv').value),
+        },
+      };
+    } else {
+      const trimAxis = readAxisInputs('trimAxis');
+      const trimVals = readAxisInputs('trimVals');
+      const listAxis = readAxisInputs('listAxis');
+      const listVals = readAxisInputs('listVals');
+      calibration = {
+        calcType: document.getElementById('c-type').value,
+        capacity: parseFloat(document.getElementById('c-cap').value) || 0,
+        correctionDivisor: parseFloat(document.getElementById('c-div').value) || 10,
+        pipeHeight: parseFloat(document.getElementById('c-pipe').value) || 0,
+        soundingMethod: document.getElementById('c-method').value,
+        trimAxis,
+        trimVals,
+        trimGrid: readGridInputs('trimGrid', trimAxis.length, trimVals.length),
+        listAxis,
+        listVals,
+        listGrid: readGridInputs('listGrid', listAxis.length, listVals.length),
+        volumeCurve: readVolumeCurveInputs(),
+      };
+    }
     await Api.saveCalibration(STATE.activeVesselId, tankId, calibration);
     await reloadBundle();
     showToast('Calibration saved');
+    navigate('calibration', tankId);
   };
   document.getElementById('btn-export-tank').onclick = () => {
     downloadJson(tank.id + '-calibration.json', findTank(tankId));
   };
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (ch) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+  ));
+}
+
+function buildAxisEditor(title, key, values) {
+  const panel = document.createElement('div');
+  panel.className = 'form-panel';
+  panel.style.marginTop = '14px';
+  const nums = (values && values.length) ? values : [0];
+  panel.innerHTML = `<div class="section-title" style="margin-top:0">${escapeHtml(title)}
+    <button type="button" class="btn small" data-add-axis="${key}" style="margin-left:auto">+ point</button></div>
+    <div class="scroll-x"><table class="calib-table" id="axis-${key}"><thead><tr>
+      <th>#</th><th>Value</th><th></th>
+    </tr></thead><tbody>
+      ${nums.map((v, i) => `<tr>
+        <td>${i + 1}</td>
+        <td><input type="number" step="any" data-axis="${key}" data-i="${i}" value="${v}"></td>
+        <td><button type="button" class="btn small danger" data-del-axis="${key}" data-i="${i}">×</button></td>
+      </tr>`).join('')}
+    </tbody></table></div>`;
+  panel.querySelector(`[data-add-axis="${key}"]`).onclick = () => {
+    const tbody = panel.querySelector('tbody');
+    const i = tbody.children.length;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${i + 1}</td>
+      <td><input type="number" step="any" data-axis="${key}" data-i="${i}" value="0"></td>
+      <td><button type="button" class="btn small danger" data-del-axis="${key}" data-i="${i}">×</button></td>`;
+    tbody.appendChild(tr);
+    tr.querySelector('[data-del-axis]').onclick = () => { tr.remove(); renumberAxis(panel); };
+    // Rebuild dependent grid if present
+    rebuildGridFromAxes(key);
+  };
+  panel.querySelectorAll('[data-del-axis]').forEach((btn) => {
+    btn.onclick = () => { btn.closest('tr').remove(); renumberAxis(panel); rebuildGridFromAxes(key); };
+  });
+  return panel;
+}
+
+function renumberAxis(panel) {
+  panel.querySelectorAll('tbody tr').forEach((tr, i) => {
+    tr.children[0].textContent = String(i + 1);
+    const inp = tr.querySelector('input');
+    if (inp) inp.dataset.i = String(i);
+    const del = tr.querySelector('[data-del-axis]');
+    if (del) del.dataset.i = String(i);
+  });
+}
+
+function rebuildGridFromAxes(axisKey) {
+  // When trim/list axes change, refresh the related grid table dimensions if empty cells needed
+  const pair = axisKey.startsWith('trim') ? 'trim' : axisKey.startsWith('list') ? 'list' : null;
+  if (!pair) return;
+  const gridEl = document.getElementById(`grid-${pair}Grid`);
+  if (!gridEl) return;
+  const rows = readAxisInputs(pair + 'Axis');
+  const cols = readAxisInputs(pair + 'Vals');
+  const existing = readGridInputs(pair + 'Grid', rows.length, cols.length);
+  const host = gridEl.closest('.form-panel');
+  if (!host) return;
+  const title = host.querySelector('.section-title')?.childNodes[0]?.textContent?.trim() || (pair + ' grid');
+  const replacement = buildGridEditor(title, pair + 'Grid', rows, cols, existing);
+  host.replaceWith(replacement);
+}
+
+function buildGridEditor(title, key, rowAxis, colAxis, grid) {
+  const panel = document.createElement('div');
+  panel.className = 'form-panel';
+  panel.style.marginTop = '14px';
+  const rows = rowAxis.length ? rowAxis : [0];
+  const cols = colAxis.length ? colAxis : [0];
+  const g = Array.isArray(grid) ? grid : [];
+
+  let head = '<th>Axis \\ Col</th>';
+  cols.forEach((c, j) => { head += `<th>${escapeHtml(String(c))}</th>`; });
+
+  let body = '';
+  rows.forEach((r, i) => {
+    body += `<tr><th>${escapeHtml(String(r))}</th>`;
+    cols.forEach((_, j) => {
+      const val = g[i] && g[i][j] != null && !Number.isNaN(Number(g[i][j])) ? g[i][j] : '';
+      body += `<td><input type="number" step="any" data-grid="${key}" data-r="${i}" data-c="${j}" value="${val}"></td>`;
+    });
+    body += '</tr>';
+  });
+
+  panel.innerHTML = `<div class="section-title" style="margin-top:0">${escapeHtml(title)}
+      <span class="tag" style="margin-left:8px">${rows.length} × ${cols.length}</span></div>
+    <div class="hint" style="color:var(--text-faint);font-size:12px;margin-bottom:8px">
+      Rows follow the axis points; columns follow the trim/list values. Edit any cell to correct calibration.</div>
+    <div class="scroll-x"><table class="calib-table" id="grid-${key}">
+      <thead><tr>${head}</tr></thead><tbody>${body}</tbody>
+    </table></div>`;
+  return panel;
+}
+
+function buildVolumeCurveEditor(curve) {
+  const panel = document.createElement('div');
+  panel.className = 'form-panel';
+  panel.style.marginTop = '14px';
+  const x = curve.x || [];
+  const v = curve.v || [];
+  const n = Math.max(x.length, v.length, 1);
+  let rows = '';
+  for (let i = 0; i < n; i++) {
+    rows += `<tr>
+      <td>${i + 1}</td>
+      <td><input type="number" step="any" data-vc="x" data-i="${i}" value="${x[i] ?? ''}"></td>
+      <td><input type="number" step="any" data-vc="v" data-i="${i}" value="${v[i] ?? ''}"></td>
+      <td><button type="button" class="btn small danger" data-del-vc="${i}">×</button></td>
+    </tr>`;
+  }
+  panel.innerHTML = `<div class="section-title" style="margin-top:0">Volume curve
+      <button type="button" class="btn small" id="btn-add-vc" style="margin-left:auto">+ row</button></div>
+    <div class="hint" style="color:var(--text-faint);font-size:12px;margin-bottom:8px">
+      Used by correction-type tanks after trim/list corrections (sounding → m³).</div>
+    <div class="scroll-x"><table class="calib-table" id="volume-curve-table">
+      <thead><tr><th>#</th><th>Sounding / ullage</th><th>Volume m³</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  panel.querySelector('#btn-add-vc').onclick = () => {
+    const tbody = panel.querySelector('tbody');
+    const i = tbody.children.length;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${i + 1}</td>
+      <td><input type="number" step="any" data-vc="x" data-i="${i}" value=""></td>
+      <td><input type="number" step="any" data-vc="v" data-i="${i}" value=""></td>
+      <td><button type="button" class="btn small danger" data-del-vc="${i}">×</button></td>`;
+    tbody.appendChild(tr);
+    tr.querySelector('[data-del-vc]').onclick = () => { tr.remove(); };
+  };
+  panel.querySelectorAll('[data-del-vc]').forEach((btn) => {
+    btn.onclick = () => btn.closest('tr').remove();
+  });
+  return panel;
+}
+
+function readAxisInputs(key) {
+  return Array.from(document.querySelectorAll(`input[data-axis="${key}"]`))
+    .map((el) => parseFloat(el.value))
+    .filter((n) => !Number.isNaN(n));
+}
+
+function readGridInputs(key, rowCount, colCount) {
+  const grid = [];
+  for (let r = 0; r < rowCount; r++) {
+    const row = [];
+    for (let c = 0; c < colCount; c++) {
+      const el = document.querySelector(`input[data-grid="${key}"][data-r="${r}"][data-c="${c}"]`);
+      const n = el ? parseFloat(el.value) : 0;
+      row.push(Number.isNaN(n) ? 0 : n);
+    }
+    grid.push(row);
+  }
+  return grid;
+}
+
+function readVolumeCurveInputs() {
+  const xs = Array.from(document.querySelectorAll('input[data-vc="x"]')).map((el) => parseFloat(el.value));
+  const vs = Array.from(document.querySelectorAll('input[data-vc="v"]')).map((el) => parseFloat(el.value));
+  const x = [];
+  const v = [];
+  const n = Math.max(xs.length, vs.length);
+  for (let i = 0; i < n; i++) {
+    if (Number.isNaN(xs[i]) && Number.isNaN(vs[i])) continue;
+    x.push(Number.isNaN(xs[i]) ? 0 : xs[i]);
+    v.push(Number.isNaN(vs[i]) ? 0 : vs[i]);
+  }
+  return { x, v };
 }
 
 function parseNumList(text) {
