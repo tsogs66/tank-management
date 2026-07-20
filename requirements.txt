@@ -1,0 +1,3 @@
+# Python helpers for Excel / PDF calibration import
+openpyxl>=3.1.0
+pdfplumber>=0.11.0

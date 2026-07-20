@@ -9,6 +9,7 @@ const multer = require('multer');
 const store = require('./store');
 const { computeTank } = require('./calc');
 const excelImport = require('./excel-import');
+const pdfImport = require('./pdf-import');
 const fs = require('fs');
 
 const app = express();
@@ -497,6 +498,101 @@ app.get('/api/reference/conversion', (req, res) => {
   if (!fs.existsSync(p)) return res.status(404).json({ error: 'conversion.json not found' });
   res.json(JSON.parse(fs.readFileSync(p, 'utf8')));
 });
+
+/* ---------- PDF table extract / apply to tank calibration ---------- */
+app.post('/api/vessels/:id/import-pdf', upload.single('file'), asyncHandler(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Upload a PDF file (field name: file)' });
+  const pages = String(req.body?.pages || '')
+    .split(/[,;\s]+/)
+    .map((n) => parseInt(n, 10))
+    .filter((n) => n > 0);
+  const result = await pdfImport.extractFromBuffer(req.file.buffer, {
+    pages: pages.length ? pages : undefined,
+  });
+  const includeRaw = req.body?.includeRaw === true || req.body?.includeRaw === 'true';
+  res.json({ ok: true, ...pdfImport.summarizeTables(result, includeRaw) });
+}));
+
+app.post('/api/vessels/:id/tanks/:tankId/import-pdf', upload.single('file'), asyncHandler(async (req, res) => {
+  const vesselId = req.params.id;
+  const tankId = req.params.tankId;
+  const bundle = store.getVesselBundle(vesselId);
+  const tank = store.findTankInBundle(bundle.tanks, tankId);
+  if (!tank) return res.status(404).json({ error: 'Tank not found' });
+
+  let tables;
+  let pagesMeta;
+  if (req.file) {
+    const pages = String(req.body?.pages || '')
+      .split(/[,;\s]+/)
+      .map((n) => parseInt(n, 10))
+      .filter((n) => n > 0);
+    const result = await pdfImport.extractFromBuffer(req.file.buffer, {
+      pages: pages.length ? pages : undefined,
+    });
+    tables = result.tables || [];
+    pagesMeta = result.pages;
+  } else if (req.body?.table) {
+    let t = req.body.table;
+    if (typeof t === 'string') {
+      try { t = JSON.parse(t); } catch (_) {
+        return res.status(400).json({ error: 'Invalid table JSON' });
+      }
+    }
+    tables = [t];
+  } else {
+    return res.status(400).json({ error: 'Upload a PDF or pass a previously extracted table object' });
+  }
+
+  if (!tables.length) return res.status(400).json({ error: 'No tables found in PDF' });
+
+  const tableId = req.body?.tableId;
+  const tableIndex = req.body?.tableIndex != null ? Number(req.body.tableIndex) : 0;
+  const table = tableId
+    ? tables.find((t) => t.id === tableId)
+    : tables[tableIndex] || tables[0];
+  if (!table) return res.status(400).json({ error: 'Selected table not found' });
+
+  const target = req.body?.target || 'auto';
+  const patch = pdfImport.tableToCalibration(table, target, tank);
+  if (patch.raw && !patch.trimAxis && !patch.volumeCurve) {
+    return res.status(422).json({
+      error: patch.note || 'Could not parse table as calibration data',
+      preview: table.preview,
+      kind: table.parsed?.kind || 'unknown',
+      tables: pdfImport.summarizeTables({ pages: pagesMeta, tables }).tables,
+    });
+  }
+
+  const apply = req.body?.apply !== false && req.body?.apply !== 'false';
+  if (apply) {
+    const updated = store.updateCalibration(vesselId, tankId, patch);
+    return res.json({
+      ok: true,
+      applied: true,
+      target,
+      tableId: table.id,
+      kind: table.parsed?.kind,
+      patch,
+      tank: updated,
+      tables: pagesMeta != null
+        ? pdfImport.summarizeTables({ pages: pagesMeta, tables }).tables
+        : undefined,
+    });
+  }
+
+  res.json({
+    ok: true,
+    applied: false,
+    target,
+    tableId: table.id,
+    kind: table.parsed?.kind,
+    patch,
+    tables: pagesMeta != null
+      ? pdfImport.summarizeTables({ pages: pagesMeta, tables }).tables
+      : undefined,
+  });
+}));
 
 /* ---------- CSV tank template / import ---------- */
 app.get('/api/templates/tanks.csv', (req, res) => {

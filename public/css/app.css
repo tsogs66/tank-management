@@ -301,6 +301,19 @@ table.excel-table input[type="number"]:focus {
   border-radius: 8px; padding: 12px 14px; font-size: 13px; color: var(--text-dim);
   margin-bottom: 14px; line-height: 1.55;
 }
+.pdf-import-panel { margin-top: 12px; }
+.pdf-table-card {
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+  margin-bottom: 10px; background: var(--bg);
+}
+.pdf-table-head {
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px;
+  align-items: flex-start; margin-bottom: 8px;
+}
+.pdf-table-head select { min-width: 160px; }
+.data-table.compact td, .data-table.compact th {
+  padding: 3px 6px; font-size: 11px; white-space: nowrap;
+}
 .distrib-grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px;
   margin: 10px 0 14px;
