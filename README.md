@@ -48,6 +48,19 @@ data/
       meta.json           # revision for sync
 ```
 
+## Excel workbook (calibration reference)
+
+The repo includes `TANK MANAGEMENT CAPTAIN VENIAMIS FINAL VERSION.xlsm`. Sheets **Tank1–Tank4** are the calibration table reference:
+
+| Block | Layout |
+|-------|--------|
+| Correction (Tank1 HFO/MDO style) | `SOUNDING ullage` rows × trim (m) columns → correction; `SOUNDING CM` / `sounding VOLUME`; list/heel table |
+| Direct (Tank2–4 style) | `Depth` rows × trim columns → volume m³; second `Depth` × heel table |
+
+In the app: **Calibration DB → open a tank** shows this Excel-style grid. Use **Import repo workbook** (or upload) to refresh tables from the `.xlsm`.
+
+Also used from the workbook: **Setup** (pipe height / 100% & 85% capacity), **Conversion** (API → density @15°C), **ASTM Tables** (VCF 54B).
+
 ## CSV tank import
 
 Download the template from the app (**Add Tank** page) or use `templates/tank-import.csv`.

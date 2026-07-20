@@ -206,6 +206,45 @@ table.calib-table thead th:first-child { z-index: 3; }
 table.calib-table input[type="number"] {
   min-width: 72px; text-align: right;
 }
+
+/* Excel Tank1–Tank4 style calibration grid */
+.excel-scroll { max-height: 70vh; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+table.excel-table { border-collapse: separate; border-spacing: 0; font-size: 12px; }
+table.excel-table th, table.excel-table td {
+  border-right: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+  padding: 2px;
+  background: var(--bg-card);
+}
+table.excel-table thead .excel-head-1 th {
+  position: sticky; top: 0; z-index: 4;
+  background: #1e3358; color: var(--text-dim); font-size: 10px;
+  text-transform: uppercase; letter-spacing: .04em; padding: 6px 4px;
+}
+table.excel-table thead .excel-head-2 th {
+  position: sticky; top: 28px; z-index: 4;
+  background: var(--bg-panel); padding: 2px;
+}
+table.excel-table .excel-corner, table.excel-table .excel-corner-sub,
+table.excel-table td.excel-rowh {
+  position: sticky; left: 0; z-index: 5;
+  background: #182744; min-width: 88px;
+}
+table.excel-table thead .excel-corner { z-index: 6; }
+table.excel-table .excel-sec-trim { background: #243b63 !important; }
+table.excel-table .excel-sec-vol { background: #2a4a3a !important; color: #b7e0c4; }
+table.excel-table .excel-sec-list { background: #3a2f4f !important; }
+table.excel-table td.excel-trim { background: rgba(58,160,255,.04); }
+table.excel-table td.excel-vol { background: rgba(47,191,113,.07); }
+table.excel-table td.excel-list { background: rgba(185,138,245,.07); }
+table.excel-table td.excel-gap { background: var(--bg); min-width: 10px; }
+table.excel-table input[type="number"] {
+  width: 68px; min-width: 68px; border: 1px solid transparent;
+  background: transparent; padding: 4px 3px; text-align: right;
+}
+table.excel-table input[type="number"]:focus {
+  border-color: var(--accent); background: var(--bg-panel); outline: none;
+}
 .kv-row {
   display: flex; justify-content: space-between; align-items: center;
   gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--border-soft);

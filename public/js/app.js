@@ -58,7 +58,7 @@ function getReading(id) {
 function fillStatusClass(pct) {
   if (pct == null) return 'neutral';
   if (pct >= 95) return 'bad';
-  if (pct >= 80) return 'warn';
+  if (pct >= 85) return 'warn'; // workbook uses 85% capacity as working limit
   return 'good';
 }
 
@@ -248,7 +248,7 @@ function buildTankTable(tanks) {
   const table = document.createElement('table');
   table.className = 'tank-table';
   table.innerHTML = `<thead><tr>
-    <th>Tank</th><th>Role</th><th>Side</th><th>Cap m³</th><th>Reading</th><th>Vol m³</th><th>Fill</th><th>MT</th>
+    <th>Tank</th><th>Role</th><th>Side</th><th>100% m³</th><th>85% m³</th><th>Reading</th><th>Vol m³</th><th>Fill</th><th>MT</th>
   </tr></thead>`;
   const tbody = document.createElement('tbody');
   for (const t of tanks) {
@@ -263,6 +263,7 @@ function buildTankTable(tanks) {
       <td><span class="tag">${t.fuelRole || '—'}</span></td>
       <td>${t.side || '—'}</td>
       <td>${fmt(t.capacity,1)}</td>
+      <td>${fmt((t.capacity||0)*0.85,1)}</td>
       <td>${r ? fmt(r.reading, r.gaugeType === 'volume' ? 2 : 1) : '–'}</td>
       <td>${r ? fmt(r.result.volumeObserved,2) : '–'}</td>
       <td>${pct != null ? `<div class="fillbar-wrap"><div class="fillbar-track"><div class="fillbar-fill" style="width:${Math.min(100,pct)}%;background:${cls==='bad'?'var(--bad)':cls==='warn'?'var(--warn)':'var(--good)'}"></div></div><span class="fillbar-pct">${fmt(pct,0)}%</span></div>` : '<span class="pill neutral">none</span>'}</td>
@@ -320,11 +321,18 @@ function renderTankDetail(main, tankId) {
         <div class="form-row"><label>Trim (m)</label><input type="number" step="any" id="in-trim" value="${existing.trim ?? STATE.bundle.voyage?.trim ?? 0}"></div>
         <div class="form-row"><label>List / Heel (°)</label><input type="number" step="any" id="in-list" value="${existing.list ?? STATE.bundle.voyage?.heel ?? 0}"></div>
       </div>
-      <div class="form-row-2">
-        <div class="form-row"><label>Temp (°C)</label><input type="number" step="any" id="in-temp" value="${existing.tempC ?? 15}"></div>
-        <div class="form-row"><label>Density @15°C</label><input type="number" step="any" id="in-density" value="${existing.density15 ?? ''}" placeholder="0.9584"></div>
-      </div>
-      <button class="btn primary" id="btn-calc" style="width:100%">Calculate & Save</button>
+    <div class="form-row-2">
+      <div class="form-row"><label>Temp (°C)</label><input type="number" step="any" id="in-temp" value="${existing.tempC ?? 15}"></div>
+      <div class="form-row"><label>Density @15°C (kg/L)</label><input type="number" step="any" id="in-density" value="${existing.density15 ?? ''}" placeholder="0.9584"></div>
+    </div>
+    <div class="form-row-2">
+      <div class="form-row"><label>API → density (Conversion sheet)</label>
+        <div style="display:flex;gap:6px"><input type="number" step="any" id="in-api" placeholder="API"><button type="button" class="btn small" id="btn-api-den">Use</button></div>
+        <div class="hint">From workbook Conversion sheet</div></div>
+      <div class="form-row"><label>Capacity ref</label>
+        <div class="hint">100% ${fmt(tank.capacity,2)} m³ · 85% ${fmt((tank.capacity||0)*0.85,2)} m³</div></div>
+    </div>
+    <button class="btn primary" id="btn-calc" style="width:100%">Calculate & Save</button>
     </div>
     <div class="result-panel" id="result-panel"></div>`;
   main.appendChild(grid);
@@ -371,6 +379,22 @@ function renderTankDetail(main, tankId) {
     showToast('Reading saved');
   }
   document.getElementById('btn-calc').onclick = doCalc;
+  document.getElementById('btn-api-den').onclick = async () => {
+    const api = parseFloat(document.getElementById('in-api').value);
+    if (Number.isNaN(api)) { showToast('Enter API'); return; }
+    try {
+      const table = await Api.request('/api/reference/conversion');
+      const rows = table.apiToDensity15 || [];
+      let best = null; let bestD = Infinity;
+      for (const [a, d] of rows) {
+        const diff = Math.abs(a - api);
+        if (diff < bestD) { bestD = diff; best = d; }
+      }
+      if (best == null) { showToast('No conversion data'); return; }
+      document.getElementById('in-density').value = best;
+      showToast(`Density @15°C ≈ ${best}`);
+    } catch (e) { showToast(e.message); }
+  };
   if (existing.result) renderResultSteps(document.getElementById('result-panel'), tank, existing.result, existing);
   else document.getElementById('result-panel').innerHTML = '<div class="empty-state">Enter sounding and calculate</div>';
 }
@@ -511,8 +535,21 @@ function renderAddTank(main) {
 function renderCalibrationList(main) {
   if (STATE.route.tankId) return renderCalibrationEditor(main, STATE.route.tankId);
 
-  main.innerHTML += `<div class="page-head"><div><h1>Calibration Database</h1>
-    <div class="desc">Edit trim/list correction grids and volume curves. Values can be corrected manually.</div></div></div>`;
+  const head = document.createElement('div');
+  head.className = 'page-head';
+  head.innerHTML = `<div><h1>Calibration Database</h1>
+    <div class="desc">Excel-style sounding tables (Tank1–Tank4 layout): SOUNDING/Depth × trim, volume curve, list/heel.</div></div>
+    <div class="btn-row">
+      <label class="btn">Import workbook<input type="file" id="excel-import" accept=".xlsm,.xlsx" hidden></label>
+      <button class="btn" id="btn-import-repo-excel">Import repo workbook</button>
+    </div>`;
+  main.appendChild(head);
+
+  const help = document.createElement('div');
+  help.className = 'help-box';
+  help.innerHTML = `Reference format from <b>TANK MANAGEMENT CAPTAIN VENIAMIS FINAL VERSION.xlsm</b> sheets <b>Tank1–Tank4</b>:
+    row headers = sounding/ullage (or Depth), column headers = trim (m), then SOUNDING CM / VOLUME, then list/heel table.`;
+  main.appendChild(help);
 
   const wrap = document.createElement('div');
   wrap.className = 'scroll-x form-panel';
@@ -520,38 +557,60 @@ function renderCalibrationList(main) {
   for (const t of allTanks()) {
     const hasCurve = (t.volumeCurve?.x?.length || 0) > 1 || (t.trimGrid?.length || 0) > 0;
     rows += `<tr class="clickable" data-id="${t.id}">
-      <td class="tname">${t.name}</td>
+      <td class="tname">${escapeHtml(t.name)}</td>
       <td>${t.category}</td>
       <td>${t.fuelRole || ''}</td>
       <td>${t.calcType}</td>
       <td>${fmt(t.capacity,1)}</td>
+      <td>${fmt((t.capacity||0)*0.85,1)}</td>
       <td><span class="pill ${hasCurve?'good':'warn'}">${hasCurve?'tables present':'needs data'}</span></td>
     </tr>`;
   }
   wrap.innerHTML = `<table class="data-table"><thead><tr>
-    <th>Tank</th><th>Cat</th><th>Role</th><th>Type</th><th>Cap</th><th>Calibration</th>
+    <th>Tank</th><th>Cat</th><th>Role</th><th>Type</th><th>100% m³</th><th>85% m³</th><th>Calibration</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
   main.appendChild(wrap);
   wrap.querySelectorAll('tr[data-id]').forEach((tr) => {
     tr.onclick = () => navigate('calibration', tr.dataset.id);
   });
+
+  document.getElementById('excel-import').onchange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await Api.request(`/api/vessels/${STATE.activeVesselId}/import-excel`, { method: 'POST', body: fd });
+      await reloadBundle();
+      showToast(`Imported ${res.found?.length || 0} tank tables from workbook`);
+      navigate('calibration');
+    } catch (err) { showToast(err.message); }
+  };
+  document.getElementById('btn-import-repo-excel').onclick = async () => {
+    try {
+      const res = await Api.request(`/api/vessels/${STATE.activeVesselId}/import-excel`, { method: 'POST', body: { useRepoFile: true } });
+      await reloadBundle();
+      showToast(`Imported ${res.found?.length || 0} tank tables from repo workbook`);
+      navigate('calibration');
+    } catch (err) { showToast(err.message); }
+  };
 }
 
 function renderCalibrationEditor(main, tankId) {
   const tank = findTank(tankId);
   if (!tank) { main.innerHTML += '<div class="empty-state">Tank not found</div>'; return; }
 
-  const c = CATS.find((x) => x.id === tank.category);
   const back = document.createElement('div');
   back.className = 'back-link';
   back.textContent = '← All tanks';
   back.onclick = () => navigate('calibration');
   main.appendChild(back);
 
+  const isDirect = tank.calcType === 'direct';
   const head = document.createElement('div');
   head.className = 'page-head';
-  head.innerHTML = `<div><h1>Calibration — ${escapeHtml(tank.name)}</h1>
-    <div class="desc">Edit correction / volume tables cell-by-cell. Changes are saved to this vessel's database.</div></div>
+  head.innerHTML = `<div><h1>${escapeHtml(tank.name)}</h1>
+    <div class="desc">Excel Tank-sheet layout · ${isDirect ? 'Depth × trim volume grid + heel table' : 'SOUNDING ullage × trim correction + volume curve + list/heel'} · 100% ${fmt(tank.capacity,2)} m³ · 85% ${fmt((tank.capacity||0)*0.85,2)} m³</div></div>
     <div class="btn-row">
       <button class="btn small" id="btn-back-tank">Back to tank</button>
       <button class="btn small" id="btn-export-tank">Export JSON</button>
@@ -566,11 +625,11 @@ function renderCalibrationEditor(main, tankId) {
     <div class="form-row-3">
       <div class="form-row"><label>Calc type</label>
         <select id="c-type">
-          <option value="correction" ${tank.calcType==='correction'?'selected':''}>correction (trim+list + volume curve)</option>
-          <option value="direct" ${tank.calcType==='direct'?'selected':''}>direct (trim×heel volume grid)</option>
+          <option value="correction" ${!isDirect?'selected':''}>correction (Tank1 style)</option>
+          <option value="direct" ${isDirect?'selected':''}>direct (Tank2–4 style)</option>
         </select></div>
-      <div class="form-row"><label>Capacity m³</label><input id="c-cap" type="number" step="any" value="${tank.capacity||0}"></div>
-      <div class="form-row"><label>Correction divisor</label><input id="c-div" type="number" step="any" value="${tank.correctionDivisor||10}"></div>
+      <div class="form-row"><label>Capacity 100% m³</label><input id="c-cap" type="number" step="any" value="${tank.capacity||0}"></div>
+      <div class="form-row"><label>Correction divisor</label><input id="c-div" type="number" step="any" value="${tank.correctionDivisor|| (isDirect?1:10)}"></div>
     </div>
     <div class="form-row-3">
       <div class="form-row"><label>Pipe height</label><input id="c-pipe" type="number" step="any" value="${tank.pipeHeight||0}"></div>
@@ -579,85 +638,22 @@ function renderCalibrationEditor(main, tankId) {
           <option value="ullage" ${tank.soundingMethod==='ullage'?'selected':''}>ullage</option>
           <option value="sounding" ${tank.soundingMethod==='sounding'?'selected':''}>sounding</option>
         </select></div>
-      <div class="form-row"><label>Category</label><input value="${escapeHtml(c?.label || tank.category || '')}" disabled></div>
+      <div class="form-row"><label>85% volume (ref)</label><input value="${fmt((tank.capacity||0)*0.85,2)}" disabled></div>
     </div>`;
   main.appendChild(meta);
 
-  const trimTitle = tank.calcType === 'direct'
-    ? 'Trim × depth volume grid (direct tanks)'
-    : 'Trim correction grid';
-  const listTitle = tank.calcType === 'direct'
-    ? 'Heel / list correction grid'
-    : 'List / heel correction grid';
-
-  main.appendChild(buildAxisEditor('Trim / depth axis (row labels)', 'trimAxis', tank.trimAxis || []));
-  main.appendChild(buildAxisEditor('Trim values — columns (m)', 'trimVals', tank.trimVals || []));
-  main.appendChild(buildGridEditor(trimTitle, 'trimGrid', tank.trimAxis || [], tank.trimVals || [], tank.trimGrid || []));
-
-  main.appendChild(buildAxisEditor('List / heel axis (row labels)', 'listAxis', tank.listAxis || []));
-  main.appendChild(buildAxisEditor('List / heel values — columns (deg)', 'listVals', tank.listVals || []));
-  main.appendChild(buildGridEditor(listTitle, 'listGrid', tank.listAxis || [], tank.listVals || [], tank.listGrid || []));
-
-  main.appendChild(buildVolumeCurveEditor(tank.volumeCurve || { x: [], v: [] }));
-
-  const raw = document.createElement('details');
-  raw.className = 'form-panel';
-  raw.style.marginTop = '14px';
-  raw.innerHTML = `<summary style="cursor:pointer;font-weight:700;margin-bottom:10px">Advanced: raw paste (CSV / text)</summary>
-    <div class="hint" style="color:var(--text-faint);font-size:12px;margin-bottom:8px">Optional. Saving prefers the editable tables above unless you check “Use raw paste”.</div>
-    <label style="display:flex;gap:8px;align-items:center;margin-bottom:10px;font-size:13px;color:var(--text-dim)">
-      <input type="checkbox" id="c-use-raw"> Use raw paste instead of tables</label>
-    <div class="form-row"><label>Trim axis</label><textarea id="c-trimAxis" class="textarea-json" style="min-height:60px">${(tank.trimAxis||[]).join(', ')}</textarea></div>
-    <div class="form-row"><label>Trim values</label><textarea id="c-trimVals" class="textarea-json" style="min-height:50px">${(tank.trimVals||[]).join(', ')}</textarea></div>
-    <div class="form-row"><label>Trim grid</label><textarea id="c-trimGrid" class="textarea-json">${gridToText(tank.trimGrid)}</textarea></div>
-    <div class="form-row"><label>List axis</label><textarea id="c-listAxis" class="textarea-json" style="min-height:60px">${(tank.listAxis||[]).join(', ')}</textarea></div>
-    <div class="form-row"><label>List values</label><textarea id="c-listVals" class="textarea-json" style="min-height:50px">${(tank.listVals||[]).join(', ')}</textarea></div>
-    <div class="form-row"><label>List grid</label><textarea id="c-listGrid" class="textarea-json">${gridToText(tank.listGrid)}</textarea></div>
-    <div class="form-row"><label>Volume curve X</label><textarea id="c-vx" class="textarea-json" style="min-height:60px">${(tank.volumeCurve?.x||[]).join(', ')}</textarea></div>
-    <div class="form-row"><label>Volume curve V</label><textarea id="c-vv" class="textarea-json" style="min-height:60px">${(tank.volumeCurve?.v||[]).join(', ')}</textarea></div>`;
-  main.appendChild(raw);
+  main.appendChild(buildExcelCalibrationTable(tank));
 
   document.getElementById('btn-save-calib').onclick = async () => {
-    const useRaw = document.getElementById('c-use-raw')?.checked;
-    let calibration;
-    if (useRaw) {
-      calibration = {
-        calcType: document.getElementById('c-type').value,
-        capacity: parseFloat(document.getElementById('c-cap').value) || 0,
-        correctionDivisor: parseFloat(document.getElementById('c-div').value) || 10,
-        pipeHeight: parseFloat(document.getElementById('c-pipe').value) || 0,
-        soundingMethod: document.getElementById('c-method').value,
-        trimAxis: parseNumList(document.getElementById('c-trimAxis').value),
-        trimVals: parseNumList(document.getElementById('c-trimVals').value),
-        trimGrid: parseGrid(document.getElementById('c-trimGrid').value),
-        listAxis: parseNumList(document.getElementById('c-listAxis').value),
-        listVals: parseNumList(document.getElementById('c-listVals').value),
-        listGrid: parseGrid(document.getElementById('c-listGrid').value),
-        volumeCurve: {
-          x: parseNumList(document.getElementById('c-vx').value),
-          v: parseNumList(document.getElementById('c-vv').value),
-        },
-      };
-    } else {
-      const trimAxis = readAxisInputs('trimAxis');
-      const trimVals = readAxisInputs('trimVals');
-      const listAxis = readAxisInputs('listAxis');
-      const listVals = readAxisInputs('listVals');
-      calibration = {
-        calcType: document.getElementById('c-type').value,
-        capacity: parseFloat(document.getElementById('c-cap').value) || 0,
-        correctionDivisor: parseFloat(document.getElementById('c-div').value) || 10,
-        pipeHeight: parseFloat(document.getElementById('c-pipe').value) || 0,
-        soundingMethod: document.getElementById('c-method').value,
-        trimAxis,
-        trimVals,
-        trimGrid: readGridInputs('trimGrid', trimAxis.length, trimVals.length),
-        listAxis,
-        listVals,
-        listGrid: readGridInputs('listGrid', listAxis.length, listVals.length),
-        volumeCurve: readVolumeCurveInputs(),
-      };
-    }
+    const parsed = readExcelCalibrationTable(tank);
+    const calibration = {
+      calcType: document.getElementById('c-type').value,
+      capacity: parseFloat(document.getElementById('c-cap').value) || 0,
+      correctionDivisor: parseFloat(document.getElementById('c-div').value) || 10,
+      pipeHeight: parseFloat(document.getElementById('c-pipe').value) || 0,
+      soundingMethod: document.getElementById('c-method').value,
+      ...parsed,
+    };
     await Api.saveCalibration(STATE.activeVesselId, tankId, calibration);
     await reloadBundle();
     showToast('Calibration saved');
@@ -668,176 +664,203 @@ function renderCalibrationEditor(main, tankId) {
   };
 }
 
+/** Excel Tank1/Tank2-style combined calibration grid */
+function buildExcelCalibrationTable(tank) {
+  const panel = document.createElement('div');
+  panel.className = 'form-panel excel-calib';
+  panel.style.marginTop = '14px';
+
+  const isDirect = tank.calcType === 'direct';
+  const rowAxis = tank.trimAxis || [];
+  const trimVals = tank.trimVals || [];
+  const trimGrid = tank.trimGrid || [];
+  const listAxis = tank.listAxis || [];
+  const listVals = tank.listVals || [];
+  const listGrid = tank.listGrid || [];
+  const volX = tank.volumeCurve?.x || [];
+  const volV = tank.volumeCurve?.v || [];
+  const volMap = new Map(volX.map((x, i) => [Number(x), volV[i]]));
+
+  const rowLabel = isDirect ? 'Depth' : 'SOUNDING ullage';
+  const trimLabel = isDirect ? 'Trim → volume m³' : 'Trim (m) → correction';
+  const listLabel = isDirect ? 'Heel (deg) → correction' : 'List / heel (deg) → correction';
+
+  // Header row 1: section labels
+  let head1 = `<th class="excel-corner">${escapeHtml(rowLabel)}</th>`;
+  trimVals.forEach(() => { head1 += '<th class="excel-sec-trim"></th>'; });
+  if (!isDirect) {
+    head1 += '<th class="excel-sec-vol">SOUNDING CM</th><th class="excel-sec-vol">sounding VOLUME</th>';
+  } else {
+    head1 += '<th class="excel-gap"></th>';
+  }
+  if (listVals.length) {
+    head1 += `<th class="excel-sec-list">${isDirect ? 'Depth' : 'sounding ullage'}</th>`;
+    listVals.forEach(() => { head1 += '<th class="excel-sec-list"></th>'; });
+  }
+
+  // Header row 2: numeric trim / list values (editable)
+  let head2 = '<th class="excel-corner-sub"></th>';
+  trimVals.forEach((v, j) => {
+    head2 += `<th class="excel-trim-h"><input type="number" step="any" data-excel="trimVal" data-j="${j}" value="${v}" title="${trimLabel}"></th>`;
+  });
+  if (!isDirect) {
+    head2 += '<th></th><th></th>';
+  } else {
+    head2 += '<th></th>';
+  }
+  if (listVals.length) {
+    head2 += '<th></th>';
+    listVals.forEach((v, j) => {
+      head2 += `<th class="excel-list-h"><input type="number" step="any" data-excel="listVal" data-j="${j}" value="${v}" title="${listLabel}"></th>`;
+    });
+  }
+
+  const nRows = Math.max(rowAxis.length, listAxis.length, isDirect ? 0 : volX.length, 1);
+  let body = '';
+  for (let i = 0; i < nRows; i++) {
+    const ra = rowAxis[i];
+    body += '<tr>';
+    body += `<td class="excel-rowh"><input type="number" step="any" data-excel="rowAxis" data-i="${i}" value="${ra ?? ''}"></td>`;
+    for (let j = 0; j < trimVals.length; j++) {
+      const val = trimGrid[i] && trimGrid[i][j] != null ? trimGrid[i][j] : '';
+      body += `<td class="excel-trim"><input type="number" step="any" data-excel="trimGrid" data-r="${i}" data-c="${j}" value="${val}"></td>`;
+    }
+    if (!isDirect) {
+      // Prefer matching volume curve by sounding axis when available
+      const volAtRow = (ra != null && volMap.has(Number(ra)))
+        ? volMap.get(Number(ra))
+        : (volV[i] ?? '');
+      const xAtRow = (ra != null) ? ra : (volX[i] ?? '');
+      body += `<td class="excel-vol"><input type="number" step="any" data-excel="volX" data-i="${i}" value="${xAtRow ?? ''}"></td>`;
+      body += `<td class="excel-vol"><input type="number" step="any" data-excel="volV" data-i="${i}" value="${volAtRow ?? ''}"></td>`;
+    } else {
+      body += '<td class="excel-gap"></td>';
+    }
+    if (listVals.length) {
+      const la = listAxis[i] ?? '';
+      body += `<td class="excel-rowh"><input type="number" step="any" data-excel="listAxis" data-i="${i}" value="${la}"></td>`;
+      for (let j = 0; j < listVals.length; j++) {
+        const val = listGrid[i] && listGrid[i][j] != null ? listGrid[i][j] : '';
+        body += `<td class="excel-list"><input type="number" step="any" data-excel="listGrid" data-r="${i}" data-c="${j}" value="${val}"></td>`;
+      }
+    }
+    body += '</tr>';
+  }
+
+  panel.innerHTML = `
+    <div class="section-title" style="margin-top:0">Calibration table
+      <span class="tag">${nRows} rows · trim ${trimVals.length} cols${listVals.length ? ` · list ${listVals.length} cols` : ''}</span>
+      <button type="button" class="btn small" id="btn-add-calib-row" style="margin-left:auto">+ row</button>
+    </div>
+    <div class="hint" style="color:var(--text-faint);font-size:12px;margin-bottom:8px">
+      Matches workbook sheets Tank1–Tank4: left = ${escapeHtml(rowLabel)} × trim${isDirect ? ' volume' : ' correction'}; 
+      ${isDirect ? '' : 'center = SOUNDING CM / VOLUME; '}right = list/heel table. Edit any cell, then Save.
+    </div>
+    <div class="scroll-x excel-scroll">
+      <table class="calib-table excel-table" id="excel-calib-table">
+        <thead>
+          <tr class="excel-head-1">${head1}</tr>
+          <tr class="excel-head-2">${head2}</tr>
+        </thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>`;
+
+  panel.querySelector('#btn-add-calib-row').onclick = () => {
+    const table = panel.querySelector('#excel-calib-table tbody');
+    const i = table.children.length;
+    const trimN = panel.querySelectorAll('thead input[data-excel="trimVal"]').length;
+    const listN = panel.querySelectorAll('thead input[data-excel="listVal"]').length;
+    const tr = document.createElement('tr');
+    let html = `<td class="excel-rowh"><input type="number" step="any" data-excel="rowAxis" data-i="${i}" value=""></td>`;
+    for (let j = 0; j < trimN; j++) html += `<td class="excel-trim"><input type="number" step="any" data-excel="trimGrid" data-r="${i}" data-c="${j}" value=""></td>`;
+    if (!isDirect) {
+      html += `<td class="excel-vol"><input type="number" step="any" data-excel="volX" data-i="${i}" value=""></td>`;
+      html += `<td class="excel-vol"><input type="number" step="any" data-excel="volV" data-i="${i}" value=""></td>`;
+    } else html += '<td class="excel-gap"></td>';
+    if (listN) {
+      html += `<td class="excel-rowh"><input type="number" step="any" data-excel="listAxis" data-i="${i}" value=""></td>`;
+      for (let j = 0; j < listN; j++) html += `<td class="excel-list"><input type="number" step="any" data-excel="listGrid" data-r="${i}" data-c="${j}" value=""></td>`;
+    }
+    tr.innerHTML = html;
+    table.appendChild(tr);
+  };
+  return panel;
+}
+
+function readExcelCalibrationTable(tank) {
+  const isDirect = document.getElementById('c-type')?.value === 'direct' || tank.calcType === 'direct';
+  const trimVals = Array.from(document.querySelectorAll('input[data-excel="trimVal"]'))
+    .map((el) => parseFloat(el.value)).filter((n) => !Number.isNaN(n));
+  const listVals = Array.from(document.querySelectorAll('input[data-excel="listVal"]'))
+    .map((el) => parseFloat(el.value)).filter((n) => !Number.isNaN(n));
+
+  const rowInputs = Array.from(document.querySelectorAll('input[data-excel="rowAxis"]'));
+  const trimAxis = [];
+  const trimGrid = [];
+  const listAxis = [];
+  const listGrid = [];
+  const volX = [];
+  const volV = [];
+
+  rowInputs.forEach((el, i) => {
+    const ra = parseFloat(el.value);
+    const hasTrim = trimVals.some((_, j) => {
+      const cell = document.querySelector(`input[data-excel="trimGrid"][data-r="${i}"][data-c="${j}"]`);
+      return cell && cell.value !== '';
+    });
+    const volXEl = document.querySelector(`input[data-excel="volX"][data-i="${i}"]`);
+    const volVEl = document.querySelector(`input[data-excel="volV"][data-i="${i}"]`);
+    const listAEl = document.querySelector(`input[data-excel="listAxis"][data-i="${i}"]`);
+    if (Number.isNaN(ra) && !hasTrim && !(volXEl && volXEl.value !== '')) return;
+
+    if (!Number.isNaN(ra)) {
+      trimAxis.push(ra);
+      const row = trimVals.map((_, j) => {
+        const cell = document.querySelector(`input[data-excel="trimGrid"][data-r="${i}"][data-c="${j}"]`);
+        const n = cell ? parseFloat(cell.value) : 0;
+        return Number.isNaN(n) ? 0 : n;
+      });
+      trimGrid.push(row);
+    }
+
+    if (!isDirect && volXEl && volVEl && volXEl.value !== '' && volVEl.value !== '') {
+      const x = parseFloat(volXEl.value);
+      const v = parseFloat(volVEl.value);
+      if (!Number.isNaN(x) && !Number.isNaN(v)) { volX.push(x); volV.push(v); }
+    } else if (!isDirect && !Number.isNaN(ra) && volVEl && volVEl.value !== '') {
+      const v = parseFloat(volVEl.value);
+      if (!Number.isNaN(v)) { volX.push(ra); volV.push(v); }
+    }
+
+    if (listAEl && listAEl.value !== '') {
+      const la = parseFloat(listAEl.value);
+      if (!Number.isNaN(la)) {
+        listAxis.push(la);
+        listGrid.push(listVals.map((_, j) => {
+          const cell = document.querySelector(`input[data-excel="listGrid"][data-r="${i}"][data-c="${j}"]`);
+          const n = cell ? parseFloat(cell.value) : 0;
+          return Number.isNaN(n) ? 0 : n;
+        }));
+      }
+    }
+  });
+
+  return {
+    trimAxis,
+    trimVals,
+    trimGrid,
+    listAxis,
+    listVals,
+    listGrid,
+    volumeCurve: { x: volX, v: volV },
+  };
+}
+
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (ch) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
   ));
-}
-
-function buildAxisEditor(title, key, values) {
-  const panel = document.createElement('div');
-  panel.className = 'form-panel';
-  panel.style.marginTop = '14px';
-  const nums = (values && values.length) ? values : [0];
-  panel.innerHTML = `<div class="section-title" style="margin-top:0">${escapeHtml(title)}
-    <button type="button" class="btn small" data-add-axis="${key}" style="margin-left:auto">+ point</button></div>
-    <div class="scroll-x"><table class="calib-table" id="axis-${key}"><thead><tr>
-      <th>#</th><th>Value</th><th></th>
-    </tr></thead><tbody>
-      ${nums.map((v, i) => `<tr>
-        <td>${i + 1}</td>
-        <td><input type="number" step="any" data-axis="${key}" data-i="${i}" value="${v}"></td>
-        <td><button type="button" class="btn small danger" data-del-axis="${key}" data-i="${i}">×</button></td>
-      </tr>`).join('')}
-    </tbody></table></div>`;
-  panel.querySelector(`[data-add-axis="${key}"]`).onclick = () => {
-    const tbody = panel.querySelector('tbody');
-    const i = tbody.children.length;
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${i + 1}</td>
-      <td><input type="number" step="any" data-axis="${key}" data-i="${i}" value="0"></td>
-      <td><button type="button" class="btn small danger" data-del-axis="${key}" data-i="${i}">×</button></td>`;
-    tbody.appendChild(tr);
-    tr.querySelector('[data-del-axis]').onclick = () => { tr.remove(); renumberAxis(panel); };
-    // Rebuild dependent grid if present
-    rebuildGridFromAxes(key);
-  };
-  panel.querySelectorAll('[data-del-axis]').forEach((btn) => {
-    btn.onclick = () => { btn.closest('tr').remove(); renumberAxis(panel); rebuildGridFromAxes(key); };
-  });
-  return panel;
-}
-
-function renumberAxis(panel) {
-  panel.querySelectorAll('tbody tr').forEach((tr, i) => {
-    tr.children[0].textContent = String(i + 1);
-    const inp = tr.querySelector('input');
-    if (inp) inp.dataset.i = String(i);
-    const del = tr.querySelector('[data-del-axis]');
-    if (del) del.dataset.i = String(i);
-  });
-}
-
-function rebuildGridFromAxes(axisKey) {
-  // When trim/list axes change, refresh the related grid table dimensions if empty cells needed
-  const pair = axisKey.startsWith('trim') ? 'trim' : axisKey.startsWith('list') ? 'list' : null;
-  if (!pair) return;
-  const gridEl = document.getElementById(`grid-${pair}Grid`);
-  if (!gridEl) return;
-  const rows = readAxisInputs(pair + 'Axis');
-  const cols = readAxisInputs(pair + 'Vals');
-  const existing = readGridInputs(pair + 'Grid', rows.length, cols.length);
-  const host = gridEl.closest('.form-panel');
-  if (!host) return;
-  const title = host.querySelector('.section-title')?.childNodes[0]?.textContent?.trim() || (pair + ' grid');
-  const replacement = buildGridEditor(title, pair + 'Grid', rows, cols, existing);
-  host.replaceWith(replacement);
-}
-
-function buildGridEditor(title, key, rowAxis, colAxis, grid) {
-  const panel = document.createElement('div');
-  panel.className = 'form-panel';
-  panel.style.marginTop = '14px';
-  const rows = rowAxis.length ? rowAxis : [0];
-  const cols = colAxis.length ? colAxis : [0];
-  const g = Array.isArray(grid) ? grid : [];
-
-  let head = '<th>Axis \\ Col</th>';
-  cols.forEach((c, j) => { head += `<th>${escapeHtml(String(c))}</th>`; });
-
-  let body = '';
-  rows.forEach((r, i) => {
-    body += `<tr><th>${escapeHtml(String(r))}</th>`;
-    cols.forEach((_, j) => {
-      const val = g[i] && g[i][j] != null && !Number.isNaN(Number(g[i][j])) ? g[i][j] : '';
-      body += `<td><input type="number" step="any" data-grid="${key}" data-r="${i}" data-c="${j}" value="${val}"></td>`;
-    });
-    body += '</tr>';
-  });
-
-  panel.innerHTML = `<div class="section-title" style="margin-top:0">${escapeHtml(title)}
-      <span class="tag" style="margin-left:8px">${rows.length} × ${cols.length}</span></div>
-    <div class="hint" style="color:var(--text-faint);font-size:12px;margin-bottom:8px">
-      Rows follow the axis points; columns follow the trim/list values. Edit any cell to correct calibration.</div>
-    <div class="scroll-x"><table class="calib-table" id="grid-${key}">
-      <thead><tr>${head}</tr></thead><tbody>${body}</tbody>
-    </table></div>`;
-  return panel;
-}
-
-function buildVolumeCurveEditor(curve) {
-  const panel = document.createElement('div');
-  panel.className = 'form-panel';
-  panel.style.marginTop = '14px';
-  const x = curve.x || [];
-  const v = curve.v || [];
-  const n = Math.max(x.length, v.length, 1);
-  let rows = '';
-  for (let i = 0; i < n; i++) {
-    rows += `<tr>
-      <td>${i + 1}</td>
-      <td><input type="number" step="any" data-vc="x" data-i="${i}" value="${x[i] ?? ''}"></td>
-      <td><input type="number" step="any" data-vc="v" data-i="${i}" value="${v[i] ?? ''}"></td>
-      <td><button type="button" class="btn small danger" data-del-vc="${i}">×</button></td>
-    </tr>`;
-  }
-  panel.innerHTML = `<div class="section-title" style="margin-top:0">Volume curve
-      <button type="button" class="btn small" id="btn-add-vc" style="margin-left:auto">+ row</button></div>
-    <div class="hint" style="color:var(--text-faint);font-size:12px;margin-bottom:8px">
-      Used by correction-type tanks after trim/list corrections (sounding → m³).</div>
-    <div class="scroll-x"><table class="calib-table" id="volume-curve-table">
-      <thead><tr><th>#</th><th>Sounding / ullage</th><th>Volume m³</th><th></th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>`;
-  panel.querySelector('#btn-add-vc').onclick = () => {
-    const tbody = panel.querySelector('tbody');
-    const i = tbody.children.length;
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${i + 1}</td>
-      <td><input type="number" step="any" data-vc="x" data-i="${i}" value=""></td>
-      <td><input type="number" step="any" data-vc="v" data-i="${i}" value=""></td>
-      <td><button type="button" class="btn small danger" data-del-vc="${i}">×</button></td>`;
-    tbody.appendChild(tr);
-    tr.querySelector('[data-del-vc]').onclick = () => { tr.remove(); };
-  };
-  panel.querySelectorAll('[data-del-vc]').forEach((btn) => {
-    btn.onclick = () => btn.closest('tr').remove();
-  });
-  return panel;
-}
-
-function readAxisInputs(key) {
-  return Array.from(document.querySelectorAll(`input[data-axis="${key}"]`))
-    .map((el) => parseFloat(el.value))
-    .filter((n) => !Number.isNaN(n));
-}
-
-function readGridInputs(key, rowCount, colCount) {
-  const grid = [];
-  for (let r = 0; r < rowCount; r++) {
-    const row = [];
-    for (let c = 0; c < colCount; c++) {
-      const el = document.querySelector(`input[data-grid="${key}"][data-r="${r}"][data-c="${c}"]`);
-      const n = el ? parseFloat(el.value) : 0;
-      row.push(Number.isNaN(n) ? 0 : n);
-    }
-    grid.push(row);
-  }
-  return grid;
-}
-
-function readVolumeCurveInputs() {
-  const xs = Array.from(document.querySelectorAll('input[data-vc="x"]')).map((el) => parseFloat(el.value));
-  const vs = Array.from(document.querySelectorAll('input[data-vc="v"]')).map((el) => parseFloat(el.value));
-  const x = [];
-  const v = [];
-  const n = Math.max(xs.length, vs.length);
-  for (let i = 0; i < n; i++) {
-    if (Number.isNaN(xs[i]) && Number.isNaN(vs[i])) continue;
-    x.push(Number.isNaN(xs[i]) ? 0 : xs[i]);
-    v.push(Number.isNaN(vs[i]) ? 0 : vs[i]);
-  }
-  return { x, v };
 }
 
 function parseNumList(text) {
