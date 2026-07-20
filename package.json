@@ -1,0 +1,20 @@
+{
+  "name": "vessel-fuel-tank-management",
+  "version": "2.0.0",
+  "description": "Multi-vessel fuel tank management with sounding calibration, bunkering distribution, voyage fuel planning, and offline sync",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "seed": "node scripts/seed-vessel.js",
+    "dev": "node server/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1"
+  },
+  "license": "MIT"
+}

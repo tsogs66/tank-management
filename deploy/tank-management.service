@@ -1,0 +1,17 @@
+[Unit]
+Description=Vessel Fuel Tank Management
+After=network.target
+
+[Service]
+Type=simple
+User=fueltms
+WorkingDirectory=/opt/tank-management
+Environment=NODE_ENV=production
+Environment=PORT=3080
+Environment=HOST=0.0.0.0
+ExecStart=/usr/bin/node /opt/tank-management/server/index.js
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

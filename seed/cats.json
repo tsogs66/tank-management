@@ -1,0 +1,26 @@
+[
+  {
+    "id": "fuel",
+    "label": "Fuel Tanks",
+    "icon": "⛽",
+    "color": "var(--fuel)"
+  },
+  {
+    "id": "lube",
+    "label": "Lube Oil Tanks",
+    "icon": "🛢",
+    "color": "var(--lube)"
+  },
+  {
+    "id": "misc",
+    "label": "Misc / Bilge Tanks",
+    "icon": "🧮",
+    "color": "var(--misc)"
+  },
+  {
+    "id": "water",
+    "label": "Fresh Water Tanks",
+    "icon": "💧",
+    "color": "var(--water)"
+  }
+]

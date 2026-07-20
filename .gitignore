@@ -1,0 +1,8 @@
+node_modules/
+data/vessels/
+data/settings.json
+data/vessels-index.json
+*.tmp
+.DS_Store
+npm-debug.log*
+seed/calc-engine.js
