@@ -7,6 +7,7 @@ Multi-vessel web app for fuel tank sounding (double interpolation + ASTM 54B), e
 - **Multi-vessel database** — each vessel stored under `data/vessels/<id>/`
 - **Tank sounding calculator** — trim/list double interpolation, volume curves, ASTM Table 54B VCF + WCF
 - **Editable calibration DB** — correct trim/list grids and volume curves manually
+- **PDF table import** — extract sounding / trim tables from capacity-book PDFs into a tank’s calibration grid
 - **Add tanks** — storage, settling, service (also overflow/other); CSV import template included
 - **Voyage fuel calculation** — per-leg distance/speed/daily burn → arrival ROB
 - **Bunkering** — enter received MT, then distribute:
@@ -60,6 +61,27 @@ The repo includes `TANK MANAGEMENT CAPTAIN VENIAMIS FINAL VERSION.xlsm`. Sheets 
 In the app: **Calibration DB → open a tank** shows this Excel-style grid. Use **Import repo workbook** (or upload) to refresh tables from the `.xlsm`.
 
 Also used from the workbook: **Setup** (pipe height / 100% & 85% capacity), **Conversion** (API → density @15°C), **ASTM Tables** (VCF 54B).
+
+## PDF sounding-table import
+
+Requires Python deps (`pip3 install -r requirements.txt` — includes `pdfplumber`).
+
+1. Open **Calibration DB →** a tank → **Import PDF**
+2. Choose a text-based capacity / sounding table PDF
+3. Preview extracted tables, pick target (**trim**, **list/heel**, **volume curve**, or **full**), then **Apply to tank**
+
+CLI:
+
+```bash
+python3 scripts/import-pdf-tables.py path/to/tables.pdf > tables.json
+```
+
+Sample: `templates/sample-sounding-table.pdf`. Scanned (image-only) PDFs need OCR first.
+
+API:
+
+- `POST /api/vessels/:id/import-pdf` — multipart `file` → extracted tables JSON
+- `POST /api/vessels/:id/tanks/:tankId/import-pdf` — upload PDF or POST `{ table, target, apply:true }` to write calibration
 
 ## CSV tank import
 

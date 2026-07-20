@@ -28,7 +28,7 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq git curl ca-certificates rsync
+apt-get install -y -qq git curl ca-certificates rsync python3 python3-pip
 
 # Ensure Node.js present / reasonably current
 if ! command -v node >/dev/null 2>&1; then
@@ -66,6 +66,11 @@ fi
 cd "$APP_DIR"
 echo "==> Installing npm dependencies"
 npm install --omit=dev
+if [[ -f requirements.txt ]]; then
+  echo "==> Installing Python deps (openpyxl, pdfplumber)"
+  pip3 install --break-system-packages -r requirements.txt 2>/dev/null \
+    || pip3 install -r requirements.txt
+fi
 
 # Refresh systemd unit (port / paths) without wiping user data
 cat > /etc/systemd/system/${SERVICE_NAME}.service <<EOF

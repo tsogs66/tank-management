@@ -1,4 +1,6 @@
 node_modules/
+__pycache__/
+*.pyc
 data/vessels/
 data/settings.json
 data/vessels-index.json

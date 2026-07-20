@@ -15,7 +15,7 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq curl ca-certificates gnupg rsync
+apt-get install -y -qq curl ca-certificates gnupg rsync python3 python3-pip python3-venv
 
 if ! command -v node >/dev/null 2>&1; then
   curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
@@ -38,6 +38,10 @@ fi
 
 cd "$APP_DIR"
 npm install --omit=dev
+if [[ -f requirements.txt ]]; then
+  pip3 install --break-system-packages -r requirements.txt 2>/dev/null \
+    || pip3 install -r requirements.txt
+fi
 node scripts/seed-vessel.js || true
 mkdir -p "$APP_DIR/data/vessels"
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"

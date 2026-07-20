@@ -551,7 +551,7 @@ function renderCalibrationList(main) {
   const head = document.createElement('div');
   head.className = 'page-head';
   head.innerHTML = `<div><h1>Calibration Database</h1>
-    <div class="desc">Excel-style sounding tables (Tank1–Tank4 layout): SOUNDING/Depth × trim, volume curve, list/heel.</div></div>
+    <div class="desc">Excel-style sounding tables (Tank1–Tank4 layout): SOUNDING/Depth × trim, volume curve, list/heel. Open a tank to import tables from PDF.</div></div>
     <div class="btn-row">
       <label class="btn">Import workbook<input type="file" id="excel-import" accept=".xlsm,.xlsx" hidden></label>
       <button class="btn" id="btn-import-repo-excel">Import repo workbook</button>
@@ -561,7 +561,8 @@ function renderCalibrationList(main) {
   const help = document.createElement('div');
   help.className = 'help-box';
   help.innerHTML = `Reference format from <b>TANK MANAGEMENT CAPTAIN VENIAMIS FINAL VERSION.xlsm</b> sheets <b>Tank1–Tank4</b>:
-    row headers = sounding/ullage (or Depth), column headers = trim (m), then SOUNDING CM / VOLUME, then list/heel table.`;
+    row headers = sounding/ullage (or Depth), column headers = trim (m), then SOUNDING CM / VOLUME, then list/heel table.
+    <br>PDF capacity books: open a tank → <b>Import PDF</b> to extract sounding tables into the calibration grid (text PDFs; scanned pages need OCR first).`;
   main.appendChild(help);
 
   const wrap = document.createElement('div');
@@ -626,11 +627,89 @@ function renderCalibrationEditor(main, tankId) {
     <div class="desc">Excel Tank-sheet layout · ${isDirect ? 'Depth × trim volume grid + heel table' : 'SOUNDING ullage × trim correction + volume curve + list/heel'} · 100% ${fmt(tank.capacity,2)} m³ · 85% ${fmt((tank.capacity||0)*0.85,2)} m³</div></div>
     <div class="btn-row">
       <button class="btn small" id="btn-back-tank">Back to tank</button>
+      <label class="btn small">Import PDF<input type="file" id="pdf-import" accept=".pdf,application/pdf" hidden></label>
       <button class="btn small" id="btn-export-tank">Export JSON</button>
       <button class="btn primary" id="btn-save-calib">Save calibration</button>
     </div>`;
   main.appendChild(head);
   document.getElementById('btn-back-tank').onclick = () => navigate(tank.category || 'fuel', tankId);
+
+  const pdfPanel = document.createElement('div');
+  pdfPanel.className = 'form-panel pdf-import-panel';
+  pdfPanel.style.display = 'none';
+  pdfPanel.innerHTML = `<div class="section-title" style="margin-top:0">PDF table import</div>
+    <p class="hint" style="margin:0 0 10px">Extracted tables from the PDF. Choose which grid to apply (trim correction, list/heel, volume curve, or full).</p>
+    <div id="pdf-tables"></div>`;
+  main.appendChild(pdfPanel);
+
+  document.getElementById('pdf-import').onchange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      showToast('Reading PDF tables…');
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('includeRaw', 'false');
+      const res = await Api.request(`/api/vessels/${STATE.activeVesselId}/import-pdf`, { method: 'POST', body: fd });
+      const tables = res.tables || [];
+      if (!tables.length) {
+        showToast('No tables found in this PDF');
+        return;
+      }
+      pdfPanel.style.display = '';
+      const box = document.getElementById('pdf-tables');
+      box.innerHTML = tables.map((t) => {
+        const preview = (t.preview || []).slice(0, 6).map((row) =>
+          `<tr>${row.slice(0, 8).map((c) => `<td>${escapeHtml(String(c ?? ''))}</td>`).join('')}</tr>`
+        ).join('');
+        return `<div class="pdf-table-card" data-tid="${escapeHtml(t.id)}">
+          <div class="pdf-table-head">
+            <div><b>${escapeHtml(t.id)}</b> · page ${t.page} · ${t.rows}×${t.cols} · <span class="pill">${escapeHtml(t.kind || 'unknown')}</span>
+              ${t.titleHint ? `<div class="hint">${escapeHtml(t.titleHint)}</div>` : ''}
+            </div>
+            <div class="btn-row">
+              <select data-target>
+                <option value="auto">Auto (${escapeHtml(t.kind || 'detect')})</option>
+                <option value="full">Full (trim + list seed)</option>
+                <option value="trim">Trim grid only</option>
+                <option value="list">List / heel grid</option>
+                <option value="volume">Volume curve</option>
+              </select>
+              <button class="btn primary small" data-apply>Apply to tank</button>
+            </div>
+          </div>
+          <div class="scroll-x"><table class="data-table compact">${preview}</table></div>
+        </div>`;
+      }).join('');
+
+      box.querySelectorAll('[data-apply]').forEach((btn) => {
+        btn.onclick = async () => {
+          const card = btn.closest('.pdf-table-card');
+          const tableId = card.dataset.tid;
+          const target = card.querySelector('[data-target]').value;
+          const table = tables.find((x) => x.id === tableId);
+          try {
+            const res2 = await Api.request(
+              `/api/vessels/${STATE.activeVesselId}/tanks/${tankId}/import-pdf`,
+              {
+                method: 'POST',
+                body: { table, tableId, target, apply: true },
+              }
+            );
+            await reloadBundle();
+            showToast(`Applied ${res2.tableId || tableId} (${res2.kind || target})`);
+            navigate('calibration', tankId);
+          } catch (err) {
+            showToast(err.message);
+          }
+        };
+      });
+      showToast(`Found ${tables.length} table(s) in ${res.pages || '?'} page(s)`);
+    } catch (err) {
+      showToast(err.message);
+    }
+  };
 
   const meta = document.createElement('div');
   meta.className = 'form-panel';
@@ -1448,6 +1527,7 @@ function renderAbout(main) {
     <b>Direct tanks</b> use trim×heel volume grids. Weight uses ASTM Table 54B VCF and WCF (ρ15 − 0.0011).</p>
     <p>Each vessel is stored under <code>data/vessels/&lt;id&gt;/</code>. The app runs as a local web server (Debian / Proxmox LXC) and as a mobile-friendly PWA for Android. Offline edits queue until the server is reachable; peer sync pushes/pulls full vessel databases.</p>
     <p>Original CAPTAIN VENIAMIS calibration tables are seeded as the default vessel.</p>
+    <p><b>Import:</b> Excel workbook (Tank1–Tank4), CSV tank list, or PDF sounding tables (Calibration DB → Import PDF; needs <code>pdfplumber</code>).</p>
   </div>`;
 }
 
