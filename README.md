@@ -83,13 +83,31 @@ API:
 - `POST /api/vessels/:id/import-pdf` — multipart `file` → extracted tables JSON
 - `POST /api/vessels/:id/tanks/:tankId/import-pdf` — upload PDF or POST `{ table, target, apply:true }` to write calibration
 
-## CSV tank import
+## CSV / Excel tank tables
+
+### Tank list (metadata)
 
 Download the template from the app (**Add Tank** page) or use `templates/tank-import.csv`.
 
 Columns: `id,name,category,fuelRole,side,tankNo,fuelGrade,calcType,capacity,pipeHeight,soundingMethod,correctionDivisor`
 
-After import, open **Calibration DB** to paste sounding tables.
+- **Export** current list: `GET /api/vessels/:id/tanks.csv`
+- **Import / edit**: same CSV — matching `id` updates the tank and keeps calibration grids; new rows are created
+
+### Calibration table (sounding × trim)
+
+Per tank in **Calibration DB**:
+
+| Action | How |
+|--------|-----|
+| Edit in app | Open tank → edit grid → Save |
+| Export CSV | `…/tanks/:tankId/calibration.csv` |
+| Export Excel | `…/tanks/:tankId/calibration.xlsx` (sheets META, TRIM, VOLUME, LIST, TABLE) |
+| Import CSV/Excel | Upload on the tank page, or `POST …/import-table` |
+
+CSV uses `META` / `TRIM` / `VOLUME` / `LIST` section rows (see `/api/templates/calibration.csv`). A plain sounding×trim grid CSV is also accepted.
+
+After import, open **Calibration DB** to review and save further edits.
 
 ## Proxmox LXC (Debian)
 

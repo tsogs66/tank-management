@@ -10,6 +10,7 @@ const store = require('./store');
 const { computeTank } = require('./calc');
 const excelImport = require('./excel-import');
 const pdfImport = require('./pdf-import');
+const tankTableIo = require('./tank-table-io');
 const fs = require('fs');
 
 const app = express();
@@ -594,6 +595,92 @@ app.post('/api/vessels/:id/tanks/:tankId/import-pdf', upload.single('file'), asy
   });
 }));
 
+/* ---------- Per-tank calibration table CSV / Excel export & import ---------- */
+app.get('/api/vessels/:id/tanks/:tankId/calibration.csv', (req, res) => {
+  try {
+    const bundle = store.getVesselBundle(req.params.id);
+    const tank = store.findTankInBundle(bundle.tanks, req.params.tankId);
+    if (!tank) return res.status(404).json({ error: 'Tank not found' });
+    const csv = tankTableIo.exportCsv(tank);
+    const safe = String(tank.id || 'tank').replace(/[^\w.-]+/g, '_');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${safe}-calibration.csv"`);
+    res.send(csv);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.get('/api/vessels/:id/tanks/:tankId/calibration.xlsx', asyncHandler(async (req, res) => {
+  const bundle = store.getVesselBundle(req.params.id);
+  const tank = store.findTankInBundle(bundle.tanks, req.params.tankId);
+  if (!tank) return res.status(404).json({ error: 'Tank not found' });
+  const buf = await tankTableIo.exportXlsxBuffer(tank);
+  const safe = String(tank.id || 'tank').replace(/[^\w.-]+/g, '_');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${safe}-calibration.xlsx"`);
+  res.send(buf);
+}));
+
+app.post('/api/vessels/:id/tanks/:tankId/import-table', upload.single('file'), asyncHandler(async (req, res) => {
+  const vesselId = req.params.id;
+  const tankId = req.params.tankId;
+  const bundle = store.getVesselBundle(vesselId);
+  const tank = store.findTankInBundle(bundle.tanks, tankId);
+  if (!tank) return res.status(404).json({ error: 'Tank not found' });
+
+  let patch;
+  if (req.file) {
+    patch = await tankTableIo.importTableBuffer(req.file.buffer, req.file.originalname || 'table.csv');
+  } else if (req.body?.csv) {
+    patch = tankTableIo.importCsv(req.body.csv);
+  } else if (req.body?.calibration) {
+    patch = req.body.calibration;
+  } else {
+    return res.status(400).json({ error: 'Upload a .csv / .xlsx file, or pass csv / calibration JSON' });
+  }
+
+  const apply = req.body?.apply !== false && req.body?.apply !== 'false';
+  if (apply) {
+    const updated = store.updateCalibration(vesselId, tankId, patch);
+    return res.json({ ok: true, applied: true, patch, tank: updated });
+  }
+  res.json({ ok: true, applied: false, patch });
+}));
+
+app.get('/api/templates/calibration.csv', (req, res) => {
+  const sample = {
+    id: 'example',
+    name: 'EXAMPLE TANK',
+    calcType: 'correction',
+    capacity: 100,
+    correctionDivisor: 10,
+    pipeHeight: 0,
+    soundingMethod: 'ullage',
+    soundingIncrement: 50,
+    heelIncrement: 50,
+    trimAxis: [0, 50, 100],
+    trimVals: [2, 1, 0, -1, -2],
+    trimGrid: [
+      [0, 0, 0, 0, 0],
+      [12.1, 12.5, 13.0, 12.4, 11.9],
+      [25.0, 25.8, 26.5, 25.6, 24.8],
+    ],
+    volumeCurve: { x: [0, 50, 100], v: [0, 13, 26.5] },
+    listAxis: [0, 50, 100],
+    listVals: [-2, -1, 0, 1, 2],
+    listGrid: [
+      [0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0],
+    ],
+  };
+  const csv = tankTableIo.exportCsv(sample);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="calibration-table-template.csv"');
+  res.send(csv);
+});
+
 /* ---------- CSV tank template / import ---------- */
 app.get('/api/templates/tanks.csv', (req, res) => {
   const csv = [
@@ -616,34 +703,87 @@ app.post('/api/vessels/:id/tanks/import-csv', upload.single('file'), (req, res) 
     const rows = parseCsv(text);
     if (!rows.length) return res.status(400).json({ error: 'No rows found' });
     const created = [];
+    const updated = [];
+    const bundle = store.getVesselBundle(req.params.id);
     for (const row of rows) {
+      if (!row.name && !row.id) continue;
+      const existing = row.id
+        ? store.findTankInBundle(bundle.tanks, row.id)
+        : null;
       const tank = {
-        id: row.id || undefined,
-        name: row.name,
-        category: row.category || 'fuel',
-        fuelRole: row.fuelRole || 'storage',
-        side: row.side || 'center',
-        tankNo: row.tankNo ? Number(row.tankNo) : null,
-        fuelGrade: row.fuelGrade || 'hfo',
-        calcType: row.calcType || 'correction',
-        capacity: Number(row.capacity) || 0,
-        pipeHeight: Number(row.pipeHeight) || 0,
-        soundingMethod: row.soundingMethod || 'ullage',
-        correctionDivisor: Number(row.correctionDivisor) || 10,
-        trimAxis: [],
-        trimVals: [],
-        trimGrid: [],
-        listAxis: [],
-        listVals: [],
-        listGrid: [],
-        volumeCurve: { x: [0], v: [0] },
+        id: row.id || existing?.id || undefined,
+        name: row.name || existing?.name,
+        category: row.category || existing?.category || 'fuel',
+        fuelRole: row.fuelRole || existing?.fuelRole || 'storage',
+        side: row.side || existing?.side || 'center',
+        tankNo: row.tankNo !== undefined && row.tankNo !== ''
+          ? Number(row.tankNo)
+          : (existing?.tankNo ?? null),
+        fuelGrade: row.fuelGrade || existing?.fuelGrade || 'hfo',
+        calcType: row.calcType || existing?.calcType || 'correction',
+        capacity: row.capacity !== undefined && row.capacity !== ''
+          ? Number(row.capacity)
+          : (existing?.capacity || 0),
+        pipeHeight: row.pipeHeight !== undefined && row.pipeHeight !== ''
+          ? Number(row.pipeHeight)
+          : (existing?.pipeHeight || 0),
+        soundingMethod: row.soundingMethod || existing?.soundingMethod || 'ullage',
+        correctionDivisor: row.correctionDivisor !== undefined && row.correctionDivisor !== ''
+          ? Number(row.correctionDivisor)
+          : (existing?.correctionDivisor || 10),
+        // Preserve calibration tables when editing tank list CSV
+        trimAxis: existing?.trimAxis || [],
+        trimVals: existing?.trimVals || [],
+        trimGrid: existing?.trimGrid || [],
+        listAxis: existing?.listAxis || [],
+        listVals: existing?.listVals || [],
+        listGrid: existing?.listGrid || [],
+        volumeCurve: existing?.volumeCurve || { x: [0], v: [0] },
+        soundingIncrement: existing?.soundingIncrement,
+        heelIncrement: existing?.heelIncrement,
       };
       if (!tank.name) continue;
-      created.push(store.upsertTank(req.params.id, tank));
+      const saved = store.upsertTank(req.params.id, tank);
+      if (existing) updated.push(saved);
+      else created.push(saved);
     }
-    res.json({ ok: true, imported: created.length, tanks: created });
+    res.json({
+      ok: true,
+      imported: created.length + updated.length,
+      created: created.length,
+      updated: updated.length,
+      tanks: [...updated, ...created],
+    });
   } catch (e) {
     res.status(400).json({ error: e.message });
+  }
+});
+
+/** Export tank list (metadata) as CSV for edit → re-import */
+app.get('/api/vessels/:id/tanks.csv', (req, res) => {
+  try {
+    const bundle = store.getVesselBundle(req.params.id);
+    const headers = [
+      'id', 'name', 'category', 'fuelRole', 'side', 'tankNo', 'fuelGrade',
+      'calcType', 'capacity', 'pipeHeight', 'soundingMethod', 'correctionDivisor',
+    ];
+    const lines = [headers.join(',')];
+    for (const cat of Object.keys(bundle.tanks || {})) {
+      for (const t of bundle.tanks[cat] || []) {
+        const row = headers.map((h) => {
+          let v = t[h];
+          if (v == null) v = '';
+          const s = String(v);
+          return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        });
+        lines.push(row.join(','));
+      }
+    }
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${req.params.id}-tanks.csv"`);
+    res.send(lines.join('\n') + '\n');
+  } catch (e) {
+    res.status(404).json({ error: e.message });
   }
 });
 

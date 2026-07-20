@@ -504,11 +504,18 @@ function renderAddTank(main) {
     <div class="btn-row">
       <button class="btn primary" id="btn-add-tank">Add tank</button>
       <a class="btn" href="/api/templates/tanks.csv">Download CSV template</a>
+      <a class="btn" id="btn-export-tanks-csv" href="#">Export tanks CSV</a>
     </div>
-    <div class="section-title">Import tanks from CSV</div>
+    <div class="section-title">Import / edit tanks from CSV</div>
+    <p class="hint">Upload the template or an exported tanks CSV. Matching <code>id</code> updates the tank (calibration tables are kept). New rows are created.</p>
     <input type="file" id="csv-file" accept=".csv,text/csv">
     <button class="btn" id="btn-import-csv" style="margin-top:8px">Import CSV</button>`;
   main.appendChild(form);
+
+  const exportTanks = document.getElementById('btn-export-tanks-csv');
+  if (exportTanks && STATE.activeVesselId) {
+    exportTanks.href = `/api/vessels/${STATE.activeVesselId}/tanks.csv`;
+  }
 
   document.getElementById('btn-add-tank').onclick = async () => {
     const name = document.getElementById('t-name').value.trim();
@@ -540,7 +547,9 @@ function renderAddTank(main) {
     if (!file) { showToast('Choose a CSV file'); return; }
     const res = await Api.importCsv(STATE.activeVesselId, file);
     await reloadBundle();
-    showToast(`Imported ${res.imported} tanks`);
+    const c = res.created ?? res.imported ?? 0;
+    const u = res.updated ?? 0;
+    showToast(u || c ? `Tanks CSV: ${u} updated, ${c} created` : `Imported ${res.imported || 0} tanks`);
   };
 }
 
@@ -551,10 +560,11 @@ function renderCalibrationList(main) {
   const head = document.createElement('div');
   head.className = 'page-head';
   head.innerHTML = `<div><h1>Calibration Database</h1>
-    <div class="desc">Excel-style sounding tables (Tank1–Tank4 layout): SOUNDING/Depth × trim, volume curve, list/heel. Open a tank to import tables from PDF.</div></div>
+    <div class="desc">Excel-style sounding tables: edit in-app, or export/import CSV &amp; Excel per tank. Workbook import refreshes Tank1–Tank4 style sheets.</div></div>
     <div class="btn-row">
       <label class="btn">Import workbook<input type="file" id="excel-import" accept=".xlsm,.xlsx" hidden></label>
       <button class="btn" id="btn-import-repo-excel">Import repo workbook</button>
+      <a class="btn" href="/api/templates/calibration.csv">Calibration CSV template</a>
     </div>`;
   main.appendChild(head);
 
@@ -562,7 +572,8 @@ function renderCalibrationList(main) {
   help.className = 'help-box';
   help.innerHTML = `Reference format from <b>TANK MANAGEMENT CAPTAIN VENIAMIS FINAL VERSION.xlsm</b> sheets <b>Tank1–Tank4</b>:
     row headers = sounding/ullage (or Depth), column headers = trim (m), then SOUNDING CM / VOLUME, then list/heel table.
-    <br>PDF capacity books: open a tank → <b>Import PDF</b> to extract sounding tables into the calibration grid (text PDFs; scanned pages need OCR first).`;
+    <br>Per tank: <b>Export CSV / Excel</b> → edit in spreadsheet → <b>Import CSV/Excel</b>. Plain sounding×trim grids are accepted.
+    <br>PDF capacity books: open a tank → <b>Import PDF</b> (text PDFs; scanned pages need OCR first).`;
   main.appendChild(help);
 
   const wrap = document.createElement('div');
@@ -627,12 +638,40 @@ function renderCalibrationEditor(main, tankId) {
     <div class="desc">Excel Tank-sheet layout · ${isDirect ? 'Depth × trim volume grid + heel table' : 'SOUNDING ullage × trim correction + volume curve + list/heel'} · 100% ${fmt(tank.capacity,2)} m³ · 85% ${fmt((tank.capacity||0)*0.85,2)} m³</div></div>
     <div class="btn-row">
       <button class="btn small" id="btn-back-tank">Back to tank</button>
+      <a class="btn small" id="btn-export-csv" href="/api/vessels/${STATE.activeVesselId}/tanks/${tankId}/calibration.csv">Export CSV</a>
+      <a class="btn small" id="btn-export-xlsx" href="/api/vessels/${STATE.activeVesselId}/tanks/${tankId}/calibration.xlsx">Export Excel</a>
+      <label class="btn small">Import CSV/Excel<input type="file" id="table-import" accept=".csv,.xlsx,.xlsm,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label>
       <label class="btn small">Import PDF<input type="file" id="pdf-import" accept=".pdf,application/pdf" hidden></label>
       <button class="btn small" id="btn-export-tank">Export JSON</button>
       <button class="btn primary" id="btn-save-calib">Save calibration</button>
     </div>`;
   main.appendChild(head);
   document.getElementById('btn-back-tank').onclick = () => navigate(tank.category || 'fuel', tankId);
+
+  document.getElementById('table-import').onchange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      showToast('Importing table…');
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('apply', 'true');
+      const res = await Api.request(
+        `/api/vessels/${STATE.activeVesselId}/tanks/${tankId}/import-table`,
+        { method: 'POST', body: fd }
+      );
+      await reloadBundle();
+      const parts = [];
+      if (res.patch?.trimAxis) parts.push(`trim ${res.patch.trimAxis.length}×${(res.patch.trimVals || []).length}`);
+      if (res.patch?.listAxis) parts.push(`list ${res.patch.listAxis.length}×${(res.patch.listVals || []).length}`);
+      if (res.patch?.volumeCurve?.x) parts.push(`volume ${res.patch.volumeCurve.x.length}`);
+      showToast(`Imported ${parts.join(', ') || 'calibration'}`);
+      navigate('calibration', tankId);
+    } catch (err) {
+      showToast(err.message);
+    }
+  };
 
   const pdfPanel = document.createElement('div');
   pdfPanel.className = 'form-panel pdf-import-panel';
@@ -1527,7 +1566,7 @@ function renderAbout(main) {
     <b>Direct tanks</b> use trim×heel volume grids. Weight uses ASTM Table 54B VCF and WCF (ρ15 − 0.0011).</p>
     <p>Each vessel is stored under <code>data/vessels/&lt;id&gt;/</code>. The app runs as a local web server (Debian / Proxmox LXC) and as a mobile-friendly PWA for Android. Offline edits queue until the server is reachable; peer sync pushes/pulls full vessel databases.</p>
     <p>Original CAPTAIN VENIAMIS calibration tables are seeded as the default vessel.</p>
-    <p><b>Import:</b> Excel workbook (Tank1–Tank4), CSV tank list, or PDF sounding tables (Calibration DB → Import PDF; needs <code>pdfplumber</code>).</p>
+    <p><b>Import / edit:</b> Excel workbook (Tank1–Tank4), tank-list CSV, per-tank calibration CSV/Excel, or PDF sounding tables (Calibration DB).</p>
   </div>`;
 }
 
