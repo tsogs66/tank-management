@@ -72,6 +72,7 @@ function closeMobileNav() {
 }
 
 function navigate(page, tankId = null) {
+  if (page !== 'bunkering' && typeof stopBunkerLiveTimer === 'function') stopBunkerLiveTimer();
   STATE.route = { page, tankId };
   closeMobileNav();
   render();
@@ -1136,27 +1137,70 @@ function renderVoyage(main) {
   };
 }
 
-/* ---------- Bunkering with distribution ---------- */
+/* ---------- Bunkering with live operation + blend ---------- */
+let _bunkerLiveTimer = null;
+
+function stopBunkerLiveTimer() {
+  if (_bunkerLiveTimer) {
+    clearInterval(_bunkerLiveTimer);
+    _bunkerLiveTimer = null;
+  }
+}
+
+function collectBunkerPlanBody() {
+  const mode = document.querySelector('input[name="b-mode"]:checked')?.value || 'equal-storage';
+  const manual = {};
+  if (mode === 'manual') {
+    document.querySelectorAll('[data-manual]').forEach((el) => {
+      manual[el.dataset.manual] = parseFloat(el.value) || 0;
+    });
+  }
+  return {
+    quantityMT: parseFloat(document.getElementById('b-qty').value) || 0,
+    fuelGrade: document.getElementById('b-grade').value,
+    density15: document.getElementById('b-dens').value === '' ? null : parseFloat(document.getElementById('b-dens').value),
+    tempC: parseFloat(document.getElementById('b-temp').value) || 15,
+    rateMTPerHour: parseFloat(document.getElementById('b-rate').value) || 0,
+    mode,
+    manual,
+    bdn: {
+      bdnNo: document.getElementById('b-bdn').value,
+      supplier: document.getElementById('b-sup').value,
+    },
+  };
+}
+
 function renderBunkering(main) {
+  stopBunkerLiveTimer();
   main.innerHTML += `<div class="page-head"><div><h1>Bunkering Operation</h1>
-    <div class="desc">Enter received quantity, then choose how to distribute into storage / settling / service tanks.</div></div></div>
-    <div class="help-box">Distribution modes: equal across storage (capacity-weighted free space), Port or Starboard only, No.1 or No.2 tanks only, settling/service only, or manual MT per tank. Optionally apply to ROB readings (volume-gauge increment).</div>`;
+    <div class="desc">Plan MT to receive, start a live op with pumping rate (time used / remaining), watch tank intake, and blend fuels of different density.</div></div></div>
+    <div class="help-box">Enter <b>MT to receive</b> and <b>pumping rate (MT/h)</b>, choose distribution, then <b>Start live operation</b>.
+    Live view shows total intake, time used, time remaining, and projected tank levels. Use the mix calculator when ROB and bunker density differ.</div>`;
+
+  const activeWrap = document.createElement('div');
+  activeWrap.id = 'bunker-live-wrap';
+  main.appendChild(activeWrap);
 
   const panel = document.createElement('div');
   panel.className = 'form-panel';
-  panel.style.maxWidth = '900px';
+  panel.id = 'bunker-plan-panel';
   panel.innerHTML = `
+    <div class="section-title" style="margin-top:0">Bunker plan — quantity to receive</div>
     <div class="form-row-3">
       <div class="form-row"><label>Fuel grade</label>
         <select id="b-grade"><option value="hfo">HFO</option><option value="lsfo">LSFO</option>
         <option value="mdo">MDO</option><option value="mgo">MGO</option></select></div>
-      <div class="form-row"><label>Received quantity (MT)</label><input id="b-qty" type="number" step="any" placeholder="e.g. 450"></div>
-      <div class="form-row"><label>Density @15°C</label><input id="b-dens" type="number" step="any" placeholder="0.958"></div>
+      <div class="form-row"><label>Quantity to receive (MT)</label><input id="b-qty" type="number" step="any" placeholder="e.g. 450"></div>
+      <div class="form-row"><label>Pumping rate (MT/h)</label><input id="b-rate" type="number" step="any" placeholder="e.g. 120"></div>
     </div>
     <div class="form-row-3">
+      <div class="form-row"><label>Density @15°C (BDN)</label><input id="b-dens" type="number" step="any" placeholder="0.958"></div>
       <div class="form-row"><label>Temp (°C)</label><input id="b-temp" type="number" step="any" value="15"></div>
       <div class="form-row"><label>BDN No.</label><input id="b-bdn" placeholder="BDN-..."></div>
+    </div>
+    <div class="form-row-2">
       <div class="form-row"><label>Supplier / Barge</label><input id="b-sup" placeholder="Supplier"></div>
+      <div class="form-row"><label>Est. duration</label><input id="b-eta-preview" disabled placeholder="enter qty + rate"></div>
     </div>
     <div class="form-row"><label>Distribution mode</label></div>
     <div class="distrib-grid" id="distrib-modes">
@@ -1173,11 +1217,54 @@ function renderBunkering(main) {
     </div>
     <div id="manual-alloc" style="display:none"></div>
     <div class="btn-row">
+      <button class="btn primary" id="btn-start-live">Start live operation</button>
       <button class="btn" id="btn-preview-bunker">Preview distribution</button>
-      <button class="btn primary" id="btn-apply-bunker">Apply to tanks</button>
+      <button class="btn" id="btn-apply-bunker">Apply instantly (no live)</button>
     </div>
     <div id="bunker-result" style="margin-top:14px"></div>`;
   main.appendChild(panel);
+
+  // Mix calculator
+  const mix = document.createElement('div');
+  mix.className = 'form-panel';
+  mix.style.marginTop = '18px';
+  mix.innerHTML = `
+    <div class="section-title" style="margin-top:0">Mix calculator — different densities</div>
+    <p class="hint" style="margin-top:0">Blend ROB already on board with incoming bunker (or any parcels). Uses ASTM WCF volume @15°C by default.</p>
+    <div class="scroll-x">
+      <table class="data-table" id="mix-table">
+        <thead><tr><th>Parcel</th><th>Density @15</th><th>Quantity MT</th><th>Volume m³ (opt.)</th><th>Temp °C</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><input data-mix="label" value="ROB on board"></td>
+            <td><input data-mix="density15" type="number" step="any" placeholder="0.960"></td>
+            <td><input data-mix="quantityMT" type="number" step="any" placeholder="200"></td>
+            <td><input data-mix="volumeM3" type="number" step="any" placeholder=""></td>
+            <td><input data-mix="tempC" type="number" step="any" value="15"></td>
+          </tr>
+          <tr>
+            <td><input data-mix="label" value="Incoming bunker"></td>
+            <td><input data-mix="density15" type="number" step="any" placeholder="0.945"></td>
+            <td><input data-mix="quantityMT" type="number" step="any" placeholder="450"></td>
+            <td><input data-mix="volumeM3" type="number" step="any" placeholder=""></td>
+            <td><input data-mix="tempC" type="number" step="any" value="15"></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="form-row-3" style="margin-top:10px">
+      <div class="form-row"><label>Method</label>
+        <select id="mix-method">
+          <option value="wcf">WCF volume @15°C (recommended)</option>
+          <option value="mass">Mass-weighted density</option>
+        </select></div>
+      <div class="form-row" style="display:flex;align-items:flex-end;gap:8px">
+        <button class="btn" id="btn-mix-add">Add parcel</button>
+        <button class="btn primary" id="btn-mix-calc">Calculate blend</button>
+      </div>
+    </div>
+    <div id="mix-result" style="margin-top:12px"></div>`;
+  main.appendChild(mix);
 
   const modes = document.getElementById('distrib-modes');
   modes.querySelectorAll('input').forEach((inp) => {
@@ -1189,6 +1276,17 @@ function renderBunkering(main) {
     };
   });
 
+  function updateEtaPreview() {
+    const qty = parseFloat(document.getElementById('b-qty').value) || 0;
+    const rate = parseFloat(document.getElementById('b-rate').value) || 0;
+    const el = document.getElementById('b-eta-preview');
+    if (!el) return;
+    if (qty > 0 && rate > 0) el.value = formatDuration((qty / rate) * 3600000);
+    else el.value = '';
+  }
+  document.getElementById('b-qty').oninput = updateEtaPreview;
+  document.getElementById('b-rate').oninput = updateEtaPreview;
+
   function renderManualAlloc() {
     const grade = document.getElementById('b-grade').value;
     const tanks = (STATE.bundle.tanks.fuel || []).filter((t) => !t.fuelGrade || t.fuelGrade === grade || t.fuelGrade === 'other' || (grade==='hfo'&&t.fuelGrade==='lsfo'));
@@ -1196,33 +1294,14 @@ function renderBunkering(main) {
       ${tanks.map((t) => {
         const r = getReading(t.id);
         const free = Math.max(0, (t.capacity||0) - (r?.result?.volumeObserved||0));
-        return `<tr><td>${t.name}</td><td>${t.fuelRole}</td><td>${fmt(free,1)}</td>
+        return `<tr><td>${escapeHtml(t.name)}</td><td>${t.fuelRole}</td><td>${fmt(free,1)}</td>
           <td><input type="number" step="any" data-manual="${t.id}" value="0" style="width:100px;background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;padding:6px"></td></tr>`;
       }).join('')}
     </tbody></table>`;
   }
 
-  async function run(apply) {
-    const mode = document.querySelector('input[name="b-mode"]:checked').value;
-    const manual = {};
-    if (mode === 'manual') {
-      document.querySelectorAll('[data-manual]').forEach((el) => {
-        manual[el.dataset.manual] = parseFloat(el.value) || 0;
-      });
-    }
-    const body = {
-      quantityMT: parseFloat(document.getElementById('b-qty').value) || 0,
-      fuelGrade: document.getElementById('b-grade').value,
-      density15: document.getElementById('b-dens').value === '' ? null : parseFloat(document.getElementById('b-dens').value),
-      tempC: parseFloat(document.getElementById('b-temp').value) || 15,
-      mode,
-      manual,
-      apply,
-      bdn: {
-        bdnNo: document.getElementById('b-bdn').value,
-        supplier: document.getElementById('b-sup').value,
-      },
-    };
+  async function runInstant(apply) {
+    const body = { ...collectBunkerPlanBody(), apply };
     try {
       const res = await Api.bunkerDistribute(STATE.activeVesselId, body);
       if (apply) await reloadBundle();
@@ -1230,7 +1309,7 @@ function renderBunkering(main) {
       el.innerHTML = `<div class="section-title">Distribution ${apply ? 'applied' : 'preview'}</div>
         <table class="data-table"><thead><tr><th>Tank</th><th>Side</th><th>Before MT</th><th>Add MT</th><th>After vol</th></tr></thead><tbody>
         ${(res.allocations||[]).map((a)=>`<tr>
-          <td>${a.name}</td><td>${a.side||''}</td><td>${fmt(a.beforeWeight,2)}</td>
+          <td>${escapeHtml(a.name)}</td><td>${a.side||''}</td><td>${fmt(a.beforeWeight,2)}</td>
           <td><b>${fmt(a.mt,3)}</b></td><td>${a.afterVolume!=null?fmt(a.afterVolume,2):'–'}</td>
         </tr>`).join('')}
         </tbody></table>`;
@@ -1240,10 +1319,86 @@ function renderBunkering(main) {
     }
   }
 
-  document.getElementById('btn-preview-bunker').onclick = () => run(false);
+  document.getElementById('btn-preview-bunker').onclick = () => runInstant(false);
   document.getElementById('btn-apply-bunker').onclick = () => {
-    if (!confirm('Apply bunker distribution to tank ROB readings?')) return;
-    run(true);
+    if (!confirm('Apply full bunker quantity to tank ROB readings immediately?')) return;
+    runInstant(true);
+  };
+  document.getElementById('btn-start-live').onclick = async () => {
+    const body = collectBunkerPlanBody();
+    if (!(body.quantityMT > 0)) { showToast('Enter quantity to receive (MT)'); return; }
+    if (!(body.rateMTPerHour > 0)) { showToast('Enter pumping rate (MT/h) for live timing'); return; }
+    try {
+      const res = await Api.bunkerStart(STATE.activeVesselId, body);
+      await reloadBundle();
+      showToast('Live bunkering started');
+      renderLiveBunkerPanel(res.operation);
+    } catch (e) {
+      showToast(e.message);
+      if (e.message?.includes('already in progress')) loadActiveBunker();
+    }
+  };
+
+  // Mix calculator handlers
+  document.getElementById('btn-mix-add').onclick = () => {
+    const tb = document.querySelector('#mix-table tbody');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input data-mix="label" value="Parcel"></td>
+      <td><input data-mix="density15" type="number" step="any"></td>
+      <td><input data-mix="quantityMT" type="number" step="any"></td>
+      <td><input data-mix="volumeM3" type="number" step="any"></td>
+      <td><input data-mix="tempC" type="number" step="any" value="15"></td>`;
+    tb.appendChild(tr);
+  };
+  document.getElementById('btn-mix-calc').onclick = () => {
+    const parts = [];
+    document.querySelectorAll('#mix-table tbody tr').forEach((tr) => {
+      const get = (k) => tr.querySelector(`[data-mix="${k}"]`)?.value;
+      const dens = parseFloat(get('density15'));
+      const mt = get('quantityMT');
+      const vol = get('volumeM3');
+      if (!(dens > 0)) return;
+      if (mt === '' && vol === '') return;
+      parts.push({
+        label: get('label') || '',
+        density15: dens,
+        quantityMT: mt === '' ? null : parseFloat(mt),
+        volumeM3: vol === '' ? null : parseFloat(vol),
+        tempC: parseFloat(get('tempC')) || 15,
+      });
+    });
+    const method = document.getElementById('mix-method').value;
+    const result = typeof blendFuels === 'function'
+      ? blendFuels(parts, method)
+      : null;
+    const box = document.getElementById('mix-result');
+    if (!result || !result.blendedDensity15) {
+      box.innerHTML = '<div class="hint">Enter at least two parcels with density and MT (or volume).</div>';
+      return;
+    }
+    // Also offer to copy blended density into bunker plan
+    box.innerHTML = `<div class="bunker-mix-result">
+      <div class="bunker-stat"><div class="bunker-stat-label">Blended density @15°C</div><div class="bunker-stat-value">${fmt(result.blendedDensity15, 4)}</div></div>
+      <div class="bunker-stat"><div class="bunker-stat-label">Total quantity</div><div class="bunker-stat-value">${fmt(result.totalMT, 3)} MT</div></div>
+      <div class="bunker-stat"><div class="bunker-stat-label">Total vol @15°C</div><div class="bunker-stat-value">${fmt(result.totalVol15, 2)} m³</div></div>
+      <div class="bunker-stat"><div class="bunker-stat-label">Blended WCF</div><div class="bunker-stat-value">${fmt(result.blendedWcf, 4)}</div></div>
+    </div>
+    <div class="btn-row" style="margin-top:10px">
+      <button class="btn small" id="btn-mix-to-plan">Use density in bunker plan</button>
+      <button class="btn small" id="btn-mix-qty-to-plan">Use total MT as quantity to receive</button>
+    </div>
+    <table class="data-table" style="margin-top:10px"><thead><tr><th>Parcel</th><th>ρ15</th><th>MT</th><th>m³@15</th></tr></thead>
+    <tbody>${result.parts.map((p)=>`<tr><td>${escapeHtml(p.label)}</td><td>${fmt(p.density15,4)}</td><td>${fmt(p.quantityMT,3)}</td><td>${fmt(p.volume15,2)}</td></tr>`).join('')}</tbody></table>`;
+    document.getElementById('btn-mix-to-plan').onclick = () => {
+      document.getElementById('b-dens').value = result.blendedDensity15;
+      showToast('Blended density copied to bunker plan');
+    };
+    document.getElementById('btn-mix-qty-to-plan').onclick = () => {
+      document.getElementById('b-qty').value = result.totalMT;
+      updateEtaPreview();
+      showToast('Total MT copied to quantity to receive');
+    };
   };
 
   // History
@@ -1253,13 +1408,240 @@ function renderBunkering(main) {
     hist.className = 'form-panel';
     hist.style.marginTop = '18px';
     hist.innerHTML = `<div class="section-title" style="margin-top:0">Recent bunker ops</div>
-      <table class="data-table"><thead><tr><th>Date</th><th>Grade</th><th>MT</th><th>Mode</th><th>BDN</th></tr></thead>
-      <tbody>${ops.slice(0,10).map((o)=>`<tr>
+      <table class="data-table"><thead><tr><th>Date</th><th>Status</th><th>Grade</th><th>Planned</th><th>Received</th><th>Rate</th><th>BDN</th></tr></thead>
+      <tbody>${ops.slice(0,12).map((o)=>`<tr>
         <td>${(o.createdAt||'').slice(0,16).replace('T',' ')}</td>
-        <td>${o.fuelGrade}</td><td>${fmt(o.quantityMT,2)}</td><td>${o.mode}</td>
-        <td>${o.bdn?.bdnNo||'–'}</td></tr>`).join('')}</tbody></table>`;
+        <td><span class="pill ${o.status==='active'||o.status==='paused'?'warn':(o.status==='completed'?'good':'')}">${o.status||(o.applied?'completed':'preview')}</span></td>
+        <td>${o.fuelGrade}</td>
+        <td>${fmt(o.quantityMT??o.plannedMT,2)}</td>
+        <td>${o.receivedMT!=null?fmt(o.receivedMT,2):'–'}</td>
+        <td>${o.rateMTPerHour?fmt(o.rateMTPerHour,1):'–'}</td>
+        <td>${escapeHtml(o.bdn?.bdnNo||'–')}</td></tr>`).join('')}</tbody></table>`;
     main.appendChild(hist);
   }
+
+  async function loadActiveBunker() {
+    try {
+      const res = await Api.bunkerActive(STATE.activeVesselId);
+      if (res.active) renderLiveBunkerPanel(res.active);
+      else {
+        stopBunkerLiveTimer();
+        activeWrap.innerHTML = '';
+        panel.style.display = '';
+      }
+    } catch (_) { /* ignore */ }
+  }
+
+  function renderLiveBunkerPanel(op) {
+    panel.style.display = 'none';
+    let current = op;
+
+    function paint() {
+      const live = typeof bunkerProgress === 'function'
+        ? bunkerProgress({
+          plannedMT: current.quantityMT ?? current.plannedMT,
+          receivedMT: current.intakeMode === 'manual' ? current.receivedMT : null,
+          rateMTPerHour: current.rateMTPerHour,
+          startedAt: current.startedAt,
+          pausedAt: current.status === 'paused' ? (current.pausedAt || new Date().toISOString()) : null,
+          elapsedPausedMs: current.elapsedPausedMs || 0,
+        })
+        : (current.progress || {});
+
+      // Project tanks locally for smooth UI
+      const planned = live.plannedMT || 1;
+      const received = live.receivedMT || 0;
+      const dens = current.density15;
+      const tempC = current.tempC ?? 15;
+      const tanks = (current.allocations || []).map((a) => {
+        const share = (Number(a.mt) || 0) / planned;
+        const receivedTank = Math.round(received * share * 1000) / 1000;
+        const addVol = dens && typeof volumeFromMT === 'function' ? volumeFromMT(receivedTank, dens, tempC) : null;
+        return {
+          ...a,
+          receivedMT: receivedTank,
+          currentWeight: (a.beforeWeight || 0) + receivedTank,
+          currentVolume: addVol != null ? (a.beforeVolume || 0) + addVol : null,
+          targetWeight: (a.beforeWeight || 0) + (Number(a.mt) || 0),
+        };
+      });
+
+      const pct = Math.min(100, live.percentComplete || 0);
+      activeWrap.innerHTML = `
+        <div class="form-panel bunker-live">
+          <div class="bunker-live-head">
+            <div>
+              <div class="section-title" style="margin-top:0">Live bunkering · ${escapeHtml((current.fuelGrade||'').toUpperCase())}
+                <span class="pill ${current.status==='paused'?'warn':'good'}">${current.status||'active'}</span>
+              </div>
+              <div class="hint">BDN ${escapeHtml(current.bdn?.bdnNo||'–')} · mode ${escapeHtml(current.mode||'')} · started ${(current.startedAt||'').slice(0,16).replace('T',' ')}</div>
+            </div>
+            <div class="btn-row">
+              ${current.status==='paused'
+                ? '<button class="btn primary small" id="btn-live-resume">Resume</button>'
+                : '<button class="btn small" id="btn-live-pause">Pause</button>'}
+              <button class="btn small" id="btn-live-sync">Sync tanks now</button>
+              <button class="btn primary small" id="btn-live-complete">Complete (current intake)</button>
+              <button class="btn small" id="btn-live-complete-full">Complete (full planned)</button>
+              <button class="btn small" id="btn-live-cancel">Cancel</button>
+            </div>
+          </div>
+
+          <div class="bunker-kpi-grid">
+            <div class="bunker-stat"><div class="bunker-stat-label">To receive</div><div class="bunker-stat-value">${fmt(live.plannedMT,2)} <span class="unit">MT</span></div></div>
+            <div class="bunker-stat accent"><div class="bunker-stat-label">Current intake</div><div class="bunker-stat-value">${fmt(live.receivedMT,2)} <span class="unit">MT</span></div></div>
+            <div class="bunker-stat"><div class="bunker-stat-label">Remaining</div><div class="bunker-stat-value">${fmt(live.remainingMT,2)} <span class="unit">MT</span></div></div>
+            <div class="bunker-stat"><div class="bunker-stat-label">Pumping rate</div><div class="bunker-stat-value">${fmt(live.rateMTPerHour,1)} <span class="unit">MT/h</span></div></div>
+            <div class="bunker-stat"><div class="bunker-stat-label">Time used</div><div class="bunker-stat-value">${escapeHtml(live.timeUsedLabel||'—')}</div></div>
+            <div class="bunker-stat"><div class="bunker-stat-label">Time remaining</div><div class="bunker-stat-value">${escapeHtml(live.timeRemainingLabel||'—')}</div></div>
+          </div>
+
+          <div class="bunker-progress-bar"><div style="width:${pct}%"></div></div>
+          <div class="hint" style="margin:6px 0 12px">${fmt(pct,1)}% complete${live.etaAt && current.status!=='paused' ? ` · ETA ${live.etaAt.slice(11,16)} UTC` : ''}</div>
+
+          <div class="form-row-3">
+            <div class="form-row"><label>Update rate (MT/h)</label><input id="live-rate" type="number" step="any" value="${current.rateMTPerHour||0}"></div>
+            <div class="form-row"><label>Set intake manually (MT)</label><input id="live-recv" type="number" step="any" value="${current.intakeMode==='manual'? (current.receivedMT??'') : ''}" placeholder="auto from rate"></div>
+            <div class="form-row" style="display:flex;align-items:flex-end;gap:8px">
+              <button class="btn" id="btn-live-rate">Update rate / intake</button>
+            </div>
+          </div>
+
+          <div class="section-title">Live tank updates</div>
+          <div class="scroll-x"><table class="data-table">
+            <thead><tr>
+              <th>Tank</th><th>Side</th><th>Before MT</th><th>Intake MT</th><th>Current MT</th><th>Target MT</th><th>Current m³</th><th>%</th>
+            </tr></thead>
+            <tbody>${tanks.map((a)=>`<tr>
+              <td class="tname">${escapeHtml(a.name)}</td>
+              <td>${a.side||''}</td>
+              <td>${fmt(a.beforeWeight,2)}</td>
+              <td><b>${fmt(a.receivedMT,3)}</b></td>
+              <td>${fmt(a.currentWeight,2)}</td>
+              <td>${fmt(a.targetWeight,2)}</td>
+              <td>${a.currentVolume!=null?fmt(a.currentVolume,1):'–'}</td>
+              <td>${a.capacity?fmt((a.currentVolume!=null?a.currentVolume:a.beforeVolume||0)/a.capacity*100,0)+'%':'–'}</td>
+            </tr>`).join('')}</tbody>
+          </table></div>
+
+          <div class="section-title">Update from tank soundings / gauges</div>
+          <p class="hint">Enter current weight (MT) or volume (m³) after a sounding round — intake is recalculated as current − before.</p>
+          <div class="scroll-x"><table class="data-table">
+            <thead><tr><th>Tank</th><th>Before MT</th><th>Current MT</th><th>Current m³</th></tr></thead>
+            <tbody>${(current.allocations||[]).map((a)=>`<tr data-sound="${a.tankId}">
+              <td>${escapeHtml(a.name)}</td>
+              <td>${fmt(a.beforeWeight,2)}</td>
+              <td><input type="number" step="any" data-sw data-tank="${a.tankId}" placeholder="MT" style="width:100px"></td>
+              <td><input type="number" step="any" data-sv data-tank="${a.tankId}" placeholder="m³" style="width:100px"></td>
+            </tr>`).join('')}</tbody>
+          </table></div>
+          <div class="btn-row" style="margin-top:10px">
+            <button class="btn" id="btn-live-soundings">Apply sounding updates</button>
+          </div>
+        </div>`;
+
+      document.getElementById('btn-live-pause')?.addEventListener('click', async () => {
+        try {
+          const res = await Api.bunkerUpdate(STATE.activeVesselId, current.id, { action: 'pause' });
+          current = res.operation;
+          paint();
+        } catch (e) { showToast(e.message); }
+      });
+      document.getElementById('btn-live-resume')?.addEventListener('click', async () => {
+        try {
+          const res = await Api.bunkerUpdate(STATE.activeVesselId, current.id, { action: 'resume' });
+          current = res.operation;
+          paint();
+        } catch (e) { showToast(e.message); }
+      });
+      document.getElementById('btn-live-rate').onclick = async () => {
+        const rate = parseFloat(document.getElementById('live-rate').value);
+        const recvRaw = document.getElementById('live-recv').value;
+        const body = { rateMTPerHour: rate };
+        if (recvRaw !== '') {
+          body.receivedMT = parseFloat(recvRaw) || 0;
+          body.intakeMode = 'manual';
+        } else {
+          body.intakeMode = 'rate';
+        }
+        try {
+          const res = await Api.bunkerUpdate(STATE.activeVesselId, current.id, body);
+          current = res.operation;
+          showToast('Live op updated');
+          paint();
+        } catch (e) { showToast(e.message); }
+      };
+      document.getElementById('btn-live-sync').onclick = async () => {
+        try {
+          const res = await Api.bunkerUpdate(STATE.activeVesselId, current.id, { syncTanks: true });
+          current = res.operation;
+          await reloadBundle();
+          showToast('Tank ROB synced to current intake');
+          paint();
+        } catch (e) { showToast(e.message); }
+      };
+      async function finishBunker(usePlanned) {
+        const label = usePlanned ? 'full planned quantity' : 'current intake';
+        if (!confirm(`Complete bunkering with ${label} and finalize tank ROB + voyage received totals?`)) return;
+        try {
+          await Api.bunkerComplete(STATE.activeVesselId, current.id, { usePlanned: !!usePlanned });
+          await reloadBundle();
+          stopBunkerLiveTimer();
+          showToast(usePlanned ? 'Bunkering completed (full planned MT)' : 'Bunkering completed (current intake)');
+          navigate('bunkering');
+        } catch (e) { showToast(e.message); }
+      }
+      document.getElementById('btn-live-complete').onclick = () => finishBunker(false);
+      document.getElementById('btn-live-complete-full').onclick = () => finishBunker(true);
+      document.getElementById('btn-live-cancel').onclick = async () => {
+        if (!confirm('Cancel this live bunkering operation? Tank ROB will not be finalized.')) return;
+        try {
+          await Api.bunkerCancel(STATE.activeVesselId, current.id);
+          await reloadBundle();
+          stopBunkerLiveTimer();
+          showToast('Bunkering cancelled');
+          navigate('bunkering');
+        } catch (e) { showToast(e.message); }
+      };
+      document.getElementById('btn-live-soundings').onclick = async () => {
+        const tankUpdates = [];
+        document.querySelectorAll('[data-sw]').forEach((el) => {
+          const w = el.value;
+          const vEl = document.querySelector(`[data-sv][data-tank="${el.dataset.tank}"]`);
+          const v = vEl?.value;
+          if (w === '' && v === '') return;
+          tankUpdates.push({
+            tankId: el.dataset.tank,
+            weightMT: w === '' ? null : parseFloat(w),
+            volumeM3: v === '' ? null : parseFloat(v),
+          });
+        });
+        if (!tankUpdates.length) { showToast('Enter at least one current MT or m³'); return; }
+        try {
+          const res = await Api.bunkerUpdate(STATE.activeVesselId, current.id, {
+            tankUpdates,
+            syncTanks: true,
+          });
+          current = res.operation;
+          await reloadBundle();
+          showToast('Intake updated from soundings');
+          paint();
+        } catch (e) { showToast(e.message); }
+      };
+    }
+
+    paint();
+    stopBunkerLiveTimer();
+    _bunkerLiveTimer = setInterval(() => {
+      if (STATE.route.page !== 'bunkering') {
+        stopBunkerLiveTimer();
+        return;
+      }
+      paint();
+    }, 1000);
+  }
+
+  loadActiveBunker();
 }
 
 /* ---------- Report ---------- */
@@ -1567,6 +1949,7 @@ function renderAbout(main) {
     <p>Each vessel is stored under <code>data/vessels/&lt;id&gt;/</code>. The app runs as a local web server (Debian / Proxmox LXC) and as a mobile-friendly PWA for Android. Offline edits queue until the server is reachable; peer sync pushes/pulls full vessel databases.</p>
     <p>Original CAPTAIN VENIAMIS calibration tables are seeded as the default vessel.</p>
     <p><b>Import / edit:</b> Excel workbook (Tank1–Tank4), tank-list CSV, per-tank calibration CSV/Excel, or PDF sounding tables (Calibration DB).</p>
+    <p><b>Live bunkering:</b> enter MT to receive and pumping rate (MT/h) for time used / remaining, watch live tank intake, sync soundings, and blend parcels of different density (WCF @15°C).</p>
   </div>`;
 }
 

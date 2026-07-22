@@ -299,6 +299,160 @@ function computeTank(tank, inputs) {
 }
 
 
+/**
+ * Convert MT ↔ observed m³ using ASTM WCF (and optional VCF when temp ≠ 15).
+ * volumeObserved ≈ (MT / WCF) / VCF
+ */
+function volumeFromMT(mt, density15, tempC = 15) {
+  const dens = Number(density15);
+  const mass = Number(mt);
+  if (!(dens > 0) || !(mass >= 0)) return null;
+  const wcf = wcf56(dens);
+  if (!(wcf > 0)) return null;
+  const vol15 = mass / wcf;
+  const vcf = vcf54B(dens, tempC ?? 15);
+  return vcf > 0 ? vol15 / vcf : vol15;
+}
+
+function mtFromVolume(volumeObserved, density15, tempC = 15) {
+  const dens = Number(density15);
+  const vol = Number(volumeObserved);
+  if (!(dens > 0) || !(vol >= 0)) return null;
+  const vcf = vcf54B(dens, tempC ?? 15);
+  const wcf = wcf56(dens);
+  return vol * vcf * wcf;
+}
+
+/**
+ * Mix fuels of different density @15°C.
+ * Each part: { density15, quantityMT } and/or { density15, volumeM3, tempC }
+ * method: 'wcf' (default) — blend via vol@15 from WCF; 'mass' — mass-weighted ρ
+ */
+function blendFuels(parts = [], method = 'wcf') {
+  const rows = [];
+  let totalMT = 0;
+  let totalVol15 = 0;
+  let massRhoSum = 0;
+
+  for (const p of parts || []) {
+    const dens = Number(p.density15);
+    if (!(dens > 0)) continue;
+    let mt = p.quantityMT != null && p.quantityMT !== '' ? Number(p.quantityMT) : null;
+    let volObs = p.volumeM3 != null && p.volumeM3 !== '' ? Number(p.volumeM3) : null;
+    const tempC = p.tempC != null && p.tempC !== '' ? Number(p.tempC) : 15;
+    const wcf = wcf56(dens);
+    const vcf = vcf54B(dens, tempC);
+
+    if (mt == null && volObs != null) mt = volObs * vcf * wcf;
+    if (volObs == null && mt != null && wcf > 0) {
+      const vol15 = mt / wcf;
+      volObs = vcf > 0 ? vol15 / vcf : vol15;
+    }
+    if (mt == null || !(mt >= 0) || !(wcf > 0)) continue;
+
+    const vol15 = mt / wcf;
+    rows.push({
+      label: p.label || '',
+      density15: dens,
+      quantityMT: mt,
+      volumeM3: volObs,
+      volume15: vol15,
+      tempC,
+      wcf,
+      vcf,
+    });
+    totalMT += mt;
+    totalVol15 += vol15;
+    massRhoSum += mt * dens;
+  }
+
+  if (!rows.length || totalVol15 <= 0) {
+    return { parts: rows, totalMT: 0, totalVol15: 0, blendedDensity15: null, method };
+  }
+
+  let blendedDensity15;
+  if (method === 'mass') {
+    blendedDensity15 = massRhoSum / totalMT;
+  } else {
+    // Consistent with WCF: M = V15 * (ρ - 0.0011) → ρ = M/V15 + 0.0011
+    blendedDensity15 = totalMT / totalVol15 + 0.0011;
+  }
+  blendedDensity15 = Math.round(blendedDensity15 * 1e6) / 1e6;
+
+  return {
+    parts: rows,
+    totalMT: Math.round(totalMT * 1000) / 1000,
+    totalVol15: Math.round(totalVol15 * 1000) / 1000,
+    blendedDensity15,
+    blendedWcf: wcf56(blendedDensity15),
+    method,
+  };
+}
+
+/**
+ * Live bunkering progress from planned MT, pumping rate, and clock.
+ */
+function bunkerProgress({
+  plannedMT = 0,
+  receivedMT = null,
+  rateMTPerHour = 0,
+  startedAt = null,
+  pausedAt = null,
+  elapsedPausedMs = 0,
+  now = Date.now(),
+} = {}) {
+  const planned = Math.max(0, Number(plannedMT) || 0);
+  const rate = Math.max(0, Number(rateMTPerHour) || 0);
+  const nowMs = typeof now === 'number' ? now : new Date(now).getTime();
+  const startMs = startedAt ? new Date(startedAt).getTime() : null;
+  const pauseMs = pausedAt ? new Date(pausedAt).getTime() : null;
+
+  let elapsedMs = 0;
+  if (startMs) {
+    const endMs = pauseMs || nowMs;
+    elapsedMs = Math.max(0, endMs - startMs - (Number(elapsedPausedMs) || 0));
+  }
+  const elapsedHours = elapsedMs / 3600000;
+  const estimatedFromRate = rate > 0 ? rate * elapsedHours : 0;
+
+  let received = receivedMT != null && receivedMT !== ''
+    ? Math.max(0, Number(receivedMT) || 0)
+    : estimatedFromRate;
+  if (planned > 0) received = Math.min(received, planned);
+
+  const remaining = Math.max(0, planned - received);
+  const timeRemainingHours = rate > 0 ? remaining / rate : null;
+  const pct = planned > 0 ? (received / planned) * 100 : 0;
+
+  return {
+    plannedMT: planned,
+    receivedMT: Math.round(received * 1000) / 1000,
+    remainingMT: Math.round(remaining * 1000) / 1000,
+    rateMTPerHour: rate,
+    elapsedMs,
+    elapsedHours: Math.round(elapsedHours * 10000) / 10000,
+    timeUsedLabel: formatDuration(elapsedMs),
+    timeRemainingHours,
+    timeRemainingMs: timeRemainingHours != null ? timeRemainingHours * 3600000 : null,
+    timeRemainingLabel: timeRemainingHours != null ? formatDuration(timeRemainingHours * 3600000) : '—',
+    percentComplete: Math.round(pct * 10) / 10,
+    etaAt: timeRemainingHours != null && !pauseMs
+      ? new Date(nowMs + timeRemainingHours * 3600000).toISOString()
+      : null,
+    paused: Boolean(pauseMs),
+  };
+}
+
+function formatDuration(ms) {
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return '—';
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`;
+  return `${m}m ${String(s).padStart(2, '0')}s`;
+}
+
 module.exports = {
   isAscending,
   linearInterp,
@@ -312,5 +466,10 @@ module.exports = {
   PREFERRED_INCREMENTS,
   vcf54B,
   wcf56,
-  computeTank
+  computeTank,
+  volumeFromMT,
+  mtFromVolume,
+  blendFuels,
+  bunkerProgress,
+  formatDuration,
 };

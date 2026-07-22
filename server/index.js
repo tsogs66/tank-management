@@ -7,10 +7,11 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const store = require('./store');
-const { computeTank } = require('./calc');
+const { computeTank, blendFuels, bunkerProgress } = require('./calc');
 const excelImport = require('./excel-import');
 const pdfImport = require('./pdf-import');
 const tankTableIo = require('./tank-table-io');
+const bunkerLive = require('./bunker-live');
 const fs = require('fs');
 
 const app = express();
@@ -169,131 +170,152 @@ app.post('/api/vessels/:id/calculate', (req, res) => {
 });
 
 /* ---------- Bunkering distribution ---------- */
+function makeAlloc(tank, mt, bundle, density15) {
+  const r = bundle.readings[tank.id];
+  return {
+    tankId: tank.id,
+    name: tank.name,
+    side: tank.side,
+    tankNo: tank.tankNo,
+    fuelRole: tank.fuelRole,
+    capacity: tank.capacity,
+    beforeVolume: r?.result?.volumeObserved || 0,
+    beforeWeight: r?.result?.weightMT || 0,
+    mt,
+    density15,
+  };
+}
+
+function computeBunkerDistribution(bundle, body = {}) {
+  const {
+    quantityMT,
+    fuelGrade = 'hfo',
+    mode = 'equal-storage',
+    density15 = null,
+    tempC = 15,
+    manual = {},
+    bdn = {},
+  } = body;
+
+  const qty = Number(quantityMT) || 0;
+  if (qty <= 0) throw new Error('Enter bunker quantity (MT) to be received');
+
+  const fuelTanks = (bundle.tanks.fuel || []).filter((t) => {
+    if (fuelGrade && t.fuelGrade && t.fuelGrade !== 'other' && t.fuelGrade !== fuelGrade) {
+      if (fuelGrade === 'hfo' && (t.fuelGrade === 'lsfo' || t.fuelGrade === 'hfo')) return true;
+      return t.fuelGrade === fuelGrade;
+    }
+    return t.category === 'fuel';
+  });
+
+  let targets = [];
+  switch (mode) {
+    case 'equal-storage':
+      targets = fuelTanks.filter((t) => t.fuelRole === 'storage');
+      break;
+    case 'port-storage':
+      targets = fuelTanks.filter((t) => t.fuelRole === 'storage' && t.side === 'port');
+      break;
+    case 'starboard-storage':
+      targets = fuelTanks.filter((t) => t.fuelRole === 'storage' && t.side === 'starboard');
+      break;
+    case 'no1-storage':
+      targets = fuelTanks.filter((t) => t.fuelRole === 'storage' && t.tankNo === 1);
+      break;
+    case 'no2-storage':
+      targets = fuelTanks.filter((t) => t.fuelRole === 'storage' && t.tankNo === 2);
+      break;
+    case 'settling':
+      targets = fuelTanks.filter((t) => t.fuelRole === 'settling');
+      break;
+    case 'service':
+      targets = fuelTanks.filter((t) => t.fuelRole === 'service');
+      break;
+    case 'manual':
+      targets = fuelTanks.filter((t) => manual[t.id] != null && Number(manual[t.id]) > 0);
+      break;
+    default:
+      targets = fuelTanks.filter((t) => t.fuelRole === 'storage');
+  }
+
+  if (!targets.length) {
+    throw new Error('No matching tanks for distribution mode: ' + mode);
+  }
+
+  const allocations = [];
+  if (mode === 'manual') {
+    let sum = 0;
+    for (const t of targets) {
+      const mt = Number(manual[t.id]) || 0;
+      sum += mt;
+      allocations.push(makeAlloc(t, mt, bundle, density15));
+    }
+    if (Math.abs(sum - qty) > 0.05) {
+      throw new Error(`Manual total ${sum.toFixed(3)} MT does not match received ${qty.toFixed(3)} MT`);
+    }
+  } else {
+    const free = targets.map((t) => {
+      const r = bundle.readings[t.id];
+      const currentVol = r?.result?.volumeObserved || 0;
+      const freeVol = Math.max(0, (t.capacity || 0) - currentVol);
+      return { tank: t, freeVol };
+    });
+    const totalFree = free.reduce((s, x) => s + x.freeVol, 0);
+    let remaining = qty;
+    free.forEach((x, i) => {
+      let mt;
+      if (totalFree > 0.01) {
+        mt = i === free.length - 1 ? remaining : (qty * x.freeVol) / totalFree;
+      } else {
+        mt = qty / free.length;
+      }
+      mt = Math.round(mt * 1000) / 1000;
+      remaining = Math.round((remaining - mt) * 1000) / 1000;
+      allocations.push(makeAlloc(x.tank, mt, bundle, density15));
+    });
+  }
+
+  const op = {
+    id: 'bop_' + Date.now().toString(36),
+    createdAt: new Date().toISOString(),
+    quantityMT: qty,
+    plannedMT: qty,
+    fuelGrade,
+    mode,
+    density15,
+    tempC,
+    bdn: {
+      supplier: bdn.supplier || '',
+      barge: bdn.barge || '',
+      bdnNo: bdn.bdnNo || '',
+      port: bdn.port || '',
+      sulfur: bdn.sulfur || '',
+      date: bdn.date || new Date().toISOString().slice(0, 10),
+    },
+    allocations,
+    applied: false,
+  };
+
+  return { operation: op, allocations };
+}
+
 app.post('/api/vessels/:id/bunker-distribute', (req, res) => {
   try {
     const bundle = store.getVesselBundle(req.params.id);
-    const {
-      quantityMT,
-      fuelGrade = 'hfo',
-      mode = 'equal-storage',
-      density15 = null,
-      tempC = 15,
-      manual = {},
-      apply = false,
-      bdn = {},
-    } = req.body || {};
-
-    const qty = Number(quantityMT) || 0;
-    if (qty <= 0) return res.status(400).json({ error: 'Enter bunker quantity (MT)' });
-
-    const fuelTanks = (bundle.tanks.fuel || []).filter((t) => {
-      if (fuelGrade && t.fuelGrade && t.fuelGrade !== 'other' && t.fuelGrade !== fuelGrade) {
-        // allow overflow/settling of same family loosely
-        if (fuelGrade === 'hfo' && (t.fuelGrade === 'lsfo' || t.fuelGrade === 'hfo')) return true;
-        return t.fuelGrade === fuelGrade;
-      }
-      return t.category === 'fuel';
-    });
-
-    let targets = [];
-    switch (mode) {
-      case 'equal-storage':
-        targets = fuelTanks.filter((t) => t.fuelRole === 'storage');
-        break;
-      case 'port-storage':
-        targets = fuelTanks.filter((t) => t.fuelRole === 'storage' && t.side === 'port');
-        break;
-      case 'starboard-storage':
-        targets = fuelTanks.filter((t) => t.fuelRole === 'storage' && t.side === 'starboard');
-        break;
-      case 'no1-storage':
-        targets = fuelTanks.filter((t) => t.fuelRole === 'storage' && t.tankNo === 1);
-        break;
-      case 'no2-storage':
-        targets = fuelTanks.filter((t) => t.fuelRole === 'storage' && t.tankNo === 2);
-        break;
-      case 'settling':
-        targets = fuelTanks.filter((t) => t.fuelRole === 'settling');
-        break;
-      case 'service':
-        targets = fuelTanks.filter((t) => t.fuelRole === 'service');
-        break;
-      case 'manual':
-        targets = fuelTanks.filter((t) => manual[t.id] != null && Number(manual[t.id]) > 0);
-        break;
-      default:
-        targets = fuelTanks.filter((t) => t.fuelRole === 'storage');
-    }
-
-    if (!targets.length) {
-      return res.status(400).json({ error: 'No matching tanks for distribution mode: ' + mode });
-    }
-
-    const allocations = [];
-    if (mode === 'manual') {
-      let sum = 0;
-      for (const t of targets) {
-        const mt = Number(manual[t.id]) || 0;
-        sum += mt;
-        allocations.push(makeAlloc(t, mt, bundle, density15));
-      }
-      if (Math.abs(sum - qty) > 0.05) {
-        return res.status(400).json({
-          error: `Manual total ${sum.toFixed(3)} MT does not match received ${qty.toFixed(3)} MT`,
-        });
-      }
-    } else {
-      // Capacity-weighted equal fill of remaining space, fallback equal split
-      const free = targets.map((t) => {
-        const r = bundle.readings[t.id];
-        const currentVol = r?.result?.volumeObserved || 0;
-        const freeVol = Math.max(0, (t.capacity || 0) - currentVol);
-        return { tank: t, freeVol };
-      });
-      const totalFree = free.reduce((s, x) => s + x.freeVol, 0);
-      let remaining = qty;
-      free.forEach((x, i) => {
-        let mt;
-        if (totalFree > 0.01) {
-          mt = i === free.length - 1 ? remaining : (qty * x.freeVol) / totalFree;
-        } else {
-          mt = qty / free.length;
-        }
-        mt = Math.round(mt * 1000) / 1000;
-        remaining = Math.round((remaining - mt) * 1000) / 1000;
-        allocations.push(makeAlloc(x.tank, mt, bundle, density15));
-      });
-    }
-
-    const op = {
-      id: 'bop_' + Date.now().toString(36),
-      createdAt: new Date().toISOString(),
-      quantityMT: qty,
-      fuelGrade,
-      mode,
-      density15,
-      tempC,
-      bdn: {
-        supplier: bdn.supplier || '',
-        barge: bdn.barge || '',
-        bdnNo: bdn.bdnNo || '',
-        port: bdn.port || '',
-        sulfur: bdn.sulfur || '',
-        date: bdn.date || new Date().toISOString().slice(0, 10),
-      },
-      allocations,
-      applied: false,
-    };
+    const apply = !!req.body?.apply;
+    const { operation: op, allocations } = computeBunkerDistribution(bundle, req.body || {});
+    const density15 = op.density15;
+    const fuelGrade = op.fuelGrade;
+    const tempC = op.tempC;
+    const qty = op.quantityMT;
 
     if (apply) {
-      // Convert MT → observed m3 approx using density/WCF and add to readings
       for (const a of allocations) {
         const tank = store.findTankInBundle(bundle.tanks, a.tankId);
         if (!tank) continue;
         const dens = density15 || store.getSettings().defaultDensity?.[fuelGrade] || 0.95;
         const wcf = dens - 0.0011;
         const addVol15 = wcf > 0 ? a.mt / wcf : 0;
-        // Use VCF~1 at 15C for planning add — observed ≈ vol15 when temp unknown
         const addObs = addVol15;
         const prev = bundle.readings[a.tankId];
         const prevVol = prev?.result?.volumeObserved || 0;
@@ -317,12 +339,14 @@ app.post('/api/vessels/:id/bunker-distribute', (req, res) => {
         a.afterWeight = result.weightMT;
       }
       op.applied = true;
+      op.status = 'completed';
+      op.receivedMT = qty;
+      op.completedAt = new Date().toISOString();
       const ops = bundle.bunkerOps || [];
       ops.unshift(op);
       store.saveVesselPart(req.params.id, 'readings', bundle.readings);
       store.saveVesselPart(req.params.id, 'bunkerOps', ops);
 
-      // Update bunkering received totals
       const bunk = bundle.bunkering || store.emptyBunkering();
       if (bunk[fuelGrade]) {
         bunk[fuelGrade].received = (Number(bunk[fuelGrade].received) || 0) + qty;
@@ -336,21 +360,85 @@ app.post('/api/vessels/:id/bunker-distribute', (req, res) => {
   }
 });
 
-function makeAlloc(tank, mt, bundle, density15) {
-  const r = bundle.readings[tank.id];
-  return {
-    tankId: tank.id,
-    name: tank.name,
-    side: tank.side,
-    tankNo: tank.tankNo,
-    fuelRole: tank.fuelRole,
-    capacity: tank.capacity,
-    beforeVolume: r?.result?.volumeObserved || 0,
-    beforeWeight: r?.result?.weightMT || 0,
-    mt,
-    density15,
-  };
-}
+/* ---------- Live bunkering operation ---------- */
+app.get('/api/vessels/:id/bunker-ops/active', (req, res) => {
+  try {
+    const op = bunkerLive.getActiveOp(req.params.id);
+    if (!op) return res.json({ active: null });
+    res.json({ active: bunkerLive.enrichOp(op) });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/vessels/:id/bunker-ops/start', (req, res) => {
+  try {
+    const existing = bunkerLive.getActiveOp(req.params.id);
+    if (existing) {
+      return res.status(409).json({
+        error: 'A bunkering operation is already in progress',
+        active: bunkerLive.enrichOp(existing),
+      });
+    }
+    const bundle = store.getVesselBundle(req.params.id);
+    const dist = computeBunkerDistribution(bundle, req.body || {});
+    const op = bunkerLive.buildOpFromDistribute(dist, {
+      rateMTPerHour: req.body?.rateMTPerHour,
+      intakeMode: req.body?.intakeMode,
+    });
+    const ops = bundle.bunkerOps || [];
+    ops.unshift(op);
+    store.saveVesselPart(req.params.id, 'bunkerOps', ops);
+    res.status(201).json({ operation: bunkerLive.enrichOp(op) });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.patch('/api/vessels/:id/bunker-ops/:opId', (req, res) => {
+  try {
+    const op = bunkerLive.updateOp(req.params.id, req.params.opId, req.body || {});
+    res.json({ operation: op });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/vessels/:id/bunker-ops/:opId/complete', (req, res) => {
+  try {
+    const op = bunkerLive.completeOp(req.params.id, req.params.opId, req.body || {});
+    res.json({ operation: op });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/vessels/:id/bunker-ops/:opId/cancel', (req, res) => {
+  try {
+    const op = bunkerLive.cancelOp(req.params.id, req.params.opId);
+    res.json({ operation: op });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/vessels/:id/bunker-blend', (req, res) => {
+  try {
+    const method = req.body?.method || 'wcf';
+    const result = blendFuels(req.body?.parts || [], method);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/vessels/:id/bunker-progress', (req, res) => {
+  try {
+    res.json({ ok: true, ...bunkerProgress(req.body || {}) });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
 
 /* ---------- Backup / import ---------- */
 app.get('/api/backup', (req, res) => {
