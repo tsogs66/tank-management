@@ -10,7 +10,8 @@ Multi-vessel web app for fuel tank sounding (double interpolation + ASTM 54B), e
 - **PDF table import** — extract sounding / trim tables from capacity-book PDFs into a tank’s calibration grid
 - **Add tanks** — storage, settling, service (also overflow/other); CSV import template included
 - **Voyage fuel calculation** — per-leg distance/speed/daily burn → arrival ROB
-- **Bunkering** — enter received MT, then distribute:
+- **Live bunkering** — MT to receive, pumping rate → time used / remaining, live tank intake, mix calculator for different densities
+- **Bunkering distribute** — enter received MT, then distribute:
   - equally across storage (free-space weighted)
   - port / starboard storage only
   - No.1 / No.2 tanks only
@@ -160,7 +161,12 @@ Point a second instance (ship laptop / office) at the LXC URL under **Backup / S
 | GET | `/api/vessels/:id` | Full vessel bundle |
 | PUT | `/api/vessels/:id/tanks/:tankId/calibration` | Edit calibration |
 | POST | `/api/vessels/:id/calculate` | Sounding calc + save |
-| POST | `/api/vessels/:id/bunker-distribute` | Bunker distribution |
+| POST | `/api/vessels/:id/bunker-distribute` | Bunker distribution (preview / instant apply) |
+| POST | `/api/vessels/:id/bunker-ops/start` | Start live bunkering (rate + MT to receive) |
+| GET | `/api/vessels/:id/bunker-ops/active` | Active live op + progress / tank projections |
+| PATCH | `/api/vessels/:id/bunker-ops/:opId` | Pause/resume, rate, intake, sounding updates |
+| POST | `/api/vessels/:id/bunker-ops/:opId/complete` | Finalize tanks + voyage received |
+| POST | `/api/vessels/:id/bunker-blend` | Mix fuels of different density → blended ρ / MT |
 | GET | `/api/backup` | Full backup |
 | POST | `/api/sync/pull` | Pull from peer |
 | POST | `/api/sync/push` | Push to peer |
