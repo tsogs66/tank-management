@@ -517,7 +517,12 @@ function renderResultSteps(panel, tank, r, inputs) {
     });
   }
   if (r.vcf != null) {
-    defs.push({ label: 'VCF (ASTM 54B)', formula: `ρ15=${inputs.density15}, T=${inputs.tempC}°C`, value: fmt(r.vcf,4) });
+    let sgNote = '';
+    if (STATE.conversionTable?.rdToDensity15 && typeof density15ToSg === 'function') {
+      const sgEq = density15ToSg(inputs.density15, STATE.conversionTable.rdToDensity15);
+      if (sgEq != null) sgNote = ` · SG≈${fmt(sgEq, 4)}`;
+    }
+    defs.push({ label: 'VCF (ASTM 54B)', formula: `ρ15=${inputs.density15}${sgNote}, T=${inputs.tempC}°C`, value: fmt(r.vcf,4) });
     defs.push({ label: 'Vol @15°C', formula: 'obs × VCF', value: fmt(r.correctedVolume15,3)+' m³' });
     defs.push({ label: 'WCF', formula: 'ρ15 − 0.0011', value: fmt(r.wcf,4) });
     defs.push({ label: 'Weight in air', formula: 'vol15 × WCF', value: fmt(r.weightMT,3)+' MT', highlight: true });
