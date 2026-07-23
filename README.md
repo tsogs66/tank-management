@@ -11,6 +11,8 @@ Multi-vessel web app for fuel tank sounding (double interpolation + ASTM 54B), e
 - **Add tanks** — storage, settling, service (also overflow/other); CSV import template included
 - **Voyage fuel calculation** — per-leg distance/speed/daily burn → arrival ROB
 - **Live bunkering** — MT to receive, pumping rate → time used / remaining, live tank intake, mix calculator for different densities
+- **VCF / WCF calculator** — standalone ASTM 54B / WCF manual calc + reference tables
+- **ISO 8217 specs** — distillate & residual marine fuel limit tables (ISO 8217:2017)
 - **Bunkering distribute** — enter received MT, then distribute:
   - equally across storage (free-space weighted)
   - port / starboard storage only
@@ -167,6 +169,9 @@ Point a second instance (ship laptop / office) at the LXC URL under **Backup / S
 | PATCH | `/api/vessels/:id/bunker-ops/:opId` | Pause/resume, rate, intake, sounding updates |
 | POST | `/api/vessels/:id/bunker-ops/:opId/complete` | Finalize tanks + voyage received |
 | POST | `/api/vessels/:id/bunker-blend` | Mix fuels of different density → blended ρ / MT |
+| POST | `/api/reference/vcf-wcf` | Manual VCF/WCF calc (density, temp, vol or MT) |
+| GET | `/api/reference/vcf-wcf-tables` | VCF × temp and WCF reference tables |
+| GET | `/api/reference/iso8217` | ISO 8217:2017 marine fuel specification limits |
 | GET | `/api/backup` | Full backup |
 | POST | `/api/sync/pull` | Pull from peer |
 | POST | `/api/sync/push` | Push to peer |
