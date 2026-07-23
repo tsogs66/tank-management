@@ -453,6 +453,56 @@ function formatDuration(ms) {
   return `${m}m ${String(s).padStart(2, '0')}s`;
 }
 
+/**
+ * Linear interpolate in a sorted [[x,y], ...] table (workbook Conversion sheet).
+ * Returns null if empty; clamps outside range to nearest endpoint.
+ */
+function lerpLookup(pairs, x) {
+  const table = (pairs || []).filter((r) => Array.isArray(r) && r.length >= 2 && Number.isFinite(Number(r[0])) && Number.isFinite(Number(r[1])));
+  if (!table.length || !Number.isFinite(Number(x))) return null;
+  const v = Number(x);
+  const sorted = table.slice().sort((a, b) => Number(a[0]) - Number(b[0]));
+  if (v <= Number(sorted[0][0])) return Number(sorted[0][1]);
+  if (v >= Number(sorted[sorted.length - 1][0])) return Number(sorted[sorted.length - 1][1]);
+  for (let i = 1; i < sorted.length; i++) {
+    const x0 = Number(sorted[i - 1][0]);
+    const x1 = Number(sorted[i][0]);
+    if (v >= x0 && v <= x1) {
+      if (x1 === x0) return Number(sorted[i][1]);
+      const y0 = Number(sorted[i - 1][1]);
+      const y1 = Number(sorted[i][1]);
+      const t = (v - x0) / (x1 - x0);
+      return Math.round((y0 + t * (y1 - y0)) * 1e6) / 1e6;
+    }
+  }
+  return Number(sorted[sorted.length - 1][1]);
+}
+
+/** Inverse lookup: find x for a given y in [[x,y], ...] (monotone tables). */
+function lerpLookupInverse(pairs, y) {
+  const table = (pairs || []).filter((r) => Array.isArray(r) && r.length >= 2 && Number.isFinite(Number(r[0])) && Number.isFinite(Number(r[1])));
+  if (!table.length || !Number.isFinite(Number(y))) return null;
+  const flipped = table.map((r) => [Number(r[1]), Number(r[0])]);
+  // If y column is not strictly sorted, sort by y
+  flipped.sort((a, b) => a[0] - b[0]);
+  return lerpLookup(flipped, y);
+}
+
+/** Specific gravity / relative density → density @15°C (kg/L) via Conversion sheet. */
+function sgToDensity15(sg, rdToDensity15) {
+  return lerpLookup(rdToDensity15, sg);
+}
+
+/** Density @15°C (kg/L) → specific gravity / relative density via Conversion sheet. */
+function density15ToSg(density15, rdToDensity15) {
+  return lerpLookupInverse(rdToDensity15, density15);
+}
+
+/** API gravity → density @15°C (kg/L). */
+function apiToDensity15(api, apiTable) {
+  return lerpLookup(apiTable, api);
+}
+
 module.exports = {
   isAscending,
   linearInterp,
@@ -472,4 +522,9 @@ module.exports = {
   blendFuels,
   bunkerProgress,
   formatDuration,
+  lerpLookup,
+  lerpLookupInverse,
+  sgToDensity15,
+  density15ToSg,
+  apiToDensity15,
 };

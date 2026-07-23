@@ -177,4 +177,7 @@ Point a second instance (ship laptop / office) at the LXC URL under **Backup / S
 2. **List correction** — bilinear interp on corrected sounding × list grid ÷ divisor  
 3. **Volume** — linear interp on volume curve (correction tanks) or bilinear volume grid (direct tanks)  
 4. **VCF (ASTM 54B)** — density-banded α, `exp(−α·ΔT·(1+0.8·α·ΔT))`  
-5. **Weight** — `volume@15°C × (density15 − 0.0011)`
+5. **Weight** — `volume@15°C × (density15 − 0.0011)`  
+6. **SG ↔ density** — workbook Conversion sheet `rdToDensity15` (relative density / SG ↔ density @15°C kg/L); also API gravity → density
+
+Tank detail and Bunkering pages include **SG→ρ** / **ρ→SG** converters. API: `POST /api/reference/convert-density` with `{ from: "sg"|"density"|"api", value }`.

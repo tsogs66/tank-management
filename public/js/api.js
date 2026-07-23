@@ -116,6 +116,7 @@ const Api = (() => {
     bunkerComplete: (id, opId, body) => request(`/api/vessels/${id}/bunker-ops/${opId}/complete`, { method: 'POST', body }),
     bunkerCancel: (id, opId) => request(`/api/vessels/${id}/bunker-ops/${opId}/cancel`, { method: 'POST', body: {} }),
     bunkerBlend: (id, body) => request(`/api/vessels/${id}/bunker-blend`, { method: 'POST', body }),
+    convertDensity: (body) => request('/api/reference/convert-density', { method: 'POST', body }),
     getSettings: () => request('/api/settings'),
     saveSettings: (body) => request('/api/settings', { method: 'PUT', body }),
     backup: () => request('/api/backup'),

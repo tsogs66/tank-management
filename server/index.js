@@ -7,7 +7,15 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const store = require('./store');
-const { computeTank, blendFuels, bunkerProgress } = require('./calc');
+const {
+  computeTank,
+  blendFuels,
+  bunkerProgress,
+  sgToDensity15,
+  density15ToSg,
+  apiToDensity15,
+  lerpLookupInverse,
+} = require('./calc');
 const excelImport = require('./excel-import');
 const pdfImport = require('./pdf-import');
 const tankTableIo = require('./tank-table-io');
@@ -586,6 +594,51 @@ app.get('/api/reference/conversion', (req, res) => {
   const p = path.join(__dirname, '..', 'seed', 'conversion.json');
   if (!fs.existsSync(p)) return res.status(404).json({ error: 'conversion.json not found' });
   res.json(JSON.parse(fs.readFileSync(p, 'utf8')));
+});
+
+/** Convert between SG (relative density), density @15°C, and API gravity */
+app.post('/api/reference/convert-density', (req, res) => {
+  try {
+    const p = path.join(__dirname, '..', 'seed', 'conversion.json');
+    if (!fs.existsSync(p)) return res.status(404).json({ error: 'conversion.json not found' });
+    const table = JSON.parse(fs.readFileSync(p, 'utf8'));
+    const { from, value } = req.body || {};
+    const v = Number(value);
+    if (!Number.isFinite(v)) return res.status(400).json({ error: 'Enter a numeric value' });
+
+    let density15 = null;
+    let sg = null;
+    let api = null;
+
+    if (from === 'sg' || from === 'rd') {
+      density15 = sgToDensity15(v, table.rdToDensity15);
+      sg = v;
+      api = table.apiToDensity15 ? lerpLookupInverse(table.apiToDensity15, density15) : null;
+    } else if (from === 'density' || from === 'density15') {
+      density15 = v;
+      sg = density15ToSg(v, table.rdToDensity15);
+      api = table.apiToDensity15 ? lerpLookupInverse(table.apiToDensity15, density15) : null;
+    } else if (from === 'api') {
+      density15 = apiToDensity15(v, table.apiToDensity15);
+      sg = density15ToSg(density15, table.rdToDensity15);
+      api = v;
+    } else {
+      return res.status(400).json({ error: 'from must be sg, density, or api' });
+    }
+
+    if (density15 == null) return res.status(400).json({ error: 'Value out of conversion table range' });
+    res.json({
+      ok: true,
+      from,
+      input: v,
+      density15: Math.round(density15 * 1e6) / 1e6,
+      sg: sg != null ? Math.round(sg * 1e6) / 1e6 : null,
+      api: api != null ? Math.round(api * 100) / 100 : null,
+      note: table.note || 'From workbook Conversion sheet (RD/SG ↔ density @15°C)',
+    });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
 });
 
 /* ---------- PDF table extract / apply to tank calibration ---------- */

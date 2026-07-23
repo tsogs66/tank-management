@@ -11,6 +11,7 @@ const STATE = {
   activeVesselId: null,
   bundle: null,
   settings: {},
+  conversionTable: null,
   online: navigator.onLine,
   route: { page: 'dashboard', tankId: null },
 };
@@ -327,6 +328,14 @@ function renderTankDetail(main, tankId) {
       <div class="form-row"><label>Density @15°C (kg/L)</label><input type="number" step="any" id="in-density" value="${existing.density15 ?? ''}" placeholder="0.9584"></div>
     </div>
     <div class="form-row-2">
+      <div class="form-row"><label>SG / relative density → density</label>
+        <div style="display:flex;gap:6px"><input type="number" step="any" id="in-sg" placeholder="e.g. 0.959"><button type="button" class="btn small" id="btn-sg-den">SG→ρ</button></div>
+        <div class="hint">Workbook Conversion sheet (RD/SG)</div></div>
+      <div class="form-row"><label>Density → SG</label>
+        <div style="display:flex;gap:6px"><input type="number" step="any" id="in-den-to-sg" placeholder="kg/L"><button type="button" class="btn small" id="btn-den-sg">ρ→SG</button></div>
+        <div class="hint" id="sg-equiv-hint">Equivalent SG shown after convert</div></div>
+    </div>
+    <div class="form-row-2">
       <div class="form-row"><label>API → density (Conversion sheet)</label>
         <div style="display:flex;gap:6px"><input type="number" step="any" id="in-api" placeholder="API"><button type="button" class="btn small" id="btn-api-den">Use</button></div>
         <div class="hint">From workbook Conversion sheet</div></div>
@@ -380,22 +389,82 @@ function renderTankDetail(main, tankId) {
     showToast('Reading saved');
   }
   document.getElementById('btn-calc').onclick = doCalc;
+
+  async function loadConversionTable() {
+    if (STATE.conversionTable) return STATE.conversionTable;
+    const table = await Api.request('/api/reference/conversion');
+    STATE.conversionTable = table;
+    return table;
+  }
+
+  async function syncSgHintFromDensity() {
+    const dens = parseFloat(document.getElementById('in-density').value);
+    const hint = document.getElementById('sg-equiv-hint');
+    if (!hint || Number.isNaN(dens)) return;
+    try {
+      const table = await loadConversionTable();
+      const sg = typeof density15ToSg === 'function'
+        ? density15ToSg(dens, table.rdToDensity15)
+        : null;
+      if (sg != null) {
+        hint.textContent = `≈ SG ${fmt(sg, 4)} (from density ${fmt(dens, 4)})`;
+        document.getElementById('in-den-to-sg').value = dens;
+        document.getElementById('in-sg').value = fmt(sg, 4);
+      }
+    } catch (_) { /* ignore */ }
+  }
+
   document.getElementById('btn-api-den').onclick = async () => {
     const api = parseFloat(document.getElementById('in-api').value);
     if (Number.isNaN(api)) { showToast('Enter API'); return; }
     try {
-      const table = await Api.request('/api/reference/conversion');
-      const rows = table.apiToDensity15 || [];
-      let best = null; let bestD = Infinity;
-      for (const [a, d] of rows) {
-        const diff = Math.abs(a - api);
-        if (diff < bestD) { bestD = diff; best = d; }
-      }
-      if (best == null) { showToast('No conversion data'); return; }
-      document.getElementById('in-density').value = best;
-      showToast(`Density @15°C ≈ ${best}`);
+      const table = await loadConversionTable();
+      const dens = typeof apiToDensity15Lookup === 'function'
+        ? apiToDensity15Lookup(api, table.apiToDensity15)
+        : null;
+      if (dens == null) { showToast('No conversion data'); return; }
+      document.getElementById('in-density').value = dens;
+      await syncSgHintFromDensity();
+      showToast(`Density @15°C ≈ ${dens}`);
     } catch (e) { showToast(e.message); }
   };
+
+  document.getElementById('btn-sg-den').onclick = async () => {
+    const sg = parseFloat(document.getElementById('in-sg').value);
+    if (Number.isNaN(sg)) { showToast('Enter SG / relative density'); return; }
+    try {
+      const table = await loadConversionTable();
+      const dens = typeof sgToDensity15 === 'function'
+        ? sgToDensity15(sg, table.rdToDensity15)
+        : null;
+      if (dens == null) { showToast('SG out of conversion table range'); return; }
+      document.getElementById('in-density').value = dens;
+      document.getElementById('in-den-to-sg').value = dens;
+      document.getElementById('sg-equiv-hint').textContent = `SG ${fmt(sg, 4)} → density ${fmt(dens, 4)} kg/L`;
+      showToast(`Density @15°C ≈ ${dens}`);
+    } catch (e) { showToast(e.message); }
+  };
+
+  document.getElementById('btn-den-sg').onclick = async () => {
+    const dens = parseFloat(document.getElementById('in-den-to-sg').value
+      || document.getElementById('in-density').value);
+    if (Number.isNaN(dens)) { showToast('Enter density @15°C'); return; }
+    try {
+      const table = await loadConversionTable();
+      const sg = typeof density15ToSg === 'function'
+        ? density15ToSg(dens, table.rdToDensity15)
+        : null;
+      if (sg == null) { showToast('Density out of conversion table range'); return; }
+      document.getElementById('in-sg').value = sg;
+      document.getElementById('in-density').value = dens;
+      document.getElementById('sg-equiv-hint').textContent = `Density ${fmt(dens, 4)} → SG ${fmt(sg, 4)}`;
+      showToast(`SG / RD ≈ ${sg}`);
+    } catch (e) { showToast(e.message); }
+  };
+
+  document.getElementById('in-density').addEventListener('change', syncSgHintFromDensity);
+  if (existing.density15 != null) syncSgHintFromDensity();
+
   if (existing.result) renderResultSteps(document.getElementById('result-panel'), tank, existing.result, existing);
   else document.getElementById('result-panel').innerHTML = '<div class="empty-state">Enter sounding and calculate</div>';
 }
@@ -1195,10 +1264,18 @@ function renderBunkering(main) {
     </div>
     <div class="form-row-3">
       <div class="form-row"><label>Density @15°C (BDN)</label><input id="b-dens" type="number" step="any" placeholder="0.958"></div>
+      <div class="form-row"><label>SG / RD (optional)</label>
+        <div style="display:flex;gap:6px">
+          <input id="b-sg" type="number" step="any" placeholder="0.959">
+          <button type="button" class="btn small" id="btn-b-sg-den" title="SG to density">SG→ρ</button>
+          <button type="button" class="btn small" id="btn-b-den-sg" title="Density to SG">ρ→SG</button>
+        </div>
+        <div class="hint" id="b-sg-hint">Convert using workbook Conversion sheet</div>
+      </div>
       <div class="form-row"><label>Temp (°C)</label><input id="b-temp" type="number" step="any" value="15"></div>
-      <div class="form-row"><label>BDN No.</label><input id="b-bdn" placeholder="BDN-..."></div>
     </div>
-    <div class="form-row-2">
+    <div class="form-row-3">
+      <div class="form-row"><label>BDN No.</label><input id="b-bdn" placeholder="BDN-..."></div>
       <div class="form-row"><label>Supplier / Barge</label><input id="b-sup" placeholder="Supplier"></div>
       <div class="form-row"><label>Est. duration</label><input id="b-eta-preview" disabled placeholder="enter qty + rate"></div>
     </div>
@@ -1286,6 +1363,37 @@ function renderBunkering(main) {
   }
   document.getElementById('b-qty').oninput = updateEtaPreview;
   document.getElementById('b-rate').oninput = updateEtaPreview;
+
+  async function bunkerLoadConversion() {
+    if (STATE.conversionTable) return STATE.conversionTable;
+    const table = await Api.request('/api/reference/conversion');
+    STATE.conversionTable = table;
+    return table;
+  }
+  document.getElementById('btn-b-sg-den').onclick = async () => {
+    const sg = parseFloat(document.getElementById('b-sg').value);
+    if (Number.isNaN(sg)) { showToast('Enter SG / relative density'); return; }
+    try {
+      const table = await bunkerLoadConversion();
+      const dens = sgToDensity15(sg, table.rdToDensity15);
+      if (dens == null) { showToast('SG out of table range'); return; }
+      document.getElementById('b-dens').value = dens;
+      document.getElementById('b-sg-hint').textContent = `SG ${fmt(sg, 4)} → density ${fmt(dens, 4)} kg/L`;
+      showToast(`BDN density ≈ ${dens}`);
+    } catch (e) { showToast(e.message); }
+  };
+  document.getElementById('btn-b-den-sg').onclick = async () => {
+    const dens = parseFloat(document.getElementById('b-dens').value);
+    if (Number.isNaN(dens)) { showToast('Enter density @15°C first'); return; }
+    try {
+      const table = await bunkerLoadConversion();
+      const sg = density15ToSg(dens, table.rdToDensity15);
+      if (sg == null) { showToast('Density out of table range'); return; }
+      document.getElementById('b-sg').value = sg;
+      document.getElementById('b-sg-hint').textContent = `Density ${fmt(dens, 4)} → SG ${fmt(sg, 4)}`;
+      showToast(`SG / RD ≈ ${sg}`);
+    } catch (e) { showToast(e.message); }
+  };
 
   function renderManualAlloc() {
     const grade = document.getElementById('b-grade').value;
@@ -1950,6 +2058,7 @@ function renderAbout(main) {
     <p>Original CAPTAIN VENIAMIS calibration tables are seeded as the default vessel.</p>
     <p><b>Import / edit:</b> Excel workbook (Tank1–Tank4), tank-list CSV, per-tank calibration CSV/Excel, or PDF sounding tables (Calibration DB).</p>
     <p><b>Live bunkering:</b> enter MT to receive and pumping rate (MT/h) for time used / remaining, watch live tank intake, sync soundings, and blend parcels of different density (WCF @15°C).</p>
+    <p><b>SG ↔ density:</b> convert specific gravity / relative density to density @15°C (and back) from the workbook Conversion sheet — on tank sounding and bunkering pages.</p>
   </div>`;
 }
 
