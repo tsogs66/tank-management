@@ -138,6 +138,12 @@ function renderNav() {
   nav.appendChild(mk('report', 'Voyage Report', '📋'));
 
   g = document.createElement('div');
+  g.className = 'nav-group-label'; g.textContent = 'Reference';
+  nav.appendChild(g);
+  nav.appendChild(mk('vcf-wcf', 'VCF / WCF Calc', 'Σ'));
+  nav.appendChild(mk('iso8217', 'ISO 8217 Specs', '▤'));
+
+  g = document.createElement('div');
   g.className = 'nav-group-label'; g.textContent = 'System';
   nav.appendChild(g);
   nav.appendChild(mk('setup', 'Vessel Setup', '⚙'));
@@ -167,7 +173,8 @@ function render() {
     main.appendChild(banner);
   }
 
-  if (!STATE.bundle && STATE.route.page !== 'setup' && STATE.route.page !== 'settings' && STATE.route.page !== 'about') {
+  const noVesselOk = ['setup', 'settings', 'about', 'vcf-wcf', 'iso8217'];
+  if (!STATE.bundle && !noVesselOk.includes(STATE.route.page)) {
     main.innerHTML += `<div class="form-panel"><h2>No vessel selected</h2>
       <p style="color:var(--text-dim)">Create or select a vessel in Vessel Setup to begin.</p>
       <button class="btn primary" id="go-setup">Open Vessel Setup</button></div>`;
@@ -182,6 +189,8 @@ function render() {
   else if (page === 'voyage') renderVoyage(main);
   else if (page === 'bunkering') renderBunkering(main);
   else if (page === 'report') renderReport(main);
+  else if (page === 'vcf-wcf') renderVcfWcf(main);
+  else if (page === 'iso8217') renderIso8217(main);
   else if (page === 'setup') renderSetup(main);
   else if (page === 'settings') renderSettings(main);
   else if (page === 'about') renderAbout(main);
@@ -2053,6 +2062,259 @@ function renderSettings(main) {
   };
 }
 
+/* ---------- VCF / WCF manual calculator + reference tables ---------- */
+function renderVcfWcf(main) {
+  main.innerHTML += `<div class="page-head"><div><h1>VCF / WCF Calculator</h1>
+    <div class="desc">Single manual ASTM Table 54B (VCF) and Table 56-style (WCF) calculation, plus reference tables.</div></div></div>
+    <div class="help-box"><b>VCF</b> corrects observed volume to 15°C. <b>WCF</b> = density@15 − 0.0011 (air buoyancy).
+    Weight MT = (observed m³ × VCF) × WCF. Enter density + temperature; optionally volume <i>or</i> MT.</div>`;
+
+  const panel = document.createElement('div');
+  panel.className = 'form-panel';
+  panel.style.maxWidth = '820px';
+  panel.innerHTML = `
+    <div class="section-title" style="margin-top:0">Manual calculation</div>
+    <div class="form-row-3">
+      <div class="form-row"><label>Density @15°C (kg/L)</label><input id="vw-dens" type="number" step="any" placeholder="0.9584" value="0.9584"></div>
+      <div class="form-row"><label>Temperature (°C)</label><input id="vw-temp" type="number" step="any" value="25"></div>
+      <div class="form-row"><label>Observed volume (m³)</label><input id="vw-vol" type="number" step="any" placeholder="optional"></div>
+    </div>
+    <div class="form-row-3">
+      <div class="form-row"><label>Quantity (MT)</label><input id="vw-mt" type="number" step="any" placeholder="optional — or volume above"></div>
+      <div class="form-row"><label>SG → density</label>
+        <div style="display:flex;gap:6px">
+          <input id="vw-sg" type="number" step="any" placeholder="SG / RD">
+          <button type="button" class="btn small" id="btn-vw-sg">SG→ρ</button>
+        </div></div>
+      <div class="form-row" style="display:flex;align-items:flex-end">
+        <button class="btn primary" id="btn-vw-calc" style="width:100%">Calculate VCF / WCF</button>
+      </div>
+    </div>
+    <div id="vw-result" style="margin-top:14px"></div>`;
+  main.appendChild(panel);
+
+  const tablesWrap = document.createElement('div');
+  tablesWrap.className = 'form-panel';
+  tablesWrap.style.marginTop = '18px';
+  tablesWrap.innerHTML = `
+    <div class="section-title" style="margin-top:0">Reference tables</div>
+    <div class="form-row-3">
+      <div class="form-row"><label>Density min</label><input id="vw-dmin" type="number" step="0.01" value="0.85"></div>
+      <div class="form-row"><label>Density max</label><input id="vw-dmax" type="number" step="0.01" value="0.99"></div>
+      <div class="form-row" style="display:flex;align-items:flex-end">
+        <button class="btn" id="btn-vw-tables" style="width:100%">Refresh tables</button>
+      </div>
+    </div>
+    <div class="section-title">WCF (density → weight correction)</div>
+    <div class="scroll-x" id="vw-wcf-table"></div>
+    <div class="section-title">VCF (ASTM 54B) — density × temperature</div>
+    <div class="scroll-x" id="vw-vcf-table"></div>
+    <p class="hint">Highlighted row/column match the density and temperature used in the manual calculation above (when tables are refreshed after calculating).</p>`;
+  main.appendChild(tablesWrap);
+
+  async function runCalc() {
+    const dens = parseFloat(document.getElementById('vw-dens').value);
+    const temp = parseFloat(document.getElementById('vw-temp').value);
+    const vol = document.getElementById('vw-vol').value;
+    const mt = document.getElementById('vw-mt').value;
+    if (!(dens > 0)) { showToast('Enter density @15°C'); return null; }
+    if (Number.isNaN(temp)) { showToast('Enter temperature'); return null; }
+
+    let result;
+    try {
+      result = await Api.vcfWcfCalc({
+        density15: dens,
+        tempC: temp,
+        volumeObserved: vol === '' ? null : parseFloat(vol),
+        quantityMT: mt === '' ? null : parseFloat(mt),
+      });
+    } catch (e) {
+      // Offline / local fallback
+      if (typeof vcf54B !== 'function') { showToast(e.message); return null; }
+      const vcf = vcf54B(dens, temp);
+      const wcf = wcf56(dens);
+      result = { density15: dens, tempC: temp, vcf, wcf };
+      if (vol !== '') {
+        result.volumeObserved = parseFloat(vol);
+        result.volume15 = result.volumeObserved * vcf;
+        result.weightMT = result.volume15 * wcf;
+      } else if (mt !== '' && typeof volumeFromMT === 'function') {
+        result.quantityMT = parseFloat(mt);
+        result.volumeObserved = volumeFromMT(result.quantityMT, dens, temp);
+        result.volume15 = wcf > 0 ? result.quantityMT / wcf : null;
+      }
+    }
+
+    const box = document.getElementById('vw-result');
+    box.innerHTML = `<div class="bunker-kpi-grid">
+      <div class="bunker-stat accent"><div class="bunker-stat-label">VCF (54B)</div><div class="bunker-stat-value">${fmt(result.vcf, 4)}</div></div>
+      <div class="bunker-stat accent"><div class="bunker-stat-label">WCF (56)</div><div class="bunker-stat-value">${fmt(result.wcf, 4)}</div></div>
+      <div class="bunker-stat"><div class="bunker-stat-label">Density @15</div><div class="bunker-stat-value">${fmt(result.density15, 4)}</div></div>
+      <div class="bunker-stat"><div class="bunker-stat-label">Temp</div><div class="bunker-stat-value">${fmt(result.tempC, 1)} <span class="unit">°C</span></div></div>
+      ${result.volumeObserved != null ? `<div class="bunker-stat"><div class="bunker-stat-label">Observed vol</div><div class="bunker-stat-value">${fmt(result.volumeObserved, 3)} <span class="unit">m³</span></div></div>` : ''}
+      ${result.volume15 != null ? `<div class="bunker-stat"><div class="bunker-stat-label">Volume @15°C</div><div class="bunker-stat-value">${fmt(result.volume15, 3)} <span class="unit">m³</span></div></div>` : ''}
+      ${result.weightMT != null ? `<div class="bunker-stat"><div class="bunker-stat-label">Weight in air</div><div class="bunker-stat-value">${fmt(result.weightMT, 3)} <span class="unit">MT</span></div></div>` : ''}
+      ${result.quantityMT != null && result.volumeObserved != null ? `<div class="bunker-stat"><div class="bunker-stat-label">From MT → obs vol</div><div class="bunker-stat-value">${fmt(result.volumeObserved, 3)} <span class="unit">m³</span></div></div>` : ''}
+    </div>
+    <p class="hint" style="margin-top:10px">Vol@15 = obs × VCF · Weight MT = Vol@15 × WCF · WCF = ρ15 − 0.0011</p>`;
+    return result;
+  }
+
+  async function loadTables(highlight) {
+    const dmin = parseFloat(document.getElementById('vw-dmin').value) || 0.85;
+    const dmax = parseFloat(document.getElementById('vw-dmax').value) || 0.99;
+    const q = `densMin=${dmin}&densMax=${dmax}&densStep=0.01&temps=0,5,10,15,20,25,30,35,40,45,50`;
+    let data;
+    try {
+      data = await Api.vcfWcfTables(q);
+    } catch (e) {
+      // Build locally
+      if (typeof vcf54B !== 'function') { showToast(e.message); return; }
+      const temps = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
+      const wcf = []; const vcf = [];
+      for (let d = dmin; d <= dmax + 1e-9; d = Math.round((d + 0.01) * 1000) / 1000) {
+        const dens = Math.round(d * 1000) / 1000;
+        wcf.push({ density15: dens, wcf: wcf56(dens) });
+        const row = { density15: dens };
+        temps.forEach((t) => { row['t' + t] = vcf54B(dens, t); });
+        vcf.push(row);
+      }
+      data = { temps, wcf, vcf };
+    }
+
+    const hlDens = highlight?.density15;
+    const hlTemp = highlight?.tempC;
+
+    const wcfEl = document.getElementById('vw-wcf-table');
+    wcfEl.innerHTML = `<table class="data-table compact ref-table"><thead><tr><th>Density @15</th><th>WCF</th></tr></thead>
+      <tbody>${data.wcf.map((r) => {
+        const on = hlDens != null && Math.abs(r.density15 - hlDens) < 0.005;
+        return `<tr class="${on ? 'row-hl' : ''}"><td>${fmt(r.density15, 3)}</td><td>${fmt(r.wcf, 4)}</td></tr>`;
+      }).join('')}</tbody></table>`;
+
+    const temps = data.temps || [];
+    const vcfEl = document.getElementById('vw-vcf-table');
+    vcfEl.innerHTML = `<table class="data-table compact ref-table sticky-head">
+      <thead><tr><th>ρ15 \\ T°C</th>${temps.map((t) => {
+        const on = hlTemp != null && Math.abs(t - hlTemp) < 0.01;
+        return `<th class="${on ? 'col-hl' : ''}">${t}</th>`;
+      }).join('')}</tr></thead>
+      <tbody>${data.vcf.map((r) => {
+        const onRow = hlDens != null && Math.abs(r.density15 - hlDens) < 0.005;
+        return `<tr class="${onRow ? 'row-hl' : ''}"><td><b>${fmt(r.density15, 3)}</b></td>${temps.map((t) => {
+          const onCol = hlTemp != null && Math.abs(t - hlTemp) < 0.01;
+          const cell = r['t' + t];
+          return `<td class="${onCol ? 'col-hl' : ''}${onRow && onCol ? ' cell-hl' : ''}">${cell != null ? fmt(cell, 4) : '–'}</td>`;
+        }).join('')}</tr>`;
+      }).join('')}</tbody></table>`;
+  }
+
+  document.getElementById('btn-vw-calc').onclick = async () => {
+    const r = await runCalc();
+    if (r) {
+      showToast(`VCF ${fmt(r.vcf, 4)} · WCF ${fmt(r.wcf, 4)}`);
+      await loadTables(r);
+    }
+  };
+  document.getElementById('btn-vw-tables').onclick = async () => {
+    const dens = parseFloat(document.getElementById('vw-dens').value);
+    const temp = parseFloat(document.getElementById('vw-temp').value);
+    await loadTables(Number.isFinite(dens) ? { density15: dens, tempC: temp } : null);
+  };
+  document.getElementById('btn-vw-sg').onclick = async () => {
+    const sg = parseFloat(document.getElementById('vw-sg').value);
+    if (Number.isNaN(sg)) { showToast('Enter SG'); return; }
+    try {
+      if (!STATE.conversionTable) STATE.conversionTable = await Api.request('/api/reference/conversion');
+      const dens = sgToDensity15(sg, STATE.conversionTable.rdToDensity15);
+      if (dens == null) { showToast('SG out of range'); return; }
+      document.getElementById('vw-dens').value = dens;
+      showToast(`Density ≈ ${dens}`);
+    } catch (e) { showToast(e.message); }
+  };
+
+  loadTables({ density15: 0.9584, tempC: 25 });
+}
+
+/* ---------- ISO 8217 marine fuel specification ---------- */
+function formatIsoLimit(lim) {
+  if (!lim) return '—';
+  if (lim.text) return lim.text;
+  if (lim.note && lim.min == null && lim.max == null) return lim.note;
+  const parts = [];
+  if (lim.min != null) parts.push(`min ${lim.min}`);
+  if (lim.max != null) parts.push(`max ${lim.max}`);
+  if (!parts.length && lim.note) return lim.note;
+  return parts.join(' · ') || '—';
+}
+
+function renderIsoSpecTable(block) {
+  if (!block) return '<div class="empty-state">No data</div>';
+  const grades = block.grades || [];
+  const params = block.parameters || [];
+  return `<div class="scroll-x"><table class="data-table compact ref-table sticky-head iso-table">
+    <thead><tr><th>Parameter</th><th>Unit</th>${grades.map((g) => `<th>${escapeHtml(g)}</th>`).join('')}</tr></thead>
+    <tbody>${params.map((p) => `<tr>
+      <td class="tname">${escapeHtml(p.name)}${p.note ? `<div class="hint">${escapeHtml(p.note)}</div>` : ''}</td>
+      <td>${escapeHtml(p.unit || '—')}</td>
+      ${grades.map((g) => `<td>${escapeHtml(formatIsoLimit(p.limits?.[g]))}</td>`).join('')}
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+function renderIso8217(main) {
+  main.innerHTML += `<div class="page-head"><div><h1>ISO 8217 Marine Fuel Specs</h1>
+    <div class="desc">Reference limits for distillate and residual marine fuels (ISO 8217:2017).</div></div></div>
+    <div class="help-box" id="iso-note">Loading specification tables…</div>`;
+
+  const tabs = document.createElement('div');
+  tabs.className = 'btn-row';
+  tabs.style.marginBottom = '12px';
+  tabs.innerHTML = `
+    <button class="btn primary small" data-iso-tab="dist">Distillates (DMX–DMB)</button>
+    <button class="btn small" data-iso-tab="res">Residuals (RMA–RMK)</button>
+    <button class="btn small" data-iso-tab="both">Both tables</button>`;
+  main.appendChild(tabs);
+
+  const body = document.createElement('div');
+  body.id = 'iso-body';
+  main.appendChild(body);
+
+  let data = null;
+
+  function paint(tab) {
+    if (!data) return;
+    tabs.querySelectorAll('button').forEach((b) => {
+      b.classList.toggle('primary', b.dataset.isoTab === tab);
+    });
+    let html = '';
+    if (tab === 'dist' || tab === 'both') {
+      html += `<div class="form-panel"><div class="section-title" style="margin-top:0">${escapeHtml(data.distillates.caption)}</div>
+        ${renderIsoSpecTable(data.distillates)}</div>`;
+    }
+    if (tab === 'res' || tab === 'both') {
+      html += `<div class="form-panel" style="margin-top:14px"><div class="section-title" style="margin-top:0">${escapeHtml(data.residuals.caption)}</div>
+        ${renderIsoSpecTable(data.residuals)}</div>`;
+    }
+    body.innerHTML = html;
+  }
+
+  tabs.querySelectorAll('button').forEach((b) => {
+    b.onclick = () => paint(b.dataset.isoTab);
+  });
+
+  (async () => {
+    try {
+      data = await Api.iso8217();
+      document.getElementById('iso-note').innerHTML =
+        `<b>${escapeHtml(data.standard)}</b> — ${escapeHtml(data.title)}.<br>${escapeHtml(data.note || '')}`;
+      paint('dist');
+    } catch (e) {
+      document.getElementById('iso-note').textContent = e.message;
+    }
+  })();
+}
+
 function renderAbout(main) {
   main.innerHTML += `<div class="page-head"><div><h1>About</h1></div></div>
   <div class="form-panel" style="max-width:760px;line-height:1.7;color:var(--text-dim);font-size:13.5px">
@@ -2064,6 +2326,7 @@ function renderAbout(main) {
     <p><b>Import / edit:</b> Excel workbook (Tank1–Tank4), tank-list CSV, per-tank calibration CSV/Excel, or PDF sounding tables (Calibration DB).</p>
     <p><b>Live bunkering:</b> enter MT to receive and pumping rate (MT/h) for time used / remaining, watch live tank intake, sync soundings, and blend parcels of different density (WCF @15°C).</p>
     <p><b>SG ↔ density:</b> convert specific gravity / relative density to density @15°C (and back) from the workbook Conversion sheet — on tank sounding and bunkering pages.</p>
+    <p><b>Reference:</b> standalone <b>VCF / WCF</b> calculator with tables, and <b>ISO 8217:2017</b> marine fuel specification limits.</p>
   </div>`;
 }
 

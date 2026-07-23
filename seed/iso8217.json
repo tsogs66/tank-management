@@ -1,0 +1,559 @@
+{
+  "standard": "ISO 8217:2017",
+  "title": "Petroleum products — Fuels (class F) — Specifications of marine fuels",
+  "note": "Reference limits commonly used for bunker planning. Sulfur in practice is often lower due to MARPOL / local ECA rules. Always verify against the BDN and the edition cited in the charter / supply contract. Values below are ISO 8217:2017 Tables 1–2 (distillate / residual).",
+  "distillates": {
+    "caption": "Table 1 — Distillate marine fuels",
+    "grades": ["DMX", "DMA", "DMZ", "DMB"],
+    "parameters": [
+      {
+        "id": "visc40",
+        "name": "Kinematic viscosity at 40 °C",
+        "unit": "mm²/s",
+        "limits": {
+          "DMX": { "min": 1.4, "max": 5.5 },
+          "DMA": { "min": 2.0, "max": 6.0 },
+          "DMZ": { "min": 3.0, "max": 6.0 },
+          "DMB": { "min": 2.0, "max": 11.0 }
+        }
+      },
+      {
+        "id": "density15",
+        "name": "Density at 15 °C",
+        "unit": "kg/m³",
+        "limits": {
+          "DMX": { "max": null, "note": "—" },
+          "DMA": { "max": 890.0 },
+          "DMZ": { "max": 890.0 },
+          "DMB": { "max": 900.0 }
+        }
+      },
+      {
+        "id": "cetane",
+        "name": "Cetane index",
+        "unit": "—",
+        "limits": {
+          "DMX": { "min": 45 },
+          "DMA": { "min": 40 },
+          "DMZ": { "min": 40 },
+          "DMB": { "min": 35 }
+        }
+      },
+      {
+        "id": "sulfur",
+        "name": "Sulfur",
+        "unit": "% m/m",
+        "limits": {
+          "DMX": { "max": 1.0 },
+          "DMA": { "max": 1.5 },
+          "DMZ": { "max": 1.5 },
+          "DMB": { "max": 2.0 }
+        },
+        "note": "Statutory sulfur (MARPOL / ECA) may be stricter"
+      },
+      {
+        "id": "flash",
+        "name": "Flash point",
+        "unit": "°C",
+        "limits": {
+          "DMX": { "min": 43.0 },
+          "DMA": { "min": 60.0 },
+          "DMZ": { "min": 60.0 },
+          "DMB": { "min": 60.0 }
+        }
+      },
+      {
+        "id": "h2s",
+        "name": "Hydrogen sulfide",
+        "unit": "mg/kg",
+        "limits": {
+          "DMX": { "max": 2.0 },
+          "DMA": { "max": 2.0 },
+          "DMZ": { "max": 2.0 },
+          "DMB": { "max": 2.0 }
+        }
+      },
+      {
+        "id": "acid",
+        "name": "Acid number",
+        "unit": "mg KOH/g",
+        "limits": {
+          "DMX": { "max": 0.5 },
+          "DMA": { "max": 0.5 },
+          "DMZ": { "max": 0.5 },
+          "DMB": { "max": 0.5 }
+        }
+      },
+      {
+        "id": "sediment",
+        "name": "Total sediment by hot filtration",
+        "unit": "% m/m",
+        "limits": {
+          "DMX": { "max": null, "note": "—" },
+          "DMA": { "max": null, "note": "—" },
+          "DMZ": { "max": null, "note": "—" },
+          "DMB": { "max": 0.1 }
+        }
+      },
+      {
+        "id": "oxidation",
+        "name": "Oxidation stability",
+        "unit": "g/m³",
+        "limits": {
+          "DMX": { "max": 25 },
+          "DMA": { "max": 25 },
+          "DMZ": { "max": 25 },
+          "DMB": { "max": 25 }
+        }
+      },
+      {
+        "id": "carbon10",
+        "name": "Carbon residue (micro method on 10% distillation residue)",
+        "unit": "% m/m",
+        "limits": {
+          "DMX": { "max": 0.3 },
+          "DMA": { "max": 0.3 },
+          "DMZ": { "max": 0.3 },
+          "DMB": { "max": null, "note": "—" }
+        }
+      },
+      {
+        "id": "carbon",
+        "name": "Carbon residue (micro method)",
+        "unit": "% m/m",
+        "limits": {
+          "DMX": { "max": null, "note": "—" },
+          "DMA": { "max": null, "note": "—" },
+          "DMZ": { "max": null, "note": "—" },
+          "DMB": { "max": 0.3 }
+        }
+      },
+      {
+        "id": "cloud",
+        "name": "Cloud point",
+        "unit": "°C",
+        "limits": {
+          "DMX": { "max": -16 },
+          "DMA": { "max": null, "note": "—" },
+          "DMZ": { "max": null, "note": "—" },
+          "DMB": { "max": null, "note": "—" }
+        }
+      },
+      {
+        "id": "pourWinter",
+        "name": "Pour point (upper) — winter quality",
+        "unit": "°C",
+        "limits": {
+          "DMX": { "max": null, "note": "—" },
+          "DMA": { "max": -6 },
+          "DMZ": { "max": -6 },
+          "DMB": { "max": 0 }
+        }
+      },
+      {
+        "id": "pourSummer",
+        "name": "Pour point (upper) — summer quality",
+        "unit": "°C",
+        "limits": {
+          "DMX": { "max": null, "note": "—" },
+          "DMA": { "max": 0 },
+          "DMZ": { "max": 0 },
+          "DMB": { "max": 6 }
+        }
+      },
+      {
+        "id": "appearance",
+        "name": "Appearance",
+        "unit": "—",
+        "limits": {
+          "DMX": { "text": "Clear & bright" },
+          "DMA": { "text": "Clear & bright" },
+          "DMZ": { "text": "Clear & bright" },
+          "DMB": { "text": "—" }
+        }
+      },
+      {
+        "id": "water",
+        "name": "Water",
+        "unit": "% V/V",
+        "limits": {
+          "DMX": { "max": null, "note": "—" },
+          "DMA": { "max": null, "note": "—" },
+          "DMZ": { "max": null, "note": "—" },
+          "DMB": { "max": 0.3 }
+        }
+      },
+      {
+        "id": "ash",
+        "name": "Ash",
+        "unit": "% m/m",
+        "limits": {
+          "DMX": { "max": 0.01 },
+          "DMA": { "max": 0.01 },
+          "DMZ": { "max": 0.01 },
+          "DMB": { "max": 0.01 }
+        }
+      },
+      {
+        "id": "lubricity",
+        "name": "Lubricity, corrected wear scar diameter (wsd 1.4) at 60 °C",
+        "unit": "μm",
+        "limits": {
+          "DMX": { "max": 520 },
+          "DMA": { "max": 520 },
+          "DMZ": { "max": 520 },
+          "DMB": { "max": 520 }
+        }
+      }
+    ]
+  },
+  "residuals": {
+    "caption": "Table 2 — Residual marine fuels (selected grades)",
+    "grades": ["RMA 10", "RMB 30", "RMD 80", "RME 180", "RMG 180", "RMG 380", "RMG 500", "RMG 700", "RMK 380", "RMK 500", "RMK 700"],
+    "parameters": [
+      {
+        "id": "visc50",
+        "name": "Kinematic viscosity at 50 °C",
+        "unit": "mm²/s",
+        "limits": {
+          "RMA 10": { "max": 10.0 },
+          "RMB 30": { "max": 30.0 },
+          "RMD 80": { "max": 80.0 },
+          "RME 180": { "max": 180.0 },
+          "RMG 180": { "max": 180.0 },
+          "RMG 380": { "max": 380.0 },
+          "RMG 500": { "max": 500.0 },
+          "RMG 700": { "max": 700.0 },
+          "RMK 380": { "max": 380.0 },
+          "RMK 500": { "max": 500.0 },
+          "RMK 700": { "max": 700.0 }
+        }
+      },
+      {
+        "id": "density15",
+        "name": "Density at 15 °C",
+        "unit": "kg/m³",
+        "limits": {
+          "RMA 10": { "max": 920.0 },
+          "RMB 30": { "max": 960.0 },
+          "RMD 80": { "max": 975.0 },
+          "RME 180": { "max": 991.0 },
+          "RMG 180": { "max": 991.0 },
+          "RMG 380": { "max": 991.0 },
+          "RMG 500": { "max": 991.0 },
+          "RMG 700": { "max": 991.0 },
+          "RMK 380": { "max": 1010.0 },
+          "RMK 500": { "max": 1010.0 },
+          "RMK 700": { "max": 1010.0 }
+        }
+      },
+      {
+        "id": "ccai",
+        "name": "CCAI",
+        "unit": "—",
+        "limits": {
+          "RMA 10": { "max": 850 },
+          "RMB 30": { "max": 860 },
+          "RMD 80": { "max": 860 },
+          "RME 180": { "max": 860 },
+          "RMG 180": { "max": 870 },
+          "RMG 380": { "max": 870 },
+          "RMG 500": { "max": 870 },
+          "RMG 700": { "max": 870 },
+          "RMK 380": { "max": 870 },
+          "RMK 500": { "max": 870 },
+          "RMK 700": { "max": 870 }
+        }
+      },
+      {
+        "id": "sulfur",
+        "name": "Sulfur",
+        "unit": "% m/m",
+        "limits": {
+          "RMA 10": { "max": null, "note": "Statutory" },
+          "RMB 30": { "max": null, "note": "Statutory" },
+          "RMD 80": { "max": null, "note": "Statutory" },
+          "RME 180": { "max": null, "note": "Statutory" },
+          "RMG 180": { "max": null, "note": "Statutory" },
+          "RMG 380": { "max": null, "note": "Statutory" },
+          "RMG 500": { "max": null, "note": "Statutory" },
+          "RMG 700": { "max": null, "note": "Statutory" },
+          "RMK 380": { "max": null, "note": "Statutory" },
+          "RMK 500": { "max": null, "note": "Statutory" },
+          "RMK 700": { "max": null, "note": "Statutory" }
+        },
+        "note": "Set by MARPOL Annex VI / local ECA (e.g. 0.50% global, 0.10% ECA)"
+      },
+      {
+        "id": "flash",
+        "name": "Flash point",
+        "unit": "°C",
+        "limits": {
+          "RMA 10": { "min": 60.0 },
+          "RMB 30": { "min": 60.0 },
+          "RMD 80": { "min": 60.0 },
+          "RME 180": { "min": 60.0 },
+          "RMG 180": { "min": 60.0 },
+          "RMG 380": { "min": 60.0 },
+          "RMG 500": { "min": 60.0 },
+          "RMG 700": { "min": 60.0 },
+          "RMK 380": { "min": 60.0 },
+          "RMK 500": { "min": 60.0 },
+          "RMK 700": { "min": 60.0 }
+        }
+      },
+      {
+        "id": "h2s",
+        "name": "Hydrogen sulfide",
+        "unit": "mg/kg",
+        "limits": {
+          "RMA 10": { "max": 2.0 },
+          "RMB 30": { "max": 2.0 },
+          "RMD 80": { "max": 2.0 },
+          "RME 180": { "max": 2.0 },
+          "RMG 180": { "max": 2.0 },
+          "RMG 380": { "max": 2.0 },
+          "RMG 500": { "max": 2.0 },
+          "RMG 700": { "max": 2.0 },
+          "RMK 380": { "max": 2.0 },
+          "RMK 500": { "max": 2.0 },
+          "RMK 700": { "max": 2.0 }
+        }
+      },
+      {
+        "id": "acid",
+        "name": "Acid number",
+        "unit": "mg KOH/g",
+        "limits": {
+          "RMA 10": { "max": 2.5 },
+          "RMB 30": { "max": 2.5 },
+          "RMD 80": { "max": 2.5 },
+          "RME 180": { "max": 2.5 },
+          "RMG 180": { "max": 2.5 },
+          "RMG 380": { "max": 2.5 },
+          "RMG 500": { "max": 2.5 },
+          "RMG 700": { "max": 2.5 },
+          "RMK 380": { "max": 2.5 },
+          "RMK 500": { "max": 2.5 },
+          "RMK 700": { "max": 2.5 }
+        }
+      },
+      {
+        "id": "tsp",
+        "name": "Total sediment — aged",
+        "unit": "% m/m",
+        "limits": {
+          "RMA 10": { "max": 0.1 },
+          "RMB 30": { "max": 0.1 },
+          "RMD 80": { "max": 0.1 },
+          "RME 180": { "max": 0.1 },
+          "RMG 180": { "max": 0.1 },
+          "RMG 380": { "max": 0.1 },
+          "RMG 500": { "max": 0.1 },
+          "RMG 700": { "max": 0.1 },
+          "RMK 380": { "max": 0.1 },
+          "RMK 500": { "max": 0.1 },
+          "RMK 700": { "max": 0.1 }
+        }
+      },
+      {
+        "id": "carbon",
+        "name": "Carbon residue (micro method)",
+        "unit": "% m/m",
+        "limits": {
+          "RMA 10": { "max": 2.5 },
+          "RMB 30": { "max": 10.0 },
+          "RMD 80": { "max": 14.0 },
+          "RME 180": { "max": 15.0 },
+          "RMG 180": { "max": 18.0 },
+          "RMG 380": { "max": 18.0 },
+          "RMG 500": { "max": 18.0 },
+          "RMG 700": { "max": 18.0 },
+          "RMK 380": { "max": 20.0 },
+          "RMK 500": { "max": 20.0 },
+          "RMK 700": { "max": 20.0 }
+        }
+      },
+      {
+        "id": "pourWinter",
+        "name": "Pour point (upper) — winter quality",
+        "unit": "°C",
+        "limits": {
+          "RMA 10": { "max": 0 },
+          "RMB 30": { "max": 0 },
+          "RMD 80": { "max": 30 },
+          "RME 180": { "max": 30 },
+          "RMG 180": { "max": 30 },
+          "RMG 380": { "max": 30 },
+          "RMG 500": { "max": 30 },
+          "RMG 700": { "max": 30 },
+          "RMK 380": { "max": 30 },
+          "RMK 500": { "max": 30 },
+          "RMK 700": { "max": 30 }
+        }
+      },
+      {
+        "id": "pourSummer",
+        "name": "Pour point (upper) — summer quality",
+        "unit": "°C",
+        "limits": {
+          "RMA 10": { "max": 6 },
+          "RMB 30": { "max": 6 },
+          "RMD 80": { "max": 30 },
+          "RME 180": { "max": 30 },
+          "RMG 180": { "max": 30 },
+          "RMG 380": { "max": 30 },
+          "RMG 500": { "max": 30 },
+          "RMG 700": { "max": 30 },
+          "RMK 380": { "max": 30 },
+          "RMK 500": { "max": 30 },
+          "RMK 700": { "max": 30 }
+        }
+      },
+      {
+        "id": "water",
+        "name": "Water",
+        "unit": "% V/V",
+        "limits": {
+          "RMA 10": { "max": 0.3 },
+          "RMB 30": { "max": 0.5 },
+          "RMD 80": { "max": 0.5 },
+          "RME 180": { "max": 0.5 },
+          "RMG 180": { "max": 0.5 },
+          "RMG 380": { "max": 0.5 },
+          "RMG 500": { "max": 0.5 },
+          "RMG 700": { "max": 0.5 },
+          "RMK 380": { "max": 0.5 },
+          "RMK 500": { "max": 0.5 },
+          "RMK 700": { "max": 0.5 }
+        }
+      },
+      {
+        "id": "ash",
+        "name": "Ash",
+        "unit": "% m/m",
+        "limits": {
+          "RMA 10": { "max": 0.04 },
+          "RMB 30": { "max": 0.07 },
+          "RMD 80": { "max": 0.07 },
+          "RME 180": { "max": 0.07 },
+          "RMG 180": { "max": 0.1 },
+          "RMG 380": { "max": 0.1 },
+          "RMG 500": { "max": 0.1 },
+          "RMG 700": { "max": 0.1 },
+          "RMK 380": { "max": 0.15 },
+          "RMK 500": { "max": 0.15 },
+          "RMK 700": { "max": 0.15 }
+        }
+      },
+      {
+        "id": "vanadium",
+        "name": "Vanadium",
+        "unit": "mg/kg",
+        "limits": {
+          "RMA 10": { "max": 50 },
+          "RMB 30": { "max": 150 },
+          "RMD 80": { "max": 150 },
+          "RME 180": { "max": 150 },
+          "RMG 180": { "max": 350 },
+          "RMG 380": { "max": 350 },
+          "RMG 500": { "max": 350 },
+          "RMG 700": { "max": 350 },
+          "RMK 380": { "max": 450 },
+          "RMK 500": { "max": 450 },
+          "RMK 700": { "max": 450 }
+        }
+      },
+      {
+        "id": "alsi",
+        "name": "Aluminium + Silicon",
+        "unit": "mg/kg",
+        "limits": {
+          "RMA 10": { "max": 25 },
+          "RMB 30": { "max": 40 },
+          "RMD 80": { "max": 40 },
+          "RME 180": { "max": 50 },
+          "RMG 180": { "max": 60 },
+          "RMG 380": { "max": 60 },
+          "RMG 500": { "max": 60 },
+          "RMG 700": { "max": 60 },
+          "RMK 380": { "max": 60 },
+          "RMK 500": { "max": 60 },
+          "RMK 700": { "max": 60 }
+        }
+      },
+      {
+        "id": "sodium",
+        "name": "Sodium",
+        "unit": "mg/kg",
+        "limits": {
+          "RMA 10": { "max": 50 },
+          "RMB 30": { "max": 100 },
+          "RMD 80": { "max": 100 },
+          "RME 180": { "max": 100 },
+          "RMG 180": { "max": 100 },
+          "RMG 380": { "max": 100 },
+          "RMG 500": { "max": 100 },
+          "RMG 700": { "max": 100 },
+          "RMK 380": { "max": 100 },
+          "RMK 500": { "max": 100 },
+          "RMK 700": { "max": 100 }
+        }
+      },
+      {
+        "id": "calcium",
+        "name": "Calcium",
+        "unit": "mg/kg",
+        "limits": {
+          "RMA 10": { "max": 30 },
+          "RMB 30": { "max": 30 },
+          "RMD 80": { "max": 30 },
+          "RME 180": { "max": 30 },
+          "RMG 180": { "max": 30 },
+          "RMG 380": { "max": 30 },
+          "RMG 500": { "max": 30 },
+          "RMG 700": { "max": 30 },
+          "RMK 380": { "max": 30 },
+          "RMK 500": { "max": 30 },
+          "RMK 700": { "max": 30 }
+        }
+      },
+      {
+        "id": "zinc",
+        "name": "Zinc",
+        "unit": "mg/kg",
+        "limits": {
+          "RMA 10": { "max": 15 },
+          "RMB 30": { "max": 15 },
+          "RMD 80": { "max": 15 },
+          "RME 180": { "max": 15 },
+          "RMG 180": { "max": 15 },
+          "RMG 380": { "max": 15 },
+          "RMG 500": { "max": 15 },
+          "RMG 700": { "max": 15 },
+          "RMK 380": { "max": 15 },
+          "RMK 500": { "max": 15 },
+          "RMK 700": { "max": 15 }
+        }
+      },
+      {
+        "id": "phosphorus",
+        "name": "Phosphorus",
+        "unit": "mg/kg",
+        "limits": {
+          "RMA 10": { "max": 15 },
+          "RMB 30": { "max": 15 },
+          "RMD 80": { "max": 15 },
+          "RME 180": { "max": 15 },
+          "RMG 180": { "max": 15 },
+          "RMG 380": { "max": 15 },
+          "RMG 500": { "max": 15 },
+          "RMG 700": { "max": 15 },
+          "RMK 380": { "max": 15 },
+          "RMK 500": { "max": 15 },
+          "RMK 700": { "max": 15 }
+        }
+      }
+    ]
+  }
+}

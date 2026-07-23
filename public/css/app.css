@@ -376,6 +376,30 @@ table.excel-table input[type="number"]:focus {
   background: var(--bg-panel); border: 1px solid var(--border);
   border-radius: 6px; padding: 6px 8px; color: var(--text);
 }
+.ref-table.sticky-head thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--bg-panel-2);
+}
+.ref-table tr.row-hl td {
+  background: rgba(58,160,255,.12);
+}
+.ref-table th.col-hl,
+.ref-table td.col-hl {
+  background: rgba(58,160,255,.08);
+}
+.ref-table td.cell-hl {
+  background: rgba(58,160,255,.28) !important;
+  font-weight: 700;
+  color: var(--accent-2);
+}
+.iso-table td, .iso-table th {
+  white-space: nowrap;
+}
+.iso-table td.tname {
+  white-space: normal;
+  min-width: 180px;
+  max-width: 280px;
+}
 
 @media (max-width: 980px) {
   .detail-grid, .two-col, .fuel-panels { grid-template-columns: 1fr; }

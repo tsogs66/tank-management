@@ -15,6 +15,9 @@ const {
   density15ToSg,
   apiToDensity15,
   lerpLookupInverse,
+  vcf54B,
+  wcf56,
+  volumeFromMT,
 } = require('./calc');
 const excelImport = require('./excel-import');
 const pdfImport = require('./pdf-import');
@@ -639,6 +642,85 @@ app.post('/api/reference/convert-density', (req, res) => {
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
+});
+
+/** Single manual VCF (54B) + WCF (56) calculation */
+app.post('/api/reference/vcf-wcf', (req, res) => {
+  try {
+    const density15 = Number(req.body?.density15);
+    const tempC = req.body?.tempC != null && req.body?.tempC !== '' ? Number(req.body.tempC) : 15;
+    if (!(density15 > 0)) return res.status(400).json({ error: 'Enter density @15°C (kg/L)' });
+    if (!Number.isFinite(tempC)) return res.status(400).json({ error: 'Enter a valid temperature °C' });
+
+    const vcf = vcf54B(density15, tempC);
+    const wcf = wcf56(density15);
+    const out = {
+      ok: true,
+      density15,
+      tempC,
+      vcf,
+      wcf,
+      formula: {
+        vcf: 'ASTM Table 54B (workbook reconstruction)',
+        wcf: 'ASTM Table 56 style: density15 − 0.0011',
+      },
+    };
+
+    const volObs = req.body?.volumeObserved != null && req.body.volumeObserved !== ''
+      ? Number(req.body.volumeObserved) : null;
+    const mtIn = req.body?.quantityMT != null && req.body.quantityMT !== ''
+      ? Number(req.body.quantityMT) : null;
+
+    if (volObs != null && Number.isFinite(volObs)) {
+      out.volumeObserved = volObs;
+      out.volume15 = Math.round(volObs * vcf * 1000) / 1000;
+      out.weightMT = Math.round(out.volume15 * wcf * 1000) / 1000;
+    } else if (mtIn != null && Number.isFinite(mtIn)) {
+      out.quantityMT = mtIn;
+      out.volume15 = wcf > 0 ? Math.round((mtIn / wcf) * 1000) / 1000 : null;
+      out.volumeObserved = volumeFromMT(mtIn, density15, tempC);
+      if (out.volumeObserved != null) out.volumeObserved = Math.round(out.volumeObserved * 1000) / 1000;
+    }
+
+    res.json(out);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+/** Reference VCF / WCF lookup tables for display */
+app.get('/api/reference/vcf-wcf-tables', (req, res) => {
+  const densMin = Number(req.query.densMin) || 0.80;
+  const densMax = Number(req.query.densMax) || 1.01;
+  const densStep = Number(req.query.densStep) || 0.01;
+  const temps = String(req.query.temps || '0,5,10,15,20,25,30,35,40,45,50')
+    .split(',')
+    .map((t) => Number(t))
+    .filter((t) => Number.isFinite(t));
+
+  const wcfRows = [];
+  const vcfRows = [];
+  for (let d = densMin; d <= densMax + 1e-9; d = Math.round((d + densStep) * 1000) / 1000) {
+    const dens = Math.round(d * 1000) / 1000;
+    wcfRows.push({ density15: dens, wcf: Math.round(wcf56(dens) * 10000) / 10000 });
+    const row = { density15: dens };
+    for (const t of temps) row['t' + t] = vcf54B(dens, t);
+    vcfRows.push(row);
+  }
+
+  res.json({
+    ok: true,
+    temps,
+    wcf: wcfRows,
+    vcf: vcfRows,
+    note: 'VCF = ASTM Table 54B; WCF = density15 − 0.0011 (workbook Table 56 style)',
+  });
+});
+
+app.get('/api/reference/iso8217', (req, res) => {
+  const p = path.join(__dirname, '..', 'seed', 'iso8217.json');
+  if (!fs.existsSync(p)) return res.status(404).json({ error: 'iso8217.json not found' });
+  res.json(JSON.parse(fs.readFileSync(p, 'utf8')));
 });
 
 /* ---------- PDF table extract / apply to tank calibration ---------- */
