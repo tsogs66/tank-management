@@ -1,18 +1,20 @@
 /**
  * Extract calibration tables from PDF via scripts/import-pdf-tables.py (pdfplumber).
+ * Groups tables by tank; auto-skips L.C.G / T.C.G / V.C.G / IMOM hydrostatic blocks.
  */
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
-function runExtractor(pdfPath, pageList) {
+function runExtractor(pdfPath, pageList, opts = {}) {
   return new Promise((resolve, reject) => {
     const script = path.join(__dirname, '..', 'scripts', 'import-pdf-tables.py');
     const args = [script, pdfPath];
     if (Array.isArray(pageList) && pageList.length) {
       for (const p of pageList) args.push('--page', String(p));
     }
+    if (opts.ocr) args.push('--ocr');
     const py = spawn('python3', args, { maxBuffer: 64 * 1024 * 1024 });
     let out = '';
     let err = '';
@@ -39,7 +41,7 @@ async function extractFromBuffer(buffer, opts = {}) {
   const tmp = path.join(os.tmpdir(), `fuel-tms-pdf-${Date.now()}.pdf`);
   fs.writeFileSync(tmp, buffer);
   try {
-    return await runExtractor(tmp, opts.pages);
+    return await runExtractor(tmp, opts.pages, opts);
   } finally {
     try { fs.unlinkSync(tmp); } catch { /* ignore */ }
   }
@@ -47,7 +49,7 @@ async function extractFromBuffer(buffer, opts = {}) {
 
 async function extractFromPath(filePath, opts = {}) {
   if (!fs.existsSync(filePath)) throw new Error('PDF not found: ' + filePath);
-  return runExtractor(filePath, opts.pages);
+  return runExtractor(filePath, opts.pages, opts);
 }
 
 /**
@@ -55,6 +57,10 @@ async function extractFromPath(filePath, opts = {}) {
  * target: "trim" | "list" | "volume" | "full" | "auto"
  */
 function tableToCalibration(table, target = 'auto', existing = {}) {
+  if (table.skipped || table.parsed?.kind === 'hydrostatic') {
+    throw new Error(table.skipReason || 'Hydrostatic L.C.G/T.C.G/V.C.G/IMOM table disregarded');
+  }
+
   const parsed = table.parsed || {};
   const kind = parsed.kind || 'unknown';
   const mode = target === 'auto'
@@ -98,11 +104,9 @@ function tableToCalibration(table, target = 'auto', existing = {}) {
     };
 
     if (mode === 'full') {
-      // Also apply volume curve if present
       if ((parsed.volumeCurve?.x || []).length > 1) {
         patch.volumeCurve = parsed.volumeCurve;
       }
-      // Seed a flat list/heel table from the zero-trim column if none exists
       if (!(existing.listGrid || []).length) {
         const z = vals.findIndex((a) => Number(a) === 0);
         const col = z >= 0 ? z : Math.floor(vals.length / 2);
@@ -118,7 +122,6 @@ function tableToCalibration(table, target = 'auto', existing = {}) {
     return patch;
   }
 
-  // Raw preview only — caller should show table for manual mapping
   return {
     raw: table.raw || table.preview || [],
     note: 'Could not auto-detect grid; preview raw cells and re-import after fixing PDF layout',
@@ -127,23 +130,35 @@ function tableToCalibration(table, target = 'auto', existing = {}) {
 
 /** Compact list for API responses (omit huge raw matrices unless requested). */
 function summarizeTables(result, includeRaw = false) {
+  const tables = (result.tables || []).map((t) => ({
+    id: t.id,
+    page: t.page,
+    index: t.index,
+    rows: t.rows,
+    cols: t.cols,
+    titleHint: t.titleHint || '',
+    tankName: t.tankName || t.titleHint || '',
+    layoutHint: t.layoutHint || '',
+    skipped: !!t.skipped,
+    skipReason: t.skipReason || null,
+    removedHydroHeaders: t.removedHydroHeaders || [],
+    kind: t.parsed?.kind || 'unknown',
+    soundingIncrement: t.parsed?.soundingIncrement,
+    capacity: t.parsed?.capacity,
+    preview: t.preview,
+    parsed: t.parsed,
+    ...(includeRaw ? { raw: t.raw } : {}),
+  }));
+
   return {
     pages: result.pages,
     file: result.file,
-    tables: (result.tables || []).map((t) => ({
-      id: t.id,
-      page: t.page,
-      index: t.index,
-      rows: t.rows,
-      cols: t.cols,
-      titleHint: t.titleHint || '',
-      kind: t.parsed?.kind || 'unknown',
-      soundingIncrement: t.parsed?.soundingIncrement,
-      capacity: t.parsed?.capacity,
-      preview: t.preview,
-      parsed: t.parsed,
-      ...(includeRaw ? { raw: t.raw } : {}),
-    })),
+    ocrUsed: !!result.ocrUsed,
+    skippedHydrostatic: result.skippedHydrostatic || tables.filter((t) => t.skipped).length,
+    warnings: result.warnings || [],
+    tanks: result.tanks || [],
+    tables,
+    usableTables: tables.filter((t) => !t.skipped && t.kind !== 'hydrostatic' && t.kind !== 'unknown'),
   };
 }
 

@@ -1,3 +1,6 @@
 # Python helpers for Excel / PDF calibration import
 openpyxl>=3.1.0
 pdfplumber>=0.11.0
+reportlab>=4.0.0
+# Optional OCR (also needs system packages: tesseract-ocr, ocrmypdf)
+# ocrmypdf>=15.0.0

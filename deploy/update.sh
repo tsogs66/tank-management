@@ -67,7 +67,7 @@ cd "$APP_DIR"
 echo "==> Installing npm dependencies"
 npm install --omit=dev
 if [[ -f requirements.txt ]]; then
-  echo "==> Installing Python deps (openpyxl, pdfplumber)"
+  echo "==> Installing Python deps (openpyxl, pdfplumber, reportlab)"
   pip3 install --break-system-packages -r requirements.txt 2>/dev/null \
     || pip3 install -r requirements.txt
 fi

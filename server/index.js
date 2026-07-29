@@ -730,8 +730,10 @@ app.post('/api/vessels/:id/import-pdf', upload.single('file'), asyncHandler(asyn
     .split(/[,;\s]+/)
     .map((n) => parseInt(n, 10))
     .filter((n) => n > 0);
+  const ocr = req.body?.ocr === true || req.body?.ocr === 'true';
   const result = await pdfImport.extractFromBuffer(req.file.buffer, {
     pages: pages.length ? pages : undefined,
+    ocr,
   });
   const includeRaw = req.body?.includeRaw === true || req.body?.includeRaw === 'true';
   res.json({ ok: true, ...pdfImport.summarizeTables(result, includeRaw) });
@@ -751,8 +753,10 @@ app.post('/api/vessels/:id/tanks/:tankId/import-pdf', upload.single('file'), asy
       .split(/[,;\s]+/)
       .map((n) => parseInt(n, 10))
       .filter((n) => n > 0);
+    const ocr = req.body?.ocr === true || req.body?.ocr === 'true';
     const result = await pdfImport.extractFromBuffer(req.file.buffer, {
       pages: pages.length ? pages : undefined,
+      ocr,
     });
     tables = result.tables || [];
     pagesMeta = result.pages;

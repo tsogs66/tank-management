@@ -306,6 +306,8 @@ table.excel-table input[type="number"]:focus {
   border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
   margin-bottom: 10px; background: var(--bg);
 }
+.pdf-table-card.skipped { opacity: 0.72; border-style: dashed; }
+.pdf-tank-group { margin-bottom: 8px; }
 .pdf-table-head {
   display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px;
   align-items: flex-start; margin-bottom: 8px;
