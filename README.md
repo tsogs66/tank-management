@@ -69,10 +69,10 @@ Also used from the workbook: **Setup** (pipe height / 100% & 85% capacity), **Co
 
 Requires Python deps (`pip3 install -r requirements.txt` — includes `pdfplumber`).
 
-1. Open **Calibration DB →** a tank → **Import PDF**
+1. Open **Add Tank → Upload PDF** to create tanks (with calibration) from a sounding book, or open **Calibration DB →** a tank → **Import PDF** to apply a table to an existing tank
 2. Choose a capacity / sounding table PDF (text layer preferred)
 3. Preview tables **grouped by tank**; hydrostatic **L.C.G / T.C.G / V.C.G / IMOM** blocks are skipped automatically
-4. Pick target (**trim**, **list/heel**, **volume curve**, or **full**), then **Apply to tank**
+4. On Add Tank: select tanks → **Create selected tanks**. On Calibration: pick target (**trim**, **list/heel**, **volume curve**, or **full**), then **Apply to tank**
 
 Supported layouts (comparison samples in `templates/`):
 
@@ -95,6 +95,7 @@ Scanned (image-only) PDFs: install `ocrmypdf` and `tesseract-ocr`, or pre-OCR th
 API:
 
 - `POST /api/vessels/:id/import-pdf` — multipart `file` → `{ tanks, tables, usableTables, skippedHydrostatic, … }`
+  - Pass `createTanks=true` (optional `tankNames` JSON array, `updateExisting`) to create/update tanks with calibration from the PDF — used by **Add Tank → Upload PDF**
 - `POST /api/vessels/:id/tanks/:tankId/import-pdf` — upload PDF or POST `{ table, target, apply:true }` to write calibration
 - Optional form field `ocr=true` to force OCR when tools are installed
 

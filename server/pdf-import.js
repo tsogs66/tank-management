@@ -162,9 +162,124 @@ function summarizeTables(result, includeRaw = false) {
   };
 }
 
+/** Infer category / side / grade / calc type from a sounding-book tank title. */
+function inferTankMeta(name) {
+  const u = String(name || '').toUpperCase();
+  let category = 'fuel';
+  if (/\b(FW|F\.?\s*W\.?|FRESH\s*WATER|POTABLE|DRINKING)\b/.test(u)) category = 'water';
+  else if (/\b(SW|S\.?\s*W\.?|BALLAST|SEA\s*WATER)\b/.test(u)) category = 'misc';
+  else if (/\b(LO|L\.?\s*O\.?|LUBE|LUB\s*OIL)\b/.test(u)) category = 'lube';
+  else if (/\b(SLUDGE|BILGE|WASTE|SEWAGE)\b/.test(u)) category = 'misc';
+
+  let side = 'center';
+  if (/\(\s*P\s*\)|\bPORT\b|\(P\)/.test(u)) side = 'port';
+  else if (/\(\s*S\s*\)|\bSTBD\b|\bSTARBOARD\b|\(S\)/.test(u)) side = 'starboard';
+
+  let fuelGrade = 'hfo';
+  if (/\b(MGO|M\.?\s*G\.?\s*O\.?|GAS\s*OIL)\b/.test(u)) fuelGrade = 'mgo';
+  else if (/\b(MDO|M\.?\s*D\.?\s*O\.?|D\.?\s*O\.?\s*T\.?|DIESEL)\b/.test(u)) fuelGrade = 'mdo';
+  else if (/\b(LSFO|VLSFO|ULSFO)\b/.test(u)) fuelGrade = 'lsfo';
+  else if (/\b(HFO|H\.?\s*F\.?\s*O\.?|F\.?\s*O\.?\s*T\.?|FUEL\s*OIL)\b/.test(u)) fuelGrade = 'hfo';
+
+  const tankNoMatch = u.match(/\b(?:NO\.?\s*)?(\d+)\b/);
+  const tankNo = tankNoMatch ? Number(tankNoMatch[1]) : null;
+
+  return {
+    name: String(name || 'Imported tank').trim().slice(0, 120),
+    category,
+    side,
+    fuelGrade,
+    tankNo,
+    fuelRole: 'storage',
+    calcType: 'direct',
+    soundingMethod: 'sounding',
+    correctionDivisor: 10,
+    pipeHeight: 0,
+  };
+}
+
+function pickBestTableForTank(tables, tableIds) {
+  const ids = new Set(tableIds || []);
+  const candidates = (tables || []).filter((t) =>
+    ids.has(t.id) && !t.skipped && t.parsed?.kind && t.parsed.kind !== 'hydrostatic' && t.parsed.kind !== 'unknown'
+  );
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => {
+    const score = (t) => {
+      const p = t.parsed || {};
+      if (p.kind === 'grid') return 100 + (p.trimAxis || []).length * 2 + (p.trimVals || []).length;
+      if (p.kind === 'volumeCurve') return 50 + ((p.volumeCurve && p.volumeCurve.x) || []).length;
+      return 0;
+    };
+    return score(b) - score(a);
+  });
+  return candidates[0];
+}
+
+/**
+ * Build tank records + calibration patches from an extract result.
+ * Does not write to the store — caller applies via upsertTank / updateCalibration.
+ */
+function planTankCreates(result, opts = {}) {
+  const summary = summarizeTables(result, true);
+  const selectedNames = Array.isArray(opts.tankNames) && opts.tankNames.length
+    ? new Set(opts.tankNames.map((n) => String(n)))
+    : null;
+  const plans = [];
+
+  for (const group of summary.tanks || []) {
+    if (selectedNames && !selectedNames.has(group.name)) continue;
+    const table = pickBestTableForTank(summary.tables, group.tableIds);
+    if (!table) continue;
+    const meta = inferTankMeta(group.name);
+    let patch;
+    try {
+      patch = tableToCalibration(table, opts.target || 'auto', {});
+    } catch (e) {
+      plans.push({
+        name: meta.name,
+        error: e.message,
+        tableId: table.id,
+      });
+      continue;
+    }
+    if (patch.raw && !patch.trimAxis && !patch.volumeCurve) {
+      plans.push({
+        name: meta.name,
+        error: patch.note || 'Could not parse table',
+        tableId: table.id,
+      });
+      continue;
+    }
+    const calcType = (patch.trimGrid || []).length ? 'direct' : meta.calcType;
+    const tank = {
+      ...meta,
+      calcType,
+      capacity: patch.capacity || table.capacity || meta.capacity || 0,
+      soundingIncrement: patch.soundingIncrement || table.soundingIncrement || 1,
+      heelIncrement: patch.heelIncrement || 1,
+      ...patch,
+      pdfSource: group.name,
+      pdfTableId: table.id,
+    };
+    plans.push({
+      name: meta.name,
+      tableId: table.id,
+      kind: table.parsed?.kind,
+      layoutHint: table.layoutHint,
+      tank,
+      patch,
+    });
+  }
+  return plans;
+}
+
 module.exports = {
   extractFromBuffer,
   extractFromPath,
   tableToCalibration,
   summarizeTables,
+  inferTankMeta,
+  pickBestTableForTank,
+  planTankCreates,
 };

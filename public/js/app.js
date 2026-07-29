@@ -547,8 +547,9 @@ function renderResultSteps(panel, tank, r, inputs) {
 /* ---------- Add tank ---------- */
 function renderAddTank(main) {
   main.innerHTML += `<div class="page-head"><div><h1>Add Tank</h1>
-    <div class="desc">Manually add storage, settling, or service tanks. Calibration can be edited afterwards or imported via CSV.</div></div></div>
-    <div class="help-box">Use role <b>storage</b>, <b>settling</b>, or <b>service</b> so bunkering distribution can target the right tanks. Side and tank number enable Port/Starboard and No.1/No.2 splits.</div>`;
+    <div class="desc">Manually add storage, settling, or service tanks — or import tanks and sounding tables from a capacity PDF.</div></div></div>
+    <div class="help-box">Use role <b>storage</b>, <b>settling</b>, or <b>service</b> so bunkering distribution can target the right tanks. Side and tank number enable Port/Starboard and No.1/No.2 splits.
+      <br>PDF sounding books: upload below to create one tank per table found (L.C.G/T.C.G/V.C.G/IMOM hydrostatic blocks are skipped).</div>`;
 
   const form = document.createElement('div');
   form.className = 'form-panel';
@@ -590,6 +591,21 @@ function renderAddTank(main) {
       <a class="btn" href="/api/templates/tanks.csv">Download CSV template</a>
       <a class="btn" id="btn-export-tanks-csv" href="#">Export tanks CSV</a>
     </div>
+    <div class="section-title">Import tanks from sounding PDF</div>
+    <p class="hint">Upload a capacity / sounding-table PDF (Veniamis trim-grid or Gangos SOUNDING|VOLUME style). Preview tanks found, then create them with calibration tables applied.</p>
+    <div class="btn-row" style="align-items:center;gap:8px;flex-wrap:wrap">
+      <label class="btn primary">Upload PDF<input type="file" id="add-pdf-file" accept=".pdf,application/pdf" hidden></label>
+      <label class="hint" style="display:flex;align-items:center;gap:6px;margin:0">
+        <input type="checkbox" id="add-pdf-update" checked> Update existing tanks with same name
+      </label>
+    </div>
+    <div id="add-pdf-panel" class="pdf-import-panel" style="display:none;margin-top:12px">
+      <div id="add-pdf-summary" class="hint" style="margin:0 0 10px"></div>
+      <div id="add-pdf-tanks"></div>
+      <div class="btn-row" style="margin-top:10px">
+        <button class="btn primary" id="btn-create-pdf-tanks" disabled>Create selected tanks</button>
+      </div>
+    </div>
     <div class="section-title">Import / edit tanks from CSV</div>
     <p class="hint">Upload the template or an exported tanks CSV. Matching <code>id</code> updates the tank (calibration tables are kept). New rows are created.</p>
     <input type="file" id="csv-file" accept=".csv,text/csv">
@@ -624,6 +640,97 @@ function renderAddTank(main) {
     await reloadBundle();
     showToast('Tank added — open Calibration DB to enter tables');
     navigate('calibration');
+  };
+
+  let addPdfFile = null;
+  let addPdfPreview = null;
+
+  document.getElementById('add-pdf-file').onchange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    addPdfFile = file;
+    try {
+      showToast('Reading PDF tanks…');
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('includeRaw', 'false');
+      const res = await Api.request(`/api/vessels/${STATE.activeVesselId}/import-pdf`, { method: 'POST', body: fd });
+      addPdfPreview = res;
+      const panel = document.getElementById('add-pdf-panel');
+      const sum = document.getElementById('add-pdf-summary');
+      const box = document.getElementById('add-pdf-tanks');
+      const btn = document.getElementById('btn-create-pdf-tanks');
+      panel.style.display = '';
+
+      const tankGroups = res.tanks || [];
+      const usable = res.usableTables || (res.tables || []).filter((t) => !t.skipped && t.kind !== 'unknown');
+      if (!tankGroups.length && !usable.length) {
+        sum.innerHTML = (res.warnings || []).map((w) => escapeHtml(w)).join('<br>')
+          || 'No usable tank tables found in this PDF.';
+        box.innerHTML = '';
+        btn.disabled = true;
+        showToast('No tanks found in PDF');
+        return;
+      }
+
+      sum.innerHTML = [
+        `<b>${tankGroups.length || usable.length}</b> tank group(s) · <b>${usable.length}</b> usable table(s)`,
+        res.skippedHydrostatic ? `<span class="pill warn">${res.skippedHydrostatic} hydrostatic skipped</span>` : '',
+        res.pages ? `${res.pages} page(s)` : '',
+      ].filter(Boolean).join(' · ');
+
+      // Build checklist from tank groups; fall back to usable tables
+      const rows = tankGroups.length
+        ? tankGroups.map((tk) => {
+          const tables = (res.tables || []).filter((t) => (tk.tableIds || []).includes(t.id) && !t.skipped);
+          const kinds = [...new Set(tables.map((t) => t.kind))].join(', ');
+          const cap = Math.max(0, ...tables.map((t) => Number(t.capacity) || 0));
+          return {
+            name: tk.name,
+            meta: `${tk.tableCount || tables.length} table(s)${kinds ? ` · ${kinds}` : ''}${cap ? ` · ~${fmt(cap, 1)} m³` : ''}`,
+          };
+        })
+        : usable.map((t) => ({
+          name: t.tankName || t.titleHint || t.id,
+          meta: `${t.kind} · page ${t.page}${t.capacity ? ` · ~${fmt(t.capacity, 1)} m³` : ''}`,
+        }));
+
+      box.innerHTML = rows.map((r, i) => `
+        <label class="pdf-tank-pick">
+          <input type="checkbox" data-tank-name="${escapeHtml(r.name)}" checked>
+          <span><b>${escapeHtml(r.name)}</b><div class="hint">${escapeHtml(r.meta)}</div></span>
+        </label>`).join('');
+
+      btn.disabled = false;
+      showToast(`Found ${rows.length} tank(s) in PDF`);
+    } catch (err) {
+      showToast(err.message);
+    }
+  };
+
+  document.getElementById('btn-create-pdf-tanks').onclick = async () => {
+    if (!addPdfFile) { showToast('Choose a PDF first'); return; }
+    const checked = [...document.querySelectorAll('#add-pdf-tanks [data-tank-name]:checked')]
+      .map((el) => el.getAttribute('data-tank-name'));
+    if (!checked.length) { showToast('Select at least one tank'); return; }
+    try {
+      showToast('Creating tanks from PDF…');
+      const fd = new FormData();
+      fd.append('file', addPdfFile);
+      fd.append('createTanks', 'true');
+      fd.append('updateExisting', document.getElementById('add-pdf-update').checked ? 'true' : 'false');
+      fd.append('tankNames', JSON.stringify(checked));
+      const res = await Api.request(`/api/vessels/${STATE.activeVesselId}/import-pdf`, { method: 'POST', body: fd });
+      await reloadBundle();
+      const c = res.created || 0;
+      const u = res.updated || 0;
+      const f = res.failed || 0;
+      showToast(`PDF import: ${c} created, ${u} updated${f ? `, ${f} failed` : ''}`);
+      navigate('calibration');
+    } catch (err) {
+      showToast(err.message);
+    }
   };
 
   document.getElementById('btn-import-csv').onclick = async () => {
