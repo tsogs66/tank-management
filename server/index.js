@@ -736,7 +736,92 @@ app.post('/api/vessels/:id/import-pdf', upload.single('file'), asyncHandler(asyn
     ocr,
   });
   const includeRaw = req.body?.includeRaw === true || req.body?.includeRaw === 'true';
-  res.json({ ok: true, ...pdfImport.summarizeTables(result, includeRaw) });
+  const summary = pdfImport.summarizeTables(result, includeRaw);
+
+  const createTanks = req.body?.createTanks === true || req.body?.createTanks === 'true';
+  if (!createTanks) {
+    return res.json({ ok: true, ...summary });
+  }
+
+  let tankNames = req.body?.tankNames;
+  if (typeof tankNames === 'string') {
+    try { tankNames = JSON.parse(tankNames); } catch (_) {
+      tankNames = tankNames.split(/\n|;/).map((s) => s.trim()).filter(Boolean);
+    }
+  }
+  const updateExisting = req.body?.updateExisting !== false && req.body?.updateExisting !== 'false';
+  const plans = pdfImport.planTankCreates(result, {
+    tankNames: Array.isArray(tankNames) ? tankNames : undefined,
+    target: req.body?.target || 'auto',
+  });
+
+  const bundle = store.getVesselBundle(req.params.id);
+  const tanks = bundle.tanks || store.emptyTanks();
+  const norm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  function findExisting(name) {
+    const n = norm(name);
+    for (const cat of Object.keys(tanks)) {
+      const hit = (tanks[cat] || []).find((t) => {
+        const tn = norm(t.name);
+        return tn === n || (n.length > 6 && (tn.includes(n) || n.includes(tn)));
+      });
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  let created = 0;
+  let updated = 0;
+  let failed = 0;
+  const applied = [];
+  for (const plan of plans) {
+    if (plan.error || !plan.tank) {
+      failed++;
+      applied.push({ name: plan.name, ok: false, error: plan.error || 'No table' });
+      continue;
+    }
+    const existing = findExisting(plan.name);
+    if (existing) {
+      if (!updateExisting) {
+        applied.push({ name: plan.name, ok: false, error: 'Tank already exists', tankId: existing.id });
+        failed++;
+        continue;
+      }
+      const saved = store.updateCalibration(req.params.id, existing.id, plan.patch);
+      updated++;
+      applied.push({
+        name: plan.name,
+        ok: true,
+        action: 'updated',
+        tankId: existing.id,
+        tableId: plan.tableId,
+        kind: plan.kind,
+        capacity: saved.capacity,
+      });
+    } else {
+      const saved = store.upsertTank(req.params.id, plan.tank);
+      created++;
+      applied.push({
+        name: plan.name,
+        ok: true,
+        action: 'created',
+        tankId: saved.id,
+        tableId: plan.tableId,
+        kind: plan.kind,
+        capacity: saved.capacity,
+      });
+    }
+  }
+
+  res.json({
+    ok: true,
+    ...summary,
+    createTanks: true,
+    created,
+    updated,
+    failed,
+    applied,
+  });
 }));
 
 app.post('/api/vessels/:id/tanks/:tankId/import-pdf', upload.single('file'), asyncHandler(async (req, res) => {
