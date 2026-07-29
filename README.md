@@ -80,6 +80,16 @@ Supported layouts (comparison samples in `templates/`):
 |--------|--------|-------------------|
 | Trim / depth grid (Veniamis-style) | `sample-sounding-book-veniamis.pdf` | SOUNDING/Depth × trim (m) → volume grid per tank |
 | Sounding × volume + hydro (Gangos-style) | `sample-sounding-book-gangos.pdf` | SOUNDING + VOLUME only; LCG/TCG/VCG/IMOM columns stripped; pure hydro tables disregarded |
+| Sectioned trim / ullage (Giorgis-style) | `sample-sounding-book-giorgis.pdf` | EVEN KEEL + TRIM BY STERN/HEAD (or ULLAGE\|CAPACITY) sections → merged sounding × trim grid |
+
+Exterior inspect (folder or file — no full matrices):
+
+```bash
+python3 scripts/inspect-pdf-sounding.py templates/ships/giorgis
+python3 scripts/import-pdf-tables.py path/to/book.pdf --inspect
+```
+
+Drop real ship PDFs into `templates/ships/giorgis/` (Windows desktop paths are not visible to the cloud agent).
 
 Regenerate samples: `python3 scripts/make-sample-sounding-pdfs.py`
 
@@ -88,9 +98,10 @@ CLI:
 ```bash
 python3 scripts/import-pdf-tables.py path/to/tables.pdf > tables.json
 python3 scripts/import-pdf-tables.py path/to/scanned.pdf --ocr   # needs ocrmypdf + tesseract
+python3 scripts/import-pdf-tables.py path/to/tables.pdf --inspect
 ```
 
-Scanned (image-only) PDFs: install `ocrmypdf` and `tesseract-ocr`, or pre-OCR the file. The importer warns when a page has little extractable text.
+Scanned (image-only) PDFs: install `ocrmypdf` and `tesseract-ocr` (deploy scripts / apt), or pre-OCR the file. The importer auto-OCRs when little text is found and warns otherwise.
 
 API:
 

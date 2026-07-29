@@ -139,6 +139,7 @@ function summarizeTables(result, includeRaw = false) {
     titleHint: t.titleHint || '',
     tankName: t.tankName || t.titleHint || '',
     layoutHint: t.layoutHint || '',
+    soundingMethod: t.soundingMethod || t.parsed?.soundingMethod || null,
     skipped: !!t.skipped,
     skipReason: t.skipReason || null,
     removedHydroHeaders: t.removedHydroHeaders || [],
@@ -150,12 +151,13 @@ function summarizeTables(result, includeRaw = false) {
     ...(includeRaw ? { raw: t.raw } : {}),
   }));
 
-  return {
+    return {
     pages: result.pages,
     file: result.file,
     ocrUsed: !!result.ocrUsed,
     skippedHydrostatic: result.skippedHydrostatic || tables.filter((t) => t.skipped).length,
     warnings: result.warnings || [],
+    layoutFamilies: result.layoutFamilies || [...new Set(tables.filter((t) => !t.skipped).map((t) => t.layoutHint).filter(Boolean))],
     tanks: result.tanks || [],
     tables,
     usableTables: tables.filter((t) => !t.skipped && t.kind !== 'hydrostatic' && t.kind !== 'unknown'),
@@ -252,13 +254,16 @@ function planTankCreates(result, opts = {}) {
       continue;
     }
     const calcType = (patch.trimGrid || []).length ? 'direct' : meta.calcType;
+    const soundingMethod = table.soundingMethod || table.parsed?.soundingMethod || meta.soundingMethod;
     const tank = {
       ...meta,
       calcType,
+      soundingMethod,
       capacity: patch.capacity || table.capacity || meta.capacity || 0,
       soundingIncrement: patch.soundingIncrement || table.soundingIncrement || 1,
       heelIncrement: patch.heelIncrement || 1,
       ...patch,
+      soundingMethod,
       pdfSource: group.name,
       pdfTableId: table.id,
     };

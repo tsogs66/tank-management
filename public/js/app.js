@@ -549,7 +549,7 @@ function renderAddTank(main) {
   main.innerHTML += `<div class="page-head"><div><h1>Add Tank</h1>
     <div class="desc">Manually add storage, settling, or service tanks — or import tanks and sounding tables from a capacity PDF.</div></div></div>
     <div class="help-box">Use role <b>storage</b>, <b>settling</b>, or <b>service</b> so bunkering distribution can target the right tanks. Side and tank number enable Port/Starboard and No.1/No.2 splits.
-      <br>PDF sounding books: upload below to create one tank per table found (L.C.G/T.C.G/V.C.G/IMOM hydrostatic blocks are skipped).</div>`;
+      <br>PDF sounding books: upload below to create one tank per table found (L.C.G/T.C.G/V.C.G/IMOM hydrostatic blocks are skipped). Supports trim grids, SOUNDING|VOLUME, and sectioned EVEN KEEL / TRIM BY STERN|HEAD (ullage) books.</div>`;
 
   const form = document.createElement('div');
   form.className = 'form-panel';

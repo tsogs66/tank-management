@@ -70,6 +70,12 @@ if [[ -f requirements.txt ]]; then
   echo "==> Installing Python deps (openpyxl, pdfplumber, reportlab)"
   pip3 install --break-system-packages -r requirements.txt 2>/dev/null \
     || pip3 install -r requirements.txt
+  if command -v apt-get >/dev/null 2>&1; then
+    echo "==> Optional OCR packages (tesseract, ocrmypdf) if missing"
+    if ! command -v tesseract >/dev/null 2>&1 || ! command -v ocrmypdf >/dev/null 2>&1; then
+      apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tesseract-ocr ocrmypdf || true
+    fi
+  fi
 fi
 
 # Refresh systemd unit (port / paths) without wiping user data
