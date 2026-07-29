@@ -657,7 +657,7 @@ function renderCalibrationList(main) {
   help.innerHTML = `Reference format from <b>TANK MANAGEMENT CAPTAIN VENIAMIS FINAL VERSION.xlsm</b> sheets <b>Tank1–Tank4</b>:
     row headers = sounding/ullage (or Depth), column headers = trim (m), then SOUNDING CM / VOLUME, then list/heel table.
     <br>Per tank: <b>Export CSV / Excel</b> → edit in spreadsheet → <b>Import CSV/Excel</b>. Plain sounding×trim grids are accepted.
-    <br>PDF capacity books: open a tank → <b>Import PDF</b> (text PDFs; scanned pages need OCR first).`;
+    <br>PDF capacity books: open a tank → <b>Import PDF</b>. Supports trim grids and SOUNDING|VOLUME tables; L.C.G/T.C.G/V.C.G/IMOM hydrostatic columns are skipped automatically. Scanned pages: pass OCR or pre-OCR the PDF.`;
   main.appendChild(help);
 
   const wrap = document.createElement('div');
@@ -761,7 +761,8 @@ function renderCalibrationEditor(main, tankId) {
   pdfPanel.className = 'form-panel pdf-import-panel';
   pdfPanel.style.display = 'none';
   pdfPanel.innerHTML = `<div class="section-title" style="margin-top:0">PDF table import</div>
-    <p class="hint" style="margin:0 0 10px">Extracted tables from the PDF. Choose which grid to apply (trim correction, list/heel, volume curve, or full).</p>
+    <p class="hint" style="margin:0 0 10px">Tables are grouped by tank name found in the PDF. Hydrostatic blocks (L.C.G / T.C.G / V.C.G / IMOM) are disregarded automatically. Choose a grid to apply to this tank.</p>
+    <div id="pdf-tank-summary" class="hint" style="margin:0 0 10px"></div>
     <div id="pdf-tables"></div>`;
   main.appendChild(pdfPanel);
 
@@ -776,33 +777,74 @@ function renderCalibrationEditor(main, tankId) {
       fd.append('includeRaw', 'false');
       const res = await Api.request(`/api/vessels/${STATE.activeVesselId}/import-pdf`, { method: 'POST', body: fd });
       const tables = res.tables || [];
+      const usable = (res.usableTables || tables.filter((t) => !t.skipped && t.kind !== 'hydrostatic'));
       if (!tables.length) {
-        showToast('No tables found in this PDF');
+        showToast((res.warnings || []).join(' ') || 'No tables found in this PDF');
         return;
       }
       pdfPanel.style.display = '';
+      const sum = document.getElementById('pdf-tank-summary');
+      const tankBits = (res.tanks || []).map((tk) =>
+        `${escapeHtml(tk.name)} (${tk.tableCount})`
+      ).join(' · ');
+      sum.innerHTML = [
+        tankBits ? `<b>Tanks found:</b> ${tankBits}` : '',
+        res.skippedHydrostatic ? `<span class="pill warn">${res.skippedHydrostatic} hydrostatic table(s) skipped</span>` : '',
+        res.ocrUsed ? '<span class="pill">OCR used</span>' : '',
+        (res.warnings || []).length ? `<div class="hint">${escapeHtml(res.warnings.join(' '))}</div>` : '',
+      ].filter(Boolean).join(' ');
+
       const box = document.getElementById('pdf-tables');
-      box.innerHTML = tables.map((t) => {
-        const preview = (t.preview || []).slice(0, 6).map((row) =>
-          `<tr>${row.slice(0, 8).map((c) => `<td>${escapeHtml(String(c ?? ''))}</td>`).join('')}</tr>`
-        ).join('');
-        return `<div class="pdf-table-card" data-tid="${escapeHtml(t.id)}">
-          <div class="pdf-table-head">
-            <div><b>${escapeHtml(t.id)}</b> · page ${t.page} · ${t.rows}×${t.cols} · <span class="pill">${escapeHtml(t.kind || 'unknown')}</span>
-              ${t.titleHint ? `<div class="hint">${escapeHtml(t.titleHint)}</div>` : ''}
+      // Group cards by tank for readability
+      const byTank = new Map();
+      for (const t of tables) {
+        const key = t.skipped ? '— Skipped (hydrostatic)' : (t.tankName || t.titleHint || `Page ${t.page}`);
+        if (!byTank.has(key)) byTank.set(key, []);
+        byTank.get(key).push(t);
+      }
+      box.innerHTML = [...byTank.entries()].map(([tankLabel, group]) => {
+        const cards = group.map((t) => {
+          const preview = (t.preview || []).slice(0, 6).map((row) =>
+            `<tr>${row.slice(0, 8).map((c) => `<td>${escapeHtml(String(c ?? ''))}</td>`).join('')}</tr>`
+          ).join('');
+          const hydroNote = (t.removedHydroHeaders || []).length
+            ? `<div class="hint">Stripped columns: ${escapeHtml(t.removedHydroHeaders.join(', '))}</div>`
+            : '';
+          if (t.skipped) {
+            return `<div class="pdf-table-card skipped" data-tid="${escapeHtml(t.id)}">
+              <div class="pdf-table-head">
+                <div><b>${escapeHtml(t.id)}</b> · page ${t.page} · <span class="pill warn">skipped</span>
+                  <div class="hint">${escapeHtml(t.skipReason || 'Hydrostatic table disregarded')}</div>
+                </div>
+              </div>
+              <div class="scroll-x"><table class="data-table compact">${preview}</table></div>
+            </div>`;
+          }
+          return `<div class="pdf-table-card" data-tid="${escapeHtml(t.id)}">
+            <div class="pdf-table-head">
+              <div><b>${escapeHtml(t.id)}</b> · page ${t.page} · ${t.rows}×${t.cols} ·
+                <span class="pill">${escapeHtml(t.kind || 'unknown')}</span>
+                ${t.layoutHint ? `<span class="pill">${escapeHtml(t.layoutHint)}</span>` : ''}
+                ${t.titleHint ? `<div class="hint">${escapeHtml(t.titleHint)}</div>` : ''}
+                ${hydroNote}
+              </div>
+              <div class="btn-row">
+                <select data-target>
+                  <option value="auto">Auto (${escapeHtml(t.kind || 'detect')})</option>
+                  <option value="full">Full (trim + list seed)</option>
+                  <option value="trim">Trim grid only</option>
+                  <option value="list">List / heel grid</option>
+                  <option value="volume">Volume curve</option>
+                </select>
+                <button class="btn primary small" data-apply>Apply to tank</button>
+              </div>
             </div>
-            <div class="btn-row">
-              <select data-target>
-                <option value="auto">Auto (${escapeHtml(t.kind || 'detect')})</option>
-                <option value="full">Full (trim + list seed)</option>
-                <option value="trim">Trim grid only</option>
-                <option value="list">List / heel grid</option>
-                <option value="volume">Volume curve</option>
-              </select>
-              <button class="btn primary small" data-apply>Apply to tank</button>
-            </div>
-          </div>
-          <div class="scroll-x"><table class="data-table compact">${preview}</table></div>
+            <div class="scroll-x"><table class="data-table compact">${preview}</table></div>
+          </div>`;
+        }).join('');
+        return `<div class="pdf-tank-group">
+          <div class="section-title" style="margin:12px 0 8px">${escapeHtml(tankLabel)}</div>
+          ${cards}
         </div>`;
       }).join('');
 
@@ -828,7 +870,10 @@ function renderCalibrationEditor(main, tankId) {
           }
         };
       });
-      showToast(`Found ${tables.length} table(s) in ${res.pages || '?'} page(s)`);
+      const skipN = res.skippedHydrostatic || 0;
+      showToast(`Found ${usable.length} usable table(s) in ${res.pages || '?'} page(s)`
+        + (skipN ? ` · skipped ${skipN} hydrostatic` : '')
+        + ((res.tanks || []).length ? ` · ${(res.tanks || []).length} tank(s)` : ''));
     } catch (err) {
       showToast(err.message);
     }

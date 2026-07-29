@@ -70,21 +70,33 @@ Also used from the workbook: **Setup** (pipe height / 100% & 85% capacity), **Co
 Requires Python deps (`pip3 install -r requirements.txt` — includes `pdfplumber`).
 
 1. Open **Calibration DB →** a tank → **Import PDF**
-2. Choose a text-based capacity / sounding table PDF
-3. Preview extracted tables, pick target (**trim**, **list/heel**, **volume curve**, or **full**), then **Apply to tank**
+2. Choose a capacity / sounding table PDF (text layer preferred)
+3. Preview tables **grouped by tank**; hydrostatic **L.C.G / T.C.G / V.C.G / IMOM** blocks are skipped automatically
+4. Pick target (**trim**, **list/heel**, **volume curve**, or **full**), then **Apply to tank**
+
+Supported layouts (comparison samples in `templates/`):
+
+| Layout | Sample | What is extracted |
+|--------|--------|-------------------|
+| Trim / depth grid (Veniamis-style) | `sample-sounding-book-veniamis.pdf` | SOUNDING/Depth × trim (m) → volume grid per tank |
+| Sounding × volume + hydro (Gangos-style) | `sample-sounding-book-gangos.pdf` | SOUNDING + VOLUME only; LCG/TCG/VCG/IMOM columns stripped; pure hydro tables disregarded |
+
+Regenerate samples: `python3 scripts/make-sample-sounding-pdfs.py`
 
 CLI:
 
 ```bash
 python3 scripts/import-pdf-tables.py path/to/tables.pdf > tables.json
+python3 scripts/import-pdf-tables.py path/to/scanned.pdf --ocr   # needs ocrmypdf + tesseract
 ```
 
-Sample: `templates/sample-sounding-table.pdf`. Scanned (image-only) PDFs need OCR first.
+Scanned (image-only) PDFs: install `ocrmypdf` and `tesseract-ocr`, or pre-OCR the file. The importer warns when a page has little extractable text.
 
 API:
 
-- `POST /api/vessels/:id/import-pdf` — multipart `file` → extracted tables JSON
+- `POST /api/vessels/:id/import-pdf` — multipart `file` → `{ tanks, tables, usableTables, skippedHydrostatic, … }`
 - `POST /api/vessels/:id/tanks/:tankId/import-pdf` — upload PDF or POST `{ table, target, apply:true }` to write calibration
+- Optional form field `ocr=true` to force OCR when tools are installed
 
 ## CSV / Excel tank tables
 
