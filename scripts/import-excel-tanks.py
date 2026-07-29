@@ -41,6 +41,200 @@ def guess_meta(name: str):
     elif 'MGO' in n: fuel_grade = 'mgo'
     return dict(fuelRole=fuel_role, side=side, tankNo=tank_no, fuelGrade=fuel_grade)
 
+
+def guess_category(name: str) -> str:
+    nu = name.upper()
+    if re.search(r'L\.?O\.|LUBE|CYL|SUMP', nu) and not re.search(r'H\.?F\.?O|MDO|MGO|F\.?O\b', nu):
+        return 'lube'
+    if re.search(r'F\.?W\.|WATER|DISTILLED|DRINKING', nu):
+        return 'water'
+    if re.search(r'BILGE|SLUDGE|SEWAGE|DRAIN|STERN\s*TUBE|OVERFLOW', nu) and not re.search(
+        r'H\.?F\.?O|MDO|MGO|NO\.\d', nu
+    ):
+        return 'misc'
+    if re.search(r'H\.?F\.?O|MDO|MGO|F\.?O\.?\s|FUEL', nu) or re.search(r'NO\.\d', nu):
+        return 'fuel'
+    if re.search(r'L\.?O\.|LUBE|CYL|SUMP', nu):
+        return 'lube'
+    return 'misc'
+
+
+def _expand_abbrev(s: str) -> str:
+    s = str(s).upper()
+    # Insert a separator so H.F.O.SETTLING → HFO SETTLING (not HFOSETTLING)
+    s = re.sub(r'H\.?\s*F\.?\s*O\.?(?=[A-Z])', 'HFO ', s)
+    s = re.sub(r'H\.?\s*F\.?\s*O\.?', 'HFO', s)
+    s = re.sub(r'M\.?\s*D\.?\s*O\.?(?=[A-Z])', 'MDO ', s)
+    s = re.sub(r'M\.?\s*D\.?\s*O\.?', 'MDO', s)
+    s = re.sub(r'M\.?\s*G\.?\s*O\.?(?=[A-Z])', 'MGO ', s)
+    s = re.sub(r'M\.?\s*G\.?\s*O\.?', 'MGO', s)
+    s = re.sub(r'L\.?\s*O\.?(?=[A-Z])', 'LO ', s)
+    s = re.sub(r'L\.?\s*O\.?', 'LO', s)
+    s = re.sub(r'F\.?\s*W\.?(?=[A-Z])', 'FW ', s)
+    s = re.sub(r'F\.?\s*W\.?', 'FW', s)
+    s = re.sub(r'\bLS\s*HFO\b|\bLSHFO\b', 'LSHFO', s)
+    return s
+
+
+def norm_name(s: str) -> str:
+    return re.sub(r'[^A-Z0-9]', '', _expand_abbrev(s))
+
+
+def name_tokens(s: str):
+    return set(re.findall(r'[A-Z0-9]+', _expand_abbrev(s)))
+
+
+def setup_match_score(tank_name: str, setup_name: str) -> int:
+    """Fuzzy score for Setup ↔ tank title (Giorgis uses shorter Setup labels)."""
+    a, b = norm_name(tank_name), norm_name(setup_name)
+    if not a or not b:
+        return 0
+    if a == b:
+        return 1000
+    if a in b or b in a:
+        return 800 + min(len(a), len(b))
+    ta, tb = name_tokens(tank_name), name_tokens(setup_name)
+    ta2 = {(t if t not in ('STOR',) else 'STORAGE') for t in ta} - {'TK', 'TANK', 'THE', 'AND'}
+    tb2 = {(t if t not in ('STOR',) else 'STORAGE') for t in tb} - {'TK', 'TANK', 'THE', 'AND'}
+    if not ta2 or not tb2:
+        return 0
+    inter = ta2 & tb2
+    if not inter:
+        return 0
+    # Side-only (P/S) or role-only matches are too weak across tank families
+    weak = {'P', 'S', 'PORT', 'STBD', 'STARBOARD', 'STORAGE', 'SERVICE', 'SETTLING', 'OVERFLOW', 'NO'}
+    strong = inter - weak
+    if not strong:
+        return 0
+    # Conflicting fuel grades → reject
+    grades = {'HFO', 'MDO', 'MGO', 'LSHFO', 'FW', 'LO'}
+    ga, gb = ta2 & grades, tb2 & grades
+    if ga and gb and ga != gb:
+        return 0
+    return int(100 * len(inter) / max(len(ta2), len(tb2))) + 20 * len(strong) + 5 * len(inter)
+
+
+def even_keel_index(trim_vals):
+    if not trim_vals:
+        return None
+    best_i, best_abs = 0, abs(trim_vals[0])
+    for i, v in enumerate(trim_vals):
+        if abs(v) < best_abs:
+            best_i, best_abs = i, abs(v)
+    return best_i
+
+
+def robust_grid_capacity(trim_vals, trim_grid):
+    """
+    Capacity from a volume grid, ignoring OCR/Excel outliers.
+    Prefer the even-keel column; fall back to row-0 / column medians.
+    """
+    if not trim_grid or not trim_grid[0]:
+        return 0
+    ek = even_keel_index(trim_vals)
+    cols = []
+    if ek is not None:
+        cols = [row[ek] for row in trim_grid if ek < len(row) and is_num(row[ek])]
+    if len(cols) < 3:
+        cols = [v for row in trim_grid for v in row if is_num(v)]
+    pos = sorted(v for v in cols if v > 0)
+    if not pos:
+        return 0
+    # Reject values far above the high percentile (comma/decimal OCR blow-ups)
+    p90 = pos[int(0.9 * (len(pos) - 1))]
+    clean = [v for v in pos if v <= max(p90 * 3, p90 + 50)]
+    return max(clean) if clean else pos[-1]
+
+
+def looks_like_volume_grid(trim_grid, volume_curve=None, trim_axis=None):
+    """
+    Giorgis Tank1: trim block holds CAPACITY m³ (often flat ~full at ullage 0).
+    Veniamis Tank1: trim block holds small corrections + separate volume curve.
+    """
+    if not trim_grid or not trim_grid[0]:
+        return False
+    first = [v for v in trim_grid[0] if is_num(v)]
+    flat = [v for row in trim_grid for v in row if is_num(v)]
+    if len(flat) < 8 or not first:
+        return False
+    first_abs = [abs(v) for v in first]
+    first_med = sorted(first_abs)[len(first_abs) // 2]
+    first_span = max(first) - min(first)
+    vmax = max(abs(v) for v in flat)
+
+    vc_vals = [v for v in (volume_curve or {}).get('v') or [] if is_num(v)]
+    vc_max = max((abs(v) for v in vc_vals), default=0)
+
+    # Explicit volume curve labeled and larger than trim corrections → Veniamis-style
+    if len(vc_vals) >= 20 and vc_max >= 20 and vc_max >= vmax * 0.8 and min(vc_vals) >= -1:
+        return False
+
+    # Nearly-full first row (ullage/sounding 0) with large flat volumes → Giorgis capacity grid
+    if first_med >= 20 and first_span <= max(first_med * 0.2, 5):
+        return True
+
+    # Monotonic growth along axis → sounding-from-bottom volume table
+    if trim_axis and len(trim_axis) >= 6:
+        ek_vals = []
+        for row in trim_grid:
+            if not row:
+                continue
+            idx = 1 if len(row) > 1 else 0
+            if is_num(row[idx]):
+                ek_vals.append(row[idx])
+        if len(ek_vals) >= 6:
+            head = sum(ek_vals[:3]) / 3
+            tail = sum(ek_vals[-3:]) / 3
+            if tail > head * 1.5 and tail >= 5 and vc_max < tail * 0.5:
+                return True
+
+    # Large grid without a real volume curve
+    if vmax >= 40 and vc_max < vmax * 0.5:
+        return True
+    return False
+
+
+def sanitize_volume_grid(trim_grid, capacity_hint=None):
+    """Clamp obvious OCR/Excel blow-ups in volume grids (e.g. 463476 vs 463.476)."""
+    if not trim_grid:
+        return trim_grid
+    flat = [v for row in trim_grid for v in row if is_num(v) and v > 0]
+    if len(flat) < 5:
+        return trim_grid
+    flat_sorted = sorted(flat)
+    p90 = flat_sorted[int(0.9 * (len(flat_sorted) - 1))]
+    limit = max(p90 * 3, (capacity_hint or 0) * 1.5, p90 + 50)
+    if limit <= 0:
+        return trim_grid
+    out = []
+    for row in trim_grid:
+        out.append([
+            (0 if (is_num(v) and v > limit) else v) if is_num(v) else 0
+            for v in row
+        ])
+    return out
+
+
+def promote_volume_grid(tank: dict) -> dict:
+    """Convert a mis-tagged correction parse into a direct ullage/sounding volume grid."""
+    cap = robust_grid_capacity(tank.get('trimVals') or [], tank.get('trimGrid') or [])
+    tank['trimGrid'] = sanitize_volume_grid(tank.get('trimGrid') or [], cap)
+    cap = robust_grid_capacity(tank.get('trimVals') or [], tank.get('trimGrid') or []) or cap
+    tank['calcType'] = 'direct'
+    tank['correctionDivisor'] = 1
+    tank['volumeCurve'] = {'x': [], 'v': []}
+    if cap > 0:
+        tank['capacity'] = cap
+    axis = tank.get('trimAxis') or []
+    grid = tank.get('trimGrid') or []
+    if len(axis) >= 6 and grid:
+        idx = 1 if len(grid[0]) > 1 else 0
+        head = [row[idx] for row in grid[:3] if row and is_num(row[idx])]
+        tail = [row[idx] for row in grid[-3:] if row and is_num(row[idx])]
+        if head and tail and (sum(tail) / len(tail)) > (sum(head) / len(head)) * 1.5:
+            tank['soundingMethod'] = 'sounding'
+    return tank
+
 def parse_correction(ws, title_row):
     name = str(ws.cell(title_row, 1).value or '').strip()
     header = title_row + 3
@@ -73,17 +267,68 @@ def parse_correction(ws, title_row):
         if r > header + 5000:
             break
 
-    # volume curve L/M
-    for rr in range(header + 1, header + 5000):
-        vx, vv = ws.cell(rr, 12).value, ws.cell(rr, 13).value
-        if is_num(vx) and is_num(vv):
-            vol_map[vx] = vv
-        elif rr > header + max(len(trim_axis), 50) and not is_num(vx) and not is_num(vv):
-            # allow sparse continuation
-            if rr > header + len(trim_axis) + 200 and not vol_map:
-                break
-            if rr > header + max(len(vol_map), len(trim_axis)) + 50:
-                break
+    # Volume curve: Veniamis labels "SOUNDING CM" / "sounding VOLUME" on title_row+1.
+    # Giorgis has heel headers in those columns — never treat heel as volume.
+    vol_map = {}
+    vol_x_col = vol_v_col = None
+    for lr in (title_row + 1, title_row + 2):
+        for c in range(2, 30):
+            lab = ws.cell(lr, c).value
+            if not isinstance(lab, str):
+                continue
+            low = re.sub(r'\s+', ' ', lab.strip().lower())
+            if re.search(r'sounding\s*cm|depth\s*cm', low):
+                nxt = str(ws.cell(lr, c + 1).value or '')
+                nxt_low = nxt.lower()
+                if re.search(r'volume|vol\.?\b|m3|m³|capacity', nxt_low):
+                    vol_x_col, vol_v_col = c, c + 1
+                    break
+                # Giorgis reference pair sounding cm | sounding ullage — skip
+                if 'ullage' in nxt_low:
+                    continue
+            if re.search(r'^sounding\s*volume$|volume\s*m', low) and vol_v_col is None:
+                vol_v_col = c
+                vol_x_col = c - 1
+        if vol_x_col and vol_v_col:
+            break
+
+    if vol_x_col and vol_v_col and vol_v_col != vol_x_col:
+        for rr in range(header + 1, header + 5000):
+            vx, vv = ws.cell(rr, vol_x_col).value, ws.cell(rr, vol_v_col).value
+            if is_num(vx) and is_num(vv) and vv >= -0.01:
+                vol_map[vx] = vv
+            elif rr > header + max(len(trim_axis), 50) and not is_num(vx) and not is_num(vv):
+                if rr > header + len(trim_axis) + 200 and not vol_map:
+                    break
+                if rr > header + max(len(vol_map), len(trim_axis)) + 50:
+                    break
+
+    # Fallback: Veniamis often keeps sounding/volume in columns 12/13 even when labels drift.
+    # Only when the trim block looks like corrections (not a Giorgis capacity grid).
+    if not vol_map and trim_grid:
+        first = [v for v in trim_grid[0] if is_num(v)]
+        first_med = sorted(abs(v) for v in first)[len(first) // 2] if first else 0
+        if first_med < 40:
+            probe = []
+            for rr in range(header + 1, header + 12):
+                vx, vv = ws.cell(rr, 12).value, ws.cell(rr, 13).value
+                if is_num(vx) and is_num(vv) and vv >= -0.01 and vx >= 0:
+                    probe.append((vx, vv))
+            xs_p = [x for x, _ in probe]
+            # Real sounding axis starts near 0 and increases; heel columns do not.
+            if (
+                len(probe) >= 4
+                and xs_p[0] <= 20
+                and xs_p == sorted(xs_p)
+                and max(xs_p) >= 50
+            ):
+                for rr in range(header + 1, header + 5000):
+                    vx, vv = ws.cell(rr, 12).value, ws.cell(rr, 13).value
+                    if is_num(vx) and is_num(vv) and vv >= -0.01:
+                        vol_map[vx] = vv
+                    elif rr > header + max(len(trim_axis), 50) and not is_num(vx) and not is_num(vv):
+                        if rr > header + max(len(vol_map), len(trim_axis)) + 50:
+                            break
 
     if not trim_axis:
         return None
@@ -105,9 +350,9 @@ def parse_correction(ws, title_row):
                 return p
         return best
 
-    return {
+    tank = {
         'name': name,
-        'category': 'fuel',
+        'category': guess_category(name),
         'calcType': 'correction',
         'correctionDivisor': 10,
         'soundingMethod': 'ullage',
@@ -123,6 +368,9 @@ def parse_correction(ws, title_row):
         'capacity': capacity,
         **meta,
     }
+    if looks_like_volume_grid(trim_grid, tank['volumeCurve'], trim_axis):
+        promote_volume_grid(tank)
+    return tank
 
 def is_axis_header(v):
     if not isinstance(v, str):
@@ -191,16 +439,12 @@ def parse_direct(ws, title_row):
     if not trim_axis:
         return None
 
-    nu = name.upper()
-    if re.search(r'L\.?O\.|LUBE|CYL', nu): category = 'lube'
-    elif re.search(r'F\.?W\.|WATER|DISTILLED|DRINKING', nu): category = 'water'
-    elif re.search(r'BILGE|SLUDGE|SEWAGE|DRAIN|STERN', nu): category = 'misc'
-    else: category = 'fuel'
-
-    capacity = max(max(row) for row in trim_grid) if trim_grid else 0
+    capacity = robust_grid_capacity(trim_vals, trim_grid)
+    trim_grid = sanitize_volume_grid(trim_grid, capacity)
+    capacity = robust_grid_capacity(trim_vals, trim_grid) or capacity
     return {
         'name': name,
-        'category': category,
+        'category': guess_category(name),
         'calcType': 'direct',
         'correctionDivisor': 1,
         'soundingMethod': 'sounding',
@@ -249,36 +493,51 @@ def main():
             if not tank:
                 continue
             cat = tank['category']
+            if cat not in tanks:
+                tanks[cat] = []
             if any(t['name'] == tank['name'] for t in tanks[cat]):
                 continue
             tank['id'] = f"{cat}{len(tanks[cat]) + 1}"
             tanks[cat].append(tank)
-            found.append({'sheet': sheet_name, 'row': r, 'name': tank['name'], 'calcType': tank['calcType'], 'rows': len(tank['trimAxis'])})
+            found.append({
+                'sheet': sheet_name,
+                'row': r,
+                'name': tank['name'],
+                'calcType': tank['calcType'],
+                'rows': len(tank['trimAxis']),
+                'capacity': tank.get('capacity'),
+            })
 
     # Setup pipe / capacity overlay
     setup = []
     if 'Setup' in wb.sheetnames:
         ws = wb['Setup']
-        for r in range(2, 31):
+        for r in range(2, 80):
             name = ws.cell(r, 1).value
             if not isinstance(name, str) or not name.strip():
+                continue
+            if name.strip().startswith('='):
                 continue
             setup.append({
                 'name': name.strip(),
                 'pipeHeight': ws.cell(r, 3).value if is_num(ws.cell(r, 3).value) else ws.cell(r, 2).value,
                 'capacity100': ws.cell(r, 9).value,
             })
-        def norm(s): return re.sub(r'[^A-Z0-9]', '', str(s).upper())
         for cat, arr in tanks.items():
             for t in arr:
-                hit = next((s for s in setup if norm(s['name']) == norm(t['name']) or norm(t['name']) in norm(s['name']) or norm(s['name']) in norm(t['name'])), None)
-                if not hit:
+                best, best_score = None, 0
+                for s in setup:
+                    score = setup_match_score(t['name'], s['name'])
+                    if score > best_score:
+                        best, best_score = s, score
+                if not best or best_score < 40:
                     continue
-                if is_num(hit.get('pipeHeight')):
-                    t['pipeHeight'] = hit['pipeHeight']
-                # keep calibration-derived capacity unless setup is present and tank has no volume curve
-                if is_num(hit.get('capacity100')) and (not t.get('capacity') or t.get('calcType') == 'direct'):
-                    t['capacity'] = hit['capacity100']
+                if is_num(best.get('pipeHeight')):
+                    t['pipeHeight'] = best['pipeHeight']
+                if is_num(best.get('capacity100')):
+                    # Setup 100% capacity is authoritative when present
+                    t['capacity'] = best['capacity100']
+                t['setupMatch'] = best['name']
 
     json.dump({'tanks': tanks, 'found': found, 'setup': setup}, sys.stdout)
 

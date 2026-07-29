@@ -28,8 +28,15 @@ Multi-vessel web app for fuel tank sounding (double interpolation + ASTM 54B), e
 
 ```bash
 npm install
-npm run seed          # loads MV CAPTAIN VENIAMIS calibration tables
+npm run seed          # loads MV CAPTAIN VENIAMIS (+ MV GIORGIS when seed/giorgis exists)
 npm start             # http://0.0.0.0:3080
+```
+
+Optional — rebuild Giorgis seed from the FINAL workbook:
+
+```bash
+python scripts/build-giorgis-seed.py
+npm run seed
 ```
 
 Open the URL in a browser (desktop or Android). Select the seeded vessel or create a new one under **Vessel Setup**.
@@ -54,7 +61,14 @@ data/
 
 ## Excel workbook (calibration reference)
 
-The repo includes `TANK MANAGEMENT CAPTAIN VENIAMIS FINAL VERSION.xlsm`. Sheets **Tank1–Tank4** are the calibration table reference:
+The repo includes vessel workbooks used as calibration references:
+
+| Workbook | Vessel |
+|----------|--------|
+| `TANK MANAGEMENT CAPTAIN VENIAMIS FINAL VERSION.xlsm` | MV CAPTAIN VENIAMIS |
+| `TANK MANAGEMENT GIORGIS FINAL 1.xlsm` | MV GIORGIS |
+
+Sheets **Tank1–Tank4** are the calibration table reference:
 
 | Block | Layout |
 |-------|--------|
@@ -80,7 +94,9 @@ Supported layouts (comparison samples in `templates/`):
 |--------|--------|-------------------|
 | Trim / depth grid (Veniamis-style) | `sample-sounding-book-veniamis.pdf` | SOUNDING/Depth × trim (m) → volume grid per tank |
 | Sounding × volume + hydro (Gangos-style) | `sample-sounding-book-gangos.pdf` | SOUNDING + VOLUME only; LCG/TCG/VCG/IMOM columns stripped; pure hydro tables disregarded |
-| Sectioned trim / ullage (Giorgis-style) | `sample-sounding-book-giorgis.pdf` | EVEN KEEL + TRIM BY STERN/HEAD (or ULLAGE\|CAPACITY) sections → merged sounding × trim grid |
+| Sectioned trim / ullage | `sample-sounding-book-giorgis.pdf` | EVEN KEEL + TRIM BY STERN/HEAD (or ULLAGE\|CAPACITY) sections → merged sounding × trim grid |
+
+**M/V GIORGIS capacity books** (real PDFs under `templates/ships/giorgis/`) are scanned **ullage/sounding × STEM / EVEN KEEL / STERN** volume grids plus separate **heeling correction** pages — closer to the Veniamis trim-grid family than the sectioned sample. Prefer `TANK MANAGEMENT GIORGIS FINAL 1.xlsm` + `scripts/build-giorgis-seed.py` for accurate calibration; OCR on dense scans is noisy.
 
 Exterior inspect (folder or file — no full matrices):
 
@@ -89,7 +105,7 @@ python3 scripts/inspect-pdf-sounding.py templates/ships/giorgis
 python3 scripts/import-pdf-tables.py path/to/book.pdf --inspect
 ```
 
-Drop real ship PDFs into `templates/ships/giorgis/` (Windows desktop paths are not visible to the cloud agent).
+Drop real ship PDFs into `templates/ships/giorgis/` (large PDFs are gitignored).
 
 Regenerate samples: `python3 scripts/make-sample-sounding-pdfs.py`
 
