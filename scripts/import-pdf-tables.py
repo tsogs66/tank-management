@@ -49,6 +49,21 @@ except ImportError:
     sys.exit(1)
 
 
+def emit_progress(phase, pct=None, message="", **extra):
+    """Emit a progress line on stderr for the Node job poller (stdout stays JSON-only)."""
+    payload = {"phase": phase, "message": message, **extra}
+    if pct is not None:
+        try:
+            payload["pct"] = max(0, min(100, int(pct)))
+        except (TypeError, ValueError):
+            pass
+    try:
+        sys.stderr.write("PROGRESS\t" + json.dumps(payload, ensure_ascii=False) + "\n")
+        sys.stderr.flush()
+    except Exception:
+        pass
+
+
 NUM_RE = re.compile(
     r"^[+-]?(?:\d+(?:[.,]\d+)?|\d*[.,]\d+)(?:[eE][+-]?\d+)?$"
 )
@@ -926,6 +941,7 @@ def maybe_ocr_pdf(pdf_path, force=False):
     If pages look image-only (or --ocr), run ocrmypdf when available.
     Returns (path_to_use, ocr_used, warning).
     """
+    emit_progress("scan", 2, "Checking PDF text layer…")
     if not force:
         try:
             with pdfplumber.open(pdf_path) as pdf:
@@ -934,9 +950,12 @@ def maybe_ocr_pdf(pdf_path, force=False):
                     n, _ = page_text_density(page)
                     total_words += n
                 if total_words >= 30:
+                    emit_progress("scan", 8, "Text layer found — skipping OCR")
                     return pdf_path, False, None
         except Exception:
             pass
+
+    emit_progress("ocr", 10, "Scanned PDF detected — preparing OCR…")
 
     # Ensure common Windows install locations are visible to shutil.which
     extra_paths = []
@@ -1001,7 +1020,9 @@ def maybe_ocr_pdf(pdf_path, force=False):
                 "tesseract found but ocrmypdf is missing. "
                 f"Run: \"{sys.executable}\" -m pip install ocrmypdf"
             )
+        emit_progress("ocr", 15, "Running OCR (scanned pages — this can take several minutes)…")
         subprocess.run(cmd, check=True, capture_output=True, timeout=900)
+        emit_progress("ocr", 45, "OCR finished — extracting tables…")
         return out.name, True, None
     except Exception as e:
         try:
@@ -1086,9 +1107,19 @@ def extract_tables(pdf_path, page_filter=None):
     with pdfplumber.open(pdf_path) as pdf:
         page_count = len(pdf.pages)
         current_tank = ""
+        emit_progress("extract", 48, f"Reading {page_count} page(s)…", pages=page_count, page=0)
         for pi, page in enumerate(pdf.pages, start=1):
             if page_filter is not None and pi not in page_filter:
                 continue
+            # Map extract phase across 48→95%
+            pct = 48 + int(47 * (pi / max(page_count, 1)))
+            emit_progress(
+                "extract",
+                pct,
+                f"Extracting tables from page {pi} / {page_count}…",
+                page=pi,
+                pages=page_count,
+            )
 
             words, text = page_text_density(page)
             tank_hint = guess_tank_from_text(text)
@@ -1415,6 +1446,7 @@ def main():
     page_filter = set(args.page) if args.page else None
     ocr_tmp = None
     try:
+        emit_progress("start", 1, "Starting PDF import…")
         path, ocr_used, ocr_warn = maybe_ocr_pdf(args.pdf, force=args.ocr)
         if path != args.pdf:
             ocr_tmp = path
@@ -1427,6 +1459,7 @@ def main():
         if not args.include_skipped:
             # Keep skipped entries so UI can explain, but usable list is clear via skipped flag
             pass
+        emit_progress("done", 100, "PDF import finished")
         json.dump(result, sys.stdout)
     except Exception as e:
         json.dump({"error": str(e), "tables": [], "tanks": []}, sys.stdout)

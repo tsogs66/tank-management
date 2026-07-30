@@ -114,6 +114,42 @@ label.btn { margin: 0; }
   border-radius: var(--radius); padding: 14px 16px; margin-bottom: 16px;
 }
 .pdf-upload-card .section-title { margin-top: 0; }
+.pdf-progress {
+  display: none;
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+}
+.pdf-progress.active { display: block; }
+.pdf-progress-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 12px; margin-bottom: 8px;
+}
+.pdf-progress-title { font-weight: 650; font-size: 13px; }
+.pdf-progress-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-2); font-weight: 700; font-size: 13px;
+}
+.pdf-progress-msg { font-size: 13px; margin-top: 8px; }
+.pdf-progress-meta { margin-top: 4px; }
+.pdf-progress-bar {
+  height: 10px; border-radius: 999px; background: var(--bg);
+  border: 1px solid var(--border); overflow: hidden; position: relative;
+}
+.pdf-progress-bar > div {
+  height: 100%; width: 30%; background: var(--accent);
+  transition: width .35s ease;
+}
+.pdf-progress-bar.indeterminate > div {
+  width: 40%;
+  animation: pdf-progress-slide 1.2s ease-in-out infinite;
+}
+@keyframes pdf-progress-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(280%); }
+}
 
 .cards-row {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

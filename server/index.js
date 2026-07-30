@@ -724,6 +724,30 @@ app.get('/api/reference/iso8217', (req, res) => {
 });
 
 /* ---------- PDF table extract / apply to tank calibration ---------- */
+app.post('/api/vessels/:id/import-pdf/jobs', upload.single('file'), asyncHandler(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Upload a PDF file (field name: file)' });
+  store.getVesselBundle(req.params.id); // ensure vessel exists
+  const pages = String(req.body?.pages || '')
+    .split(/[,;\s]+/)
+    .map((n) => parseInt(n, 10))
+    .filter((n) => n > 0);
+  const ocr = req.body?.ocr !== false && req.body?.ocr !== 'false';
+  const includeRaw = req.body?.includeRaw === true || req.body?.includeRaw === 'true';
+  const job = pdfImport.startExtractJob(req.file.buffer, {
+    pages: pages.length ? pages : undefined,
+    ocr,
+    includeRaw,
+  });
+  res.status(202).json({ ok: true, ...job });
+}));
+
+app.get('/api/vessels/:id/import-pdf/jobs/:jobId', asyncHandler(async (req, res) => {
+  store.getVesselBundle(req.params.id);
+  const job = pdfImport.getJob(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found or expired' });
+  res.json({ ok: true, ...job });
+}));
+
 app.post('/api/vessels/:id/import-pdf', upload.single('file'), asyncHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Upload a PDF file (field name: file)' });
   const pages = String(req.body?.pages || '')

@@ -1,11 +1,59 @@
 /**
  * Extract calibration tables from PDF via scripts/import-pdf-tables.py (pdfplumber).
  * Groups tables by tank; auto-skips L.C.G / T.C.G / V.C.G / IMOM hydrostatic blocks.
+ * Supports async jobs with live progress for OCR / multi-page extracts.
  */
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 const { spawnPython } = require('./python-run');
+
+const JOBS = new Map();
+const JOB_TTL_MS = 60 * 60 * 1000;
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function publicJob(job) {
+  if (!job) return null;
+  return {
+    jobId: job.id,
+    status: job.status,
+    phase: job.phase,
+    pct: job.pct,
+    message: job.message,
+    page: job.page,
+    pages: job.pages,
+    startedAt: job.startedAt,
+    updatedAt: job.updatedAt,
+    elapsedMs: Date.now() - job.startedAtMs,
+    error: job.error || null,
+    result: job.status === 'done' ? job.result : undefined,
+  };
+}
+
+function updateJob(id, patch) {
+  const job = JOBS.get(id);
+  if (!job) return;
+  Object.assign(job, patch, { updatedAt: nowIso() });
+}
+
+function cleanupJobs() {
+  const cutoff = Date.now() - JOB_TTL_MS;
+  for (const [id, job] of JOBS) {
+    if (job.startedAtMs < cutoff) JOBS.delete(id);
+  }
+}
+
+function parseProgressLine(line, onProgress) {
+  if (!onProgress || !line.startsWith('PROGRESS\t')) return;
+  try {
+    const payload = JSON.parse(line.slice('PROGRESS\t'.length));
+    onProgress(payload);
+  } catch (_) { /* ignore malformed */ }
+}
 
 function runExtractor(pdfPath, pageList, opts = {}) {
   return new Promise(async (resolve, reject) => {
@@ -15,8 +63,20 @@ function runExtractor(pdfPath, pageList, opts = {}) {
       for (const p of pageList) args.push('--page', String(p));
     }
     if (opts.ocr) args.push('--ocr');
+    const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
+    // Heartbeat while OCR subprocess is silent
+    let beat = null;
+    if (onProgress) {
+      beat = setInterval(() => {
+        onProgress({ phase: 'heartbeat', message: 'Still working…' });
+      }, 2000);
+    }
     try {
-      const { code, out, err, cmd } = await spawnPython(args, { maxBuffer: 128 * 1024 * 1024 });
+      const { code, out, err, cmd } = await spawnPython(args, {
+        maxBuffer: 128 * 1024 * 1024,
+        onStderrLine: (line) => parseProgressLine(line, onProgress),
+      });
+      if (beat) clearInterval(beat);
       if (code !== 0) {
         return reject(new Error(err || out || `PDF import failed (${cmd}, exit ${code})`));
       }
@@ -26,13 +86,17 @@ function runExtractor(pdfPath, pageList, opts = {}) {
           return reject(new Error(parsed.error));
         }
         if (err && /ocr|tesseract/i.test(err) && !parsed.ocrUsed) {
-          parsed.warnings = [...(parsed.warnings || []), err.trim().slice(0, 300)];
+          const warnLines = err.split(/\r?\n/).filter((l) => l && !l.startsWith('PROGRESS\t'));
+          if (warnLines.length) {
+            parsed.warnings = [...(parsed.warnings || []), warnLines.join(' ').trim().slice(0, 300)];
+          }
         }
         resolve(parsed);
       } catch (e) {
         reject(new Error('Failed to parse PDF importer JSON: ' + e.message));
       }
     } catch (e) {
+      if (beat) clearInterval(beat);
       reject(e);
     }
   });
@@ -51,6 +115,79 @@ async function extractFromBuffer(buffer, opts = {}) {
 async function extractFromPath(filePath, opts = {}) {
   if (!fs.existsSync(filePath)) throw new Error('PDF not found: ' + filePath);
   return runExtractor(filePath, opts.pages, opts);
+}
+
+function startExtractJob(buffer, opts = {}) {
+  cleanupJobs();
+  const id = crypto.randomBytes(8).toString('hex');
+  const job = {
+    id,
+    status: 'queued',
+    phase: 'queued',
+    pct: 0,
+    message: 'Queued…',
+    page: null,
+    pages: null,
+    startedAt: nowIso(),
+    startedAtMs: Date.now(),
+    updatedAt: nowIso(),
+    error: null,
+    result: null,
+  };
+  JOBS.set(id, job);
+
+  setImmediate(async () => {
+    updateJob(id, { status: 'running', phase: 'start', pct: 1, message: 'Saving upload…' });
+    const tmp = path.join(os.tmpdir(), `fuel-tms-pdf-job-${id}.pdf`);
+    try {
+      fs.writeFileSync(tmp, buffer);
+      updateJob(id, { phase: 'start', pct: 2, message: 'Starting PDF reader…' });
+      const raw = await runExtractor(tmp, opts.pages, {
+        ...opts,
+        onProgress: (p) => {
+          const patch = {
+            status: 'running',
+            phase: p.phase || job.phase,
+            message: p.message || job.message,
+          };
+          if (p.pct != null) patch.pct = p.pct;
+          if (p.page != null) patch.page = p.page;
+          if (p.pages != null) patch.pages = p.pages;
+          // heartbeats only refresh updatedAt / message
+          if (p.phase === 'heartbeat') {
+            updateJob(id, { message: p.message || 'Still working…' });
+            return;
+          }
+          updateJob(id, patch);
+        },
+      });
+      const includeRaw = !!opts.includeRaw;
+      const summary = summarizeTables(raw, includeRaw);
+      updateJob(id, {
+        status: 'done',
+        phase: 'done',
+        pct: 100,
+        message: 'Done',
+        result: { ok: true, ...summary },
+      });
+    } catch (e) {
+      updateJob(id, {
+        status: 'error',
+        phase: 'error',
+        message: e.message || 'PDF import failed',
+        error: e.message || String(e),
+      });
+    } finally {
+      try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+    }
+  });
+
+  return publicJob(job);
+}
+
+function getJob(id) {
+  cleanupJobs();
+  return publicJob(JOBS.get(id));
 }
 
 /**
@@ -283,6 +420,8 @@ function planTankCreates(result, opts = {}) {
 module.exports = {
   extractFromBuffer,
   extractFromPath,
+  startExtractJob,
+  getJob,
   tableToCalibration,
   summarizeTables,
   inferTankMeta,

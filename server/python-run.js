@@ -45,12 +45,12 @@ function pythonCandidates() {
     path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python312', 'python.exe'),
     path.join(process.env.LOCALAPPDATA || '', 'Python', 'bin', 'python.exe'),
   ].filter(existing);
-  // Prefer absolute installs, then `python`, then `py -3`, avoid bare python3 (Store stub)
   return [...abs, 'python', 'py'];
 }
 
 function spawnPython(args, opts = {}) {
   const candidates = pythonCandidates();
+  const onStderrLine = typeof opts.onStderrLine === 'function' ? opts.onStderrLine : null;
 
   return new Promise((resolve, reject) => {
     const env = enrichedEnv();
@@ -67,7 +67,6 @@ function spawnPython(args, opts = {}) {
       const cmd = candidates[idx++];
       tried.push(cmd);
       let settled = false;
-      // `py` launcher needs -3 before the script
       const spawnArgs = cmd === 'py' ? ['-3', ...args] : args;
       const child = spawn(cmd, spawnArgs, {
         env,
@@ -76,8 +75,20 @@ function spawnPython(args, opts = {}) {
       });
       let out = '';
       let err = '';
+      let errBuf = '';
       child.stdout.on('data', (d) => { out += d; });
-      child.stderr.on('data', (d) => { err += d; });
+      child.stderr.on('data', (d) => {
+        const chunk = d.toString();
+        err += chunk;
+        if (!onStderrLine) return;
+        errBuf += chunk;
+        let nl;
+        while ((nl = errBuf.indexOf('\n')) >= 0) {
+          const line = errBuf.slice(0, nl).replace(/\r$/, '');
+          errBuf = errBuf.slice(nl + 1);
+          if (line) onStderrLine(line);
+        }
+      });
       child.on('error', (e) => {
         if (settled) return;
         settled = true;
@@ -86,6 +97,7 @@ function spawnPython(args, opts = {}) {
       child.on('close', (code) => {
         if (settled) return;
         settled = true;
+        if (onStderrLine && errBuf.trim()) onStderrLine(errBuf.replace(/\r$/, ''));
         resolve({ code, out, err, cmd });
       });
     }

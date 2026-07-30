@@ -35,6 +35,123 @@ function showToast(msg) {
   showToast._t = setTimeout(() => el.classList.remove('show'), 2400);
 }
 
+/** Live progress UI for long PDF OCR / extract jobs. */
+const PdfProgress = (() => {
+  let timer = null;
+
+  function ensure(mountEl) {
+    let box = mountEl?.querySelector?.('.pdf-progress') || document.getElementById('pdf-progress');
+    if (box) return box;
+    box = document.createElement('div');
+    box.id = 'pdf-progress';
+    box.className = 'pdf-progress';
+    box.innerHTML = `
+      <div class="pdf-progress-head">
+        <div class="pdf-progress-title">Reading PDF…</div>
+        <div class="pdf-progress-time" id="pdf-progress-time">0:00</div>
+      </div>
+      <div class="pdf-progress-bar indeterminate"><div id="pdf-progress-fill"></div></div>
+      <div class="pdf-progress-msg" id="pdf-progress-msg">Starting…</div>
+      <div class="pdf-progress-meta hint" id="pdf-progress-meta"></div>`;
+    if (mountEl) mountEl.prepend(box);
+    else document.body.appendChild(box);
+    return box;
+  }
+
+  function fmtElapsed(ms) {
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${m}:${String(r).padStart(2, '0')}`;
+  }
+
+  function show(mountEl, title) {
+    const box = ensure(mountEl);
+    box.style.display = '';
+    box.classList.add('active');
+    box.querySelector('.pdf-progress-title').textContent = title || 'Reading PDF…';
+    box.querySelector('#pdf-progress-msg').textContent = 'Starting…';
+    box.querySelector('#pdf-progress-meta').textContent = '';
+    box.querySelector('#pdf-progress-time').textContent = '0:00';
+    const bar = box.querySelector('.pdf-progress-bar');
+    const fill = box.querySelector('#pdf-progress-fill');
+    bar.classList.add('indeterminate');
+    bar.classList.remove('determinate');
+    fill.style.width = '30%';
+    return box;
+  }
+
+  function update(job) {
+    const box = document.getElementById('pdf-progress');
+    if (!box || !job) return;
+    const msg = box.querySelector('#pdf-progress-msg');
+    const meta = box.querySelector('#pdf-progress-meta');
+    const fill = box.querySelector('#pdf-progress-fill');
+    const bar = box.querySelector('.pdf-progress-bar');
+    const time = box.querySelector('#pdf-progress-time');
+    if (job.elapsedMs != null) time.textContent = fmtElapsed(job.elapsedMs);
+    msg.textContent = job.message || job.phase || 'Working…';
+    const bits = [];
+    if (job.phase) bits.push(String(job.phase));
+    if (job.page && job.pages) bits.push(`page ${job.page}/${job.pages}`);
+    if (job.pct != null) bits.push(`${job.pct}%`);
+    meta.textContent = bits.join(' · ');
+    if (job.pct != null && job.phase !== 'ocr' && job.phase !== 'heartbeat') {
+      bar.classList.remove('indeterminate');
+      bar.classList.add('determinate');
+      fill.style.width = `${Math.max(2, Math.min(100, job.pct))}%`;
+    } else if (job.phase === 'ocr' || job.phase === 'heartbeat') {
+      bar.classList.add('indeterminate');
+      bar.classList.remove('determinate');
+    }
+  }
+
+  function hide() {
+    const box = document.getElementById('pdf-progress');
+    if (!box) return;
+    box.classList.remove('active');
+    box.style.display = 'none';
+    if (timer) { clearInterval(timer); timer = null; }
+  }
+
+  async function runJob(vesselId, file, { ocr = true, includeRaw = false, mountEl = null, title = null } = {}) {
+    const box = show(mountEl, title || `Reading ${file.name}…`);
+    const started = Date.now();
+    if (timer) clearInterval(timer);
+    timer = setInterval(() => {
+      const t = box.querySelector('#pdf-progress-time');
+      if (t) t.textContent = fmtElapsed(Date.now() - started);
+    }, 500);
+
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('includeRaw', includeRaw ? 'true' : 'false');
+    fd.append('ocr', ocr ? 'true' : 'false');
+    update({ message: 'Uploading PDF…', phase: 'upload', pct: 1, elapsedMs: 0 });
+
+    const startedJob = await Api.request(`/api/vessels/${vesselId}/import-pdf/jobs`, {
+      method: 'POST',
+      body: fd,
+    });
+    let job = startedJob;
+    update(job);
+
+    while (job && (job.status === 'queued' || job.status === 'running')) {
+      await new Promise((r) => setTimeout(r, 600));
+      job = await Api.request(`/api/vessels/${vesselId}/import-pdf/jobs/${startedJob.jobId}`);
+      update({ ...job, elapsedMs: Date.now() - started });
+    }
+
+    if (timer) { clearInterval(timer); timer = null; }
+    if (!job) throw new Error('PDF job disappeared');
+    if (job.status === 'error') throw new Error(job.error || job.message || 'PDF import failed');
+    hide();
+    return job.result || job;
+  }
+
+  return { show, update, hide, runJob };
+})();
+
 function downloadJson(filename, obj) {
   const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -602,6 +719,7 @@ function renderAddTank(main) {
         <input type="checkbox" id="add-pdf-update" checked> Update existing tanks with same name
       </label>
     </div>
+    <div id="add-pdf-progress-host"></div>
     <div id="add-pdf-panel" class="pdf-import-panel" style="display:none;margin-top:12px">
       <div id="add-pdf-summary" class="hint" style="margin:0 0 10px"></div>
       <div id="add-pdf-tanks"></div>
@@ -653,21 +771,22 @@ function renderAddTank(main) {
     e.target.value = '';
     if (!file) return;
     addPdfFile = file;
+    const host = document.getElementById('add-pdf-progress-host');
+    const panel = document.getElementById('add-pdf-panel');
+    const sum = document.getElementById('add-pdf-summary');
+    const box = document.getElementById('add-pdf-tanks');
+    const btn = document.getElementById('btn-create-pdf-tanks');
     try {
       const useOcr = document.getElementById('add-pdf-ocr')?.checked !== false;
       showToast(useOcr
-        ? 'Reading PDF (OCR on if scanned — may take a few minutes)…'
+        ? 'Reading PDF (progress below — OCR may take several minutes)…'
         : 'Reading PDF tanks…');
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('includeRaw', 'false');
-      fd.append('ocr', useOcr ? 'true' : 'false');
-      const res = await Api.request(`/api/vessels/${STATE.activeVesselId}/import-pdf`, { method: 'POST', body: fd });
+      const res = await PdfProgress.runJob(STATE.activeVesselId, file, {
+        ocr: useOcr,
+        mountEl: host,
+        title: `Reading ${file.name}…`,
+      });
       addPdfPreview = res;
-      const panel = document.getElementById('add-pdf-panel');
-      const sum = document.getElementById('add-pdf-summary');
-      const box = document.getElementById('add-pdf-tanks');
-      const btn = document.getElementById('btn-create-pdf-tanks');
       panel.style.display = '';
 
       const tankGroups = res.tanks || [];
@@ -716,6 +835,7 @@ function renderAddTank(main) {
       btn.disabled = false;
       showToast(`Found ${rows.length} tank(s) in PDF`);
     } catch (err) {
+      PdfProgress.hide();
       showToast(err.message);
     }
   };
@@ -725,7 +845,10 @@ function renderAddTank(main) {
     const checked = [...document.querySelectorAll('#add-pdf-tanks [data-tank-name]:checked')]
       .map((el) => el.getAttribute('data-tank-name'));
     if (!checked.length) { showToast('Select at least one tank'); return; }
+    const host = document.getElementById('add-pdf-progress-host');
     try {
+      PdfProgress.show(host, 'Creating tanks from PDF…');
+      PdfProgress.update({ message: 'Creating selected tanks…', phase: 'create', pct: 60, elapsedMs: 0 });
       showToast('Creating tanks from PDF…');
       const fd = new FormData();
       fd.append('file', addPdfFile);
@@ -734,6 +857,8 @@ function renderAddTank(main) {
       fd.append('ocr', document.getElementById('add-pdf-ocr')?.checked !== false ? 'true' : 'false');
       fd.append('tankNames', JSON.stringify(checked));
       const res = await Api.request(`/api/vessels/${STATE.activeVesselId}/import-pdf`, { method: 'POST', body: fd });
+      PdfProgress.update({ message: 'Done', phase: 'done', pct: 100 });
+      PdfProgress.hide();
       await reloadBundle();
       const c = res.created || 0;
       const u = res.updated || 0;
@@ -741,6 +866,7 @@ function renderAddTank(main) {
       showToast(`PDF import: ${c} created, ${u} updated${f ? `, ${f} failed` : ''}`);
       navigate('calibration');
     } catch (err) {
+      PdfProgress.hide();
       showToast(err.message);
     }
   };
@@ -884,6 +1010,7 @@ function renderCalibrationEditor(main, tankId) {
   pdfPanel.style.display = 'none';
   pdfPanel.innerHTML = `<div class="section-title" style="margin-top:0">PDF table import</div>
     <p class="hint" style="margin:0 0 10px">Tables are grouped by tank name found in the PDF. Hydrostatic blocks (L.C.G / T.C.G / V.C.G / IMOM) are disregarded automatically. Choose a grid to apply to this tank.</p>
+    <div id="calib-pdf-progress-host"></div>
     <div id="pdf-tank-summary" class="hint" style="margin:0 0 10px"></div>
     <div id="pdf-tables"></div>`;
   main.appendChild(pdfPanel);
@@ -892,23 +1019,24 @@ function renderCalibrationEditor(main, tankId) {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    const host = document.getElementById('calib-pdf-progress-host');
     try {
       const useOcr = document.getElementById('pdf-import-ocr')?.checked !== false;
       showToast(useOcr
-        ? 'Reading PDF (OCR on if scanned — may take a few minutes)…'
+        ? 'Reading PDF (progress below — OCR may take several minutes)…'
         : 'Reading PDF tables…');
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('includeRaw', 'false');
-      fd.append('ocr', useOcr ? 'true' : 'false');
-      const res = await Api.request(`/api/vessels/${STATE.activeVesselId}/import-pdf`, { method: 'POST', body: fd });
+      pdfPanel.style.display = '';
+      const res = await PdfProgress.runJob(STATE.activeVesselId, file, {
+        ocr: useOcr,
+        mountEl: host,
+        title: `Reading ${file.name}…`,
+      });
       const tables = res.tables || [];
       const usable = (res.usableTables || tables.filter((t) => !t.skipped && t.kind !== 'hydrostatic'));
       if (!tables.length) {
         showToast((res.warnings || []).join(' ') || 'No tables found in this PDF');
         return;
       }
-      pdfPanel.style.display = '';
       const sum = document.getElementById('pdf-tank-summary');
       const tankBits = (res.tanks || []).map((tk) =>
         `${escapeHtml(tk.name)} (${tk.tableCount})`
@@ -1001,6 +1129,7 @@ function renderCalibrationEditor(main, tankId) {
         + (skipN ? ` · skipped ${skipN} hydrostatic` : '')
         + ((res.tanks || []).length ? ` · ${(res.tanks || []).length} tank(s)` : ''));
     } catch (err) {
+      PdfProgress.hide();
       showToast(err.message);
     }
   };
