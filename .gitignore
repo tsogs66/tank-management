@@ -8,3 +8,9 @@ data/vessels-index.json
 .DS_Store
 npm-debug.log*
 seed/calc-engine.js
+seed/_giorgis_excel.json
+scripts/_tmp_*.py
+# Local ship PDF drops for OCR/inspect (often 10–40MB scanned pages)
+templates/ships/**/*.pdf
+templates/ships/**/*.ocr.pdf
+templates/ships/**/_*.json

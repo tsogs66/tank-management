@@ -549,7 +549,7 @@ function renderAddTank(main) {
   main.innerHTML += `<div class="page-head"><div><h1>Add Tank</h1>
     <div class="desc">Manually add storage, settling, or service tanks — or import tanks and sounding tables from a capacity PDF.</div></div></div>
     <div class="help-box">Use role <b>storage</b>, <b>settling</b>, or <b>service</b> so bunkering distribution can target the right tanks. Side and tank number enable Port/Starboard and No.1/No.2 splits.
-      <br>PDF sounding books: upload below to create one tank per table found (L.C.G/T.C.G/V.C.G/IMOM hydrostatic blocks are skipped).</div>`;
+      <br>PDF sounding books: upload below to create one tank per table found (L.C.G/T.C.G/V.C.G/IMOM hydrostatic blocks are skipped). Supports trim grids, SOUNDING|VOLUME, and sectioned EVEN KEEL / TRIM BY STERN|HEAD (ullage) books.</div>`;
 
   const form = document.createElement('div');
   form.className = 'form-panel';
@@ -592,9 +592,12 @@ function renderAddTank(main) {
       <a class="btn" id="btn-export-tanks-csv" href="#">Export tanks CSV</a>
     </div>
     <div class="section-title">Import tanks from sounding PDF</div>
-    <p class="hint">Upload a capacity / sounding-table PDF (Veniamis trim-grid or Gangos SOUNDING|VOLUME style). Preview tanks found, then create them with calibration tables applied.</p>
+    <p class="hint">Upload a capacity / sounding-table PDF (Veniamis trim-grid or Gangos SOUNDING|VOLUME style). Preview tanks found, then create them with calibration tables applied. <b>Scanned books need OCR</b> (installed automatically when available) — large PDFs can take several minutes.</p>
     <div class="btn-row" style="align-items:center;gap:8px;flex-wrap:wrap">
       <label class="btn primary">Upload PDF<input type="file" id="add-pdf-file" accept=".pdf,application/pdf" hidden></label>
+      <label class="hint" style="display:flex;align-items:center;gap:6px;margin:0">
+        <input type="checkbox" id="add-pdf-ocr" checked> Use OCR for scanned PDFs
+      </label>
       <label class="hint" style="display:flex;align-items:center;gap:6px;margin:0">
         <input type="checkbox" id="add-pdf-update" checked> Update existing tanks with same name
       </label>
@@ -651,10 +654,14 @@ function renderAddTank(main) {
     if (!file) return;
     addPdfFile = file;
     try {
-      showToast('Reading PDF tanks…');
+      const useOcr = document.getElementById('add-pdf-ocr')?.checked !== false;
+      showToast(useOcr
+        ? 'Reading PDF (OCR on if scanned — may take a few minutes)…'
+        : 'Reading PDF tanks…');
       const fd = new FormData();
       fd.append('file', file);
       fd.append('includeRaw', 'false');
+      fd.append('ocr', useOcr ? 'true' : 'false');
       const res = await Api.request(`/api/vessels/${STATE.activeVesselId}/import-pdf`, { method: 'POST', body: fd });
       addPdfPreview = res;
       const panel = document.getElementById('add-pdf-panel');
@@ -666,8 +673,11 @@ function renderAddTank(main) {
       const tankGroups = res.tanks || [];
       const usable = res.usableTables || (res.tables || []).filter((t) => !t.skipped && t.kind !== 'unknown');
       if (!tankGroups.length && !usable.length) {
-        sum.innerHTML = (res.warnings || []).map((w) => escapeHtml(w)).join('<br>')
-          || 'No usable tank tables found in this PDF.';
+        sum.innerHTML = [
+          (res.warnings || []).map((w) => escapeHtml(w)).join('<br>')
+            || 'No usable tank tables found in this PDF.',
+          res.ocrUsed ? '<div class="pill">OCR ran</div>' : '<div class="hint">Tip: keep “Use OCR” checked for scanned capacity books, or seed from the FINAL .xlsm workbook instead.</div>',
+        ].join('');
         box.innerHTML = '';
         btn.disabled = true;
         showToast('No tanks found in PDF');
@@ -678,6 +688,7 @@ function renderAddTank(main) {
         `<b>${tankGroups.length || usable.length}</b> tank group(s) · <b>${usable.length}</b> usable table(s)`,
         res.skippedHydrostatic ? `<span class="pill warn">${res.skippedHydrostatic} hydrostatic skipped</span>` : '',
         res.pages ? `${res.pages} page(s)` : '',
+        res.ocrUsed ? '<span class="pill good">OCR used</span>' : '',
       ].filter(Boolean).join(' · ');
 
       // Build checklist from tank groups; fall back to usable tables
@@ -720,6 +731,7 @@ function renderAddTank(main) {
       fd.append('file', addPdfFile);
       fd.append('createTanks', 'true');
       fd.append('updateExisting', document.getElementById('add-pdf-update').checked ? 'true' : 'false');
+      fd.append('ocr', document.getElementById('add-pdf-ocr')?.checked !== false ? 'true' : 'false');
       fd.append('tankNames', JSON.stringify(checked));
       const res = await Api.request(`/api/vessels/${STATE.activeVesselId}/import-pdf`, { method: 'POST', body: fd });
       await reloadBundle();
@@ -833,6 +845,9 @@ function renderCalibrationEditor(main, tankId) {
       <a class="btn small" id="btn-export-xlsx" href="/api/vessels/${STATE.activeVesselId}/tanks/${tankId}/calibration.xlsx">Export Excel</a>
       <label class="btn small">Import CSV/Excel<input type="file" id="table-import" accept=".csv,.xlsx,.xlsm,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label>
       <label class="btn small">Import PDF<input type="file" id="pdf-import" accept=".pdf,application/pdf" hidden></label>
+      <label class="hint" style="display:flex;align-items:center;gap:4px;margin:0;font-size:12px">
+        <input type="checkbox" id="pdf-import-ocr" checked> OCR
+      </label>
       <button class="btn small" id="btn-export-tank">Export JSON</button>
       <button class="btn primary" id="btn-save-calib">Save calibration</button>
     </div>`;
@@ -878,10 +893,14 @@ function renderCalibrationEditor(main, tankId) {
     e.target.value = '';
     if (!file) return;
     try {
-      showToast('Reading PDF tables…');
+      const useOcr = document.getElementById('pdf-import-ocr')?.checked !== false;
+      showToast(useOcr
+        ? 'Reading PDF (OCR on if scanned — may take a few minutes)…'
+        : 'Reading PDF tables…');
       const fd = new FormData();
       fd.append('file', file);
       fd.append('includeRaw', 'false');
+      fd.append('ocr', useOcr ? 'true' : 'false');
       const res = await Api.request(`/api/vessels/${STATE.activeVesselId}/import-pdf`, { method: 'POST', body: fd });
       const tables = res.tables || [];
       const usable = (res.usableTables || tables.filter((t) => !t.skipped && t.kind !== 'hydrostatic'));

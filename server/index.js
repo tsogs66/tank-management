@@ -730,7 +730,7 @@ app.post('/api/vessels/:id/import-pdf', upload.single('file'), asyncHandler(asyn
     .split(/[,;\s]+/)
     .map((n) => parseInt(n, 10))
     .filter((n) => n > 0);
-  const ocr = req.body?.ocr === true || req.body?.ocr === 'true';
+  const ocr = req.body?.ocr !== false && req.body?.ocr !== 'false';
   const result = await pdfImport.extractFromBuffer(req.file.buffer, {
     pages: pages.length ? pages : undefined,
     ocr,
@@ -838,7 +838,7 @@ app.post('/api/vessels/:id/tanks/:tankId/import-pdf', upload.single('file'), asy
       .split(/[,;\s]+/)
       .map((n) => parseInt(n, 10))
       .filter((n) => n > 0);
-    const ocr = req.body?.ocr === true || req.body?.ocr === 'true';
+    const ocr = req.body?.ocr !== false && req.body?.ocr !== 'false';
     const result = await pdfImport.extractFromBuffer(req.file.buffer, {
       pages: pages.length ? pages : undefined,
       ocr,

@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """
-Build dual-layout sample sounding-book PDFs for OCR / import testing.
+Build multi-layout sample sounding-book PDFs for OCR / import testing.
 
 Layouts modelled after common ship manuals:
   1) Veniamis-style: per-tank SOUNDING × trim (m) volume grids
   2) Gangos-style: SOUNDING | VOLUME plus L.C.G / T.C.G / V.C.G / IMOM
      (hydrostatic columns must be auto-disregarded by the importer)
+  3) Giorgis-style (bulk carrier): EVEN KEEL / TRIM BY STERN / TRIM BY HEAD
+     as separate SOUNDING|VOLUME (or ULLAGE|CAPACITY) sections → merged grid
 
 Writes:
   templates/sample-sounding-book-veniamis.pdf
   templates/sample-sounding-book-gangos.pdf
+  templates/sample-sounding-book-giorgis.pdf
   templates/sample-sounding-table.pdf  (single-tank trim grid, backward compatible)
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from reportlab.lib.pagesizes import A4
@@ -170,6 +172,95 @@ def write_gangos(path: Path):
     c.save()
 
 
+def write_giorgis(path: Path):
+    """
+    Giorgis-style bulk-carrier book: one tank with EVEN KEEL / TRIM BY STERN /
+    TRIM BY HEAD as separate SOUNDING|VOLUME sections (importer merges to grid).
+    Second tank uses ULLAGE|CAPACITY.
+    """
+    c = canvas.Canvas(str(path), pagesize=A4)
+    w, h = A4
+
+    y = h - 18 * mm
+    y = _draw_title(c, "M/V GIORGIS — SOUNDING / ULLAGE TABLE (CAPACITY BOOK)", y)
+    y = _draw_title(c, "NO.1 H.F.O. TANK (P)", y)
+
+    y = _draw_title(c, "EVEN KEEL", y)
+    y = _draw_mono_table(c, 20 * mm, y, [
+        ["SOUNDING", "VOLUME"],
+        ["cm", "m3"],
+        ["0", "0.0"],
+        ["50", "14.0"],
+        ["100", "28.5"],
+        ["150", "43.5"],
+        ["200", "59.0"],
+        ["250", "75.0"],
+    ], col_w=[30 * mm, 30 * mm])
+
+    y -= 4 * mm
+    y = _draw_title(c, "TRIM 1.00 M BY STERN", y)
+    y = _draw_mono_table(c, 20 * mm, y, [
+        ["SOUNDING", "VOLUME"],
+        ["cm", "m3"],
+        ["0", "0.0"],
+        ["50", "13.2"],
+        ["100", "27.0"],
+        ["150", "41.5"],
+        ["200", "56.5"],
+        ["250", "72.0"],
+    ], col_w=[30 * mm, 30 * mm])
+
+    y -= 4 * mm
+    y = _draw_title(c, "TRIM 1.00 M BY HEAD", y)
+    y = _draw_mono_table(c, 20 * mm, y, [
+        ["SOUNDING", "VOLUME"],
+        ["cm", "m3"],
+        ["0", "0.0"],
+        ["50", "14.8"],
+        ["100", "30.0"],
+        ["150", "45.5"],
+        ["200", "61.5"],
+        ["250", "78.0"],
+    ], col_w=[30 * mm, 30 * mm])
+
+    c.showPage()
+    y = h - 18 * mm
+    y = _draw_title(c, "NO.1 M.D.O. TANK (S) — ULLAGE TABLE", y)
+    y = _draw_title(c, "EVEN KEEL", y)
+    y = _draw_mono_table(c, 20 * mm, y, [
+        ["ULLAGE", "CAPACITY"],
+        ["cm", "m3"],
+        ["200", "0.0"],
+        ["150", "6.5"],
+        ["100", "13.5"],
+        ["50", "21.0"],
+        ["0", "29.0"],
+    ], col_w=[30 * mm, 30 * mm])
+    y -= 4 * mm
+    y = _draw_title(c, "TRIM 0.50 M BY STERN", y)
+    y = _draw_mono_table(c, 20 * mm, y, [
+        ["ULLAGE", "CAPACITY"],
+        ["cm", "m3"],
+        ["200", "0.0"],
+        ["150", "6.1"],
+        ["100", "12.8"],
+        ["50", "20.0"],
+        ["0", "27.5"],
+    ], col_w=[30 * mm, 30 * mm])
+    y -= 4 * mm
+    y = _draw_title(c, "TRIM 0.50 M BY HEAD", y)
+    _draw_mono_table(c, 20 * mm, y, [
+        ["ULLAGE", "CAPACITY"],
+        ["cm", "m3"],
+        ["200", "0.0"],
+        ["150", "6.9"],
+        ["100", "14.2"],
+        ["50", "22.0"],
+        ["0", "30.5"],
+    ], col_w=[30 * mm, 30 * mm])
+    c.save()
+
+
 def write_legacy_sample(path: Path):
     c = canvas.Canvas(str(path), pagesize=A4)
     y = A4[1] - 20 * mm
@@ -189,17 +280,31 @@ def write_legacy_sample(path: Path):
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
+    ships = OUT / "ships" / "giorgis"
+    ships.mkdir(parents=True, exist_ok=True)
     write_veniamis(OUT / "sample-sounding-book-veniamis.pdf")
     write_gangos(OUT / "sample-sounding-book-gangos.pdf")
+    write_giorgis(OUT / "sample-sounding-book-giorgis.pdf")
     write_legacy_sample(OUT / "sample-sounding-table.pdf")
+    readme = ships / "README.txt"
+    readme.write_text(
+        "Drop real M/V GIORGIS capacity / sounding PDFs here for exterior inspect + OCR.\n"
+        "Cloud agents cannot read C:\\Users\\...\\SHIPS FILE\\GIORGIS — copy PDFs into this folder.\n"
+        "Then run:\n"
+        "  python3 scripts/inspect-pdf-sounding.py templates/ships/giorgis\n"
+        "  python3 scripts/import-pdf-tables.py templates/ships/giorgis/<file>.pdf --ocr\n",
+        encoding="utf-8",
+    )
     print("Wrote:")
     for name in (
         "sample-sounding-book-veniamis.pdf",
         "sample-sounding-book-gangos.pdf",
+        "sample-sounding-book-giorgis.pdf",
         "sample-sounding-table.pdf",
     ):
         p = OUT / name
         print(f"  {p} ({p.stat().st_size} bytes)")
+    print(f"  {readme}")
 
 
 if __name__ == "__main__":

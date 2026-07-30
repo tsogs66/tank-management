@@ -1,0 +1,410 @@
+{
+  "workbook": "TANK MANAGEMENT GIORGIS FINAL 1.xlsm",
+  "found": [
+    {
+      "sheet": "Tank1",
+      "row": 1,
+      "name": "NO.1 H.F.O. TANK (P)",
+      "calcType": "direct",
+      "rows": 103,
+      "capacity": 463.48
+    },
+    {
+      "sheet": "Tank1",
+      "row": 267,
+      "name": "NO.1 H.F.O. TANK (S)",
+      "calcType": "direct",
+      "rows": 103,
+      "capacity": 463.476
+    },
+    {
+      "sheet": "Tank1",
+      "row": 532,
+      "name": "NO.2 H.F.O. TANK (P)",
+      "calcType": "direct",
+      "rows": 103,
+      "capacity": 463.476
+    },
+    {
+      "sheet": "Tank1",
+      "row": 796,
+      "name": "NO.2 H.F.O. TANK (S)",
+      "calcType": "direct",
+      "rows": 103,
+      "capacity": 463.476
+    },
+    {
+      "sheet": "Tank1",
+      "row": 1060,
+      "name": "NO.3 H.F.O. TANK (P)",
+      "calcType": "direct",
+      "rows": 220,
+      "capacity": 110.677
+    },
+    {
+      "sheet": "Tank1",
+      "row": 1608,
+      "name": "NO.3 H.F.O. TANK (S)",
+      "calcType": "direct",
+      "rows": 219,
+      "capacity": 238.493
+    },
+    {
+      "sheet": "Tank1",
+      "row": 1847,
+      "name": "H.F.O.SETTLING TANK",
+      "calcType": "direct",
+      "rows": 197,
+      "capacity": 51.176
+    },
+    {
+      "sheet": "Tank1",
+      "row": 2087,
+      "name": "H.F.O. SERVICE TANK",
+      "calcType": "direct",
+      "rows": 197,
+      "capacity": 51.176
+    },
+    {
+      "sheet": "Tank1",
+      "row": 2326,
+      "name": "LS H.F.O. SERVICE TANK",
+      "calcType": "direct",
+      "rows": 197,
+      "capacity": 51.176
+    },
+    {
+      "sheet": "Tank1",
+      "row": 2565,
+      "name": "LS H.F.O. SETTLING TANK",
+      "calcType": "direct",
+      "rows": 197,
+      "capacity": 51.18
+    },
+    {
+      "sheet": "Tank1",
+      "row": 2834,
+      "name": "H.F.O OVERFLOW TANK",
+      "calcType": "direct",
+      "rows": 47,
+      "capacity": 32.219
+    },
+    {
+      "sheet": "Tank1",
+      "row": 3105,
+      "name": "MDO STORAGE TANK (P)",
+      "calcType": "direct",
+      "rows": 51,
+      "capacity": 70.429
+    },
+    {
+      "sheet": "Tank1",
+      "row": 3419,
+      "name": "MDO STORAGE TANK (S)",
+      "calcType": "direct",
+      "rows": 52,
+      "capacity": 125.685
+    },
+    {
+      "sheet": "Tank1",
+      "row": 3970,
+      "name": "MDO SERVICE TANK",
+      "calcType": "direct",
+      "rows": 92,
+      "capacity": 25.324
+    },
+    {
+      "sheet": "Tank1",
+      "row": 4526,
+      "name": "MDO SETTLING TANK",
+      "calcType": "direct",
+      "rows": 92,
+      "capacity": 25.324
+    },
+    {
+      "sheet": "Tank1",
+      "row": 5074,
+      "name": "MGO STORAGE TANK (S)",
+      "calcType": "direct",
+      "rows": 98,
+      "capacity": 102.222
+    },
+    {
+      "sheet": "Tank1",
+      "row": 5625,
+      "name": "MGO SERVICE TANK",
+      "calcType": "direct",
+      "rows": 92,
+      "capacity": 25.324
+    },
+    {
+      "sheet": "Tank2",
+      "row": 9,
+      "name": "M/E L.O.STOR.TK.",
+      "calcType": "direct",
+      "rows": 92,
+      "capacity": 24.435
+    },
+    {
+      "sheet": "Tank2",
+      "row": 241,
+      "name": "G/E L.O.STOR.TK.",
+      "calcType": "direct",
+      "rows": 92,
+      "capacity": 7.914
+    },
+    {
+      "sheet": "Tank2",
+      "row": 471,
+      "name": "LOW TBN CYL.O.STOR.TK.",
+      "calcType": "direct",
+      "rows": 93,
+      "capacity": 25.324
+    },
+    {
+      "sheet": "Tank2",
+      "row": 701,
+      "name": "HIGH TBN CYL.O.STOR.TK.",
+      "calcType": "direct",
+      "rows": 93,
+      "capacity": 31.66
+    },
+    {
+      "sheet": "Tank2",
+      "row": 926,
+      "name": "M/E L.O.SUMP.TK.",
+      "calcType": "direct",
+      "rows": 43,
+      "capacity": 32.336
+    },
+    {
+      "sheet": "Tank2",
+      "row": 983,
+      "name": "M/E L.O.SETT.TK.",
+      "calcType": "direct",
+      "rows": 92,
+      "capacity": 24.435
+    },
+    {
+      "sheet": "Tank2",
+      "row": 1215,
+      "name": "G/E L.O.SETT.TK.",
+      "calcType": "direct",
+      "rows": 92,
+      "capacity": 7.358
+    },
+    {
+      "sheet": "Tank3",
+      "row": 8,
+      "name": "BILGE TANK",
+      "calcType": "direct",
+      "rows": 51,
+      "capacity": 38.653
+    },
+    {
+      "sheet": "Tank3",
+      "row": 128,
+      "name": "SLUDGE TANK",
+      "calcType": "direct",
+      "rows": 22,
+      "capacity": 12.624
+    },
+    {
+      "sheet": "Tank3",
+      "row": 249,
+      "name": "FO OVERFLOW TANK",
+      "calcType": "direct",
+      "rows": 47,
+      "capacity": 32.219
+    },
+    {
+      "sheet": "Tank3",
+      "row": 396,
+      "name": "SEWAGE HOLDING TANK",
+      "calcType": "direct",
+      "rows": 60,
+      "capacity": 46.5
+    },
+    {
+      "sheet": "Tank3",
+      "row": 666,
+      "name": "LO DRAIN TANK",
+      "calcType": "direct",
+      "rows": 11,
+      "capacity": 3.3
+    },
+    {
+      "sheet": "Tank3",
+      "row": 772,
+      "name": "FO DRAIN TANK",
+      "calcType": "direct",
+      "rows": 11,
+      "capacity": 3.3
+    },
+    {
+      "sheet": "Tank3",
+      "row": 896,
+      "name": "STERN TUBE TANK",
+      "calcType": "direct",
+      "rows": 11,
+      "capacity": 2.293
+    },
+    {
+      "sheet": "Tank3",
+      "row": 1015,
+      "name": "CLEAN DRAIN TANK",
+      "calcType": "direct",
+      "rows": 30,
+      "capacity": 26.7
+    },
+    {
+      "sheet": "Tank3",
+      "row": 1067,
+      "name": "G/E LO OVERFLOW TANK",
+      "calcType": "direct",
+      "rows": 12,
+      "capacity": 2.8
+    },
+    {
+      "sheet": "Tank3",
+      "row": 1119,
+      "name": "OILY BILGE TANK",
+      "calcType": "direct",
+      "rows": 50,
+      "capacity": 29.261
+    },
+    {
+      "sheet": "Tank3",
+      "row": 1192,
+      "name": "ME SUMP TANK",
+      "calcType": "direct",
+      "rows": 43,
+      "capacity": 32.3
+    },
+    {
+      "sheet": "Tank4",
+      "row": 9,
+      "name": "F.W.TK.P",
+      "calcType": "direct",
+      "rows": 101,
+      "capacity": 296.337
+    },
+    {
+      "sheet": "Tank4",
+      "row": 141,
+      "name": "F.W.TK.S",
+      "calcType": "direct",
+      "rows": 100,
+      "capacity": 154.298
+    },
+    {
+      "sheet": "Tank4",
+      "row": 273,
+      "name": "DISTILLED W.TK.",
+      "calcType": "direct",
+      "rows": 122,
+      "capacity": 87.62
+    },
+    {
+      "sheet": "Tank4",
+      "row": 405,
+      "name": "DRINKING W.TK.",
+      "calcType": "direct",
+      "rows": 122,
+      "capacity": 87.62
+    }
+  ],
+  "setup": [
+    {
+      "name": "NO.1 HFO TANK (P)",
+      "pipeHeight": 5081,
+      "capacity100": 463.5
+    },
+    {
+      "name": "NO.1 HFO TANK (S)",
+      "pipeHeight": 5069,
+      "capacity100": 463.5
+    },
+    {
+      "name": "NO.2 HFO TANK (P)",
+      "pipeHeight": 5090,
+      "capacity100": 463.5
+    },
+    {
+      "name": "NO.2 HFO TANK (S)",
+      "pipeHeight": 5069,
+      "capacity100": 463.5
+    },
+    {
+      "name": "NO.3 HFO TANK (P)",
+      "pipeHeight": 11684,
+      "capacity100": 110.7
+    },
+    {
+      "name": "NO.3 HFO TANK (S)",
+      "pipeHeight": 11616,
+      "capacity100": 238.5
+    },
+    {
+      "name": "HFO SETTLING TK",
+      "pipeHeight": 11257,
+      "capacity100": 51.2
+    },
+    {
+      "name": "HFO SERVICE TK",
+      "pipeHeight": 11256,
+      "capacity100": 51.2
+    },
+    {
+      "name": "LS HFO SERVICE TK",
+      "pipeHeight": 11255,
+      "capacity100": 51.2
+    },
+    {
+      "name": "LS HFO SETTLING TK",
+      "pipeHeight": 11269,
+      "capacity100": 51.2
+    },
+    {
+      "name": "HFO OVERFLOW TK",
+      "pipeHeight": 5206,
+      "capacity100": 32.2
+    },
+    {
+      "name": "MDO TANK (P)",
+      "pipeHeight": 5190,
+      "capacity100": 70.4
+    },
+    {
+      "name": "MDO TANK (S)",
+      "pipeHeight": 5190,
+      "capacity100": 125.7
+    },
+    {
+      "name": "MDO SERVICE TK",
+      "pipeHeight": 5994,
+      "capacity100": 25.3
+    },
+    {
+      "name": "MDO SETTLING TK",
+      "pipeHeight": 6013,
+      "capacity100": 25.3
+    },
+    {
+      "name": "MGO STOR. TK (S)",
+      "pipeHeight": 5477,
+      "capacity100": 102.2
+    },
+    {
+      "name": "MGO SERVICE TK",
+      "pipeHeight": 6004,
+      "capacity100": 25.3
+    }
+  ],
+  "counts": {
+    "fuel": 17,
+    "lube": 8,
+    "misc": 10,
+    "water": 4
+  }
+}
