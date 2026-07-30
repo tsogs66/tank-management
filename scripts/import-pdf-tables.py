@@ -954,46 +954,55 @@ def maybe_ocr_pdf(pdf_path, force=False):
 
     ocrmypdf = shutil.which("ocrmypdf")
     tesseract = shutil.which("tesseract")
-    if not ocrmypdf and not tesseract:
-        # python -m ocrmypdf works even when Scripts/ is not on PATH
-        try:
-            subprocess.run(
-                [sys.executable, "-m", "ocrmypdf", "--version"],
-                check=True, capture_output=True, timeout=30,
-            )
-            ocrmypdf = "py-module"
-        except Exception:
-            return pdf_path, False, (
-                "PDF has little extractable text (likely scanned). "
-                "Install ocrmypdf + tesseract for OCR, or pre-OCR the file."
-            )
+    # Prefer `python -m ocrmypdf` so we use the same interpreter as this script
+    # (Windows often has a bare `python3` without pip packages).
+    use_module = False
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "ocrmypdf", "--version"],
+            check=True, capture_output=True, timeout=30,
+        )
+        use_module = True
+    except Exception:
+        use_module = False
+
+    if not use_module and not ocrmypdf and not tesseract:
+        return pdf_path, False, (
+            "PDF has little extractable text (likely scanned). "
+            "Install ocrmypdf + tesseract for OCR, or pre-OCR the file. "
+            f"(Python: {sys.executable})"
+        )
 
     out = tempfile.NamedTemporaryFile(suffix="-ocr.pdf", delete=False)
     out.close()
     try:
-        if ocrmypdf:
-            if ocrmypdf == "py-module":
-                cmd = [
-                    sys.executable, "-m", "ocrmypdf",
-                    "--force-ocr",
-                    "--rotate-pages",
-                    "--deskew",
-                    "--quiet",
-                    pdf_path,
-                    out.name,
-                ]
-            else:
-                cmd = [
-                    ocrmypdf,
-                    "--force-ocr",
-                    "--rotate-pages",
-                    "--deskew",
-                    "--quiet",
-                    pdf_path,
-                    out.name,
-                ]
-            subprocess.run(cmd, check=True, capture_output=True, timeout=900)
-            return out.name, True, None
+        if use_module:
+            cmd = [
+                sys.executable, "-m", "ocrmypdf",
+                "--force-ocr",
+                "--rotate-pages",
+                "--deskew",
+                "--quiet",
+                pdf_path,
+                out.name,
+            ]
+        elif ocrmypdf:
+            cmd = [
+                ocrmypdf,
+                "--force-ocr",
+                "--rotate-pages",
+                "--deskew",
+                "--quiet",
+                pdf_path,
+                out.name,
+            ]
+        else:
+            return pdf_path, False, (
+                "tesseract found but ocrmypdf is missing. "
+                f"Run: \"{sys.executable}\" -m pip install ocrmypdf"
+            )
+        subprocess.run(cmd, check=True, capture_output=True, timeout=900)
+        return out.name, True, None
     except Exception as e:
         try:
             os.unlink(out.name)

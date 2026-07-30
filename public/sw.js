@@ -1,5 +1,5 @@
 /* Service worker — cache shell for offline Android / local use */
-const CACHE = 'fuel-tms-v14';
+const CACHE = 'fuel-tms-v16';
 const ASSETS = [
   '/',
   '/index.html',
@@ -35,6 +35,19 @@ self.addEventListener('fetch', (event) => {
           headers: { 'Content-Type': 'application/json' },
         })
       )
+    );
+    return;
+  }
+  // Network-first for app shell so UI updates (PDF upload, etc.) are not stuck on old cache
+  const shell = url.pathname === '/' || url.pathname === '/index.html'
+    || url.pathname.endsWith('.js') || url.pathname.endsWith('.css');
+  if (shell) {
+    event.respondWith(
+      fetch(event.request).then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(event.request, copy));
+        return res;
+      }).catch(() => caches.match(event.request).then((c) => c || caches.match('/index.html')))
     );
     return;
   }

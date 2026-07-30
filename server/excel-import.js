@@ -1,51 +1,27 @@
 /**
- * Import calibration tables from CAPTAIN VENIAMIS Tank1–Tank4 sheets via Python/openpyxl.
+ * Import calibration tables from CAPTAIN VENIAMIS / GIORGIS Tank1–Tank4 sheets via Python/openpyxl.
  */
-const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { spawnPython } = require('./python-run');
 
 function defaultWorkbookPath() {
   return path.join(__dirname, '..', 'TANK MANAGEMENT CAPTAIN VENIAMIS FINAL VERSION.xlsm');
 }
 
-function runImporter(workbookPath) {
-  return new Promise((resolve, reject) => {
-    const script = path.join(__dirname, '..', 'scripts', 'import-excel-tanks.py');
-    const pyCmd = process.platform === 'win32' ? 'python' : 'python3';
-    const py = spawn(pyCmd, [script, workbookPath], { maxBuffer: 64 * 1024 * 1024 });
-    let out = '';
-    let err = '';
-    py.stdout.on('data', (d) => { out += d; });
-    py.stderr.on('data', (d) => { err += d; });
-    py.on('error', (e) => {
-      if (pyCmd === 'python') {
-        // Fallback when only python3 is on PATH (Git Bash / some Linux)
-        const alt = spawn('python3', [script, workbookPath], { maxBuffer: 64 * 1024 * 1024 });
-        let out2 = '';
-        let err2 = '';
-        alt.stdout.on('data', (d) => { out2 += d; });
-        alt.stderr.on('data', (d) => { err2 += d; });
-        alt.on('close', (code) => {
-          if (code !== 0) return reject(new Error(err2 || `Excel import failed (exit ${code})`));
-          try { resolve(JSON.parse(out2)); }
-          catch (errParse) { reject(new Error('Failed to parse importer JSON: ' + errParse.message)); }
-        });
-        return;
-      }
-      reject(e);
-    });
-    py.on('close', (code) => {
-      if (code !== 0) {
-        return reject(new Error(err || `Excel import failed (exit ${code})`));
-      }
-      try {
-        resolve(JSON.parse(out));
-      } catch (e) {
-        reject(new Error('Failed to parse importer JSON: ' + e.message));
-      }
-    });
+async function runImporter(workbookPath) {
+  const script = path.join(__dirname, '..', 'scripts', 'import-excel-tanks.py');
+  const { code, out, err, cmd } = await spawnPython([script, workbookPath], {
+    maxBuffer: 64 * 1024 * 1024,
   });
+  if (code !== 0) {
+    throw new Error(err || out || `Excel import failed (${cmd}, exit ${code})`);
+  }
+  try {
+    return JSON.parse(out);
+  } catch (e) {
+    throw new Error('Failed to parse importer JSON: ' + e.message);
+  }
 }
 
 async function importWorkbook(filePath) {

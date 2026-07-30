@@ -2,38 +2,39 @@
  * Extract calibration tables from PDF via scripts/import-pdf-tables.py (pdfplumber).
  * Groups tables by tank; auto-skips L.C.G / T.C.G / V.C.G / IMOM hydrostatic blocks.
  */
-const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { spawnPython } = require('./python-run');
 
 function runExtractor(pdfPath, pageList, opts = {}) {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     const script = path.join(__dirname, '..', 'scripts', 'import-pdf-tables.py');
     const args = [script, pdfPath];
     if (Array.isArray(pageList) && pageList.length) {
       for (const p of pageList) args.push('--page', String(p));
     }
     if (opts.ocr) args.push('--ocr');
-    const py = spawn('python3', args, { maxBuffer: 64 * 1024 * 1024 });
-    let out = '';
-    let err = '';
-    py.stdout.on('data', (d) => { out += d; });
-    py.stderr.on('data', (d) => { err += d; });
-    py.on('close', (code) => {
+    try {
+      const { code, out, err, cmd } = await spawnPython(args, { maxBuffer: 128 * 1024 * 1024 });
       if (code !== 0) {
-        return reject(new Error(err || out || `PDF import failed (exit ${code})`));
+        return reject(new Error(err || out || `PDF import failed (${cmd}, exit ${code})`));
       }
       try {
         const parsed = JSON.parse(out);
         if (parsed.error && !(parsed.tables || []).length) {
           return reject(new Error(parsed.error));
         }
+        if (err && /ocr|tesseract/i.test(err) && !parsed.ocrUsed) {
+          parsed.warnings = [...(parsed.warnings || []), err.trim().slice(0, 300)];
+        }
         resolve(parsed);
       } catch (e) {
         reject(new Error('Failed to parse PDF importer JSON: ' + e.message));
       }
-    });
+    } catch (e) {
+      reject(e);
+    }
   });
 }
 
