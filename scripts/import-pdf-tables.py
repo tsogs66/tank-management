@@ -834,6 +834,9 @@ def layout_hint(parsed, removed_hydro, explicit=None):
     if parsed.get("layoutHint"):
         return parsed["layoutHint"]
     if kind == "grid":
+        role = parsed.get("tableRole")
+        if role == "heel":
+            return "heelGrid"
         return "trimGrid"
     if kind == "volumeCurve":
         if parsed.get("soundingMethod") == "ullage":
@@ -842,6 +845,345 @@ def layout_hint(parsed, removed_hydro, explicit=None):
     if kind == "hydrostatic":
         return "hydrostatic"
     return "unknown"
+
+
+HEEL_HEADER_RE = re.compile(
+    r"\b(?:HEEL|LIST|ANGLE\s+OF\s+HEEL|HEELING)\b",
+    re.IGNORECASE,
+)
+TRIM_HEADER_RE = re.compile(
+    r"\b(?:TRIM|EVEN\s*KEEL|BY\s+STERN|BY\s+HEAD|BY\s+STEM)\b",
+    re.IGNORECASE,
+)
+VOLUME_PAIR_RE = re.compile(
+    r"\b(?:SOUNDING|ULLAGE|GAUGE|DEPTH)\b.+\b(?:VOLUME|CAPACITY|CAP\.?|M3|M³)\b"
+    r"|\b(?:VOLUME|CAPACITY)\b.+\b(?:SOUNDING|ULLAGE)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def detect_table_role(rows, page_text="", forced=None):
+    """
+    Classify a table as trim | heel | volume | unknown from headers / context.
+    `forced` overrides auto detection when the user selected a role.
+    """
+    if forced in ("trim", "heel", "volume", "auto", None):
+        if forced and forced != "auto":
+            return forced
+    header_bits = []
+    for r in (rows or [])[:4]:
+        header_bits.append(" ".join(str(c or "") for c in densify_row(r)))
+    joined = " | ".join(header_bits)
+    ctx = f"{joined}\n{(page_text or '')[:800]}"
+
+    if HEEL_HEADER_RE.search(ctx) and not (
+        TRIM_HEADER_RE.search(ctx) and re.search(r"TRIM\s+CORRECTION|CAPACIT", ctx, re.I)
+    ):
+        # Heel correction tables often say HEELING CORRECTION / HEEL TO PORT
+        if HEEL_HEADER_RE.search(joined) or re.search(r"HEELING\s+CORRECTION|HEEL\s+TO\s+(PORT|STBD)", ctx, re.I):
+            return "heel"
+    if VOLUME_PAIR_RE.search(joined) or (
+        len(densify_row(rows[0]) if rows else []) <= 4
+        and re.search(r"\bSOUNDING\b|\bULLAGE\b", joined, re.I)
+        and re.search(r"\bVOLUME\b|\bCAPACITY\b|\bCAP\b", joined, re.I)
+        and not re.search(r"-?\d+\.\d+", joined)  # no trim meters in header
+    ):
+        return "volume"
+    if TRIM_HEADER_RE.search(ctx) or re.search(r"TRIM\s+CORRECTION|CAPACITIES\s+IN", ctx, re.I):
+        return "trim"
+    # Grid with small meter headers → trim; wider angle-like headers → heel
+    if rows and len(rows[0]) >= 3:
+        hdr = densify_row(rows[0])
+        nums = [to_number(c) for c in hdr[1:]]
+        nums = [n for n in nums if n is not None]
+        if len(nums) >= 2:
+            span = max(nums) - min(nums)
+            # Heel angles often ±1..±10; trim meters similar — prefer heel if HEEL in page text
+            if HEEL_HEADER_RE.search(page_text or "") and span <= 20:
+                return "heel"
+            return "trim"
+    return "unknown"
+
+
+def extract_pattern(rows, role=None):
+    """
+    Capture column pattern from a header+body sample so continuation pages
+    can align to the same shape.
+    """
+    if not rows:
+        return None
+    header = densify_row(rows[0])
+    role = role or detect_table_role(rows)
+    # Find first numeric body row for column count
+    body0 = None
+    for r in rows[1:6]:
+        dens = densify_row(r)
+        if dens and to_number(dens[0]) is not None:
+            body0 = dens
+            break
+    col_count = max(len(header), len(body0) if body0 else 0)
+    if col_count < 2:
+        return None
+    axis_vals = []
+    for c in header[1:col_count]:
+        n = to_number(c)
+        if n is not None:
+            axis_vals.append(n)
+    return {
+        "role": role,
+        "colCount": col_count,
+        "header": header[:col_count],
+        "axisVals": axis_vals,
+        "hasLabelCol": to_number(header[0]) is None if header else True,
+    }
+
+
+def align_rows_to_pattern(rows, pattern):
+    """Pad/trim densified rows to pattern.colCount; drop empty trailing columns."""
+    if not pattern or not rows:
+        return rows
+    n = int(pattern.get("colCount") or 0)
+    if n < 2:
+        return rows
+    out = []
+    for r in rows:
+        dens = densify_row(clean_row(r))
+        if not dens:
+            continue
+        if len(dens) < n:
+            dens = dens + [""] * (n - len(dens))
+        elif len(dens) > n:
+            dens = dens[:n]
+        out.append(dens)
+    return out
+
+
+def norm_tank_key(name):
+    return re.sub(r"[^A-Z0-9]", "", str(name or "").upper())
+
+
+def rows_look_like_continuation(rows, pattern):
+    """True if rows are mostly numeric data without a new tank title / new role header."""
+    if not rows or not pattern:
+        return False
+    title_hits = 0
+    numeric_rows = 0
+    for r in rows[:8]:
+        dens = densify_row(r)
+        if is_tank_title_row(dens):
+            title_hits += 1
+        if dens and to_number(dens[0]) is not None:
+            numeric_rows += 1
+    if title_hits:
+        return False
+    return numeric_rows >= 2
+
+
+def merge_grid_parsed(base, extra):
+    """Append unique sounding rows from extra grid onto base (same trimVals)."""
+    if not base or base.get("kind") != "grid":
+        return extra
+    if not extra or extra.get("kind") != "grid":
+        return base
+    b_vals = base.get("trimVals") or []
+    e_vals = extra.get("trimVals") or []
+    # Prefer matching headers; if extra has no/weak header reuse base
+    if e_vals and b_vals and [round(v, 4) for v in e_vals] != [round(v, 4) for v in b_vals]:
+        # Incompatible axis — keep base (caller should not merge)
+        return base
+    seen = set(round(x, 6) for x in (base.get("trimAxis") or []))
+    axis = list(base.get("trimAxis") or [])
+    grid = [list(r) for r in (base.get("trimGrid") or [])]
+    for i, x in enumerate(extra.get("trimAxis") or []):
+        key = round(x, 6)
+        if key in seen:
+            continue
+        seen.add(key)
+        axis.append(x)
+        row = (extra.get("trimGrid") or [])[i] if i < len(extra.get("trimGrid") or []) else []
+        # Align width to base
+        width = len(b_vals) or len(row)
+        padded = list(row[:width]) + [0.0] * max(0, width - len(row))
+        grid.append(padded[:width])
+    out = dict(base)
+    out["trimAxis"] = axis
+    out["trimGrid"] = grid
+    out["soundingIncrement"] = detect_inc(axis)
+    if grid:
+        out["capacity"] = max(max(r) for r in grid if r)
+    return out
+
+
+def merge_curve_parsed(base, extra):
+    if not base or base.get("kind") != "volumeCurve":
+        return extra
+    if not extra or extra.get("kind") != "volumeCurve":
+        return base
+    pairs = {}
+    for x, v in zip(base.get("volumeCurve", {}).get("x") or [], base.get("volumeCurve", {}).get("v") or []):
+        pairs[round(float(x), 6)] = float(v)
+    for x, v in zip(extra.get("volumeCurve", {}).get("x") or [], extra.get("volumeCurve", {}).get("v") or []):
+        pairs[round(float(x), 6)] = float(v)
+    xs = sorted(pairs)
+    vs = [pairs[x] for x in xs]
+    out = dict(base)
+    out["volumeCurve"] = {"x": xs, "v": vs}
+    out["soundingIncrement"] = detect_inc(xs)
+    out["capacity"] = max(vs) if vs else out.get("capacity") or 0
+    return out
+
+
+def apply_role_to_parsed(parsed, role):
+    """Move grid into list* fields when role is heel; tag tableRole."""
+    if not parsed or not isinstance(parsed, dict):
+        return parsed
+    out = dict(parsed)
+    out["tableRole"] = role
+    if role == "heel" and out.get("kind") == "grid":
+        # Heel tables store angle × sounding as list/heel correction grid
+        out["listAxis"] = list(out.get("trimAxis") or [])
+        out["listVals"] = list(out.get("trimVals") or [])
+        out["listGrid"] = [list(r) for r in (out.get("trimGrid") or [])]
+        out["heelIncrement"] = detect_inc(out["listAxis"])
+        # Keep trim* as copy for preview; calibration apply uses target=list
+        out["layoutHint"] = "heelGrid"
+    elif role == "trim" and out.get("kind") == "grid":
+        out["layoutHint"] = "trimGrid"
+    elif role == "volume" and out.get("kind") == "volumeCurve":
+        out["layoutHint"] = out.get("layoutHint") or "soundingVolume"
+    return out
+
+
+def merge_continued_tables(tables, span_until_next_tank=True):
+    """
+    Merge consecutive same-tank tables that share a role/pattern until a new
+    tank name (or incompatible pattern) appears. Spans multi-page continuations.
+    """
+    if not span_until_next_tank or not tables:
+        return tables
+
+    merged = []
+    i = 0
+    while i < len(tables):
+        cur = dict(tables[i])
+        if cur.get("skipped"):
+            merged.append(cur)
+            i += 1
+            continue
+
+        role = cur.get("tableRole") or detect_table_role(cur.get("raw") or [])
+        pattern = cur.get("pattern") or extract_pattern(cur.get("raw") or [], role)
+        cur["tableRole"] = role
+        cur["pattern"] = pattern
+        cur["pageStart"] = cur.get("page")
+        cur["pageEnd"] = cur.get("page")
+        pages_span = [cur.get("page")]
+        raw = [list(r) for r in (cur.get("raw") or [])]
+        parsed = cur.get("parsed") or {}
+        tank_key = norm_tank_key(cur.get("tankName") or cur.get("titleHint"))
+
+        j = i + 1
+        while j < len(tables):
+            nxt = tables[j]
+            if nxt.get("skipped"):
+                break
+            nxt_tank = norm_tank_key(nxt.get("tankName") or nxt.get("titleHint"))
+            # Stop when a *different* real tank name is detected
+            if nxt_tank and tank_key and nxt_tank != tank_key:
+                break
+            if nxt_tank and not tank_key:
+                # First table was unnamed — adopt name but don't treat as break
+                tank_key = nxt_tank
+                cur["tankName"] = nxt.get("tankName") or cur.get("tankName")
+                cur["titleHint"] = cur["tankName"]
+
+            nxt_role = nxt.get("tableRole") or detect_table_role(nxt.get("raw") or [])
+            # Allow unknown to inherit; otherwise roles must match
+            if role not in (None, "unknown") and nxt_role not in (None, "unknown", role):
+                break
+
+            nxt_raw = nxt.get("raw") or []
+            nxt_pattern = nxt.get("pattern") or extract_pattern(nxt_raw, nxt_role or role)
+            # Continuation page often repeats header OR is pure numeric rows
+            is_cont = rows_look_like_continuation(nxt_raw, pattern or nxt_pattern)
+            same_axis = False
+            same_cols = False
+            if pattern and nxt_pattern:
+                a = [round(v, 3) for v in (pattern.get("axisVals") or [])]
+                b = [round(v, 3) for v in (nxt_pattern.get("axisVals") or [])]
+                same_axis = bool(a) and a == b
+                same_cols = abs((pattern.get("colCount") or 0) - (nxt_pattern.get("colCount") or 0)) <= 1
+                if not same_cols and not is_cont:
+                    break
+            page_end = cur.get("pageEnd") or cur.get("page") or 0
+            nxt_page = nxt.get("page") or 0
+            adjacent = nxt_page == page_end or nxt_page == page_end + 1
+            # Require structural continuity — do not glue unrelated same-tank tables
+            if not (same_axis or is_cont or (same_cols and adjacent)):
+                break
+
+            # Align and append (skip duplicate header if present)
+            aligned = align_rows_to_pattern(nxt_raw, pattern or nxt_pattern)
+            if aligned and pattern and same_axis:
+                # Drop repeated header row
+                hdr = densify_row(aligned[0])
+                if is_data_header_row(hdr) or (
+                    pattern.get("header") and densify_row(pattern["header"]) == hdr
+                ):
+                    aligned = aligned[1:]
+            raw.extend(aligned)
+
+            # Merge parsed structures
+            np = nxt.get("parsed") or {}
+            if (parsed.get("kind") == "grid" or np.get("kind") == "grid"):
+                # Re-parse combined raw for best accuracy when possible
+                combined = process_raw_table(raw)
+                if not combined.get("skipped") and combined["parsed"].get("kind") in ("grid", "volumeCurve"):
+                    parsed = apply_role_to_parsed(combined["parsed"], role)
+                else:
+                    parsed = apply_role_to_parsed(merge_grid_parsed(parsed, np), role)
+            elif parsed.get("kind") == "volumeCurve" or np.get("kind") == "volumeCurve":
+                combined = process_raw_table(raw)
+                if not combined.get("skipped") and combined["parsed"].get("kind") == "volumeCurve":
+                    parsed = apply_role_to_parsed(combined["parsed"], role)
+                else:
+                    parsed = apply_role_to_parsed(merge_curve_parsed(parsed, np), role)
+
+            pages_span.append(nxt.get("page"))
+            cur["pageEnd"] = nxt.get("page")
+            j += 1
+
+        cur["raw"] = raw
+        cur["rows"] = len(raw)
+        cur["cols"] = len(raw[0]) if raw else 0
+        cur["preview"] = [row[:12] for row in raw[:12]]
+        cur["parsed"] = parsed
+        cur["layoutHint"] = layout_hint(parsed, cur.get("removedHydroHeaders") or [])
+        cur["pageSpan"] = sorted({p for p in pages_span if p})
+        cur["continued"] = len(cur["pageSpan"]) > 1
+        cur["mergedFrom"] = [tables[k]["id"] for k in range(i, j)]
+        cur["id"] = cur["mergedFrom"][0] if cur["mergedFrom"] else cur.get("id")
+        merged.append(cur)
+        i = j
+
+    return merged
+
+
+def expand_page_filter(page_list=None, page_from=None, page_to=None, page_count=None):
+    """Build a set of 1-based pages from explicit list and/or inclusive from–to range."""
+    pages = set()
+    if page_list:
+        pages.update(int(p) for p in page_list if p)
+    if page_from or page_to:
+        lo = int(page_from or 1)
+        hi = int(page_to or page_count or lo)
+        if page_count:
+            hi = min(hi, page_count)
+            lo = max(1, min(lo, page_count))
+        if lo > hi:
+            lo, hi = hi, lo
+        pages.update(range(lo, hi + 1))
+    return pages or None
 
 
 def guess_tank_from_text(text):
@@ -1098,14 +1440,28 @@ def group_tanks(tables):
     return [{"name": n, "tableIds": buckets[n], "tableCount": len(buckets[n])} for n in order]
 
 
-def extract_tables(pdf_path, page_filter=None):
+def extract_tables(
+    pdf_path,
+    page_filter=None,
+    page_from=None,
+    page_to=None,
+    span_until_next_tank=True,
+    table_role=None,
+):
     tables_out = []
     skipped_hydro = 0
     page_count = 0
     warnings = []
+    forced_role = table_role if table_role in ("trim", "heel", "volume") else None
 
     with pdfplumber.open(pdf_path) as pdf:
         page_count = len(pdf.pages)
+        page_filter = expand_page_filter(
+            page_list=page_filter,
+            page_from=page_from,
+            page_to=page_to,
+            page_count=page_count,
+        )
         current_tank = ""
         emit_progress("extract", 48, f"Reading {page_count} page(s)…", pages=page_count, page=0)
         for pi, page in enumerate(pdf.pages, start=1):
@@ -1282,11 +1638,20 @@ def extract_tables(pdf_path, page_filter=None):
                 if cand.get("trimValue") is not None and isinstance(parsed, dict):
                     parsed["trimSectionValue"] = cand["trimValue"]
 
+                role = "unknown"
+                pattern = None
+                if not skipped:
+                    role = detect_table_role(work, text or "", forced=forced_role)
+                    pattern = extract_pattern(work, role)
+                    parsed = apply_role_to_parsed(parsed, role)
+
                 preview = [row[:12] for row in work[:12]]
                 removed = processed.get("removedHydroHeaders") or []
                 tables_out.append({
                     "id": f"p{pi}-t{ti}",
                     "page": pi,
+                    "pageStart": pi,
+                    "pageEnd": pi,
                     "index": ti,
                     "rows": len(work),
                     "cols": len(work[0]) if work else 0,
@@ -1295,16 +1660,21 @@ def extract_tables(pdf_path, page_filter=None):
                     "parsed": parsed,
                     "titleHint": tank_name,
                     "tankName": tank_name,
+                    "tableRole": role,
+                    "pattern": pattern,
                     "layoutHint": layout_hint(parsed, removed, cand.get("layoutHint")),
                     "trimValue": cand.get("trimValue"),
                     "soundingMethod": cand.get("soundingMethod") or parsed.get("soundingMethod"),
                     "skipped": skipped,
                     "skipReason": processed.get("skipReason"),
                     "removedHydroHeaders": removed,
+                    "continued": False,
                 })
 
     # Merge GIORGIS-style sectioned volume curves into sounding × trim grids
     tables_out = merge_sectioned_tables_inplace(tables_out)
+    # Continue same-tank tables across pages until the next tank name / pattern break
+    tables_out = merge_continued_tables(tables_out, span_until_next_tank=span_until_next_tank)
 
     tanks = group_tanks(tables_out)
     return {
@@ -1313,6 +1683,9 @@ def extract_tables(pdf_path, page_filter=None):
         "tanks": tanks,
         "skippedHydrostatic": skipped_hydro,
         "warnings": warnings,
+        "spanUntilNextTank": bool(span_until_next_tank),
+        "tableRoleFilter": forced_role,
+        "pageFilter": sorted(page_filter) if page_filter else None,
         "layoutFamilies": sorted({
             t.get("layoutHint") for t in tables_out if t.get("layoutHint") and not t.get("skipped")
         }),
@@ -1345,9 +1718,18 @@ def merge_sectioned_tables_inplace(tables):
             merged_out.extend(group)
             continue
         first = group[0]
+        role = first.get("tableRole") or "trim"
+        pattern = extract_pattern(
+            [["SOUNDING"] + [str(v) for v in grid["trimVals"]]]
+            + [[str(grid["trimAxis"][i])] + [str(x) for x in grid["trimGrid"][i]]
+               for i in range(min(3, len(grid["trimAxis"])))],
+            role,
+        )
         merged_out.append({
             "id": first["id"] + "-merged",
             "page": first["page"],
+            "pageStart": min(g.get("pageStart") or g.get("page") or 0 for g in group),
+            "pageEnd": max(g.get("pageEnd") or g.get("page") or 0 for g in group),
             "index": first["index"],
             "rows": len(grid["trimAxis"]) + 1,
             "cols": len(grid["trimVals"]) + 1,
@@ -1361,15 +1743,18 @@ def merge_sectioned_tables_inplace(tables):
                 + [[str(grid["trimAxis"][i])] + [str(x) for x in grid["trimGrid"][i]]
                    for i in range(len(grid["trimAxis"]))]
             ),
-            "parsed": grid,
+            "parsed": apply_role_to_parsed(grid, role),
             "titleHint": tank_name,
             "tankName": tank_name,
+            "tableRole": role,
+            "pattern": pattern,
             "layoutHint": "sectionedTrim",
             "soundingMethod": grid.get("soundingMethod"),
             "skipped": False,
             "skipReason": None,
             "removedHydroHeaders": [],
             "mergedFrom": [g["id"] for g in group],
+            "continued": True,
         })
     # Stable-ish order by page then id
     merged_out.sort(key=lambda t: (t.get("page") or 0, t.get("id") or ""))
@@ -1401,6 +1786,8 @@ def inspect_exterior(pdf_path, max_pages=4):
                 clues.append("soundingVolume")
             if re.search(r"\bSOUNDING\b|\bDEPTH\b", text or "", re.I) and re.search(r"-?\d+\.\d+", text or ""):
                 clues.append("trimGrid")
+            if HEEL_HEADER_RE.search(text or ""):
+                clues.append("heelGrid")
             for c in clues:
                 if c not in layout_hints:
                     layout_hints.append(c)
@@ -1426,6 +1813,27 @@ def main():
     ap = argparse.ArgumentParser(description="Extract tank sounding tables from PDF")
     ap.add_argument("pdf")
     ap.add_argument("--page", type=int, action="append", help="1-based page number (repeatable)")
+    ap.add_argument("--from", dest="page_from", type=int, help="Inclusive start page (1-based)")
+    ap.add_argument("--to", dest="page_to", type=int, help="Inclusive end page (1-based)")
+    ap.add_argument(
+        "--span-until-next-tank",
+        dest="span_until_next_tank",
+        action="store_true",
+        default=True,
+        help="Merge continuation pages until the next tank name (default)",
+    )
+    ap.add_argument(
+        "--no-span-until-next-tank",
+        dest="span_until_next_tank",
+        action="store_false",
+        help="Keep each page table separate (no cross-page merge)",
+    )
+    ap.add_argument(
+        "--table-role",
+        choices=["auto", "trim", "heel", "volume"],
+        default="auto",
+        help="Force table pattern: trim grid, heel/list grid, or volume curve",
+    )
     ap.add_argument("--ocr", action="store_true", help="Force OCR via ocrmypdf when available")
     ap.add_argument("--inspect", action="store_true", help="Exterior-only summary (no full matrices)")
     ap.add_argument(
@@ -1450,7 +1858,14 @@ def main():
         path, ocr_used, ocr_warn = maybe_ocr_pdf(args.pdf, force=args.ocr)
         if path != args.pdf:
             ocr_tmp = path
-        result = extract_tables(path, page_filter=page_filter)
+        result = extract_tables(
+            path,
+            page_filter=page_filter,
+            page_from=args.page_from,
+            page_to=args.page_to,
+            span_until_next_tank=args.span_until_next_tank,
+            table_role=None if args.table_role == "auto" else args.table_role,
+        )
         result["pages"] = result.get("pages")
         result["file"] = args.pdf
         result["ocrUsed"] = ocr_used

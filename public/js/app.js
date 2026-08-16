@@ -114,7 +114,18 @@ const PdfProgress = (() => {
     if (timer) { clearInterval(timer); timer = null; }
   }
 
-  async function runJob(vesselId, file, { ocr = true, includeRaw = false, mountEl = null, title = null } = {}) {
+  async function runJob(vesselId, file, {
+    ocr = true,
+    includeRaw = false,
+    mountEl = null,
+    title = null,
+    pageMode = 'auto',
+    pageFrom = null,
+    pageTo = null,
+    pages = null,
+    spanUntilNextTank = true,
+    tableRole = 'auto',
+  } = {}) {
     const box = show(mountEl, title || `Reading ${file.name}…`);
     const started = Date.now();
     if (timer) clearInterval(timer);
@@ -127,6 +138,12 @@ const PdfProgress = (() => {
     fd.append('file', file);
     fd.append('includeRaw', includeRaw ? 'true' : 'false');
     fd.append('ocr', ocr ? 'true' : 'false');
+    fd.append('pageMode', pageMode || 'auto');
+    if (pageFrom) fd.append('pageFrom', String(pageFrom));
+    if (pageTo) fd.append('pageTo', String(pageTo));
+    if (pages) fd.append('pages', String(pages));
+    fd.append('spanUntilNextTank', spanUntilNextTank ? 'true' : 'false');
+    fd.append('tableRole', tableRole || 'auto');
     update({ message: 'Uploading PDF…', phase: 'upload', pct: 1, elapsedMs: 0 });
 
     const startedJob = await Api.request(`/api/vessels/${vesselId}/import-pdf/jobs`, {
@@ -710,6 +727,32 @@ function renderAddTank(main) {
     </div>
     <div class="section-title">Import tanks from sounding PDF</div>
     <p class="hint">Upload a capacity / sounding-table PDF (Veniamis trim-grid or Gangos SOUNDING|VOLUME style). Preview tanks found, then create them with calibration tables applied. <b>Scanned books need OCR</b> (installed automatically when available) — large PDFs can take several minutes.</p>
+    <div class="form-row-3" style="margin-bottom:8px">
+      <div class="form-row"><label>Page range</label>
+        <select id="add-pdf-page-mode">
+          <option value="auto" selected>Auto-detect (all pages)</option>
+          <option value="range">Select start–end pages</option>
+        </select>
+      </div>
+      <div class="form-row"><label>Start page</label><input id="add-pdf-from" type="number" min="1" placeholder="1" disabled></div>
+      <div class="form-row"><label>End page</label><input id="add-pdf-to" type="number" min="1" placeholder="last" disabled></div>
+    </div>
+    <div class="form-row-3" style="margin-bottom:8px">
+      <div class="form-row"><label>Table pattern</label>
+        <select id="add-pdf-role">
+          <option value="auto" selected>Auto (heel / trim / volume)</option>
+          <option value="trim">Trim grid</option>
+          <option value="heel">Heel / list grid</option>
+          <option value="volume">Volume curve</option>
+        </select>
+      </div>
+      <div class="form-row" style="display:flex;align-items:flex-end">
+        <label class="hint" style="display:flex;align-items:center;gap:6px;margin:0">
+          <input type="checkbox" id="add-pdf-span" checked> Continue table until next tank name
+        </label>
+      </div>
+      <div class="form-row"></div>
+    </div>
     <div class="btn-row" style="align-items:center;gap:8px;flex-wrap:wrap">
       <label class="btn primary">Upload PDF<input type="file" id="add-pdf-file" accept=".pdf,application/pdf" hidden></label>
       <label class="hint" style="display:flex;align-items:center;gap:6px;margin:0">
@@ -727,10 +770,13 @@ function renderAddTank(main) {
         <button class="btn primary" id="btn-create-pdf-tanks" disabled>Create selected tanks</button>
       </div>
     </div>
-    <div class="section-title">Import / edit tanks from CSV</div>
-    <p class="hint">Upload the template or an exported tanks CSV. Matching <code>id</code> updates the tank (calibration tables are kept). New rows are created.</p>
-    <input type="file" id="csv-file" accept=".csv,text/csv">
-    <button class="btn" id="btn-import-csv" style="margin-top:8px">Import CSV</button>`;
+    <div class="section-title">Import / edit tanks from CSV or Excel</div>
+    <p class="hint">Accepts tank-list CSV, Giorgis <b>fuel / misc / fresh-water CSV</b>, or <b>lube-oil XLSX</b>. Multi-tank files import depth/ullage × trim volumes and heel corrections. Matching names update calibration tables.</p>
+    <label class="hint" style="display:flex;align-items:center;gap:6px;margin:0 0 8px">
+      <input type="checkbox" id="csv-update-existing" checked> Update existing tanks with same name
+    </label>
+    <input type="file" id="csv-file" accept=".csv,.xlsx,.xlsm,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+    <button class="btn" id="btn-import-csv" style="margin-top:8px">Import CSV / Excel</button>`;
   main.appendChild(form);
 
   const exportTanks = document.getElementById('btn-export-tanks-csv');
@@ -766,6 +812,27 @@ function renderAddTank(main) {
   let addPdfFile = null;
   let addPdfPreview = null;
 
+  const syncAddPdfPages = () => {
+    const manual = document.getElementById('add-pdf-page-mode')?.value === 'range';
+    const from = document.getElementById('add-pdf-from');
+    const to = document.getElementById('add-pdf-to');
+    if (from) from.disabled = !manual;
+    if (to) to.disabled = !manual;
+  };
+  document.getElementById('add-pdf-page-mode')?.addEventListener('change', syncAddPdfPages);
+  syncAddPdfPages();
+
+  function readAddPdfOpts() {
+    return {
+      ocr: document.getElementById('add-pdf-ocr')?.checked !== false,
+      pageMode: document.getElementById('add-pdf-page-mode')?.value || 'auto',
+      pageFrom: parseInt(document.getElementById('add-pdf-from')?.value, 10) || null,
+      pageTo: parseInt(document.getElementById('add-pdf-to')?.value, 10) || null,
+      spanUntilNextTank: document.getElementById('add-pdf-span')?.checked !== false,
+      tableRole: document.getElementById('add-pdf-role')?.value || 'auto',
+    };
+  }
+
   document.getElementById('add-pdf-file').onchange = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -777,12 +844,16 @@ function renderAddTank(main) {
     const box = document.getElementById('add-pdf-tanks');
     const btn = document.getElementById('btn-create-pdf-tanks');
     try {
-      const useOcr = document.getElementById('add-pdf-ocr')?.checked !== false;
-      showToast(useOcr
+      const opts = readAddPdfOpts();
+      if (opts.pageMode === 'range' && !opts.pageFrom && !opts.pageTo) {
+        showToast('Enter start and/or end page for manual range');
+        return;
+      }
+      showToast(opts.ocr
         ? 'Reading PDF (progress below — OCR may take several minutes)…'
         : 'Reading PDF tanks…');
       const res = await PdfProgress.runJob(STATE.activeVesselId, file, {
-        ocr: useOcr,
+        ...opts,
         mountEl: host,
         title: `Reading ${file.name}…`,
       });
@@ -803,8 +874,10 @@ function renderAddTank(main) {
         return;
       }
 
+      const continuedN = usable.filter((t) => t.continued).length;
       sum.innerHTML = [
         `<b>${tankGroups.length || usable.length}</b> tank group(s) · <b>${usable.length}</b> usable table(s)`,
+        continuedN ? `<span class="pill">${continuedN} continued across pages</span>` : '',
         res.skippedHydrostatic ? `<span class="pill warn">${res.skippedHydrostatic} hydrostatic skipped</span>` : '',
         res.pages ? `${res.pages} page(s)` : '',
         res.ocrUsed ? '<span class="pill good">OCR used</span>' : '',
@@ -814,16 +887,22 @@ function renderAddTank(main) {
       const rows = tankGroups.length
         ? tankGroups.map((tk) => {
           const tables = (res.tables || []).filter((t) => (tk.tableIds || []).includes(t.id) && !t.skipped);
+          const roles = [...new Set(tables.map((t) => t.tableRole).filter(Boolean))].join(', ');
           const kinds = [...new Set(tables.map((t) => t.kind))].join(', ');
           const cap = Math.max(0, ...tables.map((t) => Number(t.capacity) || 0));
+          const pages = tables.map((t) => {
+            const a = t.pageStart || t.page;
+            const b = t.pageEnd || t.page;
+            return a === b ? String(a) : `${a}–${b}`;
+          }).filter(Boolean).slice(0, 4).join(', ');
           return {
             name: tk.name,
-            meta: `${tk.tableCount || tables.length} table(s)${kinds ? ` · ${kinds}` : ''}${cap ? ` · ~${fmt(cap, 1)} m³` : ''}`,
+            meta: `${tk.tableCount || tables.length} table(s)${roles ? ` · ${roles}` : kinds ? ` · ${kinds}` : ''}${pages ? ` · p.${pages}` : ''}${cap ? ` · ~${fmt(cap, 1)} m³` : ''}`,
           };
         })
         : usable.map((t) => ({
           name: t.tankName || t.titleHint || t.id,
-          meta: `${t.kind} · page ${t.page}${t.capacity ? ` · ~${fmt(t.capacity, 1)} m³` : ''}`,
+          meta: `${t.tableRole || t.kind} · page ${t.pageStart || t.page}${t.pageEnd && t.pageEnd !== (t.pageStart || t.page) ? `–${t.pageEnd}` : ''}${t.capacity ? ` · ~${fmt(t.capacity, 1)} m³` : ''}`,
         }));
 
       box.innerHTML = rows.map((r, i) => `
@@ -850,11 +929,17 @@ function renderAddTank(main) {
       PdfProgress.show(host, 'Creating tanks from PDF…');
       PdfProgress.update({ message: 'Creating selected tanks…', phase: 'create', pct: 60, elapsedMs: 0 });
       showToast('Creating tanks from PDF…');
+      const opts = readAddPdfOpts();
       const fd = new FormData();
       fd.append('file', addPdfFile);
       fd.append('createTanks', 'true');
       fd.append('updateExisting', document.getElementById('add-pdf-update').checked ? 'true' : 'false');
-      fd.append('ocr', document.getElementById('add-pdf-ocr')?.checked !== false ? 'true' : 'false');
+      fd.append('ocr', opts.ocr ? 'true' : 'false');
+      fd.append('pageMode', opts.pageMode);
+      if (opts.pageFrom) fd.append('pageFrom', String(opts.pageFrom));
+      if (opts.pageTo) fd.append('pageTo', String(opts.pageTo));
+      fd.append('spanUntilNextTank', opts.spanUntilNextTank ? 'true' : 'false');
+      fd.append('tableRole', opts.tableRole || 'auto');
       fd.append('tankNames', JSON.stringify(checked));
       const res = await Api.request(`/api/vessels/${STATE.activeVesselId}/import-pdf`, { method: 'POST', body: fd });
       PdfProgress.update({ message: 'Done', phase: 'done', pct: 100 });
@@ -873,12 +958,26 @@ function renderAddTank(main) {
 
   document.getElementById('btn-import-csv').onclick = async () => {
     const file = document.getElementById('csv-file').files[0];
-    if (!file) { showToast('Choose a CSV file'); return; }
-    const res = await Api.importCsv(STATE.activeVesselId, file);
+    if (!file) { showToast('Choose a CSV or Excel file'); return; }
+    const updateExisting = document.getElementById('csv-update-existing')?.checked !== false;
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('updateExisting', updateExisting ? 'true' : 'false');
+    const res = await Api.request(`/api/vessels/${STATE.activeVesselId}/tanks/import-csv`, {
+      method: 'POST',
+      body: fd,
+    });
     await reloadBundle();
-    const c = res.created ?? res.imported ?? 0;
+    const c = res.created ?? 0;
     const u = res.updated ?? 0;
-    showToast(u || c ? `Tanks CSV: ${u} updated, ${c} created` : `Imported ${res.imported || 0} tanks`);
+    const total = res.imported ?? (c + u);
+    const fmt = res.format === 'giorgis-fuel-csv' ? 'Giorgis fuel workbook'
+      : res.format === 'giorgis-misc-csv' ? 'Giorgis misc workbook'
+        : res.format === 'giorgis-water-csv' ? 'Giorgis fresh-water workbook'
+          : res.format === 'giorgis-lube-xlsx' ? 'Giorgis lube workbook'
+            : res.format === 'giorgis-workbook-csv' ? 'Giorgis workbook'
+              : 'Tanks CSV';
+    showToast(`${fmt}: ${u} updated, ${c} created${total ? ` (${total} tanks)` : ''}`);
   };
 }
 
@@ -1007,13 +1106,47 @@ function renderCalibrationEditor(main, tankId) {
 
   const pdfPanel = document.createElement('div');
   pdfPanel.className = 'form-panel pdf-import-panel';
-  pdfPanel.style.display = 'none';
   pdfPanel.innerHTML = `<div class="section-title" style="margin-top:0">PDF table import</div>
-    <p class="hint" style="margin:0 0 10px">Tables are grouped by tank name found in the PDF. Hydrostatic blocks (L.C.G / T.C.G / V.C.G / IMOM) are disregarded automatically. Choose a grid to apply to this tank.</p>
+    <p class="hint" style="margin:0 0 10px">Set page range / pattern below, then use <b>Import PDF</b> above. Continuation pages merge until the next tank title. Hydrostatic blocks are skipped.</p>
+    <div class="form-row-3" style="margin-bottom:8px">
+      <div class="form-row"><label>Page range</label>
+        <select id="pdf-page-mode">
+          <option value="auto" selected>Auto-detect (all pages)</option>
+          <option value="range">Select start–end pages</option>
+        </select>
+      </div>
+      <div class="form-row"><label>Start page</label><input id="pdf-page-from" type="number" min="1" placeholder="1" disabled></div>
+      <div class="form-row"><label>End page</label><input id="pdf-page-to" type="number" min="1" placeholder="last" disabled></div>
+    </div>
+    <div class="form-row-3" style="margin-bottom:10px">
+      <div class="form-row"><label>Table pattern</label>
+        <select id="pdf-table-role">
+          <option value="auto" selected>Auto (heel / trim / volume)</option>
+          <option value="trim">Trim grid</option>
+          <option value="heel">Heel / list grid</option>
+          <option value="volume">Volume curve</option>
+        </select>
+      </div>
+      <div class="form-row" style="display:flex;align-items:flex-end">
+        <label class="hint" style="display:flex;align-items:center;gap:6px;margin:0">
+          <input type="checkbox" id="pdf-span-tank" checked> Continue until next tank name
+        </label>
+      </div>
+      <div class="form-row"></div>
+    </div>
     <div id="calib-pdf-progress-host"></div>
     <div id="pdf-tank-summary" class="hint" style="margin:0 0 10px"></div>
     <div id="pdf-tables"></div>`;
   main.appendChild(pdfPanel);
+
+  const syncCalibPdfPages = () => {
+    const manual = document.getElementById('pdf-page-mode')?.value === 'range';
+    const from = document.getElementById('pdf-page-from');
+    const to = document.getElementById('pdf-page-to');
+    if (from) from.disabled = !manual;
+    if (to) to.disabled = !manual;
+  };
+  document.getElementById('pdf-page-mode')?.addEventListener('change', syncCalibPdfPages);
 
   document.getElementById('pdf-import').onchange = async (e) => {
     const file = e.target.files?.[0];
@@ -1022,12 +1155,25 @@ function renderCalibrationEditor(main, tankId) {
     const host = document.getElementById('calib-pdf-progress-host');
     try {
       const useOcr = document.getElementById('pdf-import-ocr')?.checked !== false;
+      const pageMode = document.getElementById('pdf-page-mode')?.value || 'auto';
+      const pageFrom = parseInt(document.getElementById('pdf-page-from')?.value, 10) || null;
+      const pageTo = parseInt(document.getElementById('pdf-page-to')?.value, 10) || null;
+      const spanUntilNextTank = document.getElementById('pdf-span-tank')?.checked !== false;
+      const tableRole = document.getElementById('pdf-table-role')?.value || 'auto';
+      if (pageMode === 'range' && !pageFrom && !pageTo) {
+        showToast('Enter start and/or end page for manual range');
+        return;
+      }
       showToast(useOcr
         ? 'Reading PDF (progress below — OCR may take several minutes)…'
         : 'Reading PDF tables…');
-      pdfPanel.style.display = '';
       const res = await PdfProgress.runJob(STATE.activeVesselId, file, {
         ocr: useOcr,
+        pageMode,
+        pageFrom,
+        pageTo,
+        spanUntilNextTank,
+        tableRole,
         mountEl: host,
         title: `Reading ${file.name}…`,
       });
@@ -1041,8 +1187,10 @@ function renderCalibrationEditor(main, tankId) {
       const tankBits = (res.tanks || []).map((tk) =>
         `${escapeHtml(tk.name)} (${tk.tableCount})`
       ).join(' · ');
+      const continuedN = usable.filter((t) => t.continued).length;
       sum.innerHTML = [
         tankBits ? `<b>Tanks found:</b> ${tankBits}` : '',
+        continuedN ? `<span class="pill">${continuedN} continued</span>` : '',
         res.skippedHydrostatic ? `<span class="pill warn">${res.skippedHydrostatic} hydrostatic table(s) skipped</span>` : '',
         res.ocrUsed ? '<span class="pill">OCR used</span>' : '',
         (res.warnings || []).length ? `<div class="hint">${escapeHtml(res.warnings.join(' '))}</div>` : '',
@@ -1064,10 +1212,20 @@ function renderCalibrationEditor(main, tankId) {
           const hydroNote = (t.removedHydroHeaders || []).length
             ? `<div class="hint">Stripped columns: ${escapeHtml(t.removedHydroHeaders.join(', '))}</div>`
             : '';
+          const pageLabel = (t.pageStart || t.page) === (t.pageEnd || t.page)
+            ? `page ${t.pageStart || t.page}`
+            : `pages ${t.pageStart || t.page}–${t.pageEnd || t.page}`;
+          const axisHint = (t.pattern?.axisVals || []).length
+            ? `<div class="hint">Pattern cols: ${(t.pattern.axisVals || []).slice(0, 8).join(', ')}${(t.pattern.axisVals || []).length > 8 ? '…' : ''}</div>`
+            : '';
+          const defaultTarget = t.tableRole === 'heel' ? 'list'
+            : t.tableRole === 'volume' ? 'volume'
+            : t.tableRole === 'trim' ? 'trim'
+            : 'auto';
           if (t.skipped) {
             return `<div class="pdf-table-card skipped" data-tid="${escapeHtml(t.id)}">
               <div class="pdf-table-head">
-                <div><b>${escapeHtml(t.id)}</b> · page ${t.page} · <span class="pill warn">skipped</span>
+                <div><b>${escapeHtml(t.id)}</b> · ${escapeHtml(pageLabel)} · <span class="pill warn">skipped</span>
                   <div class="hint">${escapeHtml(t.skipReason || 'Hydrostatic table disregarded')}</div>
                 </div>
               </div>
@@ -1076,19 +1234,21 @@ function renderCalibrationEditor(main, tankId) {
           }
           return `<div class="pdf-table-card" data-tid="${escapeHtml(t.id)}">
             <div class="pdf-table-head">
-              <div><b>${escapeHtml(t.id)}</b> · page ${t.page} · ${t.rows}×${t.cols} ·
-                <span class="pill">${escapeHtml(t.kind || 'unknown')}</span>
+              <div><b>${escapeHtml(t.id)}</b> · ${escapeHtml(pageLabel)} · ${t.rows}×${t.cols} ·
+                <span class="pill">${escapeHtml(t.tableRole || t.kind || 'unknown')}</span>
                 ${t.layoutHint ? `<span class="pill">${escapeHtml(t.layoutHint)}</span>` : ''}
+                ${t.continued ? '<span class="pill good">continued</span>' : ''}
                 ${t.titleHint ? `<div class="hint">${escapeHtml(t.titleHint)}</div>` : ''}
+                ${axisHint}
                 ${hydroNote}
               </div>
               <div class="btn-row">
                 <select data-target>
-                  <option value="auto">Auto (${escapeHtml(t.kind || 'detect')})</option>
+                  <option value="auto" ${defaultTarget === 'auto' ? 'selected' : ''}>Auto (${escapeHtml(t.tableRole || t.kind || 'detect')})</option>
                   <option value="full">Full (trim + list seed)</option>
-                  <option value="trim">Trim grid only</option>
-                  <option value="list">List / heel grid</option>
-                  <option value="volume">Volume curve</option>
+                  <option value="trim" ${defaultTarget === 'trim' ? 'selected' : ''}>Trim grid only</option>
+                  <option value="list" ${defaultTarget === 'list' ? 'selected' : ''}>List / heel grid</option>
+                  <option value="volume" ${defaultTarget === 'volume' ? 'selected' : ''}>Volume curve</option>
                 </select>
                 <button class="btn primary small" data-apply>Apply to tank</button>
               </div>
@@ -1127,7 +1287,8 @@ function renderCalibrationEditor(main, tankId) {
       const skipN = res.skippedHydrostatic || 0;
       showToast(`Found ${usable.length} usable table(s) in ${res.pages || '?'} page(s)`
         + (skipN ? ` · skipped ${skipN} hydrostatic` : '')
-        + ((res.tanks || []).length ? ` · ${(res.tanks || []).length} tank(s)` : ''));
+        + ((res.tanks || []).length ? ` · ${(res.tanks || []).length} tank(s)` : '')
+        + (continuedN ? ` · ${continuedN} continued` : ''));
     } catch (err) {
       PdfProgress.hide();
       showToast(err.message);

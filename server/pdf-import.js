@@ -62,6 +62,13 @@ function runExtractor(pdfPath, pageList, opts = {}) {
     if (Array.isArray(pageList) && pageList.length) {
       for (const p of pageList) args.push('--page', String(p));
     }
+    if (opts.pageFrom) args.push('--from', String(opts.pageFrom));
+    if (opts.pageTo) args.push('--to', String(opts.pageTo));
+    if (opts.spanUntilNextTank === false) args.push('--no-span-until-next-tank');
+    else args.push('--span-until-next-tank');
+    if (opts.tableRole && opts.tableRole !== 'auto') {
+      args.push('--table-role', String(opts.tableRole));
+    }
     if (opts.ocr) args.push('--ocr');
     const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
     // Heartbeat while OCR subprocess is silent
@@ -201,9 +208,14 @@ function tableToCalibration(table, target = 'auto', existing = {}) {
 
   const parsed = table.parsed || {};
   const kind = parsed.kind || 'unknown';
-  const mode = target === 'auto'
-    ? (kind === 'volumeCurve' ? 'volume' : kind === 'grid' ? 'full' : 'raw')
-    : target;
+  const role = table.tableRole || parsed.tableRole || null;
+  let mode = target;
+  if (mode === 'auto') {
+    if (role === 'heel') mode = 'list';
+    else if (role === 'volume' || kind === 'volumeCurve') mode = 'volume';
+    else if (role === 'trim' || kind === 'grid') mode = 'full';
+    else mode = kind === 'volumeCurve' ? 'volume' : kind === 'grid' ? 'full' : 'raw';
+  }
 
   if (mode === 'volume') {
     const x = parsed.volumeCurve?.x || [];
@@ -217,20 +229,26 @@ function tableToCalibration(table, target = 'auto', existing = {}) {
   }
 
   if (mode === 'trim' || mode === 'list' || mode === 'full') {
+    if (mode === 'list') {
+      const axis = (parsed.listAxis || []).length ? parsed.listAxis : (parsed.trimAxis || []);
+      const vals = (parsed.listVals || []).length ? parsed.listVals : (parsed.trimVals || []);
+      const grid = (parsed.listGrid || []).length ? parsed.listGrid : (parsed.trimGrid || []);
+      if (axis.length < 2 || vals.length < 2) {
+        throw new Error('No sounding × heel/list grid found in this table');
+      }
+      return {
+        listAxis: axis,
+        listVals: vals,
+        listGrid: grid,
+        heelIncrement: parsed.heelIncrement || parsed.soundingIncrement || existing.heelIncrement,
+      };
+    }
+
     const axis = parsed.trimAxis || [];
     const vals = parsed.trimVals || [];
     const grid = parsed.trimGrid || [];
     if (axis.length < 2 || vals.length < 2) {
       throw new Error('No sounding × trim/list grid found in this table');
-    }
-
-    if (mode === 'list') {
-      return {
-        listAxis: axis,
-        listVals: vals,
-        listGrid: grid,
-        heelIncrement: parsed.soundingIncrement || existing.heelIncrement,
-      };
     }
 
     const patch = {
@@ -245,7 +263,12 @@ function tableToCalibration(table, target = 'auto', existing = {}) {
       if ((parsed.volumeCurve?.x || []).length > 1) {
         patch.volumeCurve = parsed.volumeCurve;
       }
-      if (!(existing.listGrid || []).length) {
+      if ((parsed.listGrid || []).length && (parsed.listAxis || []).length) {
+        patch.listAxis = parsed.listAxis;
+        patch.listVals = parsed.listVals;
+        patch.listGrid = parsed.listGrid;
+        patch.heelIncrement = parsed.heelIncrement || parsed.soundingIncrement || existing.heelIncrement || 1;
+      } else if (!(existing.listGrid || []).length) {
         const z = vals.findIndex((a) => Number(a) === 0);
         const col = z >= 0 ? z : Math.floor(vals.length / 2);
         const listVals = existing.listVals?.length ? existing.listVals : [-2, -1, 0, 1, 2];
@@ -271,11 +294,25 @@ function summarizeTables(result, includeRaw = false) {
   const tables = (result.tables || []).map((t) => ({
     id: t.id,
     page: t.page,
+    pageStart: t.pageStart != null ? t.pageStart : t.page,
+    pageEnd: t.pageEnd != null ? t.pageEnd : t.page,
+    pageSpan: t.pageSpan || null,
+    continued: !!t.continued,
+    mergedFrom: t.mergedFrom || null,
     index: t.index,
     rows: t.rows,
     cols: t.cols,
     titleHint: t.titleHint || '',
     tankName: t.tankName || t.titleHint || '',
+    tableRole: t.tableRole || t.parsed?.tableRole || null,
+    pattern: t.pattern
+      ? {
+          role: t.pattern.role,
+          colCount: t.pattern.colCount,
+          axisVals: t.pattern.axisVals,
+          header: (t.pattern.header || []).slice(0, 16),
+        }
+      : null,
     layoutHint: t.layoutHint || '',
     soundingMethod: t.soundingMethod || t.parsed?.soundingMethod || null,
     skipped: !!t.skipped,
@@ -289,12 +326,15 @@ function summarizeTables(result, includeRaw = false) {
     ...(includeRaw ? { raw: t.raw } : {}),
   }));
 
-    return {
+  return {
     pages: result.pages,
     file: result.file,
     ocrUsed: !!result.ocrUsed,
     skippedHydrostatic: result.skippedHydrostatic || tables.filter((t) => t.skipped).length,
     warnings: result.warnings || [],
+    spanUntilNextTank: result.spanUntilNextTank !== false,
+    tableRoleFilter: result.tableRoleFilter || null,
+    pageFilter: result.pageFilter || null,
     layoutFamilies: result.layoutFamilies || [...new Set(tables.filter((t) => !t.skipped).map((t) => t.layoutHint).filter(Boolean))],
     tanks: result.tanks || [],
     tables,

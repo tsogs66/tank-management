@@ -22,6 +22,8 @@ const {
 const excelImport = require('./excel-import');
 const pdfImport = require('./pdf-import');
 const tankTableIo = require('./tank-table-io');
+const giorgisFuelCsv = require('./giorgis-fuel-csv');
+const giorgisLubeXlsx = require('./giorgis-lube-xlsx');
 const bunkerLive = require('./bunker-live');
 const fs = require('fs');
 
@@ -724,20 +726,36 @@ app.get('/api/reference/iso8217', (req, res) => {
 });
 
 /* ---------- PDF table extract / apply to tank calibration ---------- */
-app.post('/api/vessels/:id/import-pdf/jobs', upload.single('file'), asyncHandler(async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Upload a PDF file (field name: file)' });
-  store.getVesselBundle(req.params.id); // ensure vessel exists
-  const pages = String(req.body?.pages || '')
+function parsePdfImportOpts(body = {}) {
+  const pages = String(body.pages || '')
     .split(/[,;\s]+/)
     .map((n) => parseInt(n, 10))
     .filter((n) => n > 0);
-  const ocr = req.body?.ocr !== false && req.body?.ocr !== 'false';
-  const includeRaw = req.body?.includeRaw === true || req.body?.includeRaw === 'true';
-  const job = pdfImport.startExtractJob(req.file.buffer, {
+  const pageFrom = parseInt(body.pageFrom, 10);
+  const pageTo = parseInt(body.pageTo, 10);
+  const ocr = body.ocr !== false && body.ocr !== 'false';
+  const includeRaw = body.includeRaw === true || body.includeRaw === 'true';
+  const spanUntilNextTank = body.spanUntilNextTank !== false && body.spanUntilNextTank !== 'false';
+  let tableRole = String(body.tableRole || 'auto').toLowerCase();
+  if (!['auto', 'trim', 'heel', 'volume'].includes(tableRole)) tableRole = 'auto';
+  const pageMode = String(body.pageMode || (pageFrom || pageTo ? 'range' : 'auto')).toLowerCase();
+  return {
     pages: pages.length ? pages : undefined,
+    pageFrom: pageMode === 'range' && pageFrom > 0 ? pageFrom : undefined,
+    pageTo: pageMode === 'range' && pageTo > 0 ? pageTo : (pageMode === 'range' && pageFrom > 0 ? pageFrom : undefined),
     ocr,
     includeRaw,
-  });
+    spanUntilNextTank,
+    tableRole,
+    pageMode,
+  };
+}
+
+app.post('/api/vessels/:id/import-pdf/jobs', upload.single('file'), asyncHandler(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Upload a PDF file (field name: file)' });
+  store.getVesselBundle(req.params.id); // ensure vessel exists
+  const opts = parsePdfImportOpts(req.body || {});
+  const job = pdfImport.startExtractJob(req.file.buffer, opts);
   res.status(202).json({ ok: true, ...job });
 }));
 
@@ -750,17 +768,9 @@ app.get('/api/vessels/:id/import-pdf/jobs/:jobId', asyncHandler(async (req, res)
 
 app.post('/api/vessels/:id/import-pdf', upload.single('file'), asyncHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Upload a PDF file (field name: file)' });
-  const pages = String(req.body?.pages || '')
-    .split(/[,;\s]+/)
-    .map((n) => parseInt(n, 10))
-    .filter((n) => n > 0);
-  const ocr = req.body?.ocr !== false && req.body?.ocr !== 'false';
-  const result = await pdfImport.extractFromBuffer(req.file.buffer, {
-    pages: pages.length ? pages : undefined,
-    ocr,
-  });
-  const includeRaw = req.body?.includeRaw === true || req.body?.includeRaw === 'true';
-  const summary = pdfImport.summarizeTables(result, includeRaw);
+  const opts = parsePdfImportOpts(req.body || {});
+  const result = await pdfImport.extractFromBuffer(req.file.buffer, opts);
+  const summary = pdfImport.summarizeTables(result, opts.includeRaw);
 
   const createTanks = req.body?.createTanks === true || req.body?.createTanks === 'true';
   if (!createTanks) {
@@ -858,15 +868,8 @@ app.post('/api/vessels/:id/tanks/:tankId/import-pdf', upload.single('file'), asy
   let tables;
   let pagesMeta;
   if (req.file) {
-    const pages = String(req.body?.pages || '')
-      .split(/[,;\s]+/)
-      .map((n) => parseInt(n, 10))
-      .filter((n) => n > 0);
-    const ocr = req.body?.ocr !== false && req.body?.ocr !== 'false';
-    const result = await pdfImport.extractFromBuffer(req.file.buffer, {
-      pages: pages.length ? pages : undefined,
-      ocr,
-    });
+    const opts = parsePdfImportOpts(req.body || {});
+    const result = await pdfImport.extractFromBuffer(req.file.buffer, opts);
     tables = result.tables || [];
     pagesMeta = result.pages;
   } else if (req.body?.table) {
@@ -1031,21 +1034,142 @@ app.get('/api/templates/tanks.csv', (req, res) => {
   res.send(csv);
 });
 
-app.post('/api/vessels/:id/tanks/import-csv', upload.single('file'), (req, res) => {
-  try {
+app.post('/api/vessels/:id/tanks/import-csv', upload.single('file'), asyncHandler(async (req, res) => {
+    if (!req.file && !req.body?.csv) {
+      return res.status(400).json({ error: 'Upload a CSV or XLSX workbook' });
+    }
+    const vesselId = req.params.id;
+    const updateExisting = req.body?.updateExisting !== false && req.body?.updateExisting !== 'false';
+    const bundle = store.getVesselBundle(vesselId);
+    const norm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    function findByName(name, { exact = false, category = null } = {}) {
+      const n = norm(name);
+      const cats = category ? [category] : Object.keys(bundle.tanks || {});
+      for (const cat of cats) {
+        const list = bundle.tanks?.[cat] || [];
+        const exactHit = list.find((t) => norm(t.name) === n);
+        if (exactHit) return exactHit;
+      }
+      if (exact) return null;
+      for (const cat of Object.keys(bundle.tanks || {})) {
+        const hit = (bundle.tanks[cat] || []).find((t) => {
+          const tn = norm(t.name);
+          return n.length > 6 && (tn.includes(n) || n.includes(tn));
+        });
+        if (hit) return hit;
+      }
+      return null;
+    }
+
+    const filename = String(req.file?.originalname || '').toLowerCase();
+    const isWorkbook = /\.(xlsx|xlsm|xls)$/.test(filename);
+    if (isWorkbook) {
+      if (filename.endsWith('.xls')) {
+        return res.status(400).json({ error: 'Legacy .xls is not supported; save it as .xlsx first' });
+      }
+      const parsed = await giorgisLubeXlsx.parseGiorgisLubeXlsx(req.file.buffer);
+      const created = [];
+      const updated = [];
+      const skipped = [];
+      for (const tank of parsed.tanks || []) {
+        const existing = findByName(tank.name);
+        if (existing) {
+          if (!updateExisting) {
+            skipped.push({ name: tank.name, reason: 'exists' });
+            continue;
+          }
+          const saved = store.upsertTank(vesselId, {
+            ...tank,
+            id: existing.id,
+            category: 'lube',
+          });
+          updated.push(saved);
+        } else {
+          created.push(store.upsertTank(vesselId, { ...tank, category: 'lube' }));
+        }
+      }
+      return res.json({
+        ok: true,
+        format: parsed.format || 'giorgis-lube-xlsx',
+        imported: created.length + updated.length,
+        created: created.length,
+        updated: updated.length,
+        skipped: skipped.length,
+        warnings: parsed.warnings || [],
+        tanks: [...updated, ...created].map((t) => ({
+          id: t.id,
+          name: t.name,
+          category: t.category,
+          capacity: t.capacity,
+          fuelRole: t.fuelRole,
+          trimRows: (t.trimAxis || []).length,
+          listRows: (t.listAxis || []).length,
+        })),
+      });
+    }
+
     const text = req.file
       ? req.file.buffer.toString('utf8')
       : (req.body?.csv || '');
+    if (!String(text || '').trim()) return res.status(400).json({ error: 'No CSV content' });
+
+    // Giorgis multi-tank workbook CSV (fuel / misc / fresh water)
+    if (giorgisFuelCsv.looksLikeGiorgisWorkbookCsv(text)) {
+      const parsed = giorgisFuelCsv.parseGiorgisWorkbookCsv(text, { filename });
+      const created = [];
+      const updated = [];
+      const skipped = [];
+      for (const tank of parsed.tanks) {
+        const existing = findByName(tank.name, { exact: true, category: tank.category })
+          || findByName(tank.name, { exact: true });
+        if (existing) {
+          if (!updateExisting) {
+            skipped.push({ name: tank.name, reason: 'exists' });
+            continue;
+          }
+          const saved = store.upsertTank(vesselId, {
+            ...tank,
+            id: existing.id,
+            category: tank.category || existing.category || 'fuel',
+          });
+          updated.push(saved);
+        } else {
+          const saved = store.upsertTank(vesselId, tank);
+          created.push(saved);
+        }
+      }
+      return res.json({
+        ok: true,
+        format: parsed.format || 'giorgis-workbook-csv',
+        imported: created.length + updated.length,
+        created: created.length,
+        updated: updated.length,
+        skipped: skipped.length,
+        warnings: parsed.warnings || [],
+        categories: parsed.categories || [],
+        tanks: [...updated, ...created].map((t) => ({
+          id: t.id,
+          name: t.name,
+          category: t.category,
+          capacity: t.capacity,
+          fuelGrade: t.fuelGrade,
+          fuelRole: t.fuelRole,
+          side: t.side,
+          trimRows: (t.trimAxis || []).length,
+          listRows: (t.listAxis || []).length,
+        })),
+      });
+    }
+
     const rows = parseCsv(text);
     if (!rows.length) return res.status(400).json({ error: 'No rows found' });
     const created = [];
     const updated = [];
-    const bundle = store.getVesselBundle(req.params.id);
     for (const row of rows) {
       if (!row.name && !row.id) continue;
       const existing = row.id
         ? store.findTankInBundle(bundle.tanks, row.id)
-        : null;
+        : findByName(row.name);
       const tank = {
         id: row.id || existing?.id || undefined,
         name: row.name || existing?.name,
@@ -1079,21 +1203,19 @@ app.post('/api/vessels/:id/tanks/import-csv', upload.single('file'), (req, res) 
         heelIncrement: existing?.heelIncrement,
       };
       if (!tank.name) continue;
-      const saved = store.upsertTank(req.params.id, tank);
+      const saved = store.upsertTank(vesselId, tank);
       if (existing) updated.push(saved);
       else created.push(saved);
     }
     res.json({
       ok: true,
+      format: 'tank-list-csv',
       imported: created.length + updated.length,
       created: created.length,
       updated: updated.length,
       tanks: [...updated, ...created],
     });
-  } catch (e) {
-    res.status(400).json({ error: e.message });
-  }
-});
+}));
 
 /** Export tank list (metadata) as CSV for edit → re-import */
 app.get('/api/vessels/:id/tanks.csv', (req, res) => {
