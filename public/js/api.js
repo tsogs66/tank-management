@@ -109,6 +109,10 @@ const Api = (() => {
     deleteTank: (id, tankId) => request(`/api/vessels/${id}/tanks/${tankId}`, { method: 'DELETE' }),
     saveCalibration: (id, tankId, body) => request(`/api/vessels/${id}/tanks/${tankId}/calibration`, { method: 'PUT', body }),
     calculate: (id, body) => request(`/api/vessels/${id}/calculate`, { method: 'POST', body }),
+    getFuelReport: (id) => request(`/api/vessels/${id}/fuel-report`),
+    saveFuelReport: (id, body) => request(`/api/vessels/${id}/fuel-report`, { method: 'PUT', body }),
+    deleteFuelReportSnapshot: (id, snapshotId) =>
+      request(`/api/vessels/${id}/fuel-report/history/${snapshotId}`, { method: 'DELETE' }),
     bunkerDistribute: (id, body) => request(`/api/vessels/${id}/bunker-distribute`, { method: 'POST', body }),
     bunkerStart: (id, body) => request(`/api/vessels/${id}/bunker-ops/start`, { method: 'POST', body }),
     bunkerActive: (id) => request(`/api/vessels/${id}/bunker-ops/active`),

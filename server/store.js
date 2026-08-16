@@ -21,6 +21,8 @@ const VESSEL_FILES = [
   'bunkering.json',
   'transfers.json',
   'bunker-ops.json',
+  'fuel-report.json',
+  'report-history.json',
   'meta.json',
 ];
 
@@ -199,6 +201,8 @@ function createVessel(details = {}) {
   writeJson(vesselPath(id, 'bunkering.json'), details.bunkering || emptyBunkering());
   writeJson(vesselPath(id, 'transfers.json'), details.transfers || []);
   writeJson(vesselPath(id, 'bunker-ops.json'), details.bunkerOps || []);
+  writeJson(vesselPath(id, 'fuel-report.json'), details.fuelReport || null);
+  writeJson(vesselPath(id, 'report-history.json'), details.reportHistory || []);
   writeJson(vesselPath(id, 'meta.json'), {
     version: 1,
     revision: 1,
@@ -263,6 +267,8 @@ function getVesselBundle(id) {
     bunkering: readJson(vesselPath(id, 'bunkering.json'), emptyBunkering()),
     transfers: readJson(vesselPath(id, 'transfers.json'), []),
     bunkerOps: readJson(vesselPath(id, 'bunker-ops.json'), []),
+    fuelReport: readJson(vesselPath(id, 'fuel-report.json'), null),
+    reportHistory: readJson(vesselPath(id, 'report-history.json'), []),
     meta: readJson(vesselPath(id, 'meta.json'), {}),
   };
 }
@@ -276,6 +282,8 @@ function saveVesselPart(id, part, data) {
     bunkering: 'bunkering.json',
     transfers: 'transfers.json',
     bunkerOps: 'bunker-ops.json',
+    fuelReport: 'fuel-report.json',
+    reportHistory: 'report-history.json',
   };
   if (!allowed[part]) throw new Error('Unknown part: ' + part);
   if (!fs.existsSync(vesselDir(id))) throw new Error('Vessel not found');
@@ -423,6 +431,8 @@ function importBackup(backup, { merge = true } = {}) {
     writeJson(vesselPath(id, 'bunkering.json'), bundle.bunkering || emptyBunkering());
     writeJson(vesselPath(id, 'transfers.json'), bundle.transfers || []);
     writeJson(vesselPath(id, 'bunker-ops.json'), bundle.bunkerOps || []);
+    writeJson(vesselPath(id, 'fuel-report.json'), bundle.fuelReport || null);
+    writeJson(vesselPath(id, 'report-history.json'), bundle.reportHistory || []);
     writeJson(vesselPath(id, 'meta.json'), {
       ...(bundle.meta || {}),
       updatedAt: now(),
@@ -468,6 +478,8 @@ function applySyncPayload(payload) {
           bunkering: 'bunkering',
           transfers: 'transfers',
           'bunker-ops': 'bunkerOps',
+          'fuel-report': 'fuelReport',
+          'report-history': 'reportHistory',
           meta: 'meta',
         };
         const dataKey = map[key];

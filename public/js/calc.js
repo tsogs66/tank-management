@@ -169,12 +169,12 @@ function resolveIncrements(tank) {
 }
 
 /**
- * ASTM Table 54B Volume Correction Factor (VCF), reconstructed from the
- * 'ASTM Tables' sheet formulas (columns K..W). Selects a density-dependent
- * alpha (thermal expansion coefficient per the ASTM-IP-API Petroleum
- * Measurement Tables) then applies the standard exponential correction.
+ * ASTM Table 54B thermal expansion coefficient (alpha) for a density @15°C,
+ * reconstructed from the 'ASTM Tables' sheet formulas (columns K..W).
+ * Returns the coefficient plus the density band it was selected from, so the
+ * report calculation annex can show which band was applied.
  */
-function vcf54B(density15, tempC) {
+function alpha54B(density15) {
   const J = Math.round(1000 * density15 * 100) / 100; // density in kg/m3
   const round7 = (v) => Math.round(v * 1e7) / 1e7;
   const K = round7((186.9696 / (J * J)) + (0.4862 / J));   // 0.839 <= d < 1.075
@@ -183,13 +183,19 @@ function vcf54B(density15, tempC) {
   const N = round7((346.4228 / (J * J)) + (0.4388 / J));    // d < 0.7705
   const O = round7((330.301 / (J * J)) + (0 / J));          // d >= 1.075 (fallback)
 
-  let alpha;
-  if (density15 < 0.7705) alpha = N;
-  else if (density15 < 0.7875) alpha = M;
-  else if (density15 < 0.839) alpha = L;
-  else if (density15 < 1.075) alpha = K;
-  else alpha = O;
+  if (density15 < 0.7705) return { alpha: N, band: 'd < 0.7705' };
+  if (density15 < 0.7875) return { alpha: M, band: '0.7705 <= d < 0.7875' };
+  if (density15 < 0.839) return { alpha: L, band: '0.7875 <= d < 0.839' };
+  if (density15 < 1.075) return { alpha: K, band: '0.839 <= d < 1.075' };
+  return { alpha: O, band: 'd >= 1.075' };
+}
 
+/**
+ * VCF (ASTM 54B) with every intermediate of the workbook formula, for report
+ * annexes: alpha band, dT, the exponent, and the rounded factor.
+ */
+function vcfDetail54B(density15, tempC) {
+  const { alpha, band } = alpha54B(density15);
   const round8 = (v) => Math.round(v * 1e8) / 1e8;
   const round9 = (v) => Math.round(v * 1e9) / 1e9;
   const dT = Math.round((tempC - 15) * 100) / 100;
@@ -197,7 +203,24 @@ function vcf54B(density15, tempC) {
   const T = round9(alpha * alpha * dT * dT * 0.8);
   const U = round8(-R - T);
   const V = Math.exp(U);
-  return Math.round(V * 10000) / 10000;
+  return {
+    density15,
+    tempC,
+    deltaT: dT,
+    alpha,
+    band,
+    exponent: U,
+    vcf: Math.round(V * 10000) / 10000,
+  };
+}
+
+/**
+ * ASTM Table 54B Volume Correction Factor (VCF). Selects a density-dependent
+ * alpha (thermal expansion coefficient per the ASTM-IP-API Petroleum
+ * Measurement Tables) then applies the standard exponential correction.
+ */
+function vcf54B(density15, tempC) {
+  return vcfDetail54B(density15, tempC).vcf;
 }
 
 /** WCF (weight correction, from ASTM Table 56 as used in the workbook: density15 - 0.0011 air buoyancy allowance). */
