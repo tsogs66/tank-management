@@ -781,7 +781,7 @@ function renderAddTank(main) {
       </div>
     </div>
     <div class="section-title">Import / edit tanks from CSV or Excel</div>
-    <p class="hint">Accepts tank-list CSV, Giorgis <b>fuel / misc / fresh-water CSV</b>, or <b>lube-oil XLSX</b>. Multi-tank files import depth/ullage × trim volumes and heel corrections. Matching names update calibration tables.</p>
+    <p class="hint">Accepts tank-list CSV, Giorgis <b>fuel / lube / misc / fresh-water CSV</b>, or <b>lube-oil XLSX</b>. Multi-tank files import depth/ullage × trim volumes and heel corrections. Matching names update calibration tables.</p>
     <label class="hint" style="display:flex;align-items:center;gap:6px;margin:0 0 8px">
       <input type="checkbox" id="csv-update-existing" checked> Update existing tanks with same name
     </label>
@@ -984,7 +984,7 @@ function renderAddTank(main) {
     const fmt = res.format === 'giorgis-fuel-csv' ? 'Giorgis fuel workbook'
       : res.format === 'giorgis-misc-csv' ? 'Giorgis misc workbook'
         : res.format === 'giorgis-water-csv' ? 'Giorgis fresh-water workbook'
-          : res.format === 'giorgis-lube-xlsx' ? 'Giorgis lube workbook'
+          : res.format === 'giorgis-lube-csv' || res.format === 'giorgis-lube-xlsx' ? 'Giorgis lube workbook'
             : res.format === 'giorgis-workbook-csv' ? 'Giorgis workbook'
               : 'Tanks CSV';
     showToast(`${fmt}: ${u} updated, ${c} created${total ? ` (${total} tanks)` : ''}`);

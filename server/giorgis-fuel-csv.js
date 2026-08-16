@@ -1,5 +1,5 @@
 /**
- * Parse Giorgis-style multi-tank workbook CSVs (fuel / misc / fresh water).
+ * Parse Giorgis-style multi-tank workbook CSVs (fuel / lube / misc / fresh water).
  *
  * Layout per tank block (variants):
  *   TITLE,,,,,,,,,,,,,,,,,,
@@ -426,7 +426,8 @@ function parseTankBlock(name, rows, opts = {}) {
     importFormat: category === 'fuel' ? 'giorgis-fuel-csv'
       : category === 'water' ? 'giorgis-water-csv'
         : category === 'misc' ? 'giorgis-misc-csv'
-          : 'giorgis-workbook-csv',
+          : category === 'lube' ? 'giorgis-lube-csv'
+            : 'giorgis-workbook-csv',
   };
 
   if (listAxis.length >= 2 && gridHasSignal(listGrid)) {
@@ -452,7 +453,18 @@ function looksLikeGiorgisWorkbookCsv(text) {
   if (/^ID\s*,\s*NAME\s*,/i.test(clean)) return false;
   if (/META\s*,\s*KEY\s*,\s*VALUE/i.test(head)) return false;
   const hasAxis = /\b(DEPTH|SOUNDING|ULLAGE|GAUGE)\b/.test(head);
-  const hasTankish = /\b(TANK|TK\.|BILGE|SLUDGE|SEWAGE|F\.W\.|VOLUME IN M|COMPART:)\b/.test(head);
+  // Trailing \b must not follow TK. / COMPART: / VOLUME IN M3 — those end mid-token
+  const hasTankish = (
+    /\bTANK\b/.test(head)
+    || /\bTK\./.test(head)
+    || /\bCOMPART:/.test(head)
+    || /VOLUME\s+IN\s+M/.test(head)
+    || /\b(BILGE|SLUDGE|SEWAGE)\b/.test(head)
+    || /\bF\.W\./.test(head)
+    || /\bL\.?\s*O\.?\b/.test(head)
+    || /\bCYL\.?\s*O/.test(head)
+    || /\bLUBE|\bLUBRICAT/.test(head)
+  );
   return hasAxis && hasTankish;
 }
 
@@ -527,7 +539,8 @@ function parseGiorgisWorkbookCsv(text, opts = {}) {
   const format = cats.length === 1 && cats[0] === 'fuel' ? 'giorgis-fuel-csv'
     : cats.length === 1 && cats[0] === 'water' ? 'giorgis-water-csv'
       : cats.length === 1 && cats[0] === 'misc' ? 'giorgis-misc-csv'
-        : 'giorgis-workbook-csv';
+        : cats.length === 1 && cats[0] === 'lube' ? 'giorgis-lube-csv'
+          : 'giorgis-workbook-csv';
 
   return {
     format,

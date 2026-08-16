@@ -1113,7 +1113,7 @@ app.post('/api/vessels/:id/tanks/import-csv', upload.single('file'), asyncHandle
       : (req.body?.csv || '');
     if (!String(text || '').trim()) return res.status(400).json({ error: 'No CSV content' });
 
-    // Giorgis multi-tank workbook CSV (fuel / misc / fresh water)
+    // Giorgis multi-tank workbook CSV (fuel / lube / misc / fresh water)
     if (giorgisFuelCsv.looksLikeGiorgisWorkbookCsv(text)) {
       const parsed = giorgisFuelCsv.parseGiorgisWorkbookCsv(text, { filename });
       const created = [];
