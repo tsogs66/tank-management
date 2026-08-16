@@ -201,9 +201,19 @@ function vesselName() {
   return STATE.bundle?.vessel?.name || STATE.bundle?.voyage?.vessel || 'No vessel';
 }
 
+function setMobileNavOpen(open) {
+  const sidebar = document.getElementById('sidebar');
+  const backdrop = document.getElementById('sidebar-backdrop');
+  const toggle = document.getElementById('menu-toggle');
+  if (!sidebar) return;
+  sidebar.classList.toggle('open', !!open);
+  backdrop?.classList.toggle('show', !!open);
+  document.body.classList.toggle('nav-open', !!open);
+  if (toggle) toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
 function closeMobileNav() {
-  document.getElementById('sidebar')?.classList.remove('open');
-  document.getElementById('sidebar-backdrop')?.classList.remove('show');
+  setMobileNavOpen(false);
 }
 
 function navigate(page, tankId = null) {
@@ -986,10 +996,11 @@ function renderCalibrationList(main) {
   if (STATE.route.tankId) return renderCalibrationEditor(main, STATE.route.tankId);
 
   const head = document.createElement('div');
-  head.className = 'page-head';
+  head.className = 'page-head no-print';
   head.innerHTML = `<div><h1>Calibration Database</h1>
     <div class="desc">Excel-style sounding tables: edit in-app, or export/import CSV &amp; Excel per tank. Workbook import refreshes Tank1–Tank4 style sheets.</div></div>
     <div class="btn-row">
+      <button class="btn primary" id="btn-print-fuel-book">Print all fuel calibration</button>
       <label class="btn">Import workbook<input type="file" id="excel-import" accept=".xlsm,.xlsx" hidden></label>
       <button class="btn" id="btn-import-repo-excel">Import repo workbook</button>
       <a class="btn" href="/api/templates/calibration.csv">Calibration CSV template</a>
@@ -997,11 +1008,12 @@ function renderCalibrationList(main) {
   main.appendChild(head);
 
   const help = document.createElement('div');
-  help.className = 'help-box';
+  help.className = 'help-box no-print';
   help.innerHTML = `Reference format from <b>TANK MANAGEMENT CAPTAIN VENIAMIS FINAL VERSION.xlsm</b> sheets <b>Tank1–Tank4</b>:
     row headers = sounding/ullage (or Depth), column headers = trim (m), then SOUNDING CM / VOLUME, then list/heel table.
     <br>Per tank: <b>Export CSV / Excel</b> → edit in spreadsheet → <b>Import CSV/Excel</b>. Plain sounding×trim grids are accepted.
-    <br>PDF capacity books: open a tank → <b>Import PDF</b>. Supports trim grids and SOUNDING|VOLUME tables; L.C.G/T.C.G/V.C.G/IMOM hydrostatic columns are skipped automatically. Scanned pages: pass OCR or pre-OCR the PDF.`;
+    <br>PDF capacity books: open a tank → <b>Import PDF</b>. Supports trim grids and SOUNDING|VOLUME tables; L.C.G/T.C.G/V.C.G/IMOM hydrostatic columns are skipped automatically. Scanned pages: pass OCR or pre-OCR the PDF.
+    <br><b>Print / PDF</b> builds a professional landscape capacity book (cover + trim/heel/volume tables) for one tank or all fuel tanks.`;
   main.appendChild(help);
 
   const wrap = document.createElement('div');
@@ -1026,6 +1038,14 @@ function renderCalibrationList(main) {
   wrap.querySelectorAll('tr[data-id]').forEach((tr) => {
     tr.onclick = () => navigate('calibration', tr.dataset.id);
   });
+
+  document.getElementById('btn-print-fuel-book').onclick = () => {
+    const fuel = (STATE.bundle?.tanks?.fuel || []).filter((t) =>
+      (t.trimAxis || []).length || (t.listAxis || []).length || (t.volumeCurve?.x || []).length
+    );
+    if (!fuel.length) { showToast('No fuel calibration tables to print'); return; }
+    printCalibrationDocuments(fuel, { bookTitle: 'FUEL TANK CALIBRATION TABLES' });
+  };
 
   document.getElementById('excel-import').onchange = async (e) => {
     const file = e.target.files?.[0];
@@ -1061,11 +1081,12 @@ function renderCalibrationEditor(main, tankId) {
 
   const isDirect = tank.calcType === 'direct';
   const head = document.createElement('div');
-  head.className = 'page-head';
+  head.className = 'page-head no-print';
   head.innerHTML = `<div><h1>${escapeHtml(tank.name)}</h1>
     <div class="desc">Excel Tank-sheet layout · ${isDirect ? 'Depth × trim volume grid + heel table' : 'SOUNDING ullage × trim correction + volume curve + list/heel'} · 100% ${fmt(tank.capacity,2)} m³ · 85% ${fmt((tank.capacity||0)*0.85,2)} m³</div></div>
     <div class="btn-row">
       <button class="btn small" id="btn-back-tank">Back to tank</button>
+      <button class="btn small primary" id="btn-print-tank-calib">Print / PDF</button>
       <a class="btn small" id="btn-export-csv" href="/api/vessels/${STATE.activeVesselId}/tanks/${tankId}/calibration.csv">Export CSV</a>
       <a class="btn small" id="btn-export-xlsx" href="/api/vessels/${STATE.activeVesselId}/tanks/${tankId}/calibration.xlsx">Export Excel</a>
       <label class="btn small">Import CSV/Excel<input type="file" id="table-import" accept=".csv,.xlsx,.xlsm,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label>
@@ -1078,6 +1099,9 @@ function renderCalibrationEditor(main, tankId) {
     </div>`;
   main.appendChild(head);
   document.getElementById('btn-back-tank').onclick = () => navigate(tank.category || 'fuel', tankId);
+  document.getElementById('btn-print-tank-calib').onclick = () => {
+    printCalibrationDocuments([findTank(tankId) || tank], { bookTitle: 'TANK CALIBRATION TABLES' });
+  };
 
   document.getElementById('table-import').onchange = async (e) => {
     const file = e.target.files?.[0];
@@ -1105,7 +1129,7 @@ function renderCalibrationEditor(main, tankId) {
   };
 
   const pdfPanel = document.createElement('div');
-  pdfPanel.className = 'form-panel pdf-import-panel';
+  pdfPanel.className = 'form-panel pdf-import-panel no-print';
   pdfPanel.innerHTML = `<div class="section-title" style="margin-top:0">PDF table import</div>
     <p class="hint" style="margin:0 0 10px">Set page range / pattern below, then use <b>Import PDF</b> above. Continuation pages merge until the next tank title. Hydrostatic blocks are skipped.</p>
     <div class="form-row-3" style="margin-bottom:8px">
@@ -1296,7 +1320,7 @@ function renderCalibrationEditor(main, tankId) {
   };
 
   const meta = document.createElement('div');
-  meta.className = 'form-panel';
+  meta.className = 'form-panel no-print';
   const detectedInc = (typeof detectIncrement === 'function')
     ? detectIncrement(tank.trimAxis || [])
     : 1;
@@ -1343,7 +1367,15 @@ function renderCalibrationEditor(main, tankId) {
 
   main.appendChild(buildExcelCalibrationTable(tank));
 
-  document.getElementById('btn-save-calib').onclick = async () => {
+  const sticky = document.createElement('div');
+  sticky.className = 'calib-sticky-actions no-print';
+  sticky.innerHTML = `
+    <span class="hint">Landscape preferred for wide grids · Save before printing</span>
+    <button class="btn" id="btn-print-tank-calib-2">Print / PDF</button>
+    <button class="btn primary" id="btn-save-calib-2">Save calibration</button>`;
+  main.appendChild(sticky);
+
+  async function saveCalibrationFromEditor() {
     const parsed = readExcelCalibrationTable(tank);
     const calibration = {
       calcType: document.getElementById('c-type').value,
@@ -1359,10 +1391,25 @@ function renderCalibrationEditor(main, tankId) {
     await reloadBundle();
     showToast('Calibration saved');
     navigate('calibration', tankId);
+  }
+
+  document.getElementById('btn-save-calib').onclick = saveCalibrationFromEditor;
+  document.getElementById('btn-save-calib-2').onclick = saveCalibrationFromEditor;
+  document.getElementById('btn-print-tank-calib-2').onclick = () => {
+    printCalibrationDocuments([findTank(tankId) || tank], { bookTitle: 'TANK CALIBRATION TABLES' });
   };
   document.getElementById('btn-export-tank').onclick = () => {
     downloadJson(tank.id + '-calibration.json', findTank(tankId));
   };
+
+  // Keep focused spreadsheet cells visible above the Android keyboard
+  main.querySelector('.excel-scroll')?.addEventListener('focusin', (ev) => {
+    const el = ev.target;
+    if (!(el instanceof HTMLElement)) return;
+    setTimeout(() => {
+      try { el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' }); } catch (_) { /* ignore */ }
+    }, 120);
+  });
 }
 
 /** Excel Tank1/Tank2-style combined calibration grid */
@@ -1556,6 +1603,295 @@ function readExcelCalibrationTable(tank) {
     listGrid,
     volumeCurve: { x: volX, v: volV },
   };
+}
+
+/* ---------- Calibration print / PDF ---------- */
+function chunkArray(arr, size) {
+  const out = [];
+  for (let i = 0; i < (arr || []).length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+function calibPrintFmtTs(iso) {
+  if (!iso) return '—';
+  return String(iso).replace('T', ' ').replace(/\.\d+Z$/, ' UTC').slice(0, 19) + (String(iso).includes('Z') ? ' UTC' : '');
+}
+
+function calibPrintMasthead(title, subtitle) {
+  return `<header class="calib-print-masthead">
+    <div>
+      <h1>${escapeHtml(title || 'Fuel Tank Calibration')}</h1>
+      <div class="sub">${escapeHtml(subtitle || '')}</div>
+    </div>
+    <div class="calib-print-badge">OFFICIAL · LANDSCAPE A4</div>
+  </header>`;
+}
+
+function calibPrintFooter(pageLabel) {
+  const vessel = STATE.bundle?.vessel || {};
+  return `<footer class="calib-print-footer">
+    <span>${escapeHtml(vessel.name || '')}${vessel.imo ? ` · IMO ${escapeHtml(vessel.imo)}` : ''}</span>
+    <span>${escapeHtml(pageLabel || '')}</span>
+    <span>Volumes m³ · Sounding/ullage m · Trim m · List °</span>
+  </footer>`;
+}
+
+function calibPrintTankIdBar(tank, extra) {
+  const bits = [
+    `<strong>${escapeHtml(tank.name || tank.id || 'Tank')}</strong>`,
+    `ID ${escapeHtml(tank.id || '—')}`,
+    [tank.fuelRole, tank.side, tank.tankNo != null && tank.tankNo !== '' ? `No. ${tank.tankNo}` : '']
+      .filter(Boolean).map((s) => escapeHtml(String(s))).join(' · '),
+    tank.fuelGrade ? `Grade ${escapeHtml(tank.fuelGrade)}` : '',
+    extra ? escapeHtml(extra) : '',
+  ].filter(Boolean);
+  return `<div class="calib-print-tank-id">${bits.map((b) => `<span>${b}</span>`).join('')}</div>`;
+}
+
+function calibPrintMetaGrid(entries) {
+  return `<div class="calib-print-meta">${entries.map(([k, v]) =>
+    `<div><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(v)}</span></div>`
+  ).join('')}</div>`;
+}
+
+function calibPrintTankMetaEntries(tank) {
+  const vessel = STATE.bundle?.vessel || {};
+  const trimN = (tank.trimVals || []).length;
+  const rowN = (tank.trimAxis || []).length;
+  const listN = (tank.listVals || []).length;
+  const listRows = (tank.listAxis || []).length;
+  const volN = (tank.volumeCurve?.x || []).length;
+  const printedAt = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+  return [
+    ['Vessel', vessel.name || '—'],
+    ['IMO', vessel.imo || '—'],
+    ['Call sign', vessel.callSign || '—'],
+    ['Flag', vessel.flag || '—'],
+    ['Vessel type', vessel.type || '—'],
+    ['Tank name', tank.name || '—'],
+    ['Tank ID', tank.id || '—'],
+    ['Role', tank.fuelRole || '—'],
+    ['Side', tank.side || '—'],
+    ['Tank no.', tank.tankNo != null && tank.tankNo !== '' ? String(tank.tankNo) : '—'],
+    ['Grade', tank.fuelGrade || '—'],
+    ['Capacity 100%', `${fmt(tank.capacity, 3)} m³`],
+    ['Capacity 85%', `${fmt((tank.capacity || 0) * 0.85, 3)} m³`],
+    ['Calculation', tank.calcType || 'direct'],
+    ['Divisor', tank.correctionDivisor != null ? String(tank.correctionDivisor) : '—'],
+    ['Sounding method', tank.soundingMethod || '—'],
+    ['Pipe height', tank.pipeHeight != null ? `${fmt(tank.pipeHeight, 3)} m` : '—'],
+    ['Sounding increment', tank.soundingIncrement != null ? String(tank.soundingIncrement) : '—'],
+    ['Heel increment', tank.heelIncrement != null ? String(tank.heelIncrement) : '—'],
+    ['Trim table', rowN && trimN ? `${rowN} × ${trimN}` : '—'],
+    ['List / heel table', listRows && listN ? `${listRows} × ${listN}` : '—'],
+    ['Volume curve pts', volN ? String(volN) : '—'],
+    ['Import source', tank.pdfSource || '—'],
+    ['Import format', tank.importFormat || '—'],
+    ['Revision', calibPrintFmtTs(tank.updatedAt)],
+    ['Printed', printedAt],
+  ];
+}
+
+function renderCalibPrintGridPages(opts) {
+  const {
+    tank, title, rowLabel, colLabel, rowAxis, colVals, grid, valueDecimals = 3, colDecimals = 2, rowDecimals = 3,
+  } = opts;
+  if (!rowAxis?.length || !colVals?.length) {
+    return `<section class="calib-print-section calib-print-page">
+      ${calibPrintMasthead(title, tank.name)}
+      ${calibPrintTankIdBar(tank)}
+      <p class="calib-print-note">No ${escapeHtml(title.toLowerCase())} data for this tank.</p>
+      ${calibPrintFooter(`${tank.name} · ${title}`)}
+    </section>`;
+  }
+  const ROW_CHUNK = 45;
+  const COL_CHUNK = 8;
+  const rowChunks = chunkArray(rowAxis.map((s, i) => ({ s, i })), ROW_CHUNK);
+  const colChunks = chunkArray(colVals.map((t, j) => ({ t, j })), COL_CHUNK);
+  const pages = [];
+  let pageNo = 0;
+  for (const cols of colChunks) {
+    for (const rows of rowChunks) {
+      pageNo += 1;
+      const head = cols.map((c) => {
+        const even = Math.abs(Number(c.t) || 0) < 1e-9;
+        return `<th class="${even ? 'even-keel' : ''}">${escapeHtml(fmt(c.t, colDecimals))}</th>`;
+      }).join('');
+      const body = rows.map(({ s, i }) => {
+        const cells = cols.map((c) => {
+          const v = grid?.[i]?.[c.j];
+          const even = Math.abs(Number(c.t) || 0) < 1e-9;
+          const text = v == null || v === '' || Number.isNaN(Number(v)) ? '—' : fmt(v, valueDecimals);
+          return `<td class="${even ? 'even-keel' : ''}">${escapeHtml(text)}</td>`;
+        }).join('');
+        return `<tr><th scope="row">${escapeHtml(fmt(s, rowDecimals))}</th>${cells}</tr>`;
+      }).join('');
+      const colRange = `${fmt(cols[0].t, colDecimals)} … ${fmt(cols[cols.length - 1].t, colDecimals)}`;
+      const rowRange = `${fmt(rows[0].s, rowDecimals)} … ${fmt(rows[rows.length - 1].s, rowDecimals)}`;
+      pages.push(`<section class="calib-print-section calib-print-page">
+        ${calibPrintMasthead(title, `${tank.name} · part ${pageNo}`)}
+        ${calibPrintTankIdBar(tank, `${colLabel} ${colRange} · ${rowLabel} ${rowRange}`)}
+        <table class="calib-print-table">
+          <thead>
+            <tr><th scope="col">${escapeHtml(rowLabel)} \\ ${escapeHtml(colLabel)}</th>${head}</tr>
+          </thead>
+          <tbody>${body}</tbody>
+        </table>
+        <p class="calib-print-note">Zero column (even keel / upright) is emphasized. Continuation headers repeat tank identity.</p>
+        ${calibPrintFooter(`${tank.name} · ${title} ${pageNo}`)}
+      </section>`);
+    }
+  }
+  return pages.join('');
+}
+
+function renderCalibPrintVolumeCurvePages(tank) {
+  const xs = tank.volumeCurve?.x || [];
+  const vs = tank.volumeCurve?.v || [];
+  const n = Math.min(xs.length, vs.length);
+  if (!n) return '';
+  const rows = [];
+  for (let i = 0; i < n; i++) rows.push({ x: xs[i], v: vs[i] });
+  return chunkArray(rows, 50).map((chunk, idx) => {
+    const body = chunk.map((r) => `<tr>
+      <td>${r.x == null || r.x === '' ? '—' : escapeHtml(fmt(r.x, 3))}</td>
+      <td>${r.v == null || r.v === '' ? '—' : escapeHtml(fmt(r.v, 3))}</td>
+    </tr>`).join('');
+    return `<section class="calib-print-section calib-print-page">
+      ${calibPrintMasthead('Volume curve', `${tank.name} · part ${idx + 1}`)}
+      ${calibPrintTankIdBar(tank, 'Correction basis / SOUNDING VOLUME')}
+      <table class="calib-print-table calib-print-curve">
+        <thead><tr><th>Sounding (m)</th><th>Volume (m³)</th></tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+      ${calibPrintFooter(`${tank.name} · Volume curve ${idx + 1}`)}
+    </section>`;
+  }).join('');
+}
+
+function renderCalibPrintTankBlock(tank, indexLabel) {
+  const isDirect = tank.calcType === 'direct';
+  const rowLabel = isDirect ? 'Depth (m)' : 'Snd/ullage (m)';
+  const trimTitle = isDirect ? 'Capacity vs trim' : 'Trim correction table';
+  const listTitle = isDirect ? 'Heel / list table' : 'List / heel correction';
+  return `
+    <section class="calib-print-section calib-print-page">
+      ${calibPrintMasthead('Tank identity sheet', `${indexLabel || ''}${tank.name || tank.id || 'Tank'}`)}
+      <h2 class="calib-print-title">${escapeHtml(indexLabel || '')}${escapeHtml(tank.name || tank.id || 'Tank')}</h2>
+      ${calibPrintMetaGrid(calibPrintTankMetaEntries(tank))}
+      <p class="calib-print-note">
+        Calculation: <strong>${escapeHtml(tank.calcType || 'direct')}</strong>
+        ${isDirect
+          ? ' — tabulated values are absolute volumes (m³) at the stated trim/heel.'
+          : ' — trim/list tables are corrections applied with the volume curve and divisor.'}
+      </p>
+      ${calibPrintFooter(`${tank.name} · Identity`)}
+    </section>
+    ${renderCalibPrintGridPages({
+      tank,
+      title: trimTitle,
+      rowLabel,
+      colLabel: 'Trim (m)',
+      rowAxis: tank.trimAxis || [],
+      colVals: tank.trimVals || [],
+      grid: tank.trimGrid || [],
+    })}
+    ${(tank.listVals || []).length
+      ? renderCalibPrintGridPages({
+          tank,
+          title: listTitle,
+          rowLabel: isDirect ? 'Depth (m)' : 'Snd/ullage (m)',
+          colLabel: 'List (°)',
+          rowAxis: tank.listAxis || [],
+          colVals: tank.listVals || [],
+          grid: tank.listGrid || [],
+          colDecimals: 1,
+        })
+      : ''}
+    ${!isDirect ? renderCalibPrintVolumeCurvePages(tank) : ''}
+  `;
+}
+
+function renderCalibPrintCover(tanks, bookTitle) {
+  const vessel = STATE.bundle?.vessel || {};
+  const printedAt = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+  const indexRows = tanks.map((t, i) => `<tr>
+    <td>${i + 1}</td>
+    <td>${escapeHtml(t.name || '')}</td>
+    <td>${escapeHtml(t.id || '')}</td>
+    <td>${escapeHtml(t.fuelRole || '')}</td>
+    <td>${escapeHtml(t.side || '')}</td>
+    <td>${escapeHtml(t.fuelGrade || '')}</td>
+    <td>${escapeHtml(fmt(t.capacity, 3))}</td>
+    <td>${escapeHtml(t.calcType || 'direct')}</td>
+  </tr>`).join('');
+  return `<section class="calib-print-section calib-print-page calib-print-index">
+    ${calibPrintMasthead(bookTitle || 'Fuel Tank Calibration Tables', vessel.name || 'Vessel')}
+    <h2 class="calib-print-title">${escapeHtml(vessel.name || 'Vessel')} — Calibration book</h2>
+    ${calibPrintMetaGrid([
+      ['Vessel', vessel.name || '—'],
+      ['IMO', vessel.imo || '—'],
+      ['Call sign', vessel.callSign || '—'],
+      ['Flag', vessel.flag || '—'],
+      ['Type', vessel.type || '—'],
+      ['Fuel tanks', String(tanks.length)],
+      ['Printed', printedAt],
+    ])}
+    <p class="calib-print-note">Index of fuel tanks included in this landscape A4 capacity book. Each tank follows with identity, trim tables, heel/list tables, and volume curves where applicable.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th><th>Tank</th><th>ID</th><th>Role</th><th>Side</th><th>Grade</th><th>Cap. 100% (m³)</th><th>Calc</th>
+        </tr>
+      </thead>
+      <tbody>${indexRows}</tbody>
+    </table>
+    ${calibPrintFooter('Cover & index')}
+  </section>`;
+}
+
+function cleanupCalibPrint() {
+  document.body.classList.remove('printing-calib');
+  document.getElementById('calib-print-root')?.remove();
+}
+
+function printCalibrationDocuments(tanks, opts = {}) {
+  const list = (tanks || []).filter(Boolean);
+  if (!list.length) {
+    showToast('No tanks to print');
+    return;
+  }
+  cleanupCalibPrint();
+  const bookTitle = opts.bookTitle || 'Fuel Tank Calibration Tables';
+  const includeCover = list.length > 1;
+  const html = [
+    includeCover ? renderCalibPrintCover(list, bookTitle) : '',
+    ...list.map((t, i) => renderCalibPrintTankBlock(t, includeCover ? `${i + 1}. ` : '')),
+  ].join('');
+  const root = document.createElement('div');
+  root.id = 'calib-print-root';
+  root.className = 'calib-print-doc';
+  root.innerHTML = html;
+  document.body.appendChild(root);
+  document.body.classList.add('printing-calib');
+  const finish = () => {
+    cleanupCalibPrint();
+    window.removeEventListener('afterprint', finish);
+  };
+  window.addEventListener('afterprint', finish);
+  window.setTimeout(() => {
+    try {
+      window.print();
+    } catch (err) {
+      console.warn(err);
+      finish();
+      showToast('Print failed');
+      return;
+    }
+    window.setTimeout(() => {
+      if (document.body.classList.contains('printing-calib')) finish();
+    }, 2000);
+  }, 50);
 }
 
 function escapeHtml(s) {
@@ -1873,14 +2209,14 @@ function renderBunkering(main) {
   function renderManualAlloc() {
     const grade = document.getElementById('b-grade').value;
     const tanks = (STATE.bundle.tanks.fuel || []).filter((t) => !t.fuelGrade || t.fuelGrade === grade || t.fuelGrade === 'other' || (grade==='hfo'&&t.fuelGrade==='lsfo'));
-    document.getElementById('manual-alloc').innerHTML = `<table class="data-table"><thead><tr><th>Tank</th><th>Role</th><th>Free (approx m³)</th><th>Allocate MT</th></tr></thead><tbody>
+    document.getElementById('manual-alloc').innerHTML = `<div class="scroll-x"><table class="data-table"><thead><tr><th>Tank</th><th>Role</th><th>Free (approx m³)</th><th>Allocate MT</th></tr></thead><tbody>
       ${tanks.map((t) => {
         const r = getReading(t.id);
         const free = Math.max(0, (t.capacity||0) - (r?.result?.volumeObserved||0));
         return `<tr><td>${escapeHtml(t.name)}</td><td>${t.fuelRole}</td><td>${fmt(free,1)}</td>
           <td><input type="number" step="any" data-manual="${t.id}" value="0" style="width:100px;background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;padding:6px"></td></tr>`;
       }).join('')}
-    </tbody></table>`;
+    </tbody></table></div>`;
   }
 
   async function runInstant(apply) {
@@ -1890,12 +2226,12 @@ function renderBunkering(main) {
       if (apply) await reloadBundle();
       const el = document.getElementById('bunker-result');
       el.innerHTML = `<div class="section-title">Distribution ${apply ? 'applied' : 'preview'}</div>
-        <table class="data-table"><thead><tr><th>Tank</th><th>Side</th><th>Before MT</th><th>Add MT</th><th>After vol</th></tr></thead><tbody>
+        <div class="scroll-x"><table class="data-table"><thead><tr><th>Tank</th><th>Side</th><th>Before MT</th><th>Add MT</th><th>After vol</th></tr></thead><tbody>
         ${(res.allocations||[]).map((a)=>`<tr>
           <td>${escapeHtml(a.name)}</td><td>${a.side||''}</td><td>${fmt(a.beforeWeight,2)}</td>
           <td><b>${fmt(a.mt,3)}</b></td><td>${a.afterVolume!=null?fmt(a.afterVolume,2):'–'}</td>
         </tr>`).join('')}
-        </tbody></table>`;
+        </tbody></table></div>`;
       showToast(apply ? 'Bunker applied to tanks' : 'Preview ready');
     } catch (e) {
       showToast(e.message);
@@ -1971,8 +2307,8 @@ function renderBunkering(main) {
       <button class="btn small" id="btn-mix-to-plan">Use density in bunker plan</button>
       <button class="btn small" id="btn-mix-qty-to-plan">Use total MT as quantity to receive</button>
     </div>
-    <table class="data-table" style="margin-top:10px"><thead><tr><th>Parcel</th><th>ρ15</th><th>MT</th><th>m³@15</th></tr></thead>
-    <tbody>${result.parts.map((p)=>`<tr><td>${escapeHtml(p.label)}</td><td>${fmt(p.density15,4)}</td><td>${fmt(p.quantityMT,3)}</td><td>${fmt(p.volume15,2)}</td></tr>`).join('')}</tbody></table>`;
+    <div class="scroll-x"><table class="data-table" style="margin-top:10px"><thead><tr><th>Parcel</th><th>ρ15</th><th>MT</th><th>m³@15</th></tr></thead>
+    <tbody>${result.parts.map((p)=>`<tr><td>${escapeHtml(p.label)}</td><td>${fmt(p.density15,4)}</td><td>${fmt(p.quantityMT,3)}</td><td>${fmt(p.volume15,2)}</td></tr>`).join('')}</tbody></table></div>`;
     document.getElementById('btn-mix-to-plan').onclick = () => {
       document.getElementById('b-dens').value = result.blendedDensity15;
       showToast('Blended density copied to bunker plan');
@@ -1991,7 +2327,7 @@ function renderBunkering(main) {
     hist.className = 'form-panel';
     hist.style.marginTop = '18px';
     hist.innerHTML = `<div class="section-title" style="margin-top:0">Recent bunker ops</div>
-      <table class="data-table"><thead><tr><th>Date</th><th>Status</th><th>Grade</th><th>Planned</th><th>Received</th><th>Rate</th><th>BDN</th></tr></thead>
+      <div class="scroll-x"><table class="data-table"><thead><tr><th>Date</th><th>Status</th><th>Grade</th><th>Planned</th><th>Received</th><th>Rate</th><th>BDN</th></tr></thead>
       <tbody>${ops.slice(0,12).map((o)=>`<tr>
         <td>${(o.createdAt||'').slice(0,16).replace('T',' ')}</td>
         <td><span class="pill ${o.status==='active'||o.status==='paused'?'warn':(o.status==='completed'?'good':'')}">${o.status||(o.applied?'completed':'preview')}</span></td>
@@ -1999,7 +2335,7 @@ function renderBunkering(main) {
         <td>${fmt(o.quantityMT??o.plannedMT,2)}</td>
         <td>${o.receivedMT!=null?fmt(o.receivedMT,2):'–'}</td>
         <td>${o.rateMTPerHour?fmt(o.rateMTPerHour,1):'–'}</td>
-        <td>${escapeHtml(o.bdn?.bdnNo||'–')}</td></tr>`).join('')}</tbody></table>`;
+        <td>${escapeHtml(o.bdn?.bdnNo||'–')}</td></tr>`).join('')}</tbody></table></div>`;
     main.appendChild(hist);
   }
 
@@ -2283,7 +2619,7 @@ function renderReport(main) {
     const tanks = (STATE.bundle.tanks[c.id] || []).filter((t) => getReading(t.id));
     if (!tanks.length) continue;
     html += `<div class="section-title"><span class="cat-dot cat-${c.id}"></span>${c.label}</div>
-      <table class="data-table"><thead><tr><th>Tank</th><th>Cap</th><th>Reading</th><th>Temp</th><th>Dens</th><th>Vol</th><th>MT</th></tr></thead><tbody>`;
+      <div class="scroll-x"><table class="data-table"><thead><tr><th>Tank</th><th>Cap</th><th>Reading</th><th>Temp</th><th>Dens</th><th>Vol</th><th>MT</th></tr></thead><tbody>`;
     let sVol = 0, sWt = 0;
     for (const t of tanks) {
       const r = getReading(t.id);
@@ -2293,7 +2629,7 @@ function renderReport(main) {
         <td>${fmt(r.result.volumeObserved,2)}</td><td>${r.result.weightMT!=null?fmt(r.result.weightMT,2):'–'}</td></tr>`;
     }
     gVol += sVol; gWt += sWt;
-    html += `<tr><td colspan="5"><b>Subtotal</b></td><td><b>${fmt(sVol,2)}</b></td><td><b>${fmt(sWt,2)}</b></td></tr></tbody></table>`;
+    html += `<tr><td colspan="5"><b>Subtotal</b></td><td><b>${fmt(sVol,2)}</b></td><td><b>${fmt(sWt,2)}</b></td></tr></tbody></table></div>`;
   }
   html += `<div class="section-title">Grand total: ${fmt(gVol,2)} m³ · ${fmt(gWt,2)} MT</div></div>`;
   main.innerHTML += html;
@@ -2307,7 +2643,7 @@ function renderSetup(main) {
   const list = document.createElement('div');
   list.className = 'form-panel';
   list.innerHTML = `<div class="section-title" style="margin-top:0">Saved vessels</div>
-    <table class="data-table"><thead><tr><th>Name</th><th>IMO</th><th>Updated</th><th></th></tr></thead>
+    <div class="scroll-x"><table class="data-table"><thead><tr><th>Name</th><th>IMO</th><th>Updated</th><th></th></tr></thead>
     <tbody>${STATE.vessels.map((v)=>`<tr>
       <td class="tname">${v.name}${v.id===STATE.activeVesselId?' <span class="pill good">active</span>':''}</td>
       <td>${v.imo||'–'}</td><td>${(v.updatedAt||'').slice(0,16).replace('T',' ')}</td>
@@ -2315,7 +2651,7 @@ function renderSetup(main) {
         <button class="btn small" data-load="${v.id}">Load</button>
         <button class="btn small danger" data-del="${v.id}">Delete</button>
       </td></tr>`).join('') || '<tr><td colspan="4" class="empty-state">No vessels yet</td></tr>'}
-    </tbody></table>`;
+    </tbody></table></div>`;
   main.appendChild(list);
 
   list.querySelectorAll('[data-load]').forEach((btn) => {
@@ -2802,11 +3138,22 @@ async function boot() {
     }
   });
 
-  document.getElementById('menu-toggle')?.addEventListener('click', () => {
-    document.getElementById('sidebar').classList.toggle('open');
-    document.getElementById('sidebar-backdrop').classList.toggle('show');
-  });
+  const toggle = document.getElementById('menu-toggle');
+  if (toggle) {
+    toggle.setAttribute('aria-controls', 'sidebar');
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.addEventListener('click', () => {
+      const sidebar = document.getElementById('sidebar');
+      setMobileNavOpen(!sidebar?.classList.contains('open'));
+    });
+  }
   document.getElementById('sidebar-backdrop')?.addEventListener('click', closeMobileNav);
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeMobileNav();
+  });
+  window.addEventListener('orientationchange', () => {
+    window.setTimeout(closeMobileNav, 150);
+  });
 
   try {
     const st = await Api.getStatus();
