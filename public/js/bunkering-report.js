@@ -956,7 +956,16 @@ const BunkerReports = (() => {
       const el = e.target;
       if (el.dataset.row && el.dataset.field) {
         const row = view.after.rows[el.dataset.row];
-        if (row) row[el.dataset.field] = el.type === 'checkbox' ? el.checked : el.value;
+        if (!row) return;
+        const moves = el.dataset.field === 'fuelType'
+          && UI.sectionWouldChange(view.computed, row, el.dataset.row, el.value);
+        row[el.dataset.field] = el.type === 'checkbox' ? el.checked : el.value;
+        if (moves) {
+          view.pendingAfter = view.after;
+          navigate('bunker-after');
+          showToast(`Moved to the ${UI.SECTION_SHORT[FRCore.sectionForFuelType(el.value)]} table`);
+          return;
+        }
       } else if (el.dataset.head) {
         view.after.header[el.dataset.head] = el.value;
       } else if (el.dataset.prior) {

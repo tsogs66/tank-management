@@ -158,16 +158,19 @@ function sectionForFuelType(fuelType) {
 /**
  * Which block a row is actually printed in.
  *
- * Normally the tank's own grade, but a tank carrying something else this
- * voyage can be moved across so the FUEL OIL and DIESEL OIL / GAS OIL totals
- * each count only what is really in them. The move is deliberate rather than
- * automatic: changing a fuel type mid-entry should not reshuffle the sheet
- * under the user.
+ * It follows the fuel type the tank is carrying, so an HFO tank run on LSMGO
+ * counts under DIESEL OIL / GAS OIL and each block totals only what is really
+ * in it. For a tank left on its own grade this is the same answer as the
+ * calibration DB gives, so nothing moves unless the fuel type says so.
+ *
+ * `row.section` pins a row to one block when the automatic answer is not
+ * wanted; '' (the default) means follow the fuel type.
  */
 function sectionForRow(tank, rowForm) {
-  const override = rowForm && rowForm.section;
-  if (override === 'fuel' || override === 'do') return override;
-  return sectionForTank(tank);
+  const pinned = rowForm && rowForm.section;
+  if (pinned === 'fuel' || pinned === 'do') return pinned;
+  const fuelType = (rowForm && rowForm.fuelType) || defaultFuelType(tank);
+  return sectionForFuelType(fuelType);
 }
 
 function fuelTanks(bundle) {
@@ -210,7 +213,7 @@ function defaultRow(tank, reading) {
     unit: 'den15',
     unitValue: r.density15 != null ? r.density15 : '',
     inUse: false,
-    // '' = follow the tank's own grade; 'fuel' / 'do' = moved by the user.
+    // '' = follow the fuel type; 'fuel' / 'do' = pinned to a block by the user.
     section: '',
   };
 }
@@ -315,10 +318,11 @@ function computeRow(tank, rowForm, ctx) {
     moved: section !== sectionForTank(tank),
     fuelType,
     fuelTypeLabel: (FUEL_TYPES.find((f) => f.id === fuelType) || {}).label || fuelType,
-    // True when the selected fuel type belongs in the other block — the cue to
-    // offer the move.
+    // Pinned rows are the ones the user held in place against the fuel type.
+    pinned: Boolean(row.section === 'fuel' || row.section === 'do'),
+    autoSection: sectionForFuelType(fuelType),
+    // True when a pin is holding the row away from where its fuel type puts it.
     sectionMismatch: sectionForFuelType(fuelType) !== section,
-    suggestedSection: sectionForFuelType(fuelType),
     reading: reading != null ? reading : '',
     method,
     methodLabel: method === 'dip' ? 'DIP' : 'ULLAGE',
@@ -445,6 +449,7 @@ function computeFuelReport(bundle, form, conversion) {
         : null,
       tanksInUse: section.rows.filter((r) => r.inUse).length,
       movedIn: section.rows.filter((r) => r.moved).length,
+      pinned: section.rows.filter((r) => r.pinned).length,
       mismatched: section.rows.filter((r) => r.sectionMismatch).length,
     };
   }
