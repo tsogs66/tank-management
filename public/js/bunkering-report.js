@@ -130,6 +130,7 @@ const BunkerReports = (() => {
     { field: 'currentVolumePercent', label: 'CURRENT VOL.(%)', d: 'pct' },
     { field: 'currentVolumeM3', label: 'CURRENT VOL.(M3)', d: 3 },
     { field: 'quantityAddMT', label: 'QUANTITY ADD (MT)', d: 3 },
+    { field: 'remainingToTargetMT', label: 'TO GO (MT)', d: 3 },
   ];
 
   function planCell(field, value) {
@@ -151,7 +152,7 @@ const BunkerReports = (() => {
         return;
       }
       const c = Core.computeBunkerPlan(bundle(), view.plan, view.conversion);
-      if (!c.monitoring.clock.running) return;
+      if (!c.monitoring.clock.running && !c.monitoring.tanksFilling) return;
       refreshPlan();
     }, 15000);
   }
@@ -194,7 +195,7 @@ const BunkerReports = (() => {
 
     bindPlanEvents(wrap);
     refreshPlan();
-    if (c.monitoring.clock.running) startClockTicker();
+    if (c.monitoring.clock.running || c.monitoring.tanksFilling) startClockTicker();
   }
 
   function planHeaderPanel(c) {
@@ -261,8 +262,11 @@ const BunkerReports = (() => {
         ${cell('startingRobM3')}${cell('freeM3At85')}
         <td><input type="number" step="any" data-slot="${i}" data-field="targetVolumeM3" value="${esc(f.targetVolumeM3)}"></td>
         ${cell('targetVolumePercent')}${cell('targetUllageMM')}${cell('planAddMT')}
+        <td class="bp-valve" data-bp-valve="${i}"></td>
         <td><input type="number" step="any" data-slot="${i}" data-field="currentSoundingMM" value="${esc(f.currentSoundingMM)}"></td>
         ${cell('currentVolumePercent')}${cell('currentVolumeM3')}${cell('quantityAddMT')}
+        ${cell('remainingToTargetMT')}
+        <td class="fr-calc" data-bp-cell="${i}.etaLabel"></td>
       </tr>`;
     }).join('');
 
@@ -287,7 +291,9 @@ const BunkerReports = (() => {
               <th>CAPACITY<br>100% M3</th><th>CAPACITY<br>85% M3</th><th>STARTING<br>ULL. (MM)</th>
               <th>STARTING<br>ROB (M3)</th><th>FREE (M3)<br>@85% CAP</th>
               <th>TARGET<br>VOL. (M3)</th><th>TARGET<br>VOL. %</th><th>TARGET<br>ULLAGE</th><th>PLAN ADD<br>(MT)</th>
+              <th>VALVE /<br>STATUS</th>
               <th>CURRENT<br>SOUND (MM)</th><th>CURRENT<br>VOL.(%)</th><th>CURRENT<br>VOL.(M3)</th><th>QUANTITY<br>ADD (MT)</th>
+              <th>TO GO<br>(MT)</th><th>ETA</th>
             </tr></thead>
             <tbody>${rows}</tbody>
             <tfoot><tr>
@@ -300,9 +306,11 @@ const BunkerReports = (() => {
               <td class="fr-calc" data-bp-total="targetVolumeM3"></td>
               <td></td><td></td>
               <td class="fr-calc" data-bp-total="plannedAddMT"></td>
-              <td></td><td></td>
+              <td></td><td></td><td></td>
               <td class="fr-calc" data-bp-total="currentVolumeM3"></td>
               <td class="fr-calc" data-bp-total="receivedMT"></td>
+              <td class="fr-calc" data-bp-total="remainingToTargetMT"></td>
+              <td></td>
             </tr></tfoot>
           </table>
         </div>
@@ -418,6 +426,27 @@ const BunkerReports = (() => {
     <div class="hint">${grades ? esc('Totals: ' + grades) : 'No totals yet'}</div>`;
   }
 
+  /**
+   * The per-tank valve cell: what the tank is doing, how long it has been doing
+   * it, and the buttons to open, hold or close it.
+   */
+  function paintValveCell(i, row) {
+    const cell = document.querySelector(`[data-bp-valve="${i}"]`);
+    if (!cell) return;
+    if (!row.tankId) { cell.innerHTML = ''; return; }
+    const state = Core.TANK_STATES.find((s) => s.id === row.status) || Core.TANK_STATES[0];
+    const closeable = row.status === 'filling' || row.status === 'paused';
+    cell.innerHTML = `
+      <span class="bp-state bp-state-${state.id}">${esc(state.label)}</span>
+      <span class="bp-state-time">${esc(row.clock.elapsedLabel)}${
+        row.rateShareMTPerHour > 0 ? ` · ${n(row.rateShareMTPerHour, 0)} MT/h` : ''}</span>
+      <span class="bp-state-btns">
+        <button class="btn small ${state.id === 'filling' ? '' : 'primary'}"
+          data-valve="${i}" data-valve-to="${state.next}">${esc(state.action)}</button>
+        ${closeable ? `<button class="btn small" data-valve="${i}" data-valve-to="done">Close</button>` : ''}
+      </span>`;
+  }
+
   function refreshPlan() {
     const c = recomputePlan();
     const set = UI.setCell;
@@ -446,12 +475,19 @@ const BunkerReports = (() => {
         set(`[data-bp-cell="${i}.${col.field}"]`, planCell(col.field, row[col.field]),
           row.warnings.length ? row.warnings.join(' · ') : '');
       }
+      set(`[data-bp-cell="${i}.etaLabel"]`, row.tankId ? row.etaLabel : '');
+      paintValveCell(i, row);
       const tr = document.querySelector(`tr[data-slot="${i}"]`);
-      if (tr) tr.classList.toggle('fr-warn', row.warnings.length > 0);
+      if (tr) {
+        tr.classList.toggle('fr-warn', row.warnings.length > 0);
+        tr.classList.toggle('bp-row-filling', row.status === 'filling');
+        tr.classList.toggle('bp-row-done', row.status === 'done');
+      }
     }
     for (const [field, d] of Object.entries({
       capacity100M3: 1, capacity85M3: 2, startingRobM3: 3, freeM3At85: 3,
       targetVolumeM3: 3, plannedAddMT: 3, currentVolumeM3: 3, receivedMT: 3,
+      remainingToTargetMT: 3,
     })) {
       set(`[data-bp-total="${field}"]`, n(c.totals[field], d));
     }
@@ -462,9 +498,13 @@ const BunkerReports = (() => {
     set('[data-bp-mon="quantityRemainingMT"]', c.monitoring.quantityRemainingMT != null
       ? `${n(c.monitoring.quantityRemainingMT, 3)} MT` : '—');
     set('[data-bp-mon="timeRemainingLabel"]', c.monitoring.timeRemainingLabel);
-    set('[data-bp-mon="progressText"]', c.monitoring.percentComplete != null
+    const openTanks = c.monitoring.tanksFilling;
+    set('[data-bp-mon="progressText"]', (c.monitoring.percentComplete != null
       ? `${n(c.monitoring.percentComplete, 1)}% of ${n(c.header.bunkerQuantityMT, 1)} MT delivered`
-      : 'Enter a bunker quantity to track progress');
+      : 'Enter a bunker quantity to track progress')
+      + (openTanks
+        ? ` · ${openTanks} tank(s) taking fuel at ${n(c.monitoring.rateSharePerTank, 0)} MT/h each`
+        : ' · no tank is open'));
     const fill = document.querySelector('[data-bp-mon="progressFill"]');
     if (fill) fill.style.width = `${Math.max(0, Math.min(100, c.monitoring.percentComplete || 0))}%`;
 
@@ -477,6 +517,54 @@ const BunkerReports = (() => {
       toggle.textContent = !clock.started ? 'Start pumping' : clock.paused ? 'Resume' : 'Pause';
       toggle.classList.toggle('primary', !clock.started || clock.paused);
     }
+  }
+
+  /**
+   * Open, hold or close one tank. Timing is per tank: a pause stops that tank's
+   * own clock, closing it stops it for good, and reopening starts it fresh.
+   */
+  function setTankState(index, next) {
+    const slot = view.plan.sequence[index];
+    if (!slot || !slot.tankId) return;
+    const nowIso = new Date().toISOString();
+
+    if (next === 'filling') {
+      if (slot.status === 'paused' && slot.pausedAt) {
+        slot.elapsedPausedMs = (slot.elapsedPausedMs || 0)
+          + Math.max(0, Date.now() - Date.parse(slot.pausedAt));
+      }
+      if (!slot.startedAt) slot.startedAt = nowIso;
+      slot.pausedAt = null;
+      slot.completedAt = null;
+      slot.status = 'filling';
+      // Opening a tank starts the overall pumping clock if it is not running.
+      if (!view.plan.startedAt) {
+        view.plan.startedAt = nowIso;
+        view.plan.pausedAt = null;
+        view.plan.elapsedPausedMs = 0;
+        view.plan.status = 'pumping';
+      }
+      startClockTicker();
+    } else if (next === 'paused') {
+      slot.pausedAt = nowIso;
+      slot.status = 'paused';
+    } else if (next === 'done') {
+      if (slot.status === 'paused' && slot.pausedAt) {
+        slot.elapsedPausedMs = (slot.elapsedPausedMs || 0)
+          + Math.max(0, Date.now() - Date.parse(slot.pausedAt));
+      }
+      slot.pausedAt = null;
+      slot.completedAt = nowIso;
+      slot.status = 'done';
+    } else {
+      // Reopen — clear this tank's timing and put it back in the queue.
+      slot.status = 'pending';
+      slot.startedAt = null;
+      slot.pausedAt = null;
+      slot.elapsedPausedMs = 0;
+      slot.completedAt = null;
+    }
+    refreshPlan();
   }
 
   function bindPlanEvents(wrap) {
@@ -506,6 +594,14 @@ const BunkerReports = (() => {
       view.pendingPlan = Core.emptyBunkerPlan(bundle(), view.conversion);
       navigate('bunker-plan');
     };
+    // Valve buttons live inside cells that are repainted on every refresh, so
+    // they are handled by delegation rather than bound per button.
+    wrap.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-valve]');
+      if (!btn) return;
+      setTankState(Number(btn.dataset.valve), btn.dataset.valveTo);
+    });
+
     document.getElementById('bp-mode').onchange = (e) => { view.plan.distributionMode = e.target.value; };
     document.getElementById('bp-distribute').onclick = () => {
       const c = recomputePlan();
@@ -647,6 +743,8 @@ const BunkerReports = (() => {
       <td>${pct(r.currentVolumePercent)}</td>
       <td>${n(r.currentVolumeM3, 3)}</td>
       <td class="fr-print-weight">${n(r.quantityAddMT, 3)}</td>
+      <td>${esc((Core.TANK_STATES.find((s) => s.id === r.status) || {}).label || '')}</td>
+      <td>${esc(r.clock.elapsedLabel)}</td>
     </tr>`).join('');
 
     const t = c.totals;
@@ -674,9 +772,9 @@ const BunkerReports = (() => {
           <th>Seq / tank</th><th>Cap 100% m³</th><th>Cap 85% m³</th><th>Start ullage mm</th>
           <th>Start ROB m³</th><th>Free m³ @85%</th><th>Target vol m³</th><th>Target %</th>
           <th>Target ullage</th><th>Plan add MT</th><th>Current sound mm</th><th>Current %</th>
-          <th>Current m³</th><th>Quantity add MT</th>
+          <th>Current m³</th><th>Quantity add MT</th><th>Valve</th><th>Time open</th>
         </tr></thead>
-        <tbody>${rows || '<tr><td colspan="14">No tanks in the sequence</td></tr>'}</tbody>
+        <tbody>${rows || '<tr><td colspan="16">No tanks in the sequence</td></tr>'}</tbody>
         <tfoot><tr>
           <th>TOTAL</th>
           <td>${n(t.capacity100M3, 1)}</td><td>${n(t.capacity85M3, 2)}</td><td></td>
@@ -684,6 +782,7 @@ const BunkerReports = (() => {
           <td>${n(t.targetVolumeM3, 3)}</td><td></td><td></td><td>${n(t.plannedAddMT, 3)}</td>
           <td></td><td></td><td>${n(t.currentVolumeM3, 3)}</td>
           <td class="fr-print-weight">${n(t.receivedMT, 3)}</td>
+          <td></td><td></td>
         </tr></tfoot>
       </table>
       <div class="fr-print-cols">

@@ -693,8 +693,8 @@ table.fr-sheet tfoot th { text-align: left; }
 }
 
 /* ---------- Bunkering plan / summary screens ---------- */
-.bp-layout { display: grid; grid-template-columns: minmax(0, 1fr) 196px; gap: 12px; align-items: start; }
-table.bp-sheet thead th { min-width: 42px; }
+.bp-layout { display: grid; grid-template-columns: minmax(0, 1fr) 176px; gap: 10px; align-items: start; }
+table.bp-sheet thead th { min-width: 40px; }
 table.bp-sheet tbody th.fr-tank-name { min-width: 168px; }
 table.bp-sheet tbody th.fr-tank-name select { min-width: 130px; margin-left: 4px; }
 table.bp-sheet tbody input { min-width: 48px; }
@@ -704,6 +704,21 @@ table.bp-sheet tbody input { min-width: 48px; }
 }
 .bp-distribute .fr-field { min-width: 200px; }
 .bp-distribute .hint { flex: 1 1 260px; margin: 0; }
+
+td.bp-valve { min-width: 102px; text-align: center; padding: 3px 3px; }
+.bp-state {
+  display: block; font-size: 9.5px; font-weight: 800; letter-spacing: .05em;
+  border-radius: 999px; padding: 2px 6px; border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.bp-state-filling { background: rgba(47,191,113,.18); border-color: var(--good); color: var(--good); }
+.bp-state-paused { background: rgba(230,179,77,.18); border-color: var(--warn); color: var(--warn); }
+.bp-state-done { background: rgba(58,160,255,.15); border-color: var(--accent); color: var(--accent-2); }
+.bp-state-time { display: block; font-size: 10px; color: var(--text-faint); margin: 2px 0 3px; }
+.bp-state-btns { display: flex; gap: 4px; justify-content: center; }
+.bp-state-btns .btn { min-height: 24px; padding: 2px 6px; font-size: 10.5px; }
+tr.bp-row-filling th.fr-tank-name { box-shadow: inset 3px 0 0 var(--good); }
+tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
 
 .bp-monitor { display: flex; flex-direction: column; gap: 10px; }
 .bp-clock {
