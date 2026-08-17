@@ -748,6 +748,24 @@ table.fr-sheet tfoot th { text-align: left; }
 .fr-preview .fr-tc-fact b { display: block; font-size: 13px; font-weight: 800; }
 .fr-preview .fr-tc-block-head { background: #1b2a44; color: #fff; padding: 4px 8px; }
 .fr-preview table.fr-tc-table, .fr-preview table.fr-tc-mini { width: 100%; border-collapse: collapse; font-size: 10px; }
+.fr-preview table.fr-tc-table tfoot td,
+.fr-preview table.fr-tc-table tfoot th,
+.fr-preview table.fr-tc-mini tfoot td,
+.fr-preview table.fr-tc-mini tfoot th {
+  background: #d9e2ee; color: #111; font-weight: 800;
+}
+.fr-preview .fr-tc-total-mt { font-weight: 800; font-size: 12px; color: #111; }
+.fr-preview .fr-tc-capline { display: flex; justify-content: flex-end; gap: 16px; font-size: 12px; font-weight: 700; }
+.fr-preview .fr-tc-capline b { font-size: 14px; }
+.fr-preview table.fr-tc-table tfoot td,
+.fr-preview table.fr-tc-table tfoot th,
+.fr-preview table.fr-tc-mini tfoot td,
+.fr-preview table.fr-tc-mini tfoot th {
+  background: #d9e2ee; color: #111; font-weight: 800;
+}
+.fr-preview .fr-tc-total-mt { font-weight: 800; font-size: 12px; color: #111; }
+.fr-preview .fr-tc-capline { display: flex; justify-content: flex-end; gap: 16px; font-size: 12px; font-weight: 700; }
+.fr-preview .fr-tc-capline b { font-size: 14px; }
 .fr-preview table.fr-tc-table th, .fr-preview table.fr-tc-table td,
 .fr-preview table.fr-tc-mini th, .fr-preview table.fr-tc-mini td {
   border: 1px solid #333; padding: 2px 4px; text-align: right; color: #111;
@@ -1160,18 +1178,20 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
   table.fr-tc-table tfoot td, table.fr-tc-table tfoot th {
-    background: #e4edf7 !important; font-weight: 700;
+    background: #d9e2ee !important; color: #000 !important; font-weight: 800;
+    font-size: 8pt; border-top: 1.2pt solid #111; border-bottom: 1.2pt solid #111;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
   .fr-tc-total-mt {
-    background: #1b2a44 !important; color: #fff !important; font-weight: 800;
+    background: #c5d4e8 !important; color: #000 !important; font-weight: 800;
+    font-size: 9.5pt;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
   .fr-tc-capline {
-    display: flex; justify-content: flex-end; gap: 18px; font-size: 7.5pt;
-    padding: 2px 2px 4px;
+    display: flex; justify-content: flex-end; gap: 18px; font-size: 9pt;
+    font-weight: 700; color: #111; padding: 3px 2px 5px;
   }
-  .fr-tc-capline b { font-size: 9pt; }
+  .fr-tc-capline b { font-size: 11pt; font-weight: 800; }
   .fr-tc-cards {
     display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px;
   }
@@ -1193,6 +1213,11 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
   table.fr-tc-mini td.fr-print-name, table.fr-tc-mini th.fr-print-name { text-align: left; }
+  table.fr-tc-mini tfoot th, table.fr-tc-mini tfoot td {
+    background: #d9e2ee !important; color: #000 !important; font-weight: 800;
+    font-size: 8pt; border-top: 1pt solid #111;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
   .fr-tc-diff { color: #8a1f1f; font-weight: 800; }
   .fr-tc-signoff {
     display: flex; justify-content: space-between; align-items: flex-end;
