@@ -706,6 +706,20 @@ table.fr-sheet tfoot th { text-align: left; }
 .fr-preview .fr-print-sign-line {
   border-bottom: 1px solid #111; min-height: 20px; font-weight: 700; padding-top: 14px;
 }
+.fr-preview .fr-tc-masthead { margin-bottom: 10px; color: #111; }
+.fr-preview .fr-tc-title-row { display: flex; gap: 12px; align-items: baseline; border-bottom: 2px solid #111; }
+.fr-preview .fr-tc-title-row h1 { margin: 0; font-size: 18px; }
+.fr-preview .fr-tc-vessel { margin-left: auto; font-weight: 700; }
+.fr-preview .fr-tc-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0; color: #111; }
+.fr-preview .fr-tc-kv span { display: block; font-size: 10px; text-transform: uppercase; color: #555; }
+.fr-preview .fr-tc-block-head { background: #1b2a44; color: #fff; padding: 4px 8px; }
+.fr-preview table.fr-tc-table, .fr-preview table.fr-tc-mini { width: 100%; border-collapse: collapse; font-size: 10px; }
+.fr-preview table.fr-tc-table th, .fr-preview table.fr-tc-table td,
+.fr-preview table.fr-tc-mini th, .fr-preview table.fr-tc-mini td {
+  border: 1px solid #333; padding: 2px 4px; text-align: right; color: #111;
+}
+.fr-preview .fr-tc-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.fr-preview .fr-tc-annex { display: grid; grid-template-columns: 1.3fr 1fr; gap: 10px; }
 
 @media (max-width: 900px) {
   .fr-header-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1030,4 +1044,104 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     border-bottom: 0.6pt solid #111; min-height: 8mm; font-weight: 700;
     padding-top: 6mm; margin-bottom: 2px;
   }
+
+  /* Modern TANK CONDITION face (page 1) + annex (page 2) */
+  .fr-tc-page { color: #111; }
+  .fr-tc-masthead { margin-bottom: 6px; }
+  .fr-tc-kicker {
+    font-size: 7pt; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+    color: #3a6ea5; margin-bottom: 2px;
+  }
+  .fr-tc-title-row {
+    display: flex; align-items: baseline; gap: 14px; border-bottom: 2pt solid #111;
+    padding-bottom: 4px; margin-bottom: 6px;
+  }
+  .fr-tc-title-row h1 {
+    margin: 0; font-size: 16pt; letter-spacing: .04em; font-weight: 800;
+  }
+  .fr-tc-vessel { font-size: 13pt; font-weight: 700; margin-left: auto; }
+  .fr-tc-badge {
+    border: 0.8pt solid #111; padding: 2px 8px; font-size: 8pt; font-weight: 800;
+    letter-spacing: .06em;
+  }
+  .fr-tc-meta {
+    display: grid; grid-template-columns: 1.4fr 1.4fr 0.9fr; gap: 8px 18px;
+    padding: 4px 0 8px; border-bottom: 0.5pt solid #999; margin-bottom: 6px;
+  }
+  .fr-tc-kv { display: flex; gap: 8px; align-items: baseline; font-size: 8.5pt; }
+  .fr-tc-kv span {
+    min-width: 22mm; font-size: 7pt; text-transform: uppercase; letter-spacing: .06em; color: #555;
+  }
+  .fr-tc-kv b { font-weight: 700; }
+  .fr-tc-block { margin-bottom: 5px; }
+  .fr-tc-block-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    background: #1b2a44 !important; color: #fff !important; padding: 3px 8px;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .fr-tc-block-head h3 { margin: 0; font-size: 9pt; letter-spacing: .06em; }
+  .fr-tc-block-head span { font-size: 7.5pt; opacity: .85; }
+  table.fr-tc-table {
+    width: 100%; border-collapse: collapse; table-layout: fixed;
+    font-size: 6.6pt; font-variant-numeric: tabular-nums;
+  }
+  table.fr-tc-table th, table.fr-tc-table td {
+    border: 0.35pt solid #333; padding: 1.5px 3px; text-align: right;
+  }
+  table.fr-tc-table th {
+    background: #eef2f7 !important; font-weight: 700; text-align: center;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  table.fr-tc-table td.fr-print-name, table.fr-tc-table th.fr-print-name {
+    text-align: left; font-weight: 600; width: 42mm;
+  }
+  table.fr-tc-table tbody tr:nth-child(even) td {
+    background: #f7f8fb !important;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  table.fr-tc-table tfoot td, table.fr-tc-table tfoot th {
+    background: #e4edf7 !important; font-weight: 700;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .fr-tc-total-mt {
+    background: #1b2a44 !important; color: #fff !important; font-weight: 800;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .fr-tc-capline {
+    display: flex; justify-content: flex-end; gap: 18px; font-size: 7.5pt;
+    padding: 2px 2px 4px;
+  }
+  .fr-tc-capline b { font-size: 9pt; }
+  .fr-tc-cards {
+    display: grid; grid-template-columns: 1fr 1fr 1.1fr 1.15fr; gap: 6px; margin-top: 4px;
+  }
+  .fr-tc-card {
+    border: 0.5pt solid #333; padding: 4px 6px;
+  }
+  .fr-tc-card h4 {
+    margin: 0 0 3px; font-size: 7.5pt; letter-spacing: .05em; text-transform: uppercase;
+    border-bottom: 0.4pt solid #999; padding-bottom: 2px;
+  }
+  table.fr-tc-mini {
+    width: 100%; border-collapse: collapse; font-size: 6.5pt; font-variant-numeric: tabular-nums;
+  }
+  table.fr-tc-mini th, table.fr-tc-mini td {
+    border: 0.3pt solid #555; padding: 1px 3px; text-align: right;
+  }
+  table.fr-tc-mini th {
+    background: #f0f0f0 !important; text-align: center;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  table.fr-tc-mini td.fr-print-name, table.fr-tc-mini th.fr-print-name { text-align: left; }
+  .fr-tc-diff { color: #8a1f1f; font-weight: 800; }
+  .fr-tc-signoff {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    margin-top: 6px; font-size: 8pt;
+  }
+  .fr-tc-signoff .fr-print-sign-line { width: 70mm; min-height: 6mm; padding-top: 4mm; }
+  .fr-tc-page-no { font-size: 7.5pt; color: #555; letter-spacing: .04em; }
+  .fr-tc-annex {
+    display: grid; grid-template-columns: 1.35fr 1fr; gap: 8px; margin-bottom: 4px;
+  }
+  .fr-tc-page-2 table.fr-print-table { font-size: 6.2pt; }
 }

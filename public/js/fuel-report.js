@@ -286,8 +286,12 @@ const FuelReport = (() => {
       <label class="fr-field"><span>${esc(f.label)}</span>
         <input type="number" step="any" data-received="${f.id}" value="${esc(view.form.received[f.id])}"></label>`).join('');
     const consumption = Core.CONSUMPTION_FIELDS.map((f) => `
-      <label class="fr-field"><span>${esc(f.label)}</span>
+      <label class="fr-field"><span>M/E &amp; D/G · ${esc(f.label)}</span>
         <input type="number" step="any" data-consumption="${f.id}" value="${esc(view.form.consumption[f.id])}"></label>`).join('');
+    const boilerIds = { atSea: 'boilerSea', atAnchor: 'boilerAnchor', atPort: 'boilerPort' };
+    const boiler = Core.CONSUMPTION_FIELDS.map((f) => `
+      <label class="fr-field"><span>Boiler &amp; D/G · ${esc(f.label)}</span>
+        <input type="number" step="any" data-consumption="${boilerIds[f.id]}" value="${esc(view.form.consumption[boilerIds[f.id]])}"></label>`).join('');
     const sig = view.form.signature;
     return `<div class="form-panel no-print">
       <div class="section-title" style="margin-top:0">Lube oil quantity (litres)</div>
@@ -295,7 +299,7 @@ const FuelReport = (() => {
       <div class="section-title">Received quantity (MT)</div>
       <div class="fr-quant">${received}</div>
       <div class="section-title">Daily fuel consumption (MT)</div>
-      <div class="fr-quant">${consumption}</div>
+      <div class="fr-quant">${consumption}${boiler}</div>
       <div class="section-title">Prepared by</div>
       <div class="fr-quant">
         <label class="fr-field"><span>NAME</span>
@@ -635,76 +639,303 @@ const FuelReport = (() => {
         against the fuel type entered.</p>` : ''}`;
   }
 
-  function printSummaryPage(c) {
-    const grades = c.grades.filter((g) => g.tanks > 0 || g.logbookMT != null);
-    const gradeRows = grades.map((g) => `<tr>
-      <td class="fr-print-name">${esc(g.label)}</td>
-      <td>${g.tanks}</td>
-      <td class="fr-print-weight">${n(g.actualMT, 3, '—')}</td>
-      <td>${n(g.logbookMT, 3, '—')}</td>
-      <td>${signed(g.differenceMT, 3) || '—'}</td>
-    </tr>`).join('');
+  function prettyDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(`${iso}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return String(iso);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${String(d.getDate()).padStart(2, '0')}-${months[d.getMonth()]}-${String(d.getFullYear()).slice(-2)}`;
+  }
 
+  function printConditionSection(section, options) {
+    const moved = section.rows.filter((r) => r.moved);
+    const rows = section.rows.map((r) => `<tr>
+      <td class="fr-print-name">${esc(r.name)}${r.moved ? ' *' : ''}</td>
+      <td>${n(r.capacity100M3, 2)}</td>
+      <td>${n(r.capacity100MT, 2)}</td>
+      <td>${n(r.ullageMm, 0)}</td>
+      <td>${n(r.dipMm, 0)}</td>
+      <td>${n(r.measuredM3, 3)}</td>
+      <td>${n(r.tempC, 1)}</td>
+      <td>${n(r.density15, 4)}</td>
+      <td>${n(r.vcf, 4)}</td>
+      <td>${n(r.gsv15M3, 3)}</td>
+      <td>${n(r.wcf, 4)}</td>
+      <td class="fr-print-weight">${n(r.weightAirMT, 3)}</td>
+    </tr>`).join('');
+    const t = section.totals;
+    return `<section class="fr-tc-block">
+      <div class="fr-tc-block-head">
+        <h3>${esc(section.title)}</h3>
+        <span>${t.tanks} tank${t.tanks === 1 ? '' : 's'}${t.tanksInUse ? ` · ${t.tanksInUse} in use` : ''}</span>
+      </div>
+      <table class="fr-tc-table">
+        <thead>
+          <tr>
+            <th rowspan="2" class="fr-print-name">Tanks</th>
+            <th colspan="2">Full Capacity</th>
+            <th colspan="2">Sounding mm</th>
+            <th rowspan="2">Volume<br>M³</th>
+            <th rowspan="2">Temp<br>°C</th>
+            <th rowspan="2">Density @15°C<br>kg/L (vac)</th>
+            <th rowspan="2">VCF<br>Table 54B</th>
+            <th rowspan="2">GSV @15°C<br>M³</th>
+            <th rowspan="2">WCF<br>Table 56</th>
+            <th rowspan="2">Weight<br>MT</th>
+          </tr>
+          <tr>
+            <th>M³</th><th>MT</th>
+            <th>Ullage</th><th>Dip</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+        <tfoot>
+          <tr>
+            <th class="fr-print-name">TOTAL</th>
+            <td>${n(t.capacity100M3, 2)}</td>
+            <td>${n(t.capacity100MT, 2)}</td>
+            <td></td><td></td>
+            <td>${n(t.measuredM3, 3)}</td>
+            <td colspan="3"></td>
+            <td>${n(t.gsv15M3, 3)}</td>
+            <td></td>
+            <td class="fr-tc-total-mt">${n(t.weightAirMT, 3)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      <div class="fr-tc-capline">
+        <span>TOTAL (MT) <b>${n(t.weightAirMT, 3)}</b></span>
+        <span>${(options.safeFillRatio * 100).toFixed(0)}% Capacity (MT) <b>${n(t.capacity85MT, 2)}</b></span>
+      </div>
+      ${moved.length ? `<p class="calib-print-note">* ${moved.map((r) => esc(r.name)).join(', ')} counted in this block from the fuel type entered this voyage.</p>` : ''}
+    </section>`;
+  }
+
+  function printConditionPage(c) {
+    const grades = c.grades.filter((g) => g.tanks > 0 || g.logbookMT != null);
+    const surveyRows = grades.map((g) => `<tr>
+      <td class="fr-print-name">${esc(g.label)}</td>
+      <td>${n(g.actualMT, 3, '—')}</td>
+      <td>${n(g.logbookMT, 3, '—')}</td>
+      <td class="${g.differenceMT != null && Math.abs(g.differenceMT) > 0.001 ? 'fr-tc-diff' : ''}">${signed(g.differenceMT, 3) || '—'}</td>
+    </tr>`).join('');
     const lubeRows = c.lube.rows.map((r) => `<tr>
       <td class="fr-print-name">${esc(r.label)}</td>
       <td>${n(r.litres, 0, '—')}</td>
       <td>${n(r.mt, 3, '—')}</td>
     </tr>`).join('');
-
     const receivedRows = c.received.map((r) =>
       `<tr><td class="fr-print-name">${esc(r.label)}</td><td>${n(r.value, 3, '—')}</td></tr>`).join('');
-    const consumptionRows = c.consumption.map((r) =>
-      `<tr><td class="fr-print-name">${esc(r.label)}</td><td>${n(r.value, 2, '—')}</td></tr>`).join('');
+    const consVal = (list, id) => n((list.find((x) => x.id === id) || {}).value, 2, '—');
+    const me = c.consumption || [];
+    const blr = c.consumptionBoiler || [];
 
-    return `<section class="calib-print-page">
-      ${masthead('TANK CONDITION', `${c.vessel.name} · ${c.header.condition || ''}`)}
-      ${metaGrid([
-        ['Vessel', c.vessel.name],
-        ['IMO', c.vessel.imo],
-        ['Voyage No.', c.header.voyageNo],
-        ['Report', c.header.reportType],
-        ['Port', c.header.port],
-        ['Date / time', c.header.dateTime],
-        ['Draft fwd / aft', `${n(c.header.draftFwd, 2)} / ${n(c.header.draftAft, 2)} m`],
-        ['Mean draft', `${n(c.header.meanDraft, 2)} m`],
-        ['Trim', `${n(c.header.trim, 2)} (${c.header.trimLabel})`],
-        ['Heel', c.header.heelLabel],
-        ['E/R temp', `${n(c.header.engineRoomTemp, 0, '—')} °C`],
-        ['Sea temp', `${n(c.header.seaTemp, 0, '—')} °C`],
-      ])}
-      ${c.sections.map((s) => printSectionTable(s, c.options)).join('')}
-      <div class="fr-print-cols">
-        <div>
-          <h3 class="fr-print-h3">Totals against log book (MT)</h3>
-          <table class="fr-print-table">
-            <thead><tr><th>Grade</th><th>Tanks</th><th>Actual</th><th>Log book</th><th>Difference</th></tr></thead>
-            <tbody>${gradeRows || '<tr><td colspan="5">—</td></tr>'}</tbody>
-          </table>
+    return `<section class="calib-print-page fr-tc-page">
+      <header class="fr-tc-masthead">
+        <div class="fr-tc-kicker">Official sounding report · landscape A4</div>
+        <div class="fr-tc-title-row">
+          <h1>TANK CONDITION</h1>
+          <div class="fr-tc-vessel">${esc(c.vessel.name || '—')}</div>
+          <div class="fr-tc-badge">${esc(c.header.condition || 'REPORT')}</div>
         </div>
-        <div>
-          <h3 class="fr-print-h3">Lube oil quantity</h3>
-          <table class="fr-print-table">
-            <thead><tr><th>Grade</th><th>Litres</th><th>MT</th></tr></thead>
+        <div class="fr-tc-meta">
+          <div>
+            <div class="fr-tc-kv"><span>Voyage No.</span><b>${esc(c.header.voyageNo || '—')}</b></div>
+            <div class="fr-tc-kv"><span>Survey On</span><b>${esc(c.header.reportType || '—')}</b></div>
+            <div class="fr-tc-kv"><span>Port</span><b>${esc(c.header.port || '—')}</b></div>
+          </div>
+          <div>
+            <div class="fr-tc-kv"><span>Trim</span><b>${n(c.header.trim, 2)} · ${esc(c.header.trimLabel)}</b></div>
+            <div class="fr-tc-kv"><span>Heel</span><b>${esc(c.header.heelLabel || '—')}</b></div>
+          </div>
+          <div>
+            <div class="fr-tc-kv"><span>Date</span><b>${esc(prettyDate(c.header.date))}</b></div>
+            <div class="fr-tc-kv"><span>Time</span><b>${esc(c.header.time || '—')}</b></div>
+          </div>
+        </div>
+      </header>
+      ${c.sections.map((s) => printConditionSection(s, c.options)).join('')}
+      <div class="fr-tc-cards">
+        <div class="fr-tc-card">
+          <h4>Lube Oil Quantities</h4>
+          <table class="fr-tc-mini">
+            <thead><tr><th>Category</th><th>LTRS</th><th>MT</th></tr></thead>
             <tbody>${lubeRows}</tbody>
-            <tfoot><tr><th>TOTAL</th><td>${n(c.lube.totalLitres, 0)}</td>
-              <td>${n(c.lube.totalMT, 3)}</td></tr></tfoot>
+            <tfoot><tr><th>TOTAL</th><td>${n(c.lube.totalLitres, 0)}</td><td>${n(c.lube.totalMT, 3)}</td></tr></tfoot>
           </table>
-          <p class="calib-print-note">MT = litres × ${c.lube.density} ÷ 1000</p>
         </div>
-        <div>
-          <h3 class="fr-print-h3">Received quantity (MT)</h3>
-          <table class="fr-print-table"><tbody>${receivedRows}</tbody></table>
-          <h3 class="fr-print-h3">Daily consumption (MT)</h3>
-          <table class="fr-print-table"><tbody>${consumptionRows}</tbody></table>
+        <div class="fr-tc-card">
+          <h4>Received Quantities</h4>
+          <table class="fr-tc-mini">
+            <thead><tr><th>Category</th><th>MT / LTRS</th></tr></thead>
+            <tbody>${receivedRows}</tbody>
+          </table>
+        </div>
+        <div class="fr-tc-card">
+          <h4>Daily Fuel Consumption</h4>
+          <table class="fr-tc-mini">
+            <thead><tr><th></th><th>At sea</th><th>Anchorage</th><th>Port</th></tr></thead>
+            <tbody>
+              <tr><td class="fr-print-name">M/E &amp; D/G</td>
+                <td>${consVal(me, 'atSea')}</td><td>${consVal(me, 'atAnchor')}</td><td>${consVal(me, 'atPort')}</td></tr>
+              <tr><td class="fr-print-name">Boiler &amp; D/G</td>
+                <td>${consVal(blr, 'atSea')}</td><td>${consVal(blr, 'atAnchor')}</td><td>${consVal(blr, 'atPort')}</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="fr-tc-card">
+          <h4>Survey Summary</h4>
+          <table class="fr-tc-mini">
+            <thead><tr><th>Grade</th><th>Monitoring</th><th>Log book</th><th>Difference</th></tr></thead>
+            <tbody>${surveyRows || '<tr><td colspan="4">—</td></tr>'}</tbody>
+          </table>
         </div>
       </div>
-      <div class="fr-print-sign">
-        <div>Prepared by</div>
-        <div class="fr-print-sign-line">${esc(c.signature.preparedBy || '')}</div>
-        <div>${esc(c.signature.rank || '')}</div>
+      <div class="fr-tc-signoff">
+        <div>
+          <span>Prepared by</span>
+          <div class="fr-print-sign-line">${esc(c.signature.preparedBy || '')}</div>
+          <div>${esc(c.signature.rank || 'Chief Engineer')}</div>
+        </div>
+        <div class="fr-tc-page-no">Page 1 of 2</div>
       </div>
       ${footer(`${c.vessel.name} · tank condition · ${c.header.dateTime}`)}
     </section>`;
+  }
+
+  function printAnnexPage(c) {
+    const extraRows = [];
+    for (const section of c.sections) {
+      for (const r of section.rows) {
+        extraRows.push(`<tr>
+          <td class="fr-print-name">${esc(r.name)}</td>
+          <td>${esc(r.fuelTypeLabel)}</td>
+          <td>${esc(r.methodLabel)}</td>
+          <td>${esc(r.unitLabel)}</td>
+          <td>${n(r.unitValue, 4)}</td>
+          <td>${r.inUse ? 'YES' : ''}</td>
+          <td>${pct(r.volumePercent)}</td>
+        </tr>`);
+      }
+    }
+    const temps = [15, 25, 30, 40, 50, 60, 70];
+    const densities = [];
+    for (const section of c.sections) {
+      for (const r of section.rows) {
+        if (r.density15 != null && !densities.some((d) => d.density === r.density15)) {
+          densities.push({ density: r.density15, tempC: r.tempC, name: r.name });
+        }
+      }
+    }
+    const vcfHead = temps.map((t) => `<th>${t}</th>`).join('');
+    const vcfRows = densities.map((d) => `<tr>
+      <td class="fr-print-name">${n(d.density, 4)}</td>
+      ${temps.map((t) => {
+        const detail = window.vcfDetail54B(d.density, t);
+        const hit = d.tempC !== '' && Math.abs(Number(d.tempC) - t) < 0.5;
+        return `<td class="${hit ? 'fr-print-used' : ''}">${n(detail.vcf, 4)}</td>`;
+      }).join('')}
+      <td>${n(window.wcf56(d.density), 4)}</td>
+    </tr>`).join('') || '<tr><td colspan="9">No densities entered</td></tr>';
+
+    return `<section class="calib-print-page fr-tc-page fr-tc-page-2">
+      <header class="fr-tc-masthead">
+        <div class="fr-tc-kicker">Annex · not on the tank-condition face</div>
+        <div class="fr-tc-title-row">
+          <h1>TANK CONDITION — PAGE 2</h1>
+          <div class="fr-tc-vessel">${esc(c.vessel.name || '—')}</div>
+          <div class="fr-tc-badge">ANNEX</div>
+        </div>
+        <div class="fr-tc-meta">
+          <div>
+            <div class="fr-tc-kv"><span>IMO</span><b>${esc(c.vessel.imo || '—')}</b></div>
+            <div class="fr-tc-kv"><span>Flag / type</span><b>${esc([c.vessel.flag, c.vessel.type].filter(Boolean).join(' · ') || '—')}</b></div>
+          </div>
+          <div>
+            <div class="fr-tc-kv"><span>Draft F / A</span><b>${n(c.header.draftFwd, 2)} / ${n(c.header.draftAft, 2)} m</b></div>
+            <div class="fr-tc-kv"><span>Mean draft</span><b>${n(c.header.meanDraft, 2)} m</b></div>
+          </div>
+          <div>
+            <div class="fr-tc-kv"><span>E/R temp</span><b>${n(c.header.engineRoomTemp, 0, '—')} °C</b></div>
+            <div class="fr-tc-kv"><span>Sea temp</span><b>${n(c.header.seaTemp, 0, '—')} °C</b></div>
+          </div>
+        </div>
+      </header>
+      <div class="fr-tc-annex">
+        <div>
+          <h3 class="fr-print-h3">Entry fields not shown on page 1</h3>
+          <table class="fr-print-table">
+            <thead><tr>
+              <th class="fr-print-name">Tank</th><th>Fuel</th><th>Method</th>
+              <th>Unit</th><th>Unit value</th><th>In use</th><th>Vol %</th>
+            </tr></thead>
+            <tbody>${extraRows.join('')}</tbody>
+          </table>
+        </div>
+        <div>
+          <h3 class="fr-print-h3">Formulas applied</h3>
+          <table class="fr-print-table fr-print-formulas">
+            <tbody>
+              <tr><td class="fr-print-name">Trim</td><td>draft fwd − draft aft (tables at trim by stern)</td></tr>
+              <tr><td class="fr-print-name">Dip ↔ ullage</td><td>pipe height − reading</td></tr>
+              <tr><td class="fr-print-name">Observed volume</td><td>calibration grid / volume curve at corrected sounding</td></tr>
+              <tr><td class="fr-print-name">VCF 54B</td><td>exp(−α·ΔT·(1 + 0.8·α·ΔT)), ΔT = T − 15 °C</td></tr>
+              <tr><td class="fr-print-name">GSV @15°C</td><td>observed volume × VCF</td></tr>
+              <tr><td class="fr-print-name">WCF 56</td><td>density @15 − 0.0011</td></tr>
+              <tr><td class="fr-print-name">Weight in air</td><td>GSV × WCF</td></tr>
+              <tr><td class="fr-print-name">100% MT</td><td>100% m³ × ${c.options.capacityMtFactor}</td></tr>
+              <tr><td class="fr-print-name">85% limit</td><td>100% MT × ${c.options.safeFillRatio}</td></tr>
+              <tr><td class="fr-print-name">Lube MT</td><td>litres × ${c.lube.density} ÷ 1000</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <h3 class="fr-print-h3">Calculation sheet</h3>
+      <table class="fr-print-table fr-print-calc">
+        <thead><tr>
+          <th>Tank</th><th>Reading</th><th>To table</th><th>Trim corr.</th><th>Heel corr.</th>
+          <th>Observed m³</th><th>VCF</th><th>GSV m³</th><th>WCF</th><th>Weight MT</th>
+        </tr></thead>
+        <tbody>${calcAnnexRows(c)}</tbody>
+      </table>
+      <h3 class="fr-print-h3">ASTM 54B / 56 at densities used (°C)</h3>
+      <table class="fr-print-table">
+        <thead><tr><th>Density @15</th>${vcfHead}<th>WCF</th></tr></thead>
+        <tbody>${vcfRows}</tbody>
+      </table>
+      <div class="fr-tc-signoff">
+        <div></div>
+        <div class="fr-tc-page-no">Page 2 of 2</div>
+      </div>
+      ${footer(`${c.vessel.name} · annex · ${c.header.dateTime}`)}
+    </section>`;
+  }
+
+  function calcAnnexRows(c) {
+    const rows = [];
+    for (const section of c.sections) {
+      for (const r of section.rows) {
+        if (r.measuredM3 == null) continue;
+        const t = r.trace;
+        rows.push(`<tr>
+          <td class="fr-print-name">${esc(r.name)}</td>
+          <td>${esc(r.methodLabel)} ${n(r.reading, 0)}</td>
+          <td>${t.flipped ? `${esc(t.nativeMethod)} ${n(t.nativeReading, 0)}` : 'as read'}</td>
+          <td>${corrCell(r, t.trimCorrection)}</td>
+          <td>${corrCell(r, t.listCorrection)}</td>
+          <td>${n(r.measuredM3, 3)}</td>
+          <td>${n(r.vcf, 4)}</td>
+          <td>${n(r.gsv15M3, 3)}</td>
+          <td>${n(r.wcf, 4)}</td>
+          <td class="fr-print-weight">${n(r.weightAirMT, 3)}</td>
+        </tr>`);
+      }
+    }
+    return rows.join('') || '<tr><td colspan="10">No soundings entered</td></tr>';
+  }
+
+  function printSummaryPage(c) {
+    return printConditionPage(c);
   }
 
   /**
@@ -819,12 +1050,12 @@ const FuelReport = (() => {
   }
 
   function buildPrintPages(c) {
-    return printSummaryPage(c) + printCalculationPage(c) + printFormulaPage(c);
+    return printConditionPage(c) + printAnnexPage(c);
   }
 
   /** Same content the printout carries, for the on-screen "show" toggle. */
   function buildCalcSheetHtml(c) {
-    return `<div class="fuel-report-print-doc fr-preview">${printCalculationPage(c)}${printFormulaPage(c)}</div>`;
+    return `<div class="fuel-report-print-doc fr-preview">${printAnnexPage(c)}</div>`;
   }
 
   function cleanupPrint() {

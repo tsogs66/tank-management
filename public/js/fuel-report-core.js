@@ -243,7 +243,10 @@ function emptyFuelReport(bundle) {
     logbook: { hfo: '', lsfo: '', mdo: '', lsmgo: '' },
     lube: { cylHigh: '', cylLow: '', meSystem: '', dgSystem: '' },
     received: { hfo: '', lsHfo: '', mdoMgo: '', water: '' },
-    consumption: { atSea: '', atAnchor: '', atPort: '' },
+    consumption: {
+      atSea: '', atAnchor: '', atPort: '',
+      boilerSea: '', boilerAnchor: '', boilerPort: '',
+    },
     signature: { preparedBy: '', rank: 'Chief Engineer' },
     options: { capacityMtFactor: CAPACITY_MT_FACTOR, lubeDensity: LUBE_DENSITY },
     updatedAt: null,
@@ -274,7 +277,16 @@ function normalizeForm(bundle, form) {
 function trimLabel(trimByStern) {
   const t = num(trimByStern, 0) || 0;
   if (Math.abs(t) < 0.005) return 'even keel';
-  return `${Math.abs(t).toFixed(2)} m by ${t > 0 ? 'stern' : 'head'}`;
+  return `${Math.abs(t).toFixed(2)} m by ${t > 0 ? 'stern' : 'fore'}`;
+}
+
+/** Ullage and dip in mm from the entered sounding and the sounding-pipe height. */
+function soundingPair(method, reading, pipeHeight) {
+  if (reading == null) return { ullageMm: null, dipMm: null };
+  const pipe = num(pipeHeight, 0) || 0;
+  const other = pipe > 0 ? round(pipe - reading, 1) : null;
+  if (method === 'dip') return { dipMm: round(reading, 1), ullageMm: other };
+  return { ullageMm: round(reading, 1), dipMm: other };
 }
 
 function heelLabel(heel) {
@@ -306,6 +318,7 @@ function computeRow(tank, rowForm, ctx) {
   const flipped = reading != null && method !== nativeMethod && pipeHeight > 0;
   const nativeReading = flipped ? pipeHeight - reading : reading;
 
+  const pair = soundingPair(method, reading, pipeHeight);
   const out = {
     tankId: tank.id,
     name: tank.name || tank.id,
@@ -326,6 +339,8 @@ function computeRow(tank, rowForm, ctx) {
     reading: reading != null ? reading : '',
     method,
     methodLabel: method === 'dip' ? 'DIP' : 'ULLAGE',
+    ullageMm: pair.ullageMm,
+    dipMm: pair.dipMm,
     tempC: row.tempC === '' || row.tempC == null ? '' : tempC,
     unit,
     unitLabel: (UNIT_STANDARDS.find((u) => u.id === unit) || {}).label || unit,
@@ -520,6 +535,11 @@ function computeFuelReport(bundle, form, conversion) {
     },
     received: RECEIVED_FIELDS.map((f) => ({ id: f.id, label: f.label, value: num(normalized.received[f.id]) })),
     consumption: CONSUMPTION_FIELDS.map((f) => ({ id: f.id, label: f.label, value: num(normalized.consumption[f.id]) })),
+    consumptionBoiler: CONSUMPTION_FIELDS.map((f) => ({
+      id: f.id,
+      label: f.label,
+      value: num(normalized.consumption[{ atSea: 'boilerSea', atAnchor: 'boilerAnchor', atPort: 'boilerPort' }[f.id]]),
+    })),
     signature: normalized.signature,
     options: { capacityMtFactor, lubeDensity, safeFillRatio: SAFE_FILL_RATIO },
     form: normalized,
@@ -603,6 +623,7 @@ return {
   LUBE_DENSITY,
   normalizeMethod,
   soundingPipeHeight,
+  soundingPair,
   defaultFuelType,
   sectionForTank,
   sectionForFuelType,
