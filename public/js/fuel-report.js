@@ -723,25 +723,26 @@ const FuelReport = (() => {
 
     return `<section class="calib-print-page fr-tc-page">
       <header class="fr-tc-masthead">
-        <div class="fr-tc-kicker">Official sounding report · A4 portrait</div>
+        <div class="fr-tc-brand-row">
+          <div class="fr-tc-kicker">Official sounding report</div>
+          <div class="fr-tc-app">Vessel Fuel Tank Management</div>
+        </div>
         <div class="fr-tc-title-row">
           <h1>TANK CONDITION</h1>
           <div class="fr-tc-vessel">${esc(c.vessel.name || '—')}</div>
           <div class="fr-tc-badge">${esc(c.header.condition || 'REPORT')}</div>
         </div>
         <div class="fr-tc-meta">
-          <div>
+          <div class="fr-tc-meta-col">
             <div class="fr-tc-kv"><span>Voyage No.</span><b>${esc(c.header.voyageNo || '—')}</b></div>
             <div class="fr-tc-kv"><span>Survey On</span><b>${esc(c.header.reportType || '—')}</b></div>
             <div class="fr-tc-kv"><span>Port</span><b>${esc(c.header.port || '—')}</b></div>
-          </div>
-          <div>
-            <div class="fr-tc-kv"><span>Trim</span><b>${n(c.header.trim, 2)} · ${esc(c.header.trimLabel)}</b></div>
-            <div class="fr-tc-kv"><span>Heel</span><b>${esc(c.header.heelLabel || '—')}</b></div>
-          </div>
-          <div>
             <div class="fr-tc-kv"><span>Date</span><b>${esc(prettyDate(c.header.date))}</b></div>
             <div class="fr-tc-kv"><span>Time</span><b>${esc(c.header.time || '—')}</b></div>
+          </div>
+          <div class="fr-tc-meta-col">
+            <div class="fr-tc-kv"><span>Trim</span><b>${n(c.header.trim, 2)} · ${esc(c.header.trimLabel)}</b></div>
+            <div class="fr-tc-kv"><span>Heel</span><b>${esc(c.header.heelLabel || '—')}</b></div>
           </div>
         </div>
       </header>
@@ -831,56 +832,36 @@ const FuelReport = (() => {
 
     return `<section class="calib-print-page fr-tc-page fr-tc-page-2">
       <header class="fr-tc-masthead">
-        <div class="fr-tc-kicker">Annex · not on the tank-condition face</div>
+        <div class="fr-tc-brand-row">
+          <div class="fr-tc-kicker">Official sounding report</div>
+          <div class="fr-tc-app">Vessel Fuel Tank Management</div>
+        </div>
         <div class="fr-tc-title-row">
           <h1>TANK CONDITION — PAGE 2</h1>
           <div class="fr-tc-vessel">${esc(c.vessel.name || '—')}</div>
           <div class="fr-tc-badge">ANNEX</div>
         </div>
         <div class="fr-tc-meta">
-          <div>
+          <div class="fr-tc-meta-col">
             <div class="fr-tc-kv"><span>IMO</span><b>${esc(c.vessel.imo || '—')}</b></div>
             <div class="fr-tc-kv"><span>Flag / type</span><b>${esc([c.vessel.flag, c.vessel.type].filter(Boolean).join(' · ') || '—')}</b></div>
-          </div>
-          <div>
             <div class="fr-tc-kv"><span>Draft F / A</span><b>${n(c.header.draftFwd, 2)} / ${n(c.header.draftAft, 2)} m</b></div>
-            <div class="fr-tc-kv"><span>Mean draft</span><b>${n(c.header.meanDraft, 2)} m</b></div>
           </div>
-          <div>
+          <div class="fr-tc-meta-col">
+            <div class="fr-tc-kv"><span>Mean draft</span><b>${n(c.header.meanDraft, 2)} m</b></div>
             <div class="fr-tc-kv"><span>E/R temp</span><b>${n(c.header.engineRoomTemp, 0, '—')} °C</b></div>
             <div class="fr-tc-kv"><span>Sea temp</span><b>${n(c.header.seaTemp, 0, '—')} °C</b></div>
           </div>
         </div>
       </header>
-      <div class="fr-tc-annex">
-        <div>
-          <h3 class="fr-print-h3">Entry fields not shown on page 1</h3>
-          <table class="fr-print-table">
-            <thead><tr>
-              <th class="fr-print-name">Tank</th><th>Fuel</th><th>Method</th>
-              <th>Unit</th><th>Unit value</th><th>In use</th><th>Vol %</th>
-            </tr></thead>
-            <tbody>${extraRows.join('')}</tbody>
-          </table>
-        </div>
-        <div>
-          <h3 class="fr-print-h3">Formulas applied</h3>
-          <table class="fr-print-table fr-print-formulas">
-            <tbody>
-              <tr><td class="fr-print-name">Trim</td><td>draft fwd − draft aft (tables at trim by stern)</td></tr>
-              <tr><td class="fr-print-name">Dip ↔ ullage</td><td>pipe height − reading</td></tr>
-              <tr><td class="fr-print-name">Observed volume</td><td>calibration grid / volume curve at corrected sounding</td></tr>
-              <tr><td class="fr-print-name">VCF 54B</td><td>exp(−α·ΔT·(1 + 0.8·α·ΔT)), ΔT = T − 15 °C</td></tr>
-              <tr><td class="fr-print-name">GSV @15°C</td><td>observed volume × VCF</td></tr>
-              <tr><td class="fr-print-name">WCF 56</td><td>density @15 − 0.0011</td></tr>
-              <tr><td class="fr-print-name">Weight in air</td><td>GSV × WCF</td></tr>
-              <tr><td class="fr-print-name">100% MT</td><td>100% m³ × ${c.options.capacityMtFactor}</td></tr>
-              <tr><td class="fr-print-name">85% limit</td><td>100% MT × ${c.options.safeFillRatio}</td></tr>
-              <tr><td class="fr-print-name">Lube MT</td><td>litres × ${c.lube.density} ÷ 1000</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <h3 class="fr-print-h3">Entry fields not shown on page 1</h3>
+      <table class="fr-print-table">
+        <thead><tr>
+          <th class="fr-print-name">Tank</th><th>Fuel</th><th>Method</th>
+          <th>Unit</th><th>Unit value</th><th>In use</th><th>Vol %</th>
+        </tr></thead>
+        <tbody>${extraRows.join('')}</tbody>
+      </table>
       <h3 class="fr-print-h3">Calculation sheet</h3>
       <table class="fr-print-table fr-print-calc">
         <thead><tr>
