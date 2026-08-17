@@ -30,6 +30,17 @@ const PLAN_SLOTS = 6;
 /** Filling limit the plan targets against (workbook Report sheet). */
 const SAFE_FILL = 0.85;
 
+/**
+ * Valve state of one tank in the sequence. Bunkering runs tank by tank, so each
+ * slot is opened, held, and closed on its own while the barge keeps pumping.
+ */
+const TANK_STATES = [
+  { id: 'pending', label: 'PENDING', next: 'filling', action: 'Start' },
+  { id: 'filling', label: 'FILLING', next: 'paused', action: 'Pause' },
+  { id: 'paused', label: 'PAUSED', next: 'filling', action: 'Resume' },
+  { id: 'done', label: 'DONE', next: 'pending', action: 'Reopen' },
+];
+
 /** Ship's condition on the summary sheet. */
 const SHIP_CONDITIONS = [
   { id: 'ballast', label: 'BALLAST' },
@@ -191,6 +202,11 @@ function emptyBunkerPlan(bundle, conversion) {
       tankId: '',
       targetVolumeM3: '',
       currentSoundingMM: '',
+      status: 'pending',
+      startedAt: null,
+      pausedAt: null,
+      elapsedPausedMs: 0,
+      completedAt: null,
     })),
     distributionMode: 'equal-storage',
     status: 'planning',
@@ -209,6 +225,10 @@ function normalizePlan(bundle, form, conversion) {
   for (let i = 0; i < PLAN_SLOTS; i++) {
     seq.push({ ...base.sequence[i], ...((src.sequence || [])[i] || {}) });
   }
+  for (const slot of seq) {
+    if (!TANK_STATES.some((s) => s.id === slot.status)) slot.status = 'pending';
+    slot.elapsedPausedMs = num(slot.elapsedPausedMs, 0) || 0;
+  }
   return {
     header: { ...base.header, ...(src.header || {}) },
     sequence: seq,
@@ -219,6 +239,28 @@ function normalizePlan(bundle, form, conversion) {
     elapsedPausedMs: num(src.elapsedPausedMs, 0) || 0,
     completedAt: src.completedAt || null,
     updatedAt: src.updatedAt || null,
+  };
+}
+
+/**
+ * Time one tank has actually been taking fuel — its own start, minus its own
+ * pauses, stopping when it was closed off.
+ */
+function tankClock(slot, now = Date.now()) {
+  const status = TANK_STATES.some((s) => s.id === slot.status) ? slot.status : 'pending';
+  const startMs = slot.startedAt ? Date.parse(slot.startedAt) : null;
+  if (!startMs) {
+    return { status, running: false, elapsedHours: 0, elapsedLabel: '—' };
+  }
+  const pauseMs = slot.pausedAt ? Date.parse(slot.pausedAt) : null;
+  const endMs = slot.completedAt ? Date.parse(slot.completedAt) : (pauseMs || now);
+  const elapsedMs = Math.max(0, endMs - startMs - (num(slot.elapsedPausedMs, 0) || 0));
+  const hours = elapsedMs / 3600000;
+  return {
+    status,
+    running: status === 'filling',
+    elapsedHours: round(hours, 4),
+    elapsedLabel: hoursLabel(hours),
   };
 }
 
@@ -282,10 +324,21 @@ function computeBunkerPlan(bundle, form, conversion) {
     density15 = sample ? sample.density15 : null;
   }
 
+  const filling = plan.sequence.filter((s) => s.tankId && s.status === 'filling').length;
+  // The barge pumps at one rate; tanks taking fuel at the same time share it.
+  const rateShare = rate > 0 && filling > 0 ? rate / filling : 0;
+
   const rows = plan.sequence.map((slot, i) => {
     const out = {
       slot: i + 1,
       tankId: slot.tankId || '',
+      status: slot.status || 'pending',
+      clock: tankClock(slot),
+      rateShareMTPerHour: slot.status === 'filling' ? round(rateShare, 3) : 0,
+      remainingToTargetM3: null,
+      remainingToTargetMT: null,
+      etaHours: null,
+      etaLabel: '—',
       name: '',
       capacity100M3: null,
       capacity85M3: null,
@@ -374,6 +427,25 @@ function computeBunkerPlan(bundle, form, conversion) {
       if (capacity > 0 && out.currentVolumeM3 > capacity) out.warnings.push('above 100% capacity');
     }
 
+    // What is left to put in this tank, and how long that takes at its share of
+    // the delivery rate.
+    if (out.targetVolumeM3 != null) {
+      const nowVol = out.currentVolumeM3 != null ? out.currentVolumeM3 : startVol;
+      const toGo = Math.max(0, out.targetVolumeM3 - nowVol);
+      out.remainingToTargetM3 = round(toGo, 3);
+      out.remainingToTargetMT = density15 != null
+        ? round(mtFromVolume(toGo, density15, tempC), 3)
+        : null;
+      if (out.rateShareMTPerHour > 0 && out.remainingToTargetMT != null) {
+        out.etaHours = round(out.remainingToTargetMT / out.rateShareMTPerHour, 3);
+        out.etaLabel = hoursLabel(out.etaHours);
+      }
+      if (out.status === 'filling' && toGo <= 0.001) out.warnings.push('target reached — close this tank');
+    }
+    if (out.status === 'done' && out.currentSoundingMM == null) {
+      out.warnings.push('closed without a final sounding');
+    }
+
     return out;
   });
 
@@ -415,6 +487,10 @@ function computeBunkerPlan(bundle, form, conversion) {
     },
     monitoring: {
       clock: pumpingClock(plan, rate, receivedMT),
+      tanksFilling: filling,
+      rateSharePerTank: round(rateShare, 3),
+      // Longest ETA among the open tanks — when the last one reaches its target.
+      etaHours: used.reduce((a, r) => (r.etaHours != null ? Math.max(a, r.etaHours) : a), 0) || null,
       receivedMT,
       quantityRemainingMT: remaining != null ? round(remaining, 3) : null,
       timeRemainingHours: rate > 0 && remaining != null ? round(remaining / rate, 2) : null,
@@ -782,6 +858,8 @@ function afterSnapshot(computed) {
 return {
   PLAN_SLOTS,
   SAFE_FILL,
+  TANK_STATES,
+  tankClock,
   DISTRIBUTION_MODES,
   tanksForMode,
   distributeToSequence,

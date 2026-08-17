@@ -125,6 +125,13 @@ During the transfer, type each tank's **current sounding**; received, quantity r
 and percent complete update as you go. The plan warns when the selected tanks cannot hold the ordered
 quantity at the 85% limit, and when targets do not add up to the bunker quantity.
 
+Each tank in the sequence has its own **valve state** — pending, filling, paused, done — with Start /
+Pause / Resume / Close buttons on the row. Bunkering runs tank by tank, so each slot times itself: how
+long it has been taking fuel, what share of the delivery rate it is getting (the rate splits between the
+tanks open at that moment), how much is still to go to its target, and the **ETA** at which it reaches it.
+Opening the first tank starts the overall pumping clock; closing a tank without a final sounding is
+flagged on the row.
+
 The **pumping clock** (start / pause / reset) shows elapsed pumping time and what the barge's stated rate
 says should be aboard by now, against what the soundings actually show — the difference is the number to
 question while the hose is still connected.
