@@ -280,6 +280,9 @@ function renderNav() {
   nav.appendChild(mk('voyage', 'Voyage Fuel Calc', '🧭'));
   nav.appendChild(mk('bunkering', 'Bunkering', '⛽'));
   nav.appendChild(mk('fuel-report', 'Fuel Report', '🧾'));
+  nav.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
+  nav.appendChild(mk('bunker-after', 'After Bunkering', '📥'));
+  nav.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
   nav.appendChild(mk('report', 'Voyage Report', '📋'));
 
   g = document.createElement('div');
@@ -334,6 +337,9 @@ function render() {
   else if (page === 'voyage') renderVoyage(main);
   else if (page === 'bunkering') renderBunkering(main);
   else if (page === 'fuel-report') FuelReport.render(main);
+  else if (page === 'bunker-plan') BunkerReports.renderPlan(main);
+  else if (page === 'bunker-after') BunkerReports.renderAfter(main);
+  else if (page === 'bunker-summary') BunkerReports.renderSummary(main);
   else if (page === 'report') renderReport(main);
   else if (page === 'vcf-wcf') renderVcfWcf(main);
   else if (page === 'iso8217') renderIso8217(main);

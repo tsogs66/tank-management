@@ -692,6 +692,64 @@ table.fr-sheet tfoot th { text-align: left; }
   .fr-field-wide { grid-column: span 2; }
 }
 
+/* ---------- Bunkering plan / summary screens ---------- */
+.bp-layout { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 14px; align-items: start; }
+table.bp-sheet thead th { min-width: 46px; }
+table.bp-sheet tbody th.fr-tank-name { min-width: 176px; }
+table.bp-sheet tbody th.fr-tank-name select { min-width: 138px; margin-left: 4px; }
+table.bp-sheet tbody input { min-width: 52px; }
+
+.bp-monitor { display: flex; flex-direction: column; gap: 10px; }
+.bp-monitor-box {
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px;
+  background: var(--bg-panel); display: flex; flex-direction: column; gap: 4px;
+}
+.bp-monitor-box > span {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-faint); font-weight: 700;
+}
+.bp-monitor-box > b { font-size: 17px; font-variant-numeric: tabular-nums; }
+.bp-monitor-received { border-color: var(--accent); }
+.bp-monitor-received > b { color: var(--accent-2); }
+.bp-monitor-bad { border-color: var(--bad); }
+.bp-monitor-bad > b { color: var(--bad); }
+.bp-progress {
+  height: 10px; border-radius: 999px; background: var(--bg);
+  border: 1px solid var(--border); overflow: hidden;
+}
+.bp-progress > div { height: 100%; width: 0; background: var(--accent); transition: width .35s ease; }
+
+.bs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; }
+.bs-events { display: flex; flex-direction: column; gap: 6px; }
+.bs-event { display: grid; grid-template-columns: 110px 1fr 1fr; gap: 8px; align-items: center; }
+.bs-event > span {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--text-faint); font-weight: 700;
+}
+.bs-event input {
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 8px; min-width: 0;
+}
+.bs-checks { display: flex; flex-direction: column; gap: 8px; }
+.bs-check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.bs-check-group { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.bs-check-group > span {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--text-faint); font-weight: 700;
+}
+.bs-quantities { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
+.fr-grade-good .fr-grade-row b { color: var(--good); }
+.fr-field textarea {
+  width: 100%; background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 6px; padding: 7px 8px; resize: vertical;
+}
+
+@media (max-width: 1100px) {
+  .bp-layout { grid-template-columns: minmax(0, 1fr); }
+  .bp-monitor { flex-direction: row; flex-wrap: wrap; }
+  .bp-monitor-box { flex: 1 1 150px; }
+  .bp-progress { flex: 1 1 100%; }
+}
+
 /* ---------- Screen-hidden print documents ---------- */
 .calib-print-doc { display: none; }
 .fuel-report-print-doc { display: none; }

@@ -131,7 +131,7 @@ const FuelReport = (() => {
     wrap.className = 'fuel-report-page';
     wrap.innerHTML = `
       ${renderHeaderPanel()}
-      ${view.computed.sections.map(renderSectionPanel).join('')}
+      ${view.computed.sections.map((s) => renderSectionPanel(s)).join('')}
       ${renderGradesPanel()}
       ${renderQuantitiesPanel()}
       ${renderCalcSheetPanel()}
@@ -183,11 +183,16 @@ const FuelReport = (() => {
     </div>`;
   }
 
-  function renderSectionPanel(section) {
+  /**
+   * The tank-entry grid for one section. `formRows` lets other pages (the
+   * after-bunkering report) render the same sheet against their own form.
+   */
+  function renderSectionPanel(section, formRows) {
     const fuelTypes = Core.FUEL_TYPES;
     const units = Core.UNIT_STANDARDS;
+    const source = formRows || view.form.rows;
     const rows = section.rows.map((row) => {
-      const f = view.form.rows[row.tankId] || {};
+      const f = source[row.tankId] || {};
       const typeOpts = fuelTypes.map((t) =>
         `<option value="${t.id}" ${row.fuelType === t.id ? 'selected' : ''}>${esc(t.label)}</option>`).join('');
       const unitOpts = units.map((u) =>
@@ -326,16 +331,9 @@ const FuelReport = (() => {
     });
   }
 
-  function refreshComputed() {
-    const c = recompute();
-
-    setCell('[data-fr-head="meanDraft"]', n(c.header.meanDraft, 2));
-    setCell('[data-fr-head="trim"]', n(c.header.trim, 2));
-    setCell('[data-fr-head="attitude"]',
-      `Trim ${c.header.trimLabel} · heel ${c.header.heelLabel} — calibration tables are read at trim `
-      + `${signed(c.header.trimByStern, 2)} m by the stern.`);
-
-    for (const section of c.sections) {
+  /** Write the derived columns and section totals of a computed report into the DOM. */
+  function paintSectionCells(sections) {
+    for (const section of sections) {
       for (const row of section.rows) {
         for (const col of COMPUTED_COLUMNS) {
           const text = CELL_FORMAT[col.field](row[col.field]);
@@ -348,6 +346,20 @@ const FuelReport = (() => {
       for (const field of ['capacity100M3', 'capacity100MT', 'measuredM3', 'gsv15M3', 'weightAirMT']) {
         setCell(`[data-fr-total="${section.id}.${field}"]`, CELL_FORMAT[field](section.totals[field]));
       }
+    }
+  }
+
+  function refreshComputed() {
+    const c = recompute();
+
+    setCell('[data-fr-head="meanDraft"]', n(c.header.meanDraft, 2));
+    setCell('[data-fr-head="trim"]', n(c.header.trim, 2));
+    setCell('[data-fr-head="attitude"]',
+      `Trim ${c.header.trimLabel} · heel ${c.header.heelLabel} — calibration tables are read at trim `
+      + `${signed(c.header.trimByStern, 2)} m by the stern.`);
+
+    paintSectionCells(c.sections);
+    for (const section of c.sections) {
       setCell(`[data-fr-section-note="${section.id}"]`,
         `100% capacity ${n(section.totals.capacity100MT, 2)} MT · 85% filling limit `
         + `${n(section.totals.capacity85MT, 2)} MT · ${section.totals.tanksInUse} tank(s) in use`
@@ -734,11 +746,16 @@ const FuelReport = (() => {
   }
 
   function printReport(computed) {
+    printHtml(buildPrintPages(computed));
+  }
+
+  /** Drop `html` into a hidden print document, print it, then clean up. */
+  function printHtml(html) {
     cleanupPrint();
     const root = document.createElement('div');
     root.id = 'fuel-report-print-root';
     root.className = 'fuel-report-print-doc';
-    root.innerHTML = buildPrintPages(computed);
+    root.innerHTML = html;
     document.body.appendChild(root);
     document.body.classList.add('printing-fuel-report');
     const finish = () => {
@@ -761,7 +778,29 @@ const FuelReport = (() => {
     }, 50);
   }
 
-  return { render, printReport, buildPrintPages, recompute, view };
+  return {
+    render,
+    printReport,
+    buildPrintPages,
+    recompute,
+    view,
+    // Reused by the bunkering screens so both sheets look and behave the same.
+    printHtml,
+    sheetTableHtml: renderSectionPanel,
+    paintSectionCells,
+    setCell,
+    COMPUTED_COLUMNS,
+    CELL_FORMAT,
+    printSectionTable,
+    masthead,
+    footer,
+    metaGrid,
+    esc,
+    n,
+    pct,
+    signed,
+    nowStamp,
+  };
 })();
 
 window.FuelReport = FuelReport;

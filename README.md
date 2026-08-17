@@ -10,6 +10,9 @@ Multi-vessel web app for fuel tank sounding (double interpolation + ASTM 54B), e
 - **PDF table import** — extract sounding / trim tables from capacity-book PDFs into a tank’s calibration grid
 - **Add tanks** — storage, settling, service (also overflow/other); CSV import template included
 - **Fuel oil report (tank condition)** — the workbook report sheet: per-tank sounding, VCF 54B / WCF 56, weight in air, grade totals vs log book, lube / received / consumption, printed with its calculation sheet and reference tables
+- **Bunkering plan + live monitoring** — loading sequence with target volume → target ullage per tank, delivery rate, live intake, quantity/time remaining
+- **After-bunkering report** — re-sound the tanks; intake per grade against the ROB prior to bunkering
+- **Bunkering report summary** — BDN paperwork, times, fuel/lubes onboard before and after, BDN vs measured difference
 - **Voyage fuel calculation** — per-leg distance/speed/daily burn → arrival ROB
 - **Live bunkering** — MT to receive, pumping rate → time used / remaining, live tank intake, mix calculator for different densities
 - **VCF / WCF calculator** — standalone ASTM 54B / WCF manual calc + reference tables
@@ -59,6 +62,10 @@ data/
       transfers.json
       fuel-report.json    # tank condition report form
       report-history.json # saved report snapshots
+      bunker-plan.json    # bunkering plan & monitoring
+      bunker-after.json   # after-bunkering tank condition
+      bunker-summary.json # bunkering report summary
+      bunker-history.json # saved plans / after-reports / summaries
       meta.json           # revision for sync
 ```
 
@@ -90,6 +97,53 @@ sheet & reference tables*) but are always included in the printout.
 
 Constants taken from the workbook: 100% capacity in MT = 100% m³ × 0.96, filling limit 85%, lube oil
 litres × 0.882 ÷ 1000.
+
+## Bunkering chain
+
+Three screens run one operation, each reading the stage before it:
+
+```
+Fuel Report  ->  Bunker Plan  ->  After Bunkering  ->  Bunker Summary
+  ROB before     target ullage      re-sound tanks       BDN vs measured
+```
+
+### Bunker Plan & Monitoring
+
+Header: date, voyage, port, drafts (mean draft and trim computed), heel, grade, delivery rate, bunker
+quantity, time to bunker, bunker density/temperature.
+
+Loading sequence of up to six tanks. Capacities, starting ullage and starting ROB come straight from the
+fuel report; enter a **target volume** and the calibration table is read *backwards* to give the target
+ullage, plus the tonnage that target adds:
+
+| Column | Source |
+|--------|--------|
+| Free (m³) @85% cap | 85% capacity − starting ROB |
+| Target ullage | bisection on the tank's own trim/heel calibration for the target volume |
+| Plan add (MT) | (target volume − starting ROB) × VCF × WCF at the bunker density |
+| Quantity add (MT) | (current volume − starting ROB) × VCF × WCF — the live intake |
+
+During the transfer, type each tank's **current sounding**; received, quantity remaining, time remaining
+and percent complete update as you go. The plan warns when the selected tanks cannot hold the ordered
+quantity at the 85% limit, and when targets do not add up to the bunker quantity.
+
+Prints the plan sheet with the monitoring figures, a capacity check and the method used, followed by the
+before-bunkering tank condition.
+
+### After Bunkering
+
+The fuel-report grid again, plus per grade: **ROB prior bunkering** → **total added** → **total present**.
+**GET DATA** refills the prior-ROB column (and optionally the soundings) from the saved fuel report — the
+delivery is simply `present − prior`, so a negative figure is consumption rather than intake. Saving writes
+the soundings back as the vessel's current tank readings.
+
+### Bunkering Report Summary
+
+BDN paperwork: alongside / connect / pump start / pump stop / disconnect / cast off times, barge, supplier,
+grade, BDN number, ship's condition, letter of protest, samples, remarks, lubes onboard, and fuel onboard
+previous → received → present. Compares the **BDN quantity** against what the tanks actually show and
+flags a difference beyond the 0.5% normally accepted; pumping duration and average rate come from the
+times. Prints the summary and the tanks-after-bunkering table.
 
 ## Excel workbook (calibration reference)
 
@@ -241,6 +295,14 @@ Point a second instance (ship laptop / office) at the LXC URL under **Backup / S
 | GET | `/api/vessels/:id/fuel-report/history` | Saved report snapshots |
 | DELETE | `/api/vessels/:id/fuel-report/history/:snapshotId` | Delete a snapshot |
 | GET | `/api/reference/fuel-report-options` | Selectors / labels / constants for the report form |
+| GET | `/api/vessels/:id/bunkering-chain` | Plan + after-report + summary + histories in one call |
+| GET/PUT | `/api/vessels/:id/bunker-plan` | Bunkering plan & monitoring (`snapshot` to keep a copy) |
+| POST | `/api/vessels/:id/bunker-plan/compute` | Recompute a plan without saving |
+| GET/PUT | `/api/vessels/:id/bunker-after` | After-bunkering tank condition (`syncReadings`, `snapshot`) |
+| POST | `/api/vessels/:id/bunker-after/get-data` | Reseed prior ROB (and soundings) from the fuel report |
+| GET/PUT | `/api/vessels/:id/bunker-summary` | Bunkering report summary |
+| DELETE | `/api/vessels/:id/bunker-history/:list/:entryId` | Delete a saved plan / after-report / summary |
+| GET | `/api/reference/bunkering-options` | Selectors / labels for the bunkering screens |
 | POST | `/api/vessels/:id/bunker-distribute` | Bunker distribution (preview / instant apply) |
 | POST | `/api/vessels/:id/bunker-ops/start` | Start live bunkering (rate + MT to receive) |
 | GET | `/api/vessels/:id/bunker-ops/active` | Active live op + progress / tank projections |
@@ -263,7 +325,11 @@ Point a second instance (ship laptop / office) at the LXC URL under **Backup / S
 5. **Weight** — `volume@15°C × (density15 − 0.0011)`  
 6. **SG ↔ density** — workbook Conversion sheet `rdToDensity15` (relative density / SG ↔ density @15°C kg/L); also API gravity → density
 
-The fuel report computes with `public/js/fuel-report-core.js`, which the browser loads as a script and the
-server `require()`s, so the same numbers come out online, offline and server-side.
+7. **Target ullage** — bisection on the tank's calibration (the inverse of 1–3) for a wanted volume
+8. **Intake** — `(volume after − volume before) × VCF × WCF`; negative means consumption, not delivery
+
+The fuel report and the bunkering screens compute with `public/js/fuel-report-core.js` and
+`public/js/bunkering-core.js`, which the browser loads as scripts and the server `require()`s, so the same
+numbers come out online, offline and server-side.
 
 Tank detail and Bunkering pages include **SG→ρ** / **ρ→SG** converters. API: `POST /api/reference/convert-density` with `{ from: "sg"|"density"|"api", value }`.

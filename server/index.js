@@ -26,6 +26,7 @@ const giorgisFuelCsv = require('./giorgis-fuel-csv');
 const giorgisLubeXlsx = require('./giorgis-lube-xlsx');
 const bunkerLive = require('./bunker-live');
 const fuelReport = require('../public/js/fuel-report-core');
+const bunkeringCore = require('../public/js/bunkering-core');
 const fs = require('fs');
 
 const app = express();
@@ -233,8 +234,225 @@ app.delete('/api/vessels/:id/fuel-report/history/:snapshotId', (req, res) => {
   }
 });
 
+/* ---------- Bunkering plan, after-bunkering report, report summary ---------- */
+
+/** Read a bunkering history list, newest first. */
+function bunkerHistory(bundle) {
+  return { plans: [], after: [], summaries: [], ...(bundle.bunkerHistory || {}) };
+}
+
+function pushHistory(vesselId, bundle, key, entry) {
+  const history = bunkerHistory(bundle);
+  history[key] = [entry, ...(history[key] || [])].slice(0, 50);
+  store.saveVesselPart(vesselId, 'bunkerHistory', history);
+  return history;
+}
+
+/** Selectors and constants the bunkering screens are built from. */
+app.get('/api/reference/bunkering-options', (req, res) => {
+  res.json({
+    planSlots: bunkeringCore.PLAN_SLOTS,
+    shipConditions: bunkeringCore.SHIP_CONDITIONS,
+    summaryEvents: bunkeringCore.SUMMARY_EVENTS,
+    commonFuelGrades: bunkeringCore.COMMON_FUEL_GRADES,
+    fuelTypes: fuelReport.FUEL_TYPES,
+    safeFillRatio: fuelReport.SAFE_FILL_RATIO,
+  });
+});
+
+/* --- plan + live monitoring --- */
+
+app.get('/api/vessels/:id/bunker-plan', (req, res) => {
+  try {
+    const bundle = store.getVesselBundle(req.params.id);
+    const computed = bunkeringCore.computeBunkerPlan(bundle, bundle.bunkerPlan, conversionTable());
+    res.json({ form: computed.form, computed, history: bunkerHistory(bundle).plans });
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
+app.post('/api/vessels/:id/bunker-plan/compute', (req, res) => {
+  try {
+    const bundle = store.getVesselBundle(req.params.id);
+    const body = req.body || {};
+    const computed = bunkeringCore.computeBunkerPlan(bundle, body.form || body, conversionTable());
+    res.json({ computed });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.put('/api/vessels/:id/bunker-plan', (req, res) => {
+  try {
+    const bundle = store.getVesselBundle(req.params.id);
+    const body = req.body || {};
+    const computed = bunkeringCore.computeBunkerPlan(bundle, body.form || body, conversionTable());
+    const form = { ...computed.form, updatedAt: new Date().toISOString() };
+    store.saveVesselPart(req.params.id, 'bunkerPlan', form);
+
+    let snapshot = null;
+    let history = bunkerHistory(bundle).plans;
+    if (body.snapshot) {
+      snapshot = bunkeringCore.planSnapshot(computed);
+      history = pushHistory(req.params.id, bundle, 'plans', snapshot).plans;
+    }
+    res.json({ form, computed, snapshot, history });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+/* --- after-bunkering tank condition --- */
+
+app.get('/api/vessels/:id/bunker-after', (req, res) => {
+  try {
+    const bundle = store.getVesselBundle(req.params.id);
+    const computed = bunkeringCore.computeAfterBunkering(bundle, bundle.bunkerAfter, conversionTable());
+    res.json({ form: computed.form, computed, history: bunkerHistory(bundle).after });
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
+app.post('/api/vessels/:id/bunker-after/compute', (req, res) => {
+  try {
+    const bundle = store.getVesselBundle(req.params.id);
+    const body = req.body || {};
+    const computed = bunkeringCore.computeAfterBunkering(bundle, body.form || body, conversionTable());
+    res.json({ computed });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+/**
+ * "GET DATA" — reseed the after-report from the saved fuel report: prior ROB
+ * per grade, and the tank rows to sound again.
+ */
+app.post('/api/vessels/:id/bunker-after/get-data', (req, res) => {
+  try {
+    const bundle = store.getVesselBundle(req.params.id);
+    const conversion = conversionTable();
+    const body = req.body || {};
+    const keepSoundings = body.keepSoundings === true;
+    const base = bunkeringCore.emptyAfterReport(bundle, conversion);
+    const form = keepSoundings && bundle.bunkerAfter
+      ? { ...bundle.bunkerAfter, priorRob: base.priorRob }
+      : base;
+    const computed = bunkeringCore.computeAfterBunkering(bundle, form, conversion);
+    res.json({ form: computed.form, computed });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.put('/api/vessels/:id/bunker-after', (req, res) => {
+  try {
+    const bundle = store.getVesselBundle(req.params.id);
+    const body = req.body || {};
+    const computed = bunkeringCore.computeAfterBunkering(bundle, body.form || body, conversionTable());
+    const form = { ...computed.form, updatedAt: new Date().toISOString() };
+    store.saveVesselPart(req.params.id, 'bunkerAfter', form);
+
+    // After bunkering these soundings are the vessel's current condition.
+    if (body.syncReadings !== false) {
+      store.saveVesselPart(req.params.id, 'readings', fuelReport.readingsFromReport(bundle, computed));
+    }
+
+    let snapshot = null;
+    let history = bunkerHistory(bundle).after;
+    if (body.snapshot) {
+      snapshot = bunkeringCore.afterSnapshot(computed);
+      history = pushHistory(req.params.id, bundle, 'after', snapshot).after;
+    }
+    res.json({ form, computed, snapshot, history });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+/* --- bunkering report summary (BDN paperwork) --- */
+
+app.get('/api/vessels/:id/bunker-summary', (req, res) => {
+  try {
+    const bundle = store.getVesselBundle(req.params.id);
+    const computed = bunkeringCore.computeBunkerSummary(bundle, bundle.bunkerSummary, null, conversionTable());
+    res.json({ form: computed.form, computed, history: bunkerHistory(bundle).summaries });
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
+app.post('/api/vessels/:id/bunker-summary/compute', (req, res) => {
+  try {
+    const bundle = store.getVesselBundle(req.params.id);
+    const body = req.body || {};
+    const computed = bunkeringCore.computeBunkerSummary(bundle, body.form || body, null, conversionTable());
+    res.json({ computed });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.put('/api/vessels/:id/bunker-summary', (req, res) => {
+  try {
+    const bundle = store.getVesselBundle(req.params.id);
+    const body = req.body || {};
+    const computed = bunkeringCore.computeBunkerSummary(bundle, body.form || body, null, conversionTable());
+    const form = { ...computed.form, updatedAt: new Date().toISOString() };
+    store.saveVesselPart(req.params.id, 'bunkerSummary', form);
+
+    let snapshot = null;
+    let history = bunkerHistory(bundle).summaries;
+    if (body.snapshot) {
+      snapshot = bunkeringCore.summarySnapshot(computed);
+      history = pushHistory(req.params.id, bundle, 'summaries', snapshot).summaries;
+    }
+    res.json({ form, computed, snapshot, history });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+/** Everything the bunkering chain holds, for one round trip on page load. */
+app.get('/api/vessels/:id/bunkering-chain', (req, res) => {
+  try {
+    const bundle = store.getVesselBundle(req.params.id);
+    const conversion = conversionTable();
+    res.json({
+      plan: bunkeringCore.computeBunkerPlan(bundle, bundle.bunkerPlan, conversion),
+      after: bunkeringCore.computeAfterBunkering(bundle, bundle.bunkerAfter, conversion),
+      summary: bunkeringCore.computeBunkerSummary(bundle, bundle.bunkerSummary, null, conversion),
+      history: bunkerHistory(bundle),
+    });
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
+app.delete('/api/vessels/:id/bunker-history/:list/:entryId', (req, res) => {
+  try {
+    const list = req.params.list;
+    if (!['plans', 'after', 'summaries'].includes(list)) {
+      return res.status(400).json({ error: 'Unknown history list' });
+    }
+    const bundle = store.getVesselBundle(req.params.id);
+    const history = bunkerHistory(bundle);
+    history[list] = (history[list] || []).filter((e) => e.id !== req.params.entryId);
+    store.saveVesselPart(req.params.id, 'bunkerHistory', history);
+    res.json({ history });
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
 app.put('/api/vessels/:id/:part', (req, res) => {
-  const allowed = ['tanks', 'readings', 'voyage', 'bunkering', 'transfers', 'bunkerOps', 'fuelReport', 'reportHistory'];
+  const allowed = [
+    'tanks', 'readings', 'voyage', 'bunkering', 'transfers', 'bunkerOps',
+    'fuelReport', 'reportHistory',
+    'bunkerPlan', 'bunkerAfter', 'bunkerSummary', 'bunkerHistory',
+  ];
   if (!allowed.includes(req.params.part)) {
     return res.status(400).json({ error: 'Invalid part' });
   }
