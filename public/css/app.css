@@ -597,6 +597,16 @@ table.fr-sheet {
 table.fr-sheet th, table.fr-sheet td {
   border: 1px solid var(--border-soft); padding: 3px 4px; text-align: right;
 }
+.fr-move { display: inline-block; margin-left: 6px; vertical-align: middle; }
+.fr-move-btn {
+  min-height: 20px; padding: 1px 6px; font-size: 10px; font-weight: 700;
+  border-color: var(--warn); color: var(--warn); background: rgba(230,179,77,.12);
+}
+.fr-move-btn:hover { border-color: var(--accent); color: var(--accent-2); }
+.fr-move-undo {
+  border-color: var(--border); color: var(--text-faint); background: transparent;
+}
+
 table.fr-sheet th.fr-tank-name { padding-right: 8px; }
 table.fr-sheet thead th {
   position: sticky; top: 0; z-index: 1;
@@ -605,6 +615,16 @@ table.fr-sheet thead th {
   text-align: center; white-space: normal; min-width: 54px; padding: 5px 3px;
 }
 table.fr-sheet thead th.fr-calc-head { color: var(--accent-2); }
+.fr-move { display: inline-block; margin-left: 6px; vertical-align: middle; }
+.fr-move-btn {
+  min-height: 20px; padding: 1px 6px; font-size: 10px; font-weight: 700;
+  border-color: var(--warn); color: var(--warn); background: rgba(230,179,77,.12);
+}
+.fr-move-btn:hover { border-color: var(--accent); color: var(--accent-2); }
+.fr-move-undo {
+  border-color: var(--border); color: var(--text-faint); background: transparent;
+}
+
 table.fr-sheet th.fr-tank-name {
   text-align: left; font-weight: 600; color: var(--text);
   position: sticky; left: 0; background: var(--bg-card); z-index: 1;
