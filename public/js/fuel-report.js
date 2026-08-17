@@ -152,7 +152,9 @@ const FuelReport = (() => {
       ${renderGradesPanel()}
       ${renderQuantitiesPanel()}
       ${renderCalcSheetPanel()}
-      ${renderHistoryPanel(bundle.reportHistory || [])}`;
+      ${renderHistoryPanel(bundle.reportHistory || [])}
+      <div class="fr-preview-label no-print">Print preview — this is the document PRINT &amp; SAVE sends to the printer</div>
+      <div id="fr-live-preview" class="fuel-report-print-doc fr-preview"></div>`;
     main.appendChild(wrap);
 
     bindEvents(wrap);
@@ -230,7 +232,7 @@ const FuelReport = (() => {
       </tr>`;
     }).join('');
 
-    return `<div class="form-panel fr-section" data-section="${esc(section.id)}">
+    return `<div class="form-panel fr-section no-print" data-section="${esc(section.id)}">
       <div class="section-title" style="margin-top:0">${esc(section.title)}</div>
       <div class="scroll-x">
         <table class="fr-sheet">
@@ -313,8 +315,7 @@ const FuelReport = (() => {
   function renderCalcSheetPanel() {
     return `<div class="form-panel no-print">
       <div class="section-title" style="margin-top:0">Calculation sheet &amp; reference tables</div>
-      <p class="hint">Every interpolation step, the ASTM 54B / 56 factors and the conversion tables behind
-        the numbers above. Hidden here to keep the entry grid readable — always included in the printout.</p>
+      <p class="hint">The white pages below are the printout. Use PRINT &amp; SAVE (or Print / PDF without saving) to send them to the printer.</p>
       <div class="btn-row">
         <button class="btn small" id="fr-toggle-calc">Show on screen</button>
         <button class="btn small" id="fr-print-only">Print / PDF without saving</button>
@@ -416,6 +417,9 @@ const FuelReport = (() => {
         + (section.totals.pinned
           ? ` · ${section.totals.pinned} pinned here` : ''));
     }
+
+    const preview = document.getElementById('fr-live-preview');
+    if (preview) preview.innerHTML = buildPrintPages(c);
 
     for (const grade of c.grades) {
       setCell(`[data-fr-grade="${grade.id}.actualMT"]`, n(grade.actualMT, 3, '—'));
@@ -1030,28 +1034,24 @@ const FuelReport = (() => {
     return `<div class="fuel-report-print-doc fr-preview">${printAnnexPage(c)}</div>`;
   }
 
-  function cleanupPrint() {
-    document.body.classList.remove('printing-fuel-report');
-    document.getElementById('fuel-report-print-root')?.remove();
-  }
-
-  function printReport(computed) {
-    printHtml(buildPrintPages(computed));
-  }
-
-  /** Drop `html` into a hidden print document, print it, then clean up. */
+  /** Keep the print document in the DOM until the dialog closes — a 2s timeout
+   *  was deleting it while Chrome's preview was still open, so the printer
+   *  received the on-screen entry grid instead. */
   function printHtml(html) {
-    cleanupPrint();
-    const root = document.createElement('div');
-    root.id = 'fuel-report-print-root';
+    let root = document.getElementById('fuel-report-print-root');
+    if (!root) {
+      root = document.createElement('div');
+      root.id = 'fuel-report-print-root';
+      document.body.appendChild(root);
+    }
     root.className = 'fuel-report-print-doc';
     root.innerHTML = html;
-    document.body.appendChild(root);
     document.body.classList.add('printing-fuel-report');
     const finish = () => {
-      cleanupPrint();
+      document.body.classList.remove('printing-fuel-report');
       window.removeEventListener('afterprint', finish);
     };
+    window.removeEventListener('afterprint', finish);
     window.addEventListener('afterprint', finish);
     window.setTimeout(() => {
       try {
@@ -1060,12 +1060,14 @@ const FuelReport = (() => {
         console.warn(err);
         finish();
         showToast('Print failed');
-        return;
       }
-      window.setTimeout(() => {
-        if (document.body.classList.contains('printing-fuel-report')) finish();
-      }, 2000);
-    }, 50);
+    }, 100);
+  }
+
+  function printReport(computed) {
+    const preview = document.getElementById('fr-live-preview');
+    if (preview) preview.innerHTML = buildPrintPages(computed);
+    printHtml(buildPrintPages(computed));
   }
 
   return {

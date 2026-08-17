@@ -670,9 +670,9 @@ table.fr-sheet tfoot th { text-align: left; }
 
 /* Calculation sheet preview — same markup the printout uses. */
 .fr-calc-sheet { margin-top: 12px; }
-.fuel-report-print-doc.fr-preview {
-  display: block; background: #fff; color: #111; border-radius: var(--radius);
-  padding: 14px; overflow-x: auto;
+.fr-preview-label {
+  margin: 18px 0 8px; font-size: 12px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-faint);
 }
 .fr-preview .calib-print-page { padding-bottom: 12px; }
 .fr-preview .calib-print-masthead { border-bottom: 1.5px solid #111; margin-bottom: 10px; }
@@ -1013,6 +1013,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   /* ---------- Fuel oil report printout ---------- */
   body.printing-fuel-report .app-shell { display: none !important; }
   body.printing-fuel-report .fuel-report-print-doc { display: block !important; }
+  .fuel-report-print-doc.fr-preview { display: block !important; }
 
   .fuel-report-print-doc { color: #111; font-size: 9.5pt; line-height: 1.3; }
   .fuel-report-print-doc .fr-print-h3 {
