@@ -87,6 +87,23 @@ const FuelReport = (() => {
     return view.computed;
   }
 
+  /** The block a tank's row is currently drawn in, per the last computation. */
+  function currentSectionOf(computed, tankId) {
+    for (const section of computed.sections) {
+      if (section.rows.some((r) => r.tankId === tankId)) return section.id;
+    }
+    return null;
+  }
+
+  /**
+   * A fuel type that belongs in the other block moves the row between tables,
+   * which the cell repaint cannot do — the page has to be rebuilt.
+   */
+  function sectionWouldChange(computed, formRow, tankId, nextFuelType) {
+    if (formRow.section) return false; // pinned rows stay put
+    return Core.sectionForFuelType(nextFuelType) !== currentSectionOf(computed, tankId);
+  }
+
   async function loadConversion() {
     if (view.conversion) return view.conversion;
     if (STATE.conversionTable) {
@@ -334,21 +351,22 @@ const FuelReport = (() => {
   const SECTION_SHORT = { fuel: 'F.O.', do: 'D.O.' };
 
   /**
-   * The move control: offered when the selected fuel type belongs in the other
-   * block, and again (as "undo") on a row already moved, so the FUEL OIL and
-   * DIESEL OIL / GAS OIL totals can be made to count only what is really there.
+   * A row sits in the block its fuel type belongs to, so nothing has to be
+   * clicked for the totals to be right. The control here is the exception: pin
+   * a row back to its home table, or release a pinned row to follow the fuel
+   * type again.
    */
   function moveControlHtml(row) {
-    if (row.sectionMismatch) {
-      const to = row.suggestedSection;
-      return `<button class="btn small fr-move-btn" data-move="${esc(row.tankId)}" data-move-to="${esc(to)}"
-        title="This tank is carrying ${esc(row.fuelTypeLabel)} — move it to the ${esc(SECTION_SHORT[to])} table so the totals are right"
-        >→ ${esc(SECTION_SHORT[to] || to)}</button>`;
+    if (row.pinned) {
+      return `<button class="btn small fr-move-btn fr-move-undo" data-move="${esc(row.tankId)}" data-move-to=""
+        title="Held in the ${esc(SECTION_SHORT[row.section])} table against its ${esc(row.fuelTypeLabel)} fuel type — release it"
+        >pinned ↩</button>`;
     }
     if (row.moved) {
-      return `<button class="btn small fr-move-btn fr-move-undo" data-move="${esc(row.tankId)}" data-move-to=""
-        title="Moved from the ${esc(SECTION_SHORT[row.homeSection])} table — put it back"
-        >moved ↩</button>`;
+      const home = row.homeSection;
+      return `<button class="btn small fr-move-btn" data-move="${esc(row.tankId)}" data-move-to="${esc(home)}"
+        title="Counted here because it is carrying ${esc(row.fuelTypeLabel)}. Keep it in the ${esc(SECTION_SHORT[home])} table instead?"
+        >${esc(row.fuelTypeLabel)} ↩ ${esc(SECTION_SHORT[home] || home)}</button>`;
     }
     return '';
   }
@@ -390,10 +408,9 @@ const FuelReport = (() => {
         + (section.totals.averageDensityInUse != null
           ? ` · mean density in use ${n(section.totals.averageDensityInUse, 4)}` : '')
         + (section.totals.movedIn
-          ? ` · ${section.totals.movedIn} tank(s) moved into this table` : '')
-        + (section.totals.mismatched
-          ? ` · ${section.totals.mismatched} tank(s) carrying the other grade — use the move button`
-          : ''));
+          ? ` · ${section.totals.movedIn} tank(s) counted here by fuel type` : '')
+        + (section.totals.pinned
+          ? ` · ${section.totals.pinned} pinned here` : ''));
     }
 
     for (const grade of c.grades) {
@@ -433,8 +450,8 @@ const FuelReport = (() => {
       row.section = to;
       onMoved(to);
       showToast(to
-        ? `Moved to the ${SECTION_SHORT[to]} table`
-        : 'Moved back to its own table');
+        ? `Pinned to the ${SECTION_SHORT[to]} table`
+        : 'Following the fuel type again');
     });
   }
 
@@ -451,7 +468,16 @@ const FuelReport = (() => {
       if (el.dataset.row && el.dataset.field) {
         const row = view.form.rows[el.dataset.row];
         if (!row) return;
+        const moves = el.dataset.field === 'fuelType'
+          && sectionWouldChange(view.computed, row, el.dataset.row, el.value);
         row[el.dataset.field] = el.type === 'checkbox' ? el.checked : el.value;
+        if (moves) {
+          view.pendingForm = view.form;
+          view.dirty = true;
+          navigate('fuel-report');
+          showToast(`Moved to the ${SECTION_SHORT[Core.sectionForFuelType(el.value)]} table`);
+          return;
+        }
       } else if (el.dataset.head) {
         view.form.header[el.dataset.head] = el.value;
       } else if (el.dataset.logbook) {
@@ -603,7 +629,10 @@ const FuelReport = (() => {
           ? ` (mean density ${n(t.averageDensityInUse, 4)})` : ''}</p>
       ${moved.length ? `<p class="calib-print-note">* ${moved.map((r) => esc(r.name)).join(', ')} —
         normally ${esc(SECTION_SHORT[moved[0].homeSection] || '')} tank(s), counted here because they are
-        carrying ${esc(moved.map((r) => r.fuelTypeLabel).join(' / '))} this voyage.</p>` : ''}`;
+        carrying ${esc(moved.map((r) => r.fuelTypeLabel).join(' / '))} this voyage.</p>` : ''}
+      ${section.rows.some((r) => r.pinned) ? `<p class="calib-print-note">Pinned:
+        ${section.rows.filter((r) => r.pinned).map((r) => esc(r.name)).join(', ')} — held in this table
+        against the fuel type entered.</p>` : ''}`;
   }
 
   function printSummaryPage(c) {
@@ -845,6 +874,8 @@ const FuelReport = (() => {
     // Reused by the bunkering screens so both sheets look and behave the same.
     printHtml,
     sheetTableHtml: renderSectionPanel,
+    sectionWouldChange,
+    SECTION_SHORT,
     bindSectionMove,
     moveControlHtml,
     paintSectionCells,
