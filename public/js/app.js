@@ -35,6 +35,83 @@ function showToast(msg) {
   showToast._t = setTimeout(() => el.classList.remove('show'), 2400);
 }
 
+/** Chrome/Edge/Android fire this once; keep it so About can offer Install. */
+let deferredInstallPrompt = null;
+
+function isStandaloneDisplay() {
+  return window.matchMedia('(display-mode: standalone)').matches
+    || window.matchMedia('(display-mode: fullscreen)').matches
+    || window.navigator.standalone === true;
+}
+
+function isAppleMobile() {
+  const ua = navigator.userAgent || '';
+  return /iPad|iPhone|iPod/i.test(ua)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+function installHintText() {
+  if (isStandaloneDisplay()) {
+    return 'This device already has the app on the home screen. Open it from there for full-screen use.';
+  }
+  if (isAppleMobile()) {
+    return 'On iPhone or iPad: tap Share, then Add to Home Screen.';
+  }
+  if (deferredInstallPrompt) {
+    return 'Adds a home-screen icon so the app opens full-screen, like a native app.';
+  }
+  return 'On Android, Chrome, or Edge, tap the button to install. On iPhone or iPad, use Share → Add to Home Screen.';
+}
+
+function paintInstallButton() {
+  const btn = document.getElementById('btn-install-app');
+  const hint = document.getElementById('about-install-hint');
+  if (hint) hint.textContent = installHintText();
+  if (!btn) return;
+  if (isStandaloneDisplay()) {
+    btn.textContent = 'Installed on this device';
+    btn.disabled = true;
+  } else {
+    btn.disabled = false;
+    btn.textContent = 'Install on phone or tablet';
+  }
+}
+
+async function promptAppInstall() {
+  if (isStandaloneDisplay()) {
+    showToast('Already installed on this device');
+    return;
+  }
+  if (deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    try {
+      const choice = await deferredInstallPrompt.userChoice;
+      if (choice.outcome === 'accepted') showToast('Installing…');
+    } catch (err) {
+      console.warn(err);
+    }
+    deferredInstallPrompt = null;
+    paintInstallButton();
+    return;
+  }
+  if (isAppleMobile()) {
+    showToast('Use Share → Add to Home Screen');
+    return;
+  }
+  showToast('Use the browser menu: Install app or Add to Home Screen');
+}
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  paintInstallButton();
+});
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  paintInstallButton();
+  showToast('App installed on this device');
+});
+
 /** Live progress UI for long PDF OCR / extract jobs. */
 const PdfProgress = (() => {
   let timer = null;
@@ -2575,18 +2652,54 @@ function renderIso8217(main) {
 }
 
 function renderAbout(main) {
-  main.innerHTML += `<div class="page-head"><div><h1>About</h1></div></div>
-  <div class="form-panel" style="max-width:760px;line-height:1.7;color:var(--text-dim);font-size:13.5px">
-    <p style="color:var(--text)"><b>Vessel Fuel Tank Management System</b> — multi-vessel sounding calculator with editable calibration database, voyage fuel planning, and bunkering distribution.</p>
-    <p><b>Correction tanks</b> use double bilinear interpolation (trim then list) plus a volume curve.
-    <b>Direct tanks</b> use trim×heel volume grids. Weight uses ASTM Table 54B VCF and WCF (ρ15 − 0.0011).</p>
-    <p>Each vessel is stored under <code>data/vessels/&lt;id&gt;/</code>. The app runs as a local web server (Debian / Proxmox LXC) and as a mobile-friendly PWA for Android. Offline edits queue until the server is reachable; peer sync pushes/pulls full vessel databases.</p>
-    <p>Original CAPTAIN VENIAMIS calibration tables are seeded as the default vessel.</p>
-    <p><b>Import / edit:</b> Excel workbook (Tank1–Tank4), tank-list CSV, per-tank calibration CSV/Excel, or PDF sounding tables (Calibration DB).</p>
-    <p><b>Live bunkering:</b> enter MT to receive and pumping rate (MT/h) for time used / remaining, watch live tank intake, sync soundings, and blend parcels of different density (WCF @15°C).</p>
-    <p><b>SG ↔ density:</b> convert specific gravity / relative density to density @15°C (and back) from the workbook Conversion sheet — on tank sounding and bunkering pages.</p>
-    <p><b>Reference:</b> standalone <b>VCF / WCF</b> calculator with tables, and <b>ISO 8217:2017</b> marine fuel specification limits.</p>
+  main.innerHTML += `<div class="page-head"><div>
+    <h1>About</h1>
+    <div class="desc">Vessel Fuel Tank Management</div>
+  </div></div>
+  <div class="form-panel about-copy">
+    <p style="color:var(--text)"><b>Vessel Fuel Tank Management</b> is a multi-vessel app for sounding tanks,
+      printing tank-condition reports, planning and monitoring bunkering, and keeping each ship’s calibration
+      tables in one place. It runs in the browser on a ship or office server and can be installed on a phone
+      or tablet.</p>
+
+    <div class="about-install">
+      <button type="button" class="btn primary" id="btn-install-app">Install on phone or tablet</button>
+      <p class="about-install-hint" id="about-install-hint"></p>
+    </div>
+
+    <h2>Tank sounding</h2>
+    <p>Enter ullage or dip with trim and heel. <b>Correction tanks</b> interpolate trim, then list, then read
+      a volume curve. <b>Direct tanks</b> read a trim × heel volume grid. Weight uses ASTM Table 54B VCF and
+      Table 56 WCF. Specific gravity and density @15°C convert both ways on the sounding and bunkering pages.</p>
+
+    <h2>Fuel Report (TANK CONDITION)</h2>
+    <p>The voyage sheet: header (vessel, IMO, port, date, drafts, trim, heel, temperatures), fuel-oil and
+      diesel-oil tables, log-book comparison, lube oil, received quantities, and daily consumption
+      (At sea, At Anchorage, In Port). Print as a two-page A4 portrait document — the face sheet plus the
+      calculation annex.</p>
+
+    <h2>Bunkering</h2>
+    <p>One operation across three screens. <b>Bunker Plan</b> sets the fill sequence, target ullages, delivery
+      rate and live pumping clock. <b>After Bunkering</b> re-sounds the tanks. <b>Bunker Summary</b> compares
+      BDN figures with measured intake.</p>
+
+    <h2>Calibration and import</h2>
+    <p>Edit sounding × trim grids in Calibration DB. Import capacity-book PDFs (including scanned books with
+      OCR), tank-list CSV, per-tank CSV/Excel tables, and Giorgis-style fuel, lube, misc and water workbooks.
+      Sample vessels ship with the app so a new install is ready to try.</p>
+
+    <h2>Voyage and reference</h2>
+    <p><b>Voyage Fuel Calc</b> plans legs by distance, speed and daily burn to arrival ROB.
+      <b>VCF / WCF Calc</b> is a standalone ASTM 54B / 56 calculator with tables.
+      <b>ISO 8217 Specs</b> lists 2017 distillate and residual marine-fuel limits.</p>
+
+    <h2>Ships, offline and backup</h2>
+    <p>Each vessel has its own database. The layout fits phones, tablets and desktop. Offline edits stay on
+      the device and sync when the server is reachable. Backup / Sync can push or pull a full vessel
+      database between machines.</p>
   </div>`;
+  document.getElementById('btn-install-app')?.addEventListener('click', promptAppInstall);
+  paintInstallButton();
 }
 
 /* ---------- Boot ---------- */
@@ -2639,7 +2752,7 @@ async function boot() {
   }
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js?v=32').catch(() => {});
+    navigator.serviceWorker.register('/sw.js?v=33').catch(() => {});
   }
 
   render();

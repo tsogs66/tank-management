@@ -1,7 +1,7 @@
 {
   "name": "Vessel Fuel Tank Management",
   "short_name": "FuelTMS",
-  "description": "Multi-vessel fuel tank sounding, bunkering, and voyage fuel management",
+  "description": "Sound tanks, print tank-condition reports, and manage bunkering on desktop, phone, or tablet",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f172a",
