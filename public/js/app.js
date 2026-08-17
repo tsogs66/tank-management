@@ -2639,7 +2639,7 @@ async function boot() {
   }
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js?v=29').catch(() => {});
+    navigator.serviceWorker.register('/sw.js?v=30').catch(() => {});
   }
 
   render();

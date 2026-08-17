@@ -644,6 +644,46 @@ const FuelReport = (() => {
     return `${String(d.getDate()).padStart(2, '0')}-${months[d.getMonth()]}-${String(d.getFullYear()).slice(-2)}`;
   }
 
+  function fact(label, value) {
+    return `<div class="fr-tc-fact"><span>${esc(label)}</span><b>${value}</b></div>`;
+  }
+
+  function printMasthead(c, opts) {
+    const title = (opts && opts.title) || 'TANK CONDITION';
+    const showFacts = !opts || opts.showFacts !== false;
+    const reportType = c.header.reportType || '—';
+    const imo = c.vessel.imo ? `IMO ${c.vessel.imo}` : 'IMO —';
+    const dateTime = c.header.dateTime || prettyDate(c.header.date);
+    const facts = showFacts ? `<div class="fr-tc-facts">
+      ${fact('Port', esc(c.header.port || '—'))}
+      ${fact('Date / Time', esc(dateTime || '—'))}
+      ${fact('Voyage No.', esc(c.header.voyageNo || '—'))}
+      ${fact('Draft Fwd / Aft', `${n(c.header.draftFwd, 2)} / ${n(c.header.draftAft, 2)} m`)}
+      ${fact('Trim', `${n(c.header.trim, 2)} (${esc(c.header.trimLabel)})`)}
+      ${fact('Heel', esc(c.header.heelLabel || '—'))}
+      ${fact('Mean Draft', `${n(c.header.meanDraft, 2)} m`)}
+      ${fact('E/R Temp', `${n(c.header.engineRoomTemp, 0, '—')} °C`)}
+      ${fact('Sea Temp', `${n(c.header.seaTemp, 0, '—')} °C`)}
+    </div>` : '';
+    return `<header class="fr-tc-masthead">
+      <div class="fr-tc-brand-row">
+        <div class="fr-tc-app">Vessel Fuel Tank Management</div>
+      </div>
+      <div class="fr-tc-title-row">
+        <div class="fr-tc-ident-left">
+          <div class="fr-tc-ident-name">${esc(c.vessel.name || '—')}</div>
+          <div class="fr-tc-ident-imo">${esc(imo)}</div>
+        </div>
+        <h1>${esc(title)}</h1>
+        <div class="fr-tc-ident-right">
+          <span>Report</span>
+          <b>${esc(reportType)}</b>
+        </div>
+      </div>
+      ${facts}
+    </header>`;
+  }
+
   function printConditionSection(section, options) {
     const moved = section.rows.filter((r) => r.moved);
     const rows = section.rows.map((r) => `<tr>
@@ -726,30 +766,7 @@ const FuelReport = (() => {
     const blr = c.consumptionBoiler || [];
 
     return `<section class="calib-print-page fr-tc-page">
-      <header class="fr-tc-masthead">
-        <div class="fr-tc-brand-row">
-          <div class="fr-tc-kicker">Official sounding report</div>
-          <div class="fr-tc-app">Vessel Fuel Tank Management</div>
-        </div>
-        <div class="fr-tc-title-row">
-          <h1>TANK CONDITION</h1>
-          <div class="fr-tc-vessel">${esc(c.vessel.name || '—')}</div>
-          <div class="fr-tc-badge">${esc(c.header.condition || 'REPORT')}</div>
-        </div>
-        <div class="fr-tc-meta">
-          <div class="fr-tc-meta-col">
-            <div class="fr-tc-kv"><span>Voyage No.</span><b>${esc(c.header.voyageNo || '—')}</b></div>
-            <div class="fr-tc-kv"><span>Survey On</span><b>${esc(c.header.reportType || '—')}</b></div>
-            <div class="fr-tc-kv"><span>Port</span><b>${esc(c.header.port || '—')}</b></div>
-            <div class="fr-tc-kv"><span>Date</span><b>${esc(prettyDate(c.header.date))}</b></div>
-            <div class="fr-tc-kv"><span>Time</span><b>${esc(c.header.time || '—')}</b></div>
-          </div>
-          <div class="fr-tc-meta-col">
-            <div class="fr-tc-kv"><span>Trim</span><b>${n(c.header.trim, 2)} · ${esc(c.header.trimLabel)}</b></div>
-            <div class="fr-tc-kv"><span>Heel</span><b>${esc(c.header.heelLabel || '—')}</b></div>
-          </div>
-        </div>
-      </header>
+      ${printMasthead(c)}
       ${c.sections.map((s) => printConditionSection(s, c.options)).join('')}
       <div class="fr-tc-cards">
         <div class="fr-tc-card">
@@ -835,29 +852,7 @@ const FuelReport = (() => {
     </tr>`).join('') || '<tr><td colspan="9">No densities entered</td></tr>';
 
     return `<section class="calib-print-page fr-tc-page fr-tc-page-2">
-      <header class="fr-tc-masthead">
-        <div class="fr-tc-brand-row">
-          <div class="fr-tc-kicker">Official sounding report</div>
-          <div class="fr-tc-app">Vessel Fuel Tank Management</div>
-        </div>
-        <div class="fr-tc-title-row">
-          <h1>TANK CONDITION — PAGE 2</h1>
-          <div class="fr-tc-vessel">${esc(c.vessel.name || '—')}</div>
-          <div class="fr-tc-badge">ANNEX</div>
-        </div>
-        <div class="fr-tc-meta">
-          <div class="fr-tc-meta-col">
-            <div class="fr-tc-kv"><span>IMO</span><b>${esc(c.vessel.imo || '—')}</b></div>
-            <div class="fr-tc-kv"><span>Flag / type</span><b>${esc([c.vessel.flag, c.vessel.type].filter(Boolean).join(' · ') || '—')}</b></div>
-            <div class="fr-tc-kv"><span>Draft F / A</span><b>${n(c.header.draftFwd, 2)} / ${n(c.header.draftAft, 2)} m</b></div>
-          </div>
-          <div class="fr-tc-meta-col">
-            <div class="fr-tc-kv"><span>Mean draft</span><b>${n(c.header.meanDraft, 2)} m</b></div>
-            <div class="fr-tc-kv"><span>E/R temp</span><b>${n(c.header.engineRoomTemp, 0, '—')} °C</b></div>
-            <div class="fr-tc-kv"><span>Sea temp</span><b>${n(c.header.seaTemp, 0, '—')} °C</b></div>
-          </div>
-        </div>
-      </header>
+      ${printMasthead(c, { title: 'TANK CONDITION', showFacts: false })}
       <h3 class="fr-print-h3">Entry fields not shown on page 1</h3>
       <table class="fr-print-table">
         <thead><tr>
@@ -1047,7 +1042,10 @@ const FuelReport = (() => {
     root.className = 'fuel-report-print-doc';
     root.innerHTML = html;
     document.body.classList.add('printing-fuel-report');
+    const previousTitle = document.title;
+    document.title = '\u00A0';
     const finish = () => {
+      document.title = previousTitle;
       document.body.classList.remove('printing-fuel-report');
       window.removeEventListener('afterprint', finish);
     };
