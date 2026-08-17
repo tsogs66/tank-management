@@ -571,7 +571,7 @@ const FuelReport = (() => {
   function masthead(title, subtitle) {
     return `<header class="calib-print-masthead">
       <div><h1>${esc(title)}</h1><div class="sub">${esc(subtitle)}</div></div>
-      <div class="calib-print-badge">OFFICIAL · LANDSCAPE A4</div>
+      <div class="calib-print-badge">OFFICIAL · A4</div>
     </header>`;
   }
 
@@ -594,11 +594,7 @@ const FuelReport = (() => {
       <td>${n(r.reading, 0)}</td>
       <td>${esc(r.methodLabel)}</td>
       <td>${n(r.tempC, 1)}</td>
-      <td>${esc(r.unitLabel)}</td>
-      <td>${n(r.unitValue, 4)}</td>
-      <td>${r.inUse ? 'YES' : ''}</td>
       <td>${n(r.capacity100M3, 1)}</td>
-      <td>${n(r.capacity100MT, 2)}</td>
       <td>${n(r.measuredM3, 3)}</td>
       <td>${pct(r.volumePercent)}</td>
       <td>${n(r.density15, 4)}</td>
@@ -611,15 +607,14 @@ const FuelReport = (() => {
     return `<h3 class="fr-print-h3">${esc(section.title)}</h3>
       <table class="fr-print-table">
         <thead><tr>
-          <th>Tank</th><th>Fuel</th><th>Actual (mm)</th><th>Method</th><th>Temp °C</th><th>Unit</th>
-          <th>Unit value</th><th>In use</th><th>100% m³</th><th>100% MT</th><th>Measured m³</th>
-          <th>Vol %</th><th>Density @15</th><th>VCF 54B</th><th>GSV @15 m³</th><th>WCF 56</th><th>Weight air MT</th>
+          <th>Tank</th><th>Fuel</th><th>Actual (mm)</th><th>Method</th><th>Temp °C</th>
+          <th>100% m³</th><th>Measured m³</th><th>Vol %</th><th>Density @15</th>
+          <th>VCF 54B</th><th>GSV @15 m³</th><th>WCF 56</th><th>Weight air MT</th>
         </tr></thead>
         <tbody>${rows}</tbody>
         <tfoot><tr>
-          <th colspan="8">TOTAL</th>
+          <th colspan="5">TOTAL</th>
           <td>${n(t.capacity100M3, 1)}</td>
-          <td>${n(t.capacity100MT, 2)}</td>
           <td>${n(t.measuredM3, 3)}</td>
           <td colspan="3"></td>
           <td>${n(t.gsv15M3, 3)}</td>
@@ -628,9 +623,7 @@ const FuelReport = (() => {
         </tr></tfoot>
       </table>
       <p class="calib-print-note">100% capacity in MT = 100% m³ × ${options.capacityMtFactor}
-        · ${(options.safeFillRatio * 100).toFixed(0)}% filling limit = ${n(t.capacity85MT, 2)} MT
-        · tanks in use ${t.tanksInUse}${t.averageDensityInUse != null
-          ? ` (mean density ${n(t.averageDensityInUse, 4)})` : ''}</p>
+        · ${(options.safeFillRatio * 100).toFixed(0)}% filling limit = ${n(t.capacity85MT, 2)} MT</p>
       ${moved.length ? `<p class="calib-print-note">* ${moved.map((r) => esc(r.name)).join(', ')} —
         normally ${esc(SECTION_SHORT[moved[0].homeSection] || '')} tank(s), counted here because they are
         carrying ${esc(moved.map((r) => r.fuelTypeLabel).join(' / '))} this voyage.</p>` : ''}
@@ -651,12 +644,13 @@ const FuelReport = (() => {
     const moved = section.rows.filter((r) => r.moved);
     const rows = section.rows.map((r) => `<tr>
       <td class="fr-print-name">${esc(r.name)}${r.moved ? ' *' : ''}</td>
-      <td>${n(r.capacity100M3, 2)}</td>
-      <td>${n(r.capacity100MT, 2)}</td>
-      <td>${n(r.ullageMm, 0)}</td>
-      <td>${n(r.dipMm, 0)}</td>
-      <td>${n(r.measuredM3, 3)}</td>
+      <td>${esc(r.fuelTypeLabel)}</td>
+      <td>${n(r.reading, 0)}</td>
+      <td>${esc(r.methodLabel)}</td>
       <td>${n(r.tempC, 1)}</td>
+      <td>${n(r.capacity100M3, 1)}</td>
+      <td>${n(r.measuredM3, 3)}</td>
+      <td>${pct(r.volumePercent)}</td>
       <td>${n(r.density15, 4)}</td>
       <td>${n(r.vcf, 4)}</td>
       <td>${n(r.gsv15M3, 3)}</td>
@@ -667,34 +661,31 @@ const FuelReport = (() => {
     return `<section class="fr-tc-block">
       <div class="fr-tc-block-head">
         <h3>${esc(section.title)}</h3>
-        <span>${t.tanks} tank${t.tanks === 1 ? '' : 's'}${t.tanksInUse ? ` · ${t.tanksInUse} in use` : ''}</span>
+        <span>${t.tanks} tank${t.tanks === 1 ? '' : 's'}</span>
       </div>
       <table class="fr-tc-table">
         <thead>
           <tr>
-            <th rowspan="2" class="fr-print-name">Tanks</th>
-            <th colspan="2">Full Capacity</th>
-            <th colspan="2">Sounding mm</th>
-            <th rowspan="2">Volume<br>M³</th>
-            <th rowspan="2">Temp<br>°C</th>
-            <th rowspan="2">Density @15°C<br>kg/L (vac)</th>
-            <th rowspan="2">VCF<br>Table 54B</th>
-            <th rowspan="2">GSV @15°C<br>M³</th>
-            <th rowspan="2">WCF<br>Table 56</th>
-            <th rowspan="2">Weight<br>MT</th>
-          </tr>
-          <tr>
-            <th>M³</th><th>MT</th>
-            <th>Ullage</th><th>Dip</th>
+            <th class="fr-print-name">Tank</th>
+            <th>Fuel</th>
+            <th>Actual<br>mm</th>
+            <th>Method</th>
+            <th>Temp<br>°C</th>
+            <th>100%<br>m³</th>
+            <th>Measured<br>m³</th>
+            <th>Vol %</th>
+            <th>Density<br>@15°C</th>
+            <th>VCF<br>54B</th>
+            <th>GSV @15<br>m³</th>
+            <th>WCF<br>56</th>
+            <th>Weight<br>air MT</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
         <tfoot>
           <tr>
-            <th class="fr-print-name">TOTAL</th>
-            <td>${n(t.capacity100M3, 2)}</td>
-            <td>${n(t.capacity100MT, 2)}</td>
-            <td></td><td></td>
+            <th class="fr-print-name" colspan="5">TOTAL</th>
+            <td>${n(t.capacity100M3, 1)}</td>
             <td>${n(t.measuredM3, 3)}</td>
             <td colspan="3"></td>
             <td>${n(t.gsv15M3, 3)}</td>
@@ -705,7 +696,7 @@ const FuelReport = (() => {
       </table>
       <div class="fr-tc-capline">
         <span>TOTAL (MT) <b>${n(t.weightAirMT, 3)}</b></span>
-        <span>${(options.safeFillRatio * 100).toFixed(0)}% Capacity (MT) <b>${n(t.capacity85MT, 2)}</b></span>
+        <span>100% m³ × ${options.capacityMtFactor} · ${(options.safeFillRatio * 100).toFixed(0)}% limit <b>${n(t.capacity85MT, 2)} MT</b></span>
       </div>
       ${moved.length ? `<p class="calib-print-note">* ${moved.map((r) => esc(r.name)).join(', ')} counted in this block from the fuel type entered this voyage.</p>` : ''}
     </section>`;
@@ -732,7 +723,7 @@ const FuelReport = (() => {
 
     return `<section class="calib-print-page fr-tc-page">
       <header class="fr-tc-masthead">
-        <div class="fr-tc-kicker">Official sounding report · landscape A4</div>
+        <div class="fr-tc-kicker">Official sounding report · A4 portrait</div>
         <div class="fr-tc-title-row">
           <h1>TANK CONDITION</h1>
           <div class="fr-tc-vessel">${esc(c.vessel.name || '—')}</div>
