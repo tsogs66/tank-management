@@ -9,6 +9,7 @@ Multi-vessel web app for fuel tank sounding (double interpolation + ASTM 54B), e
 - **Editable calibration DB** — correct trim/list grids and volume curves manually
 - **PDF table import** — extract sounding / trim tables from capacity-book PDFs into a tank’s calibration grid
 - **Add tanks** — storage, settling, service (also overflow/other); CSV import template included
+- **Fuel oil report (tank condition)** — the workbook report sheet: per-tank sounding, VCF 54B / WCF 56, weight in air, grade totals vs log book, lube / received / consumption, printed with its calculation sheet and reference tables
 - **Voyage fuel calculation** — per-leg distance/speed/daily burn → arrival ROB
 - **Live bunkering** — MT to receive, pumping rate → time used / remaining, live tank intake, mix calculator for different densities
 - **VCF / WCF calculator** — standalone ASTM 54B / WCF manual calc + reference tables
@@ -56,8 +57,39 @@ data/
       bunkering.json
       bunker-ops.json
       transfers.json
+      fuel-report.json    # tank condition report form
+      report-history.json # saved report snapshots
       meta.json           # revision for sync
 ```
+
+## Fuel oil report (TANK CONDITION)
+
+**Fuel Report** in the sidebar reproduces the workbook's report sheet — one row per fuel tank:
+
+| Entered | Derived |
+|---------|---------|
+| fuel type (HFO / LSFO / MDO-MGO / LSMGO), sounding in mm, method (ullage / dip), temperature, petroleum unit standard + value, "tank in use" | 100% volume m³ and MT, measured volume m³, volume %, density @15 °C, VCF 54B, GSV @15 °C, WCF 56, weight in air MT |
+
+Header carries voyage no., report type, port, date/time, drafts, heel and E/R + sea temperature. Mean
+draft and trim are computed from the drafts (trim is shown fwd − aft as in the workbook; the calibration
+tables are read at trim by the stern). A reading taken the opposite way to the tank's calibration scale is
+converted through the sounding-pipe height before lookup.
+
+Below the grid: per-grade totals against the **log book ROB** (with the difference), lube oil quantities in
+litres → MT, received quantities, daily consumption, and the preparer.
+
+**PRINT & SAVE** saves the form, writes the soundings back as tank readings, appends a snapshot to
+*Saved reports*, and prints a landscape A4 document of three pages:
+
+1. **TANK CONDITION** — both tank blocks with every column, totals, log-book comparison, lube / received / consumption, signature
+2. **CALCULATION SHEET** — the derivation the entry grid hides: raw reading → table scale → trim/heel correction → observed volume → α 54B, ΔT, VCF → GSV → WCF → weight
+3. **FORMULAS & REFERENCE TABLES** — every formula with its workbook source, plus ASTM 54B VCF across temperature and Table 56 WCF for each density used in the report
+
+The calculation sheet and reference tables are collapsed on screen (**Show on screen** under *Calculation
+sheet & reference tables*) but are always included in the printout.
+
+Constants taken from the workbook: 100% capacity in MT = 100% m³ × 0.96, filling limit 85%, lube oil
+litres × 0.882 ÷ 1000.
 
 ## Excel workbook (calibration reference)
 
@@ -203,6 +235,12 @@ Point a second instance (ship laptop / office) at the LXC URL under **Backup / S
 | GET | `/api/vessels/:id` | Full vessel bundle |
 | PUT | `/api/vessels/:id/tanks/:tankId/calibration` | Edit calibration |
 | POST | `/api/vessels/:id/calculate` | Sounding calc + save |
+| GET | `/api/vessels/:id/fuel-report` | Saved report form + computed report + history |
+| POST | `/api/vessels/:id/fuel-report/compute` | Recompute a posted form without saving |
+| PUT | `/api/vessels/:id/fuel-report` | Save form (`snapshot`, `syncReadings`) |
+| GET | `/api/vessels/:id/fuel-report/history` | Saved report snapshots |
+| DELETE | `/api/vessels/:id/fuel-report/history/:snapshotId` | Delete a snapshot |
+| GET | `/api/reference/fuel-report-options` | Selectors / labels / constants for the report form |
 | POST | `/api/vessels/:id/bunker-distribute` | Bunker distribution (preview / instant apply) |
 | POST | `/api/vessels/:id/bunker-ops/start` | Start live bunkering (rate + MT to receive) |
 | GET | `/api/vessels/:id/bunker-ops/active` | Active live op + progress / tank projections |
@@ -224,5 +262,8 @@ Point a second instance (ship laptop / office) at the LXC URL under **Backup / S
 4. **VCF (ASTM 54B)** — density-banded α, `exp(−α·ΔT·(1+0.8·α·ΔT))`  
 5. **Weight** — `volume@15°C × (density15 − 0.0011)`  
 6. **SG ↔ density** — workbook Conversion sheet `rdToDensity15` (relative density / SG ↔ density @15°C kg/L); also API gravity → density
+
+The fuel report computes with `public/js/fuel-report-core.js`, which the browser loads as a script and the
+server `require()`s, so the same numbers come out online, offline and server-side.
 
 Tank detail and Bunkering pages include **SG→ρ** / **ρ→SG** converters. API: `POST /api/reference/convert-density` with `{ from: "sg"|"density"|"api", value }`.

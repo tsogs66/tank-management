@@ -564,8 +564,137 @@ table.excel-table input[type="number"]:focus {
   .btn.small { min-height: 40px; }
 }
 
-/* ---------- Screen-hidden calibration print document ---------- */
+/* ---------- Fuel oil report (tank condition sheet) ---------- */
+.fuel-report-page .fr-section { margin-top: 16px; }
+
+.fr-header-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(110px, 1fr));
+  gap: 10px 12px;
+}
+.fr-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fr-field > span {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--text-faint); font-weight: 700;
+}
+.fr-field input, .fr-field select {
+  width: 100%; background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 6px; padding: 7px 8px; min-width: 0;
+}
+.fr-field .fr-out {
+  padding: 7px 8px; border: 1px dashed var(--border); border-radius: 6px;
+  background: var(--bg-panel-2); color: var(--accent-2); font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.fr-field .fr-unit { color: var(--text-faint); font-size: 11px; font-style: normal; }
+.fr-field-wide { grid-column: span 2; }
+.fr-header .hint { margin-top: 10px; }
+
+table.fr-sheet {
+  width: 100%; border-collapse: collapse; font-size: 12px;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+table.fr-sheet th, table.fr-sheet td {
+  border: 1px solid var(--border-soft); padding: 3px 4px; text-align: right;
+}
+table.fr-sheet th.fr-tank-name { padding-right: 8px; }
+table.fr-sheet thead th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--bg-panel-2); color: var(--text-dim);
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: .03em;
+  text-align: center; white-space: normal; min-width: 54px; padding: 5px 3px;
+}
+table.fr-sheet thead th.fr-calc-head { color: var(--accent-2); }
+table.fr-sheet th.fr-tank-name {
+  text-align: left; font-weight: 600; color: var(--text);
+  position: sticky; left: 0; background: var(--bg-card); z-index: 1;
+}
+table.fr-sheet tbody input, table.fr-sheet tbody select {
+  width: 100%; min-width: 58px; background: var(--bg-panel);
+  border: 1px solid var(--border); border-radius: 5px; padding: 4px 4px;
+  font-size: 12px; text-align: right;
+}
+table.fr-sheet tbody select { padding-right: 2px; text-align: left; }
+table.fr-sheet tbody input.fr-narrow { min-width: 46px; }
+table.fr-sheet tbody input.fr-wide { min-width: 68px; }
+table.fr-sheet td.fr-check { text-align: center; }
+table.fr-sheet td.fr-check input { width: 16px; min-width: 16px; }
+table.fr-sheet td.fr-calc {
+  background: var(--bg-panel); color: var(--text); font-weight: 600;
+}
+table.fr-sheet tr.fr-warn td.fr-calc { color: var(--warn); }
+table.fr-sheet tfoot th, table.fr-sheet tfoot td {
+  background: var(--bg-panel-2); font-weight: 700; border-top: 2px solid var(--border);
+}
+table.fr-sheet tfoot th { text-align: left; }
+
+.fr-grades {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;
+}
+.fr-grade {
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px;
+  background: var(--bg-panel); display: flex; flex-direction: column; gap: 8px;
+}
+.fr-grade-label { font-weight: 700; letter-spacing: .04em; }
+.fr-grade-row {
+  display: flex; justify-content: space-between; gap: 8px;
+  font-size: 12px; color: var(--text-dim);
+}
+.fr-grade-row b { color: var(--text); font-variant-numeric: tabular-nums; }
+.fr-grade-empty { opacity: .55; }
+.fr-grade-off .fr-grade-row:last-child b { color: var(--warn); }
+
+.fr-quant {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px 12px;
+}
+
+/* Calculation sheet preview — same markup the printout uses. */
+.fr-calc-sheet { margin-top: 12px; }
+.fuel-report-print-doc.fr-preview {
+  display: block; background: #fff; color: #111; border-radius: var(--radius);
+  padding: 14px; overflow-x: auto;
+}
+.fr-preview .calib-print-page { padding-bottom: 12px; }
+.fr-preview .calib-print-masthead { border-bottom: 1.5px solid #111; margin-bottom: 10px; }
+.fr-preview .calib-print-masthead h1 { margin: 0; font-size: 16px; }
+.fr-preview .calib-print-badge { border: 1px solid #111; padding: 3px 6px; font-size: 10px; }
+.fr-preview .calib-print-footer {
+  display: flex; justify-content: space-between; border-top: 1px solid #666;
+  margin-top: 8px; padding-top: 4px; font-size: 10px; color: #444;
+}
+.fr-preview table.fr-print-table { width: 100%; border-collapse: collapse; font-size: 10px; }
+.fr-preview table.fr-print-table th, .fr-preview table.fr-print-table td {
+  border: 1px solid #333; padding: 2px 4px; text-align: right; color: #111;
+}
+.fr-preview table.fr-print-table th { background: #eee; text-align: center; }
+.fr-preview .fr-print-name { text-align: left; }
+.fr-preview .even-keel { background: #e8eef6; }
+.fr-preview .calib-print-note { font-size: 10px; color: #444; }
+.fr-preview .calib-print-meta {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px 12px;
+  margin: 8px 0 12px; font-size: 11px; color: #111;
+}
+.fr-preview .calib-print-meta .k {
+  display: block; font-size: 9px; text-transform: uppercase;
+  letter-spacing: .06em; color: #555;
+}
+.fr-preview .calib-print-meta .v { font-weight: 600; }
+.fr-preview .fr-print-cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.fr-preview .fr-print-h3 { font-size: 12px; margin: 10px 0 4px; }
+.fr-preview .fr-print-used { background: #e8eef6; }
+.fr-preview .fr-print-sign { margin-top: 12px; font-size: 11px; width: 60mm; }
+.fr-preview .fr-print-sign-line {
+  border-bottom: 1px solid #111; min-height: 20px; font-weight: 700; padding-top: 14px;
+}
+
+@media (max-width: 900px) {
+  .fr-header-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fr-field-wide { grid-column: span 2; }
+}
+
+/* ---------- Screen-hidden print documents ---------- */
 .calib-print-doc { display: none; }
+.fuel-report-print-doc { display: none; }
 
 @media print {
   @page {
@@ -750,5 +879,50 @@ table.excel-table input[type="number"]:focus {
   .report-print-doc .data-table td {
     color: #111 !important;
     border-color: #333 !important;
+  }
+
+  /* ---------- Fuel oil report printout ---------- */
+  body.printing-fuel-report .app-shell { display: none !important; }
+  body.printing-fuel-report .fuel-report-print-doc { display: block !important; }
+
+  .fuel-report-print-doc { color: #111; font-size: 9.5pt; line-height: 1.3; }
+  .fuel-report-print-doc .fr-print-h3 {
+    margin: 10px 0 4px; font-size: 10.5pt; letter-spacing: .03em;
+  }
+  table.fr-print-table {
+    width: 100%; border-collapse: collapse; font-size: 7pt;
+    font-variant-numeric: tabular-nums; margin-bottom: 4px;
+  }
+  table.fr-print-table th, table.fr-print-table td {
+    border: 0.4pt solid #222; padding: 2px 3px; text-align: right;
+  }
+  table.fr-print-table th {
+    background: #f0f0f0 !important; font-weight: 700; text-align: center;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  table.fr-print-table td.fr-print-name, table.fr-print-table th.fr-print-name {
+    text-align: left; font-weight: 600;
+  }
+  table.fr-print-table .fr-print-weight { font-weight: 700; }
+  table.fr-print-table tfoot th, table.fr-print-table tfoot td {
+    background: #e8eef6 !important; font-weight: 700;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  table.fr-print-table thead { display: table-header-group; }
+  table.fr-print-table tr { page-break-inside: avoid; break-inside: avoid; }
+  table.fr-print-formulas td { text-align: left; }
+  table.fr-print-table td.fr-print-used {
+    background: #e8eef6 !important; font-weight: 700;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  table.fr-print-calc { font-size: 6.5pt; }
+
+  .fr-print-cols {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 6px;
+  }
+  .fr-print-sign { margin-top: 12px; font-size: 8pt; width: 60mm; }
+  .fr-print-sign-line {
+    border-bottom: 0.6pt solid #111; min-height: 8mm; font-weight: 700;
+    padding-top: 6mm; margin-bottom: 2px;
   }
 }

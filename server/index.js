@@ -25,6 +25,7 @@ const tankTableIo = require('./tank-table-io');
 const giorgisFuelCsv = require('./giorgis-fuel-csv');
 const giorgisLubeXlsx = require('./giorgis-lube-xlsx');
 const bunkerLive = require('./bunker-live');
+const fuelReport = require('../public/js/fuel-report-core');
 const fs = require('fs');
 
 const app = express();
@@ -114,8 +115,126 @@ app.delete('/api/vessels/:id', (req, res) => {
   }
 });
 
+/* ---------- Fuel oil report (TANK CONDITION sheet) ---------- */
+function conversionTable() {
+  const p = path.join(__dirname, '..', 'seed', 'conversion.json');
+  if (!fs.existsSync(p)) return { apiToDensity15: [], rdToDensity15: [] };
+  return JSON.parse(fs.readFileSync(p, 'utf8'));
+}
+
+function buildFuelReport(vesselId, form) {
+  const bundle = store.getVesselBundle(vesselId);
+  const source = form !== undefined && form !== null ? form : bundle.fuelReport;
+  return { bundle, computed: fuelReport.computeFuelReport(bundle, source, conversionTable()) };
+}
+
+/** Selectors, labels and constants the report form is built from. */
+app.get('/api/reference/fuel-report-options', (req, res) => {
+  res.json({
+    reportTypes: fuelReport.REPORT_TYPES,
+    fuelTypes: fuelReport.FUEL_TYPES,
+    unitStandards: fuelReport.UNIT_STANDARDS,
+    methods: fuelReport.METHODS,
+    heelOptions: fuelReport.HEEL_OPTIONS,
+    sections: fuelReport.SECTIONS,
+    lubeFields: fuelReport.LUBE_FIELDS,
+    receivedFields: fuelReport.RECEIVED_FIELDS,
+    consumptionFields: fuelReport.CONSUMPTION_FIELDS,
+    capacityMtFactor: fuelReport.CAPACITY_MT_FACTOR,
+    safeFillRatio: fuelReport.SAFE_FILL_RATIO,
+    lubeDensity: fuelReport.LUBE_DENSITY,
+  });
+});
+
+/** Saved report form + everything computed from it. */
+app.get('/api/vessels/:id/fuel-report', (req, res) => {
+  try {
+    const { bundle, computed } = buildFuelReport(req.params.id);
+    res.json({ form: computed.form, computed, history: bundle.reportHistory || [] });
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
+/** Recompute a posted form without saving anything (live preview / offline sync). */
+app.post('/api/vessels/:id/fuel-report/compute', (req, res) => {
+  try {
+    const { computed } = buildFuelReport(req.params.id, (req.body && req.body.form) || req.body || {});
+    res.json({ computed });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+/**
+ * Save the report form ("PRINT & SAVE").
+ * Optionally writes the soundings back as tank readings and appends a snapshot
+ * to the report history.
+ */
+app.put('/api/vessels/:id/fuel-report', (req, res) => {
+  try {
+    const body = req.body || {};
+    const { bundle, computed } = buildFuelReport(req.params.id, body.form || body);
+    const form = { ...computed.form, updatedAt: new Date().toISOString() };
+    store.saveVesselPart(req.params.id, 'fuelReport', form);
+
+    if (body.syncReadings !== false) {
+      store.saveVesselPart(req.params.id, 'readings', fuelReport.readingsFromReport(bundle, computed));
+    }
+
+    let history = bundle.reportHistory || [];
+    let snapshot = null;
+    if (body.snapshot) {
+      snapshot = fuelReport.snapshotFromReport(computed);
+      history = [snapshot, ...history].slice(0, 50);
+      store.saveVesselPart(req.params.id, 'reportHistory', history);
+    }
+
+    const voyage = {
+      ...(bundle.voyage || {}),
+      voyageNo: form.header.voyageNo,
+      port: form.header.port,
+      reportType: form.header.reportType,
+      date: form.header.date,
+      time: form.header.time,
+      draftFwd: computed.header.draftFwd,
+      draftAft: computed.header.draftAft,
+      trim: computed.header.trimByStern,
+      heel: computed.header.heel,
+      seaTemp: form.header.seaTemp,
+      engineRoomTemp: form.header.engineRoomTemp,
+    };
+    store.saveVesselPart(req.params.id, 'voyage', voyage);
+
+    res.json({ form, computed, snapshot, history });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+/** Saved report snapshots, newest first. */
+app.get('/api/vessels/:id/fuel-report/history', (req, res) => {
+  try {
+    const bundle = store.getVesselBundle(req.params.id);
+    res.json({ history: bundle.reportHistory || [] });
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
+app.delete('/api/vessels/:id/fuel-report/history/:snapshotId', (req, res) => {
+  try {
+    const bundle = store.getVesselBundle(req.params.id);
+    const history = (bundle.reportHistory || []).filter((s) => s.id !== req.params.snapshotId);
+    store.saveVesselPart(req.params.id, 'reportHistory', history);
+    res.json({ history });
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
 app.put('/api/vessels/:id/:part', (req, res) => {
-  const allowed = ['tanks', 'readings', 'voyage', 'bunkering', 'transfers', 'bunkerOps'];
+  const allowed = ['tanks', 'readings', 'voyage', 'bunkering', 'transfers', 'bunkerOps', 'fuelReport', 'reportHistory'];
   if (!allowed.includes(req.params.part)) {
     return res.status(400).json({ error: 'Invalid part' });
   }
