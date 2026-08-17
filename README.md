@@ -75,6 +75,13 @@ draft and trim are computed from the drafts (trim is shown fwd − aft as in the
 tables are read at trim by the stern). A reading taken the opposite way to the tank's calibration scale is
 converted through the sounding-pipe height before lookup.
 
+A tank normally sits in the block its calibration-DB grade puts it in. When one is carrying something else
+this voyage — an HFO tank run on LSMGO, say — pick the fuel type and a **→ D.O.** (or **→ F.O.**) button
+appears next to the tank name; one click moves the row to the other table so the FUEL OIL and
+DIESEL OIL / GAS OIL totals each count only what is really in them. The move is deliberate rather than
+automatic, is undone with the same button, saves with the report, and is footnoted on the printout. Grade
+totals (HFO / LSFO / MDO-MGO / LSMGO) follow the fuel type regardless of which table the row sits in.
+
 Below the grid: per-grade totals against the **log book ROB** (with the difference), lube oil quantities in
 litres → MT, received quantities, daily consumption, and the preparer.
 

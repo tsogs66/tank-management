@@ -200,7 +200,7 @@ const FuelReport = (() => {
       const methodOpts = Core.METHODS.map((m) =>
         `<option value="${m.id}" ${row.method === m.id ? 'selected' : ''}>${esc(m.label)}</option>`).join('');
       return `<tr data-tank="${esc(row.tankId)}">
-        <th class="fr-tank-name">${esc(row.name)}</th>
+        <th class="fr-tank-name">${esc(row.name)}<span class="fr-move" data-fr-move="${esc(row.tankId)}"></span></th>
         <td><select data-row="${esc(row.tankId)}" data-field="fuelType">${typeOpts}</select></td>
         <td><input type="number" step="any" data-row="${esc(row.tankId)}" data-field="reading" value="${esc(f.reading)}"></td>
         <td><select data-row="${esc(row.tankId)}" data-field="method">${methodOpts}</select></td>
@@ -331,10 +331,34 @@ const FuelReport = (() => {
     });
   }
 
+  const SECTION_SHORT = { fuel: 'F.O.', do: 'D.O.' };
+
+  /**
+   * The move control: offered when the selected fuel type belongs in the other
+   * block, and again (as "undo") on a row already moved, so the FUEL OIL and
+   * DIESEL OIL / GAS OIL totals can be made to count only what is really there.
+   */
+  function moveControlHtml(row) {
+    if (row.sectionMismatch) {
+      const to = row.suggestedSection;
+      return `<button class="btn small fr-move-btn" data-move="${esc(row.tankId)}" data-move-to="${esc(to)}"
+        title="This tank is carrying ${esc(row.fuelTypeLabel)} — move it to the ${esc(SECTION_SHORT[to])} table so the totals are right"
+        >→ ${esc(SECTION_SHORT[to] || to)}</button>`;
+    }
+    if (row.moved) {
+      return `<button class="btn small fr-move-btn fr-move-undo" data-move="${esc(row.tankId)}" data-move-to=""
+        title="Moved from the ${esc(SECTION_SHORT[row.homeSection])} table — put it back"
+        >moved ↩</button>`;
+    }
+    return '';
+  }
+
   /** Write the derived columns and section totals of a computed report into the DOM. */
   function paintSectionCells(sections) {
     for (const section of sections) {
       for (const row of section.rows) {
+        const moveSlot = document.querySelector(`[data-fr-move="${row.tankId}"]`);
+        if (moveSlot) moveSlot.innerHTML = moveControlHtml(row);
         for (const col of COMPUTED_COLUMNS) {
           const text = CELL_FORMAT[col.field](row[col.field]);
           setCell(`[data-fr-cell="${row.tankId}.${col.field}"]`, text,
@@ -364,7 +388,12 @@ const FuelReport = (() => {
         `100% capacity ${n(section.totals.capacity100MT, 2)} MT · 85% filling limit `
         + `${n(section.totals.capacity85MT, 2)} MT · ${section.totals.tanksInUse} tank(s) in use`
         + (section.totals.averageDensityInUse != null
-          ? ` · mean density in use ${n(section.totals.averageDensityInUse, 4)}` : ''));
+          ? ` · mean density in use ${n(section.totals.averageDensityInUse, 4)}` : '')
+        + (section.totals.movedIn
+          ? ` · ${section.totals.movedIn} tank(s) moved into this table` : '')
+        + (section.totals.mismatched
+          ? ` · ${section.totals.mismatched} tank(s) carrying the other grade — use the move button`
+          : ''));
     }
 
     for (const grade of c.grades) {
@@ -389,7 +418,32 @@ const FuelReport = (() => {
 
   /* ---------- events ---------- */
 
+  /**
+   * Wire the move buttons for a sheet. The row physically changes table, so the
+   * page has to be re-rendered rather than repainted — `onMoved` is where the
+   * page carries its unsaved form across that re-render and navigates.
+   */
+  function bindSectionMove(wrap, formRows, onMoved) {
+    wrap.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-move]');
+      if (!btn) return;
+      const row = formRows[btn.dataset.move];
+      if (!row) return;
+      const to = btn.dataset.moveTo || '';
+      row.section = to;
+      onMoved(to);
+      showToast(to
+        ? `Moved to the ${SECTION_SHORT[to]} table`
+        : 'Moved back to its own table');
+    });
+  }
+
   function bindEvents(wrap) {
+    bindSectionMove(wrap, view.form.rows, () => {
+      view.pendingForm = view.form;
+      view.dirty = true;
+      navigate('fuel-report');
+    });
     const mark = () => { view.dirty = true; };
 
     wrap.addEventListener('input', (e) => {
@@ -503,8 +557,9 @@ const FuelReport = (() => {
   }
 
   function printSectionTable(section, options) {
+    const moved = section.rows.filter((r) => r.moved);
     const rows = section.rows.map((r) => `<tr>
-      <td class="fr-print-name">${esc(r.name)}</td>
+      <td class="fr-print-name">${esc(r.name)}${r.moved ? ' *' : ''}</td>
       <td>${esc(r.fuelTypeLabel)}</td>
       <td>${n(r.reading, 0)}</td>
       <td>${esc(r.methodLabel)}</td>
@@ -545,7 +600,10 @@ const FuelReport = (() => {
       <p class="calib-print-note">100% capacity in MT = 100% m³ × ${options.capacityMtFactor}
         · ${(options.safeFillRatio * 100).toFixed(0)}% filling limit = ${n(t.capacity85MT, 2)} MT
         · tanks in use ${t.tanksInUse}${t.averageDensityInUse != null
-          ? ` (mean density ${n(t.averageDensityInUse, 4)})` : ''}</p>`;
+          ? ` (mean density ${n(t.averageDensityInUse, 4)})` : ''}</p>
+      ${moved.length ? `<p class="calib-print-note">* ${moved.map((r) => esc(r.name)).join(', ')} —
+        normally ${esc(SECTION_SHORT[moved[0].homeSection] || '')} tank(s), counted here because they are
+        carrying ${esc(moved.map((r) => r.fuelTypeLabel).join(' / '))} this voyage.</p>` : ''}`;
   }
 
   function printSummaryPage(c) {
@@ -787,6 +845,8 @@ const FuelReport = (() => {
     // Reused by the bunkering screens so both sheets look and behave the same.
     printHtml,
     sheetTableHtml: renderSectionPanel,
+    bindSectionMove,
+    moveControlHtml,
     paintSectionCells,
     setCell,
     COMPUTED_COLUMNS,

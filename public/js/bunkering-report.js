@@ -948,6 +948,10 @@ const BunkerReports = (() => {
   }
 
   function bindAfterEvents(wrap) {
+    UI.bindSectionMove(wrap, view.after.rows, () => {
+      view.pendingAfter = view.after;
+      navigate('bunker-after');
+    });
     wrap.addEventListener('input', (e) => {
       const el = e.target;
       if (el.dataset.row && el.dataset.field) {
