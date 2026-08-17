@@ -655,15 +655,16 @@ const FuelReport = (() => {
     const imo = c.vessel.imo ? `IMO ${c.vessel.imo}` : 'IMO —';
     const dateTime = c.header.dateTime || prettyDate(c.header.date);
     const facts = showFacts ? `<div class="fr-tc-facts">
+      ${fact('Date', esc(dateTime || '—'))}
       ${fact('Port', esc(c.header.port || '—'))}
-      ${fact('Date / Time', esc(dateTime || '—'))}
       ${fact('Voyage No.', esc(c.header.voyageNo || '—'))}
-      ${fact('Draft Fwd / Aft', `${n(c.header.draftFwd, 2)} / ${n(c.header.draftAft, 2)} m`)}
-      ${fact('Trim', `${n(c.header.trim, 2)} (${esc(c.header.trimLabel)})`)}
       ${fact('Heel', esc(c.header.heelLabel || '—'))}
+      ${fact('FW Draft', `${n(c.header.draftFwd, 2)} m`)}
+      ${fact('Aft Draft', `${n(c.header.draftAft, 2)} m`)}
       ${fact('Mean Draft', `${n(c.header.meanDraft, 2)} m`)}
+      ${fact('Trim', `${n(c.header.trim, 2)} (${esc(c.header.trimLabel)})`)}
+      ${fact('S/W Temp', `${n(c.header.seaTemp, 0, '—')} °C`)}
       ${fact('E/R Temp', `${n(c.header.engineRoomTemp, 0, '—')} °C`)}
-      ${fact('Sea Temp', `${n(c.header.seaTemp, 0, '—')} °C`)}
     </div>` : '';
     return `<header class="fr-tc-masthead">
       <div class="fr-tc-brand-row">
