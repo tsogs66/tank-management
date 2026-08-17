@@ -288,12 +288,8 @@ const FuelReport = (() => {
       <label class="fr-field"><span>${esc(f.label)}</span>
         <input type="number" step="any" data-received="${f.id}" value="${esc(view.form.received[f.id])}"></label>`).join('');
     const consumption = Core.CONSUMPTION_FIELDS.map((f) => `
-      <label class="fr-field"><span>M/E &amp; D/G · ${esc(f.label)}</span>
+      <label class="fr-field"><span>${esc(f.label)}</span>
         <input type="number" step="any" data-consumption="${f.id}" value="${esc(view.form.consumption[f.id])}"></label>`).join('');
-    const boilerIds = { atSea: 'boilerSea', atAnchor: 'boilerAnchor', atPort: 'boilerPort' };
-    const boiler = Core.CONSUMPTION_FIELDS.map((f) => `
-      <label class="fr-field"><span>Boiler &amp; D/G · ${esc(f.label)}</span>
-        <input type="number" step="any" data-consumption="${boilerIds[f.id]}" value="${esc(view.form.consumption[boilerIds[f.id]])}"></label>`).join('');
     const sig = view.form.signature;
     return `<div class="form-panel no-print">
       <div class="section-title" style="margin-top:0">Lube oil quantity (litres)</div>
@@ -301,7 +297,7 @@ const FuelReport = (() => {
       <div class="section-title">Received quantity (MT)</div>
       <div class="fr-quant">${received}</div>
       <div class="section-title">Daily fuel consumption (MT)</div>
-      <div class="fr-quant">${consumption}${boiler}</div>
+      <div class="fr-quant">${consumption}</div>
       <div class="section-title">Prepared by</div>
       <div class="fr-quant">
         <label class="fr-field"><span>NAME</span>
@@ -764,7 +760,6 @@ const FuelReport = (() => {
       `<tr><td class="fr-print-name">${esc(r.label)}</td><td>${n(r.value, 3, '—')}</td></tr>`).join('');
     const consVal = (list, id) => n((list.find((x) => x.id === id) || {}).value, 2, '—');
     const me = c.consumption || [];
-    const blr = c.consumptionBoiler || [];
 
     return `<section class="calib-print-page fr-tc-page">
       ${printMasthead(c)}
@@ -788,12 +783,9 @@ const FuelReport = (() => {
         <div class="fr-tc-card">
           <h4>Daily Fuel Consumption</h4>
           <table class="fr-tc-mini">
-            <thead><tr><th></th><th>At sea</th><th>Anchorage</th><th>Port</th></tr></thead>
+            <thead><tr>${Core.CONSUMPTION_FIELDS.map((f) => `<th>${esc(f.label)}</th>`).join('')}</tr></thead>
             <tbody>
-              <tr><td class="fr-print-name">M/E &amp; D/G</td>
-                <td>${consVal(me, 'atSea')}</td><td>${consVal(me, 'atAnchor')}</td><td>${consVal(me, 'atPort')}</td></tr>
-              <tr><td class="fr-print-name">Boiler &amp; D/G</td>
-                <td>${consVal(blr, 'atSea')}</td><td>${consVal(blr, 'atAnchor')}</td><td>${consVal(blr, 'atPort')}</td></tr>
+              <tr>${Core.CONSUMPTION_FIELDS.map((f) => `<td>${consVal(me, f.id)}</td>`).join('')}</tr>
             </tbody>
           </table>
         </div>

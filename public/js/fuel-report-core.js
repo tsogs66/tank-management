@@ -94,8 +94,8 @@ const RECEIVED_FIELDS = [
 
 const CONSUMPTION_FIELDS = [
   { id: 'atSea', label: 'At sea' },
-  { id: 'atAnchor', label: 'At anchorage' },
-  { id: 'atPort', label: 'In port' },
+  { id: 'atAnchor', label: 'At Anchorage' },
+  { id: 'atPort', label: 'In Port' },
 ];
 
 function num(v, fallback = null) {
