@@ -27,6 +27,9 @@ const { computeTank, mtFromVolume, volumeFromMT, blendFuels } = calc;
 /** Tank slots on the plan sheet (workbook sequence 1..6). */
 const PLAN_SLOTS = 6;
 
+/** Filling limit the plan targets against (workbook Report sheet). */
+const SAFE_FILL = 0.85;
+
 /** Ship's condition on the summary sheet. */
 const SHIP_CONDITIONS = [
   { id: 'ballast', label: 'BALLAST' },
@@ -41,6 +44,22 @@ const SUMMARY_EVENTS = [
   { id: 'pumpStop', label: 'PUMP STOP' },
   { id: 'disconnect', label: 'DISCONNECT' },
   { id: 'castOff', label: 'CAST OFF' },
+];
+
+/**
+ * Ways of spreading a delivery over the tanks, as on the old bunkering page.
+ * These fill the plan sequence with targets; nothing is written to the tanks
+ * until the tanks are actually sounded on the after-bunkering report.
+ */
+const DISTRIBUTION_MODES = [
+  { id: 'equal-storage', label: 'Equal — all storage' },
+  { id: 'port-storage', label: 'Port storage only' },
+  { id: 'starboard-storage', label: 'Starboard storage only' },
+  { id: 'no1-storage', label: 'No.1 tanks only' },
+  { id: 'no2-storage', label: 'No.2 tanks only' },
+  { id: 'no3-storage', label: 'No.3 tanks only' },
+  { id: 'settling', label: 'Settling tanks' },
+  { id: 'service', label: 'Service tanks' },
 ];
 
 const COMMON_FUEL_GRADES = [
@@ -173,8 +192,11 @@ function emptyBunkerPlan(bundle, conversion) {
       targetVolumeM3: '',
       currentSoundingMM: '',
     })),
+    distributionMode: 'equal-storage',
     status: 'planning',
     startedAt: null,
+    pausedAt: null,
+    elapsedPausedMs: 0,
     completedAt: null,
     updatedAt: null,
   };
@@ -190,10 +212,40 @@ function normalizePlan(bundle, form, conversion) {
   return {
     header: { ...base.header, ...(src.header || {}) },
     sequence: seq,
+    distributionMode: src.distributionMode || base.distributionMode,
     status: src.status || base.status,
     startedAt: src.startedAt || null,
+    pausedAt: src.pausedAt || null,
+    elapsedPausedMs: num(src.elapsedPausedMs, 0) || 0,
     completedAt: src.completedAt || null,
     updatedAt: src.updatedAt || null,
+  };
+}
+
+/**
+ * Pumping clock. Elapsed time since the transfer was started (pauses removed)
+ * and what the barge's stated rate says should be aboard by now — the figure
+ * to hold the measured intake against.
+ */
+function pumpingClock(plan, rate, receivedMT, now = Date.now()) {
+  const startMs = plan.startedAt ? Date.parse(plan.startedAt) : null;
+  if (!startMs) {
+    return { running: false, started: false, elapsedHours: null, elapsedLabel: '—', expectedMT: null, varianceMT: null };
+  }
+  const pauseMs = plan.pausedAt ? Date.parse(plan.pausedAt) : null;
+  const endMs = plan.completedAt ? Date.parse(plan.completedAt) : (pauseMs || now);
+  const elapsedMs = Math.max(0, endMs - startMs - (num(plan.elapsedPausedMs, 0) || 0));
+  const elapsedHours = elapsedMs / 3600000;
+  const expected = rate > 0 ? round(rate * elapsedHours, 3) : null;
+  return {
+    running: Boolean(plan.startedAt) && !pauseMs && !plan.completedAt,
+    started: true,
+    paused: Boolean(pauseMs) && !plan.completedAt,
+    completed: Boolean(plan.completedAt),
+    elapsedHours: round(elapsedHours, 4),
+    elapsedLabel: hoursLabel(elapsedHours),
+    expectedMT: expected,
+    varianceMT: expected != null && receivedMT != null ? round(receivedMT - expected, 3) : null,
   };
 }
 
@@ -263,7 +315,7 @@ function computeBunkerPlan(bundle, form, conversion) {
     }
     const before = byTank.get(slot.tankId) || null;
     const capacity = num(tank.capacity, 0) || 0;
-    const cap85 = capacity * FuelReport.SAFE_FILL_RATIO;
+    const cap85 = capacity * SAFE_FILL;
 
     out.name = tank.name || tank.id;
     out.capacity100M3 = round(capacity, 3);
@@ -362,6 +414,7 @@ function computeBunkerPlan(bundle, form, conversion) {
       receivedMT,
     },
     monitoring: {
+      clock: pumpingClock(plan, rate, receivedMT),
       receivedMT,
       quantityRemainingMT: remaining != null ? round(remaining, 3) : null,
       timeRemainingHours: rate > 0 && remaining != null ? round(remaining / rate, 2) : null,
@@ -379,6 +432,101 @@ function computeBunkerPlan(bundle, form, conversion) {
     form: plan,
     generatedAt: new Date().toISOString(),
   };
+}
+
+/** Tanks a distribution mode applies to, within the grade being loaded. */
+function tanksForMode(bundle, mode, fuelType, byTank) {
+  const graded = fuelTanks(bundle).filter((t) => {
+    const row = byTank.get(t.id);
+    // Match on what the fuel report says the tank is carrying, falling back to
+    // the tank's own grade for tanks that have never been sounded.
+    const grade = (row && row.fuelType) || FuelReport.defaultFuelType(t);
+    return grade === fuelType;
+  });
+  switch (mode) {
+    case 'port-storage': return graded.filter((t) => t.fuelRole === 'storage' && t.side === 'port');
+    case 'starboard-storage': return graded.filter((t) => t.fuelRole === 'storage' && t.side === 'starboard');
+    case 'no1-storage': return graded.filter((t) => t.fuelRole === 'storage' && Number(t.tankNo) === 1);
+    case 'no2-storage': return graded.filter((t) => t.fuelRole === 'storage' && Number(t.tankNo) === 2);
+    case 'no3-storage': return graded.filter((t) => t.fuelRole === 'storage' && Number(t.tankNo) === 3);
+    case 'settling': return graded.filter((t) => t.fuelRole === 'settling');
+    case 'service': return graded.filter((t) => t.fuelRole === 'service');
+    case 'equal-storage':
+    default: return graded.filter((t) => t.fuelRole === 'storage');
+  }
+}
+
+/**
+ * Spread `quantityMT` over the tanks a mode selects, weighted by the space each
+ * has left below the 85% filling limit, and hand back plan sequence entries
+ * (tank + target volume). Tanks are never targeted above that limit, so a
+ * quantity that does not fit comes back short with a warning rather than
+ * silently overfilling.
+ */
+function distributeToSequence(bundle, opts = {}, conversion = null) {
+  const quantity = num(opts.quantityMT);
+  const fuelType = opts.fuelType || 'lsfo';
+  const mode = opts.mode || 'equal-storage';
+  const tempC = num(opts.tempC, 15) || 15;
+  const density15 = num(opts.density15);
+  const warnings = [];
+
+  if (!(quantity > 0)) return { sequence: [], warnings: ['enter a bunker quantity first'] };
+  if (!(density15 > 0)) return { sequence: [], warnings: ['enter the bunker density @15 °C first'] };
+
+  const { byTank } = robBeforeBunkering(bundle, conversion);
+  const tanks = tanksForMode(bundle, mode, fuelType, byTank);
+  if (!tanks.length) return { sequence: [], warnings: [`no ${fuelType.toUpperCase()} tanks match "${mode}"`] };
+
+  const rows = tanks.map((tank) => {
+    const row = byTank.get(tank.id);
+    const startVol = row && row.measuredM3 != null ? row.measuredM3 : 0;
+    const limit = (num(tank.capacity, 0) || 0) * SAFE_FILL;
+    return { tank, startVol, limit, free: Math.max(0, limit - startVol) };
+  }).filter((r) => r.free > 0.01)
+    .sort((a, b) => b.free - a.free);
+
+  if (!rows.length) return { sequence: [], warnings: ['the matching tanks are already at the 85% limit'] };
+
+  const totalVolume = volumeFromMT(quantity, density15, tempC) || 0;
+  const totalFree = rows.reduce((a, r) => a + r.free, 0);
+  if (totalVolume > totalFree + 0.01) {
+    warnings.push(`${round(totalVolume - totalFree, 1)} m³ more than these tanks can hold below 85% — `
+      + 'the shortfall is left unallocated');
+  }
+
+  // Free-space weighted, capped at each tank's limit; anything a capped tank
+  // cannot take is passed on to the tanks that still have room.
+  const share = new Map(rows.map((r) => [r.tank.id, 0]));
+  let toPlace = Math.min(totalVolume, totalFree);
+  for (let pass = 0; pass < 4 && toPlace > 0.001; pass++) {
+    const open = rows.filter((r) => share.get(r.tank.id) < r.free - 0.001);
+    const openFree = open.reduce((a, r) => a + (r.free - share.get(r.tank.id)), 0);
+    if (!open.length || openFree <= 0.001) break;
+    let placed = 0;
+    for (const r of open) {
+      const room = r.free - share.get(r.tank.id);
+      const want = toPlace * (room / openFree);
+      const take = Math.min(room, want);
+      share.set(r.tank.id, share.get(r.tank.id) + take);
+      placed += take;
+    }
+    toPlace -= placed;
+  }
+
+  const sequence = rows
+    .filter((r) => share.get(r.tank.id) > 0.001)
+    .slice(0, PLAN_SLOTS)
+    .map((r) => ({
+      tankId: r.tank.id,
+      targetVolumeM3: round(r.startVol + share.get(r.tank.id), 3),
+      currentSoundingMM: '',
+    }));
+
+  if (rows.length > PLAN_SLOTS) {
+    warnings.push(`${rows.length - PLAN_SLOTS} matching tank(s) did not fit the ${PLAN_SLOTS} plan slots`);
+  }
+  return { sequence, mode, fuelType, warnings };
 }
 
 /* ------------------------------------------------------- after bunkering ---- */
@@ -633,6 +781,11 @@ function afterSnapshot(computed) {
 
 return {
   PLAN_SLOTS,
+  SAFE_FILL,
+  DISTRIBUTION_MODES,
+  tanksForMode,
+  distributeToSequence,
+  pumpingClock,
   SHIP_CONDITIONS,
   SUMMARY_EVENTS,
   COMMON_FUEL_GRADES,

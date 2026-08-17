@@ -10,19 +10,12 @@ Multi-vessel web app for fuel tank sounding (double interpolation + ASTM 54B), e
 - **PDF table import** — extract sounding / trim tables from capacity-book PDFs into a tank’s calibration grid
 - **Add tanks** — storage, settling, service (also overflow/other); CSV import template included
 - **Fuel oil report (tank condition)** — the workbook report sheet: per-tank sounding, VCF 54B / WCF 56, weight in air, grade totals vs log book, lube / received / consumption, printed with its calculation sheet and reference tables
-- **Bunkering plan + live monitoring** — loading sequence with target volume → target ullage per tank, delivery rate, live intake, quantity/time remaining
+- **Bunkering plan + live monitoring** — loading sequence with target volume → target ullage per tank, auto-distribution over the tanks, delivery rate, pumping clock, live intake, quantity/time remaining
 - **After-bunkering report** — re-sound the tanks; intake per grade against the ROB prior to bunkering
 - **Bunkering report summary** — BDN paperwork, times, fuel/lubes onboard before and after, BDN vs measured difference
 - **Voyage fuel calculation** — per-leg distance/speed/daily burn → arrival ROB
-- **Live bunkering** — MT to receive, pumping rate → time used / remaining, live tank intake, mix calculator for different densities
 - **VCF / WCF calculator** — standalone ASTM 54B / WCF manual calc + reference tables
 - **ISO 8217 specs** — distillate & residual marine fuel limit tables (ISO 8217:2017)
-- **Bunkering distribute** — enter received MT, then distribute:
-  - equally across storage (free-space weighted)
-  - port / starboard storage only
-  - No.1 / No.2 tanks only
-  - settling or service only
-  - manual per-tank MT
 - **Offline + sync** — IndexedDB cache + mutation queue; push/pull peer sync when online
 - **Backup / import** — full JSON backup of vessels + settings
 - **Android** — responsive PWA (Add to Home Screen)
@@ -112,6 +105,11 @@ Fuel Report  ->  Bunker Plan  ->  After Bunkering  ->  Bunker Summary
 Header: date, voyage, port, drafts (mean draft and trim computed), heel, grade, delivery rate, bunker
 quantity, time to bunker, bunker density/temperature.
 
+**Fill sequence** spreads the bunker quantity over the tanks a mode selects — equal across storage, port
+or starboard only, No.1 / No.2 / No.3 only, settling, or service — weighted by the space each tank has
+below the 85% limit, never targeting a tank above it. It writes targets only; nothing reaches a tank until
+it is sounded on the after-bunkering report.
+
 Loading sequence of up to six tanks. Capacities, starting ullage and starting ROB come straight from the
 fuel report; enter a **target volume** and the calibration table is read *backwards* to give the target
 ullage, plus the tonnage that target adds:
@@ -126,6 +124,14 @@ ullage, plus the tonnage that target adds:
 During the transfer, type each tank's **current sounding**; received, quantity remaining, time remaining
 and percent complete update as you go. The plan warns when the selected tanks cannot hold the ordered
 quantity at the 85% limit, and when targets do not add up to the bunker quantity.
+
+The **pumping clock** (start / pause / reset) shows elapsed pumping time and what the barge's stated rate
+says should be aboard by now, against what the soundings actually show — the difference is the number to
+question while the hose is still connected.
+
+A **blend calculator** mixes the ROB already aboard with the incoming parcel (ASTM WCF volume @15 °C) and
+can drop the blended density straight into the plan, which is what every quantity on the sheet converts
+with.
 
 Prints the plan sheet with the monitoring figures, a capacity check and the method used, followed by the
 before-bunkering tank condition.
@@ -303,8 +309,8 @@ Point a second instance (ship laptop / office) at the LXC URL under **Backup / S
 | GET/PUT | `/api/vessels/:id/bunker-summary` | Bunkering report summary |
 | DELETE | `/api/vessels/:id/bunker-history/:list/:entryId` | Delete a saved plan / after-report / summary |
 | GET | `/api/reference/bunkering-options` | Selectors / labels for the bunkering screens |
-| POST | `/api/vessels/:id/bunker-distribute` | Bunker distribution (preview / instant apply) |
-| POST | `/api/vessels/:id/bunker-ops/start` | Start live bunkering (rate + MT to receive) |
+| POST | `/api/vessels/:id/bunker-distribute` | Bunker distribution (preview / instant apply) — API only since the plan screen distributes locally |
+| POST | `/api/vessels/:id/bunker-ops/start` | Start live bunkering (rate + MT to receive) — API only, see note below |
 | GET | `/api/vessels/:id/bunker-ops/active` | Active live op + progress / tank projections |
 | PATCH | `/api/vessels/:id/bunker-ops/:opId` | Pause/resume, rate, intake, sounding updates |
 | POST | `/api/vessels/:id/bunker-ops/:opId/complete` | Finalize tanks + voyage received |
@@ -315,6 +321,15 @@ Point a second instance (ship laptop / office) at the LXC URL under **Backup / S
 | GET | `/api/backup` | Full backup |
 | POST | `/api/sync/pull` | Pull from peer |
 | POST | `/api/sync/push` | Push to peer |
+
+### Retired: the standalone Bunkering page
+
+Its parts now live where they belong: distribution modes and the blend calculator on **Bunker Plan**, BDN
+number and supplier on **Bunker Summary**, and monitoring by real soundings instead of a rate estimate
+(with the rate kept as the expected-vs-measured check). The `bunker-distribute` and `bunker-ops/*`
+endpoints stay for API compatibility and are no longer driven by any screen; the one behaviour deliberately
+dropped is "apply instantly", which wrote tank ROB from an assumed distribution rather than a measurement.
+A link to `bunkering` now opens the plan.
 
 ## Formulas (reference)
 

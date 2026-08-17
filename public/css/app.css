@@ -693,13 +693,25 @@ table.fr-sheet tfoot th { text-align: left; }
 }
 
 /* ---------- Bunkering plan / summary screens ---------- */
-.bp-layout { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 14px; align-items: start; }
-table.bp-sheet thead th { min-width: 46px; }
-table.bp-sheet tbody th.fr-tank-name { min-width: 176px; }
-table.bp-sheet tbody th.fr-tank-name select { min-width: 138px; margin-left: 4px; }
-table.bp-sheet tbody input { min-width: 52px; }
+.bp-layout { display: grid; grid-template-columns: minmax(0, 1fr) 196px; gap: 12px; align-items: start; }
+table.bp-sheet thead th { min-width: 42px; }
+table.bp-sheet tbody th.fr-tank-name { min-width: 168px; }
+table.bp-sheet tbody th.fr-tank-name select { min-width: 130px; margin-left: 4px; }
+table.bp-sheet tbody input { min-width: 48px; }
+
+.bp-distribute {
+  display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;
+}
+.bp-distribute .fr-field { min-width: 200px; }
+.bp-distribute .hint { flex: 1 1 260px; margin: 0; }
 
 .bp-monitor { display: flex; flex-direction: column; gap: 10px; }
+.bp-clock {
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px;
+  background: var(--bg-panel); display: flex; flex-direction: column; gap: 6px;
+}
+.bp-clock-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--text-dim); }
+.bp-clock-row b { color: var(--text); font-variant-numeric: tabular-nums; }
 .bp-monitor-box {
   border: 1px solid var(--border); border-radius: 8px; padding: 10px;
   background: var(--bg-panel); display: flex; flex-direction: column; gap: 4px;

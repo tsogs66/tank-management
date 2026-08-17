@@ -138,6 +138,24 @@ const BunkerReports = (() => {
     return col.d === 'pct' ? pct(value) : n(value, col.d);
   }
 
+  let clockTimer = null;
+  function stopClockTicker() {
+    if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
+  }
+  /** Tick the pumping clock while the page is open and the transfer is running. */
+  function startClockTicker() {
+    stopClockTicker();
+    clockTimer = setInterval(() => {
+      if (view.page !== 'bunker-plan' || !document.getElementById('bp-clock-toggle')) {
+        stopClockTicker();
+        return;
+      }
+      const c = Core.computeBunkerPlan(bundle(), view.plan, view.conversion);
+      if (!c.monitoring.clock.running) return;
+      refreshPlan();
+    }, 15000);
+  }
+
   function recomputePlan() {
     view.computed = Core.computeBunkerPlan(bundle(), view.plan, view.conversion);
     return view.computed;
@@ -166,6 +184,7 @@ const BunkerReports = (() => {
     wrap.innerHTML = `
       ${planHeaderPanel(c)}
       ${planSequencePanel(c)}
+      ${planBlendPanel()}
       ${planTankTablesPanel(c)}
       <div class="form-panel no-print">
         <div class="section-title" style="margin-top:0">Saved plans</div>
@@ -175,6 +194,7 @@ const BunkerReports = (() => {
 
     bindPlanEvents(wrap);
     refreshPlan();
+    if (c.monitoring.clock.running) startClockTicker();
   }
 
   function planHeaderPanel(c) {
@@ -246,8 +266,19 @@ const BunkerReports = (() => {
       </tr>`;
     }).join('');
 
+    const modeOpts = Core.DISTRIBUTION_MODES.map((m) =>
+      `<option value="${m.id}" ${view.plan.distributionMode === m.id ? 'selected' : ''}>${esc(m.label)}</option>`).join('');
+
     return `<div class="form-panel no-print" style="margin-top:16px">
       <div class="section-title" style="margin-top:0">Sequence</div>
+      <div class="bp-distribute">
+        <label class="fr-field"><span>DISTRIBUTE THE QUANTITY</span>
+          <select id="bp-mode">${modeOpts}</select></label>
+        <button class="btn" id="bp-distribute">Fill sequence</button>
+        <span class="hint" id="bp-distribute-note">Spreads the bunker quantity over the matching tanks,
+          weighted by the space each has below the 85% limit. Targets only — nothing is written to a tank
+          until it is sounded on <b>After Bunkering</b>.</span>
+      </div>
       <div class="bp-layout">
         <div class="scroll-x">
           <table class="fr-sheet bp-sheet">
@@ -284,11 +315,53 @@ const BunkerReports = (() => {
             <span data-bp-mon="receivedLabel">RECEIVED</span><b data-bp-mon="receivedMT"></b></div>
           <div class="bp-progress"><div data-bp-mon="progressFill"></div></div>
           <div class="hint" data-bp-mon="progressText"></div>
+
+          <div class="bp-clock">
+            <div class="bp-clock-row"><span>PUMPING TIME</span><b data-bp-mon="elapsedLabel">—</b></div>
+            <div class="bp-clock-row"><span>EXPECTED AT RATE</span><b data-bp-mon="expectedMT">—</b></div>
+            <div class="bp-clock-row"><span>MEASURED − EXPECTED</span><b data-bp-mon="varianceMT">—</b></div>
+            <div class="btn-row">
+              <button class="btn small primary" id="bp-clock-toggle">Start pumping</button>
+              <button class="btn small" id="bp-clock-reset">Reset</button>
+            </div>
+          </div>
+
           <div class="btn-row">
             <button class="btn small" id="bp-fill-85">Target all to 85%</button>
             <button class="btn small" id="bp-clear-current">Clear current soundings</button>
           </div>
         </div>
+      </div>
+    </div>`;
+  }
+
+  /**
+   * Blend the ROB already aboard with the incoming parcel. The result can be
+   * dropped straight into the plan's density field, which is what every
+   * quantity on the sheet is converted with.
+   */
+  function planBlendPanel() {
+    const row = (label, dens, mt) => `<tr>
+      <td><input data-mix="label" value="${esc(label)}"></td>
+      <td><input data-mix="density15" type="number" step="any" placeholder="${dens}"></td>
+      <td><input data-mix="quantityMT" type="number" step="any" placeholder="${mt}"></td>
+      <td><input data-mix="tempC" type="number" step="any" value="15"></td>
+    </tr>`;
+    return `<div class="form-panel no-print" style="margin-top:16px">
+      <div class="section-title" style="margin-top:0">Blend calculator — ROB and bunker of different density</div>
+      <div class="btn-row">
+        <button class="btn small" id="bp-blend-toggle">Show</button>
+      </div>
+      <div id="bp-blend" hidden>
+        <div class="scroll-x"><table class="data-table" id="bp-mix-table">
+          <thead><tr><th>Parcel</th><th>Density @15</th><th>Quantity MT</th><th>Temp °C</th></tr></thead>
+          <tbody>${row('ROB on board', '0.960', '200')}${row('Incoming bunker', '0.945', '450')}</tbody>
+        </table></div>
+        <div class="btn-row" style="margin-top:10px">
+          <button class="btn small" id="bp-mix-add">Add parcel</button>
+          <button class="btn small primary" id="bp-mix-calc">Calculate blend</button>
+        </div>
+        <div id="bp-mix-result" style="margin-top:10px"></div>
       </div>
     </div>`;
   }
@@ -394,6 +467,16 @@ const BunkerReports = (() => {
       : 'Enter a bunker quantity to track progress');
     const fill = document.querySelector('[data-bp-mon="progressFill"]');
     if (fill) fill.style.width = `${Math.max(0, Math.min(100, c.monitoring.percentComplete || 0))}%`;
+
+    const clock = c.monitoring.clock;
+    set('[data-bp-mon="elapsedLabel"]', clock.elapsedLabel);
+    set('[data-bp-mon="expectedMT"]', clock.expectedMT != null ? `${n(clock.expectedMT, 2)} MT` : '—');
+    set('[data-bp-mon="varianceMT"]', clock.varianceMT != null ? `${signed(clock.varianceMT, 2)} MT` : '—');
+    const toggle = document.getElementById('bp-clock-toggle');
+    if (toggle) {
+      toggle.textContent = !clock.started ? 'Start pumping' : clock.paused ? 'Resume' : 'Pause';
+      toggle.classList.toggle('primary', !clock.started || clock.paused);
+    }
   }
 
   function bindPlanEvents(wrap) {
@@ -423,6 +506,109 @@ const BunkerReports = (() => {
       view.pendingPlan = Core.emptyBunkerPlan(bundle(), view.conversion);
       navigate('bunker-plan');
     };
+    document.getElementById('bp-mode').onchange = (e) => { view.plan.distributionMode = e.target.value; };
+    document.getElementById('bp-distribute').onclick = () => {
+      const c = recomputePlan();
+      const res = Core.distributeToSequence(bundle(), {
+        mode: view.plan.distributionMode,
+        fuelType: c.header.fuelType,
+        quantityMT: c.header.bunkerQuantityMT,
+        density15: c.header.density15,
+        tempC: c.header.tempC,
+      }, view.conversion);
+      if (!res.sequence.length) {
+        showToast(res.warnings[0] || 'Nothing to distribute');
+        return;
+      }
+      const kept = view.plan.sequence.map((s) => s.currentSoundingMM);
+      view.plan.sequence = view.plan.sequence.map((slot, i) => (
+        res.sequence[i] ? { ...res.sequence[i], currentSoundingMM: kept[i] || '' }
+          : { tankId: '', targetVolumeM3: '', currentSoundingMM: '' }
+      ));
+      view.pendingPlan = view.plan;
+      navigate('bunker-plan');
+      showToast(res.warnings.length ? res.warnings[0] : `Sequence filled — ${res.sequence.length} tank(s)`);
+    };
+
+    document.getElementById('bp-clock-toggle').onclick = () => {
+      const clock = Core.pumpingClock(view.plan, 0, null);
+      const nowIso = new Date().toISOString();
+      if (!clock.started) {
+        view.plan.startedAt = nowIso;
+        view.plan.pausedAt = null;
+        view.plan.elapsedPausedMs = 0;
+        view.plan.status = 'pumping';
+      } else if (clock.paused) {
+        view.plan.elapsedPausedMs = (view.plan.elapsedPausedMs || 0)
+          + Math.max(0, Date.now() - Date.parse(view.plan.pausedAt));
+        view.plan.pausedAt = null;
+      } else {
+        view.plan.pausedAt = nowIso;
+      }
+      refreshPlan();
+      startClockTicker();
+    };
+    document.getElementById('bp-clock-reset').onclick = () => {
+      view.plan.startedAt = null;
+      view.plan.pausedAt = null;
+      view.plan.elapsedPausedMs = 0;
+      view.plan.status = 'planning';
+      stopClockTicker();
+      refreshPlan();
+    };
+
+    document.getElementById('bp-blend-toggle').onclick = (e) => {
+      const box = document.getElementById('bp-blend');
+      box.hidden = !box.hidden;
+      e.target.textContent = box.hidden ? 'Show' : 'Hide';
+    };
+    document.getElementById('bp-mix-add').onclick = () => {
+      const tb = document.querySelector('#bp-mix-table tbody');
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td><input data-mix="label" value="Parcel"></td>
+        <td><input data-mix="density15" type="number" step="any"></td>
+        <td><input data-mix="quantityMT" type="number" step="any"></td>
+        <td><input data-mix="tempC" type="number" step="any" value="15"></td>`;
+      tb.appendChild(tr);
+    };
+    document.getElementById('bp-mix-calc').onclick = () => {
+      const parts = [];
+      document.querySelectorAll('#bp-mix-table tbody tr').forEach((tr) => {
+        const get = (k) => (tr.querySelector(`[data-mix="${k}"]`) || {}).value;
+        const dens = parseFloat(get('density15'));
+        const mt = parseFloat(get('quantityMT'));
+        if (!(dens > 0) || !(mt >= 0)) return;
+        parts.push({ label: get('label') || '', density15: dens, quantityMT: mt, tempC: parseFloat(get('tempC')) || 15 });
+      });
+      const res = Core.blendFuels(parts, 'wcf');
+      const box = document.getElementById('bp-mix-result');
+      if (!res || !res.blendedDensity15) {
+        box.innerHTML = '<div class="hint">Enter at least two parcels with a density and a quantity.</div>';
+        return;
+      }
+      box.innerHTML = `<div class="bs-quantities">
+          <div class="bp-monitor-box"><span>BLENDED DENSITY @15</span><b>${n(res.blendedDensity15, 4)}</b></div>
+          <div class="bp-monitor-box"><span>TOTAL QUANTITY</span><b>${n(res.totalMT, 3)} MT</b></div>
+          <div class="bp-monitor-box"><span>TOTAL VOL @15</span><b>${n(res.totalVol15, 2)} m³</b></div>
+        </div>
+        <div class="btn-row" style="margin-top:10px">
+          <button class="btn small" id="bp-mix-use-density">Use as plan density</button>
+          <button class="btn small" id="bp-mix-use-qty">Use total as bunker quantity</button>
+        </div>`;
+      document.getElementById('bp-mix-use-density').onclick = () => {
+        view.plan.header.density15 = res.blendedDensity15;
+        view.pendingPlan = view.plan;
+        navigate('bunker-plan');
+        showToast('Blended density applied to the plan');
+      };
+      document.getElementById('bp-mix-use-qty').onclick = () => {
+        view.plan.header.bunkerQuantityMT = res.totalMT;
+        view.pendingPlan = view.plan;
+        navigate('bunker-plan');
+        showToast('Total quantity applied to the plan');
+      };
+    };
+
     document.getElementById('bp-fill-85').onclick = () => {
       const c = recomputePlan();
       for (const row of c.rows) {
@@ -508,6 +694,11 @@ const BunkerReports = (() => {
             <tr><td class="fr-print-name">Quantity remaining</td><td>${n(c.monitoring.quantityRemainingMT, 3, '—')} MT</td></tr>
             <tr><td class="fr-print-name">Time remaining</td><td>${esc(c.monitoring.timeRemainingLabel)}</td></tr>
             <tr><td class="fr-print-name">Complete</td><td>${n(c.monitoring.percentComplete, 1, '—')}%</td></tr>
+            <tr><td class="fr-print-name">Pumping time</td><td>${esc(c.monitoring.clock.elapsedLabel)}</td></tr>
+            <tr><td class="fr-print-name">Expected at rate</td>
+              <td>${n(c.monitoring.clock.expectedMT, 2, '—')} MT</td></tr>
+            <tr><td class="fr-print-name">Measured − expected</td>
+              <td>${c.monitoring.clock.varianceMT != null ? signed(c.monitoring.clock.varianceMT, 2) : '—'} MT</td></tr>
           </tbody></table>
         </div>
         <div>
