@@ -116,8 +116,13 @@ litres × 0.882 ÷ 1000.
 
 The logo prints like a rubber stamp struck across the end of the signature line: its centre sits on the line,
 it covers the line's last third, and the rest of it runs off to the right. It is allowed to overlap whatever
-is already on the paper — that is what a stamp does — and it adds no height to the sheet, so changing
-`--fr-logo-height` resizes the mark without moving anything else or costing a tank row. It carries no white fill of its own either: a stamp with a card
+is already on the paper — that is what a stamp does — and it adds no height where the sheet has room, so
+changing `--fr-logo-height` resizes the mark without moving anything else or costing a tank row.
+
+Being centred on the line means half the stamp hangs below it. The signer's name, their role and the page
+footer absorb most of that (`--fr-sign-foot`, 15 mm); the page reserves whatever is left over as bottom
+padding, so a sheet that reaches the foot of the paper cannot print the stamp cut in half. A stamp small
+enough to clear on its own reserves nothing. It carries no white fill of its own either: a stamp with a card
 behind it would blank out the print it is meant to sit over. Upload the logo with background removal on to
 get the real stamp effect; an untrimmed photo prints its own paper as an opaque rectangle.
 
