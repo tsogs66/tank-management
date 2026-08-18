@@ -1,5 +1,5 @@
 /* Service worker — cache shell for offline Android / local use */
-const CACHE = 'fuel-tms-v35';
+const CACHE = 'fuel-tms-v37';
 const ASSETS = [
   '/',
   '/index.html',
@@ -8,6 +8,7 @@ const ASSETS = [
   '/js/api.js',
   '/js/db.js',
   '/js/calc.js',
+  '/js/progress.js',
   '/js/image-cutout.js',
   '/js/fuel-report-core.js',
   '/js/fuel-report.js',
@@ -32,6 +33,13 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.pathname.startsWith('/api/')) {
+    // File uploads must bypass the worker entirely. A request answered from a
+    // fetch handler is re-issued by the worker, and the page's XHR then never
+    // sees upload progress events — which is exactly what drives the progress
+    // bar on the CSV / Excel / PDF imports. Returning without respondWith()
+    // lets the browser make the request itself, progress events included.
+    const contentType = event.request.headers.get('content-type') || '';
+    if (event.request.method === 'POST' && contentType.startsWith('multipart/form-data')) return;
     // Network-first for API; fall through on failure
     event.respondWith(
       fetch(event.request).catch(() =>

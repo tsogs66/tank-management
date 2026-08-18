@@ -867,24 +867,17 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
 .stamp-row { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; margin-top: 6px; }
 .stamp-controls { flex: 1 1 260px; min-width: 0; }
 .stamp-controls .form-row { margin-bottom: 8px; }
+/* White, like the paper these end up on: once the background is removed a
+   signature is dark ink on nothing, which would be invisible against the dark
+   panel. On white it also previews exactly as it prints. */
 .stamp-preview {
   flex: 0 0 auto; width: 200px; min-height: 96px;
   display: flex; align-items: center; justify-content: center;
-  border: 1px dashed var(--border); border-radius: 8px;
-  background: var(--bg-panel); padding: 8px; text-align: center;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: #fff; padding: 8px; text-align: center;
 }
-/* Checkerboard, so a cut-out reads as transparent rather than as a white box. */
-.stamp-preview img {
-  max-width: 100%; max-height: 120px; object-fit: contain; display: block;
-  background-image:
-    linear-gradient(45deg, rgba(128,128,128,.22) 25%, transparent 25%),
-    linear-gradient(-45deg, rgba(128,128,128,.22) 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, rgba(128,128,128,.22) 75%),
-    linear-gradient(-45deg, transparent 75%, rgba(128,128,128,.22) 75%);
-  background-size: 12px 12px;
-  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
-}
-.stamp-empty { font-size: 11.5px; color: var(--text-faint); }
+.stamp-preview img { max-width: 100%; max-height: 120px; object-fit: contain; display: block; }
+.stamp-empty { font-size: 11.5px; color: #5a6578; }
 .stamp-check {
   display: flex; align-items: center; gap: 8px;
   font-size: 12px; color: var(--text-dim); cursor: pointer; margin-bottom: 8px;
@@ -1270,7 +1263,10 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   .fr-print-sign-role {
     font-size: 7.5pt; text-transform: uppercase; letter-spacing: .06em; color: #555;
   }
-  .fr-print-logo { flex: 0 0 auto; display: flex; align-items: center; }
+  .fr-print-logo {
+    flex: 0 0 auto; display: flex; align-items: center;
+    background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
   .fr-print-logo img { height: 22mm; width: auto; max-width: 55mm; object-fit: contain; display: block; }
   /* Inside the TANK CONDITION sign-off row the block hugs the left, leaving the
      page number on the right; the line is drawn by .fr-print-sign-line itself,
