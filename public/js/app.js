@@ -223,10 +223,14 @@ const PdfProgress = (() => {
     fd.append('tableRole', tableRole || 'auto');
     update({ message: 'Uploading PDF…', phase: 'upload', pct: 1, elapsedMs: 0 });
 
-    const startedJob = await Api.request(`/api/vessels/${vesselId}/import-pdf/jobs`, {
-      method: 'POST',
-      body: fd,
-    });
+    // Real bytes-sent progress: a capacity book is tens of megabytes and the
+    // upload is the slow half over a ship's link.
+    const startedJob = await Api.upload(
+      `/api/vessels/${vesselId}/import-pdf/jobs`, fd,
+      (pct, phase) => update(phase === 'uploading'
+        ? { message: `Uploading ${file.name}…`, phase: 'upload', pct, elapsedMs: Date.now() - started }
+        : { message: 'Waiting for the server to read it…', phase: 'upload', elapsedMs: Date.now() - started })
+    );
     let job = startedJob;
     update(job);
 
@@ -1036,7 +1040,10 @@ function renderAddTank(main) {
       fd.append('spanUntilNextTank', opts.spanUntilNextTank ? 'true' : 'false');
       fd.append('tableRole', opts.tableRole || 'auto');
       fd.append('tankNames', JSON.stringify(checked));
-      const res = await Api.request(`/api/vessels/${STATE.activeVesselId}/import-pdf`, { method: 'POST', body: fd });
+      const res = await Api.upload(`/api/vessels/${STATE.activeVesselId}/import-pdf`, fd,
+        (pct, phase) => PdfProgress.update(phase === 'uploading'
+          ? { message: 'Uploading the selected tanks…', phase: 'upload', pct }
+          : { message: 'Creating tanks on the server…', phase: 'create' }));
       PdfProgress.update({ message: 'Done', phase: 'done', pct: 100 });
       PdfProgress.hide();
       await reloadBundle();
@@ -1058,10 +1065,20 @@ function renderAddTank(main) {
     const fd = new FormData();
     fd.append('file', file);
     fd.append('updateExisting', updateExisting ? 'true' : 'false');
-    const res = await Api.request(`/api/vessels/${STATE.activeVesselId}/tanks/import-csv`, {
-      method: 'POST',
-      body: fd,
-    });
+    Progress.start(document.getElementById('btn-import-csv').closest('.form-panel'),
+      `Uploading ${file.name}…`);
+    let res;
+    try {
+      res = await Api.upload(`/api/vessels/${STATE.activeVesselId}/tanks/import-csv`, fd,
+        (pct, phase) => Progress.set(pct, phase === 'uploading'
+          ? `Uploading… ${pct == null ? '' : pct + '%'}`
+          : 'Reading the file on the server…'));
+    } catch (err) {
+      Progress.done();
+      showToast(err.message);
+      return;
+    }
+    Progress.done('Imported');
     await reloadBundle();
     const c = res.created ?? 0;
     const u = res.updated ?? 0;
@@ -1138,11 +1155,16 @@ function renderCalibrationList(main) {
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const res = await Api.request(`/api/vessels/${STATE.activeVesselId}/import-excel`, { method: 'POST', body: fd });
+      Progress.start(e.target.closest('.form-panel') || null, `Uploading ${file.name}…`);
+      const res = await Api.upload(`/api/vessels/${STATE.activeVesselId}/import-excel`, fd,
+        (pct, phase) => Progress.set(pct, phase === 'uploading'
+          ? `Uploading… ${pct == null ? '' : pct + '%'}`
+          : 'Reading the workbook on the server…'));
+      Progress.done('Imported');
       await reloadBundle();
       showToast(`Imported ${res.found?.length || 0} tank tables from workbook`);
       navigate('calibration');
-    } catch (err) { showToast(err.message); }
+    } catch (err) { Progress.done(); showToast(err.message); }
   };
   document.getElementById('btn-import-repo-excel').onclick = async () => {
     try {
@@ -1193,14 +1215,17 @@ function renderCalibrationEditor(main, tankId) {
     e.target.value = '';
     if (!file) return;
     try {
-      showToast('Importing table…');
       const fd = new FormData();
       fd.append('file', file);
       fd.append('apply', 'true');
-      const res = await Api.request(
-        `/api/vessels/${STATE.activeVesselId}/tanks/${tankId}/import-table`,
-        { method: 'POST', body: fd }
+      Progress.start(e.target.closest('.form-panel') || null, `Uploading ${file.name}…`);
+      const res = await Api.upload(
+        `/api/vessels/${STATE.activeVesselId}/tanks/${tankId}/import-table`, fd,
+        (pct, phase) => Progress.set(pct, phase === 'uploading'
+          ? `Uploading… ${pct == null ? '' : pct + '%'}`
+          : 'Reading the table on the server…')
       );
+      Progress.done('Imported');
       await reloadBundle();
       const parts = [];
       if (res.patch?.trimAxis) parts.push(`trim ${res.patch.trimAxis.length}×${(res.patch.trimVals || []).length}`);
@@ -1209,6 +1234,7 @@ function renderCalibrationEditor(main, tankId) {
       showToast(`Imported ${parts.join(', ') || 'calibration'}`);
       navigate('calibration', tankId);
     } catch (err) {
+      Progress.done();
       showToast(err.message);
     }
   };
@@ -2419,29 +2445,45 @@ function buildPrintIdentityPanel() {
       showToast('Enter the Chief Engineer name first — signatures are filed under it');
       return;
     }
+    const track = Progress.start(panel, 'Reading signature…');
     try {
-      let url = await ImageCutout.toPngDataUrl(file, 900);
+      let url = await ImageCutout.toPngDataUrl(file, 900, (pct, msg) => Progress.set(pct, msg));
       if (panel.querySelector('#sig-cutout').checked) {
-        url = await ImageCutout.removeBackground(url);
+        url = await ImageCutout.removeBackground(url, {
+          onProgress: (pct, msg) => Progress.set(pct, msg),
+        });
       }
+      Progress.set(null, 'Saving…');
       vesselAssets().chEngSignatures[signatureKeyFor(name)] = url;
       await saveVesselAssets();
       renderPreviews();
+      Progress.done('Signature saved');
       showToast('Signature saved for ' + name);
     } catch (err) {
       console.warn(err);
+      Progress.done();
       showToast('Could not read that image — use a PNG or JPG');
     }
+    if (track) track.scrollIntoView({ block: 'nearest' });
   };
   panel.querySelector('#sig-recut').onclick = async () => {
     const key = signatureKeyFor(currentChEngName());
     const cur = vesselAssets().chEngSignatures[key];
     if (!cur) return;
+    Progress.start(panel, 'Removing background…');
     try {
-      vesselAssets().chEngSignatures[key] = await ImageCutout.removeBackground(cur);
+      vesselAssets().chEngSignatures[key] = await ImageCutout.removeBackground(cur, {
+        onProgress: (pct, msg) => Progress.set(pct, msg),
+      });
+      Progress.set(null, 'Saving…');
       await saveVesselAssets();
       renderPreviews();
-    } catch (err) { console.warn(err); showToast('Could not process that image'); }
+      Progress.done('Background removed');
+    } catch (err) {
+      console.warn(err);
+      Progress.done();
+      showToast('Could not process that image');
+    }
   };
   panel.querySelector('#sig-remove').onclick = async () => {
     delete vesselAssets().chEngSignatures[signatureKeyFor(currentChEngName())];
@@ -2453,28 +2495,44 @@ function buildPrintIdentityPanel() {
     const file = e.target.files && e.target.files[0];
     e.target.value = '';
     if (!file) return;
+    const track = Progress.start(panel, 'Reading logo…');
     try {
-      let url = await ImageCutout.toPngDataUrl(file, 900);
+      let url = await ImageCutout.toPngDataUrl(file, 900, (pct, msg) => Progress.set(pct, msg));
       if (panel.querySelector('#logo-cutout').checked) {
-        url = await ImageCutout.removeBackground(url);
+        url = await ImageCutout.removeBackground(url, {
+          onProgress: (pct, msg) => Progress.set(pct, msg),
+        });
       }
+      Progress.set(null, 'Saving…');
       vesselAssets().vesselLogo = url;
       await saveVesselAssets();
       renderPreviews();
+      Progress.done('Logo saved');
       showToast('Vessel logo saved');
     } catch (err) {
       console.warn(err);
+      Progress.done();
       showToast('Could not read that image — use a PNG or JPG');
     }
+    if (track) track.scrollIntoView({ block: 'nearest' });
   };
   panel.querySelector('#logo-recut').onclick = async () => {
     const cur = vesselAssets().vesselLogo;
     if (!cur) return;
+    Progress.start(panel, 'Removing background…');
     try {
-      vesselAssets().vesselLogo = await ImageCutout.removeBackground(cur);
+      vesselAssets().vesselLogo = await ImageCutout.removeBackground(cur, {
+        onProgress: (pct, msg) => Progress.set(pct, msg),
+      });
+      Progress.set(null, 'Saving…');
       await saveVesselAssets();
       renderPreviews();
-    } catch (err) { console.warn(err); showToast('Could not process that image'); }
+      Progress.done('Background removed');
+    } catch (err) {
+      console.warn(err);
+      Progress.done();
+      showToast('Could not process that image');
+    }
   };
   panel.querySelector('#logo-remove').onclick = async () => {
     vesselAssets().vesselLogo = null;

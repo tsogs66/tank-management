@@ -61,6 +61,43 @@ const Api = (() => {
     }
   }
 
+  /**
+   * Upload a FormData with real progress. fetch() cannot report how much of a
+   * body has gone out, so this one call uses XMLHttpRequest: a capacity book is
+   * tens of megabytes over a ship's link and the bar has to mean something.
+   *
+   * onProgress(pct|null, phase) — pct is null once the body is sent and we are
+   * waiting on the server, which is not measurable from here.
+   */
+  function upload(path, formData, onProgress) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', path);
+      xhr.upload.onprogress = (e) => {
+        if (!onProgress) return;
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100), 'uploading');
+        else onProgress(null, 'uploading');
+      };
+      xhr.upload.onload = () => { if (onProgress) onProgress(null, 'processing'); };
+      xhr.onload = () => {
+        let data = null;
+        try { data = xhr.responseText ? JSON.parse(xhr.responseText) : null; } catch { data = xhr.responseText; }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          setOnline(true);
+          resolve(data);
+        } else {
+          reject(new Error((data && data.error) || xhr.statusText || 'Upload failed'));
+        }
+      };
+      xhr.onerror = () => {
+        if (!navigator.onLine) setOnline(false);
+        reject(new Error('Network error during upload'));
+      };
+      xhr.onabort = () => reject(new Error('Upload cancelled'));
+      xhr.send(formData);
+    });
+  }
+
   async function mutate(path, opts, offlineApply) {
     if (!navigator.onLine) {
       if (typeof offlineApply === 'function') await offlineApply();
@@ -98,7 +135,7 @@ const Api = (() => {
   }
 
   return {
-    request, getStatus, getVessel, mutate, flushQueue, onStatus, isOnline,
+    request, upload, getStatus, getVessel, mutate, flushQueue, onStatus, isOnline,
     listVessels: () => request('/api/vessels'),
     createVessel: (body) => request('/api/vessels', { method: 'POST', body }),
     setActive: (id) => request('/api/vessels/active', { method: 'POST', body: { id } }),

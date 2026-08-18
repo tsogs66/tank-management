@@ -17,6 +17,7 @@ Multi-vessel web app for fuel tank sounding (double interpolation + ASTM 54B), e
 - **VCF / WCF calculator** — standalone ASTM 54B / WCF manual calc + reference tables
 - **ISO 8217 specs** — distillate & residual marine fuel limit tables (ISO 8217:2017)
 - **Vessel logo + Chief Engineer signature** — uploaded once, background lifted off a photographed signature, printed on every document
+- **Progress bars** — signature/logo processing and CSV / Excel / PDF uploads report step, percentage and elapsed time
 - **Offline + sync** — IndexedDB cache + mutation queue; push/pull peer sync when online
 - **Backup / import** — full JSON backup of vessels + settings
 - **Android** — responsive PWA (Add to Home Screen)
@@ -128,6 +129,35 @@ has a transparent background can be uploaded with the box unticked.
 Signatures are filed under the **Chief Engineer** name on the vessel record, so after a crew change each
 officer keeps their own and a sheet reprinted later still carries the signature of the officer named on it.
 Both images live in the vessel's `assets.json` and ride along in backups and peer sync.
+
+Both preview panes are white. Once the paper has been lifted off, a signature is dark ink on nothing — on the
+dark app background it would be invisible, and white is also what it previews as on the printed page. The
+printed logo box is white for the same reason.
+
+The printed header and the facts strip under it are spaced tightly, because that space competes directly with
+the signature: on a sheet with a few more tanks than usual the sign-off is what gets pushed onto a page of its
+own. Trimming the padding there (no type was made smaller) reclaims about 10 mm on the TANK CONDITION face —
+room for three more tank rows before the signature spills.
+
+Images are stored as JPEG when nothing in them is transparent and PNG only when transparency has to be kept.
+A photographed logo is around 11 KB as JPEG against 440 KB as PNG, which matters because both images travel
+inside the vessel bundle on every page load.
+
+## Progress bars
+
+Anything that makes the screen wait now says so, using one shared bar (`public/js/progress.js`) that shows
+the step, a percentage and elapsed seconds:
+
+- **Signature and logo** — reading the file, measuring the paper, separating the ink, cropping, saving.
+  Background removal is a per-pixel pass, so it runs in horizontal bands and yields to the browser between
+  them; without that the page freezes and the bar never paints.
+- **CSV / Excel / PDF imports** — real upload percentage while the bytes go up, then *reading the file on the
+  server* while it is parsed.
+
+Upload percentage comes from `XMLHttpRequest` (`Api.upload`), because `fetch` cannot report bytes sent. For
+the same reason the service worker deliberately does **not** answer multipart POSTs: a request served from a
+worker's `fetch` handler is re-issued by the worker and the page never sees its upload events, so those
+requests are allowed straight through to the network.
 
 ## Bunkering chain
 
