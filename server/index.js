@@ -456,7 +456,7 @@ app.put('/api/vessels/:id/:part', (req, res) => {
   const allowed = [
     'tanks', 'readings', 'voyage', 'bunkering', 'transfers', 'bunkerOps',
     'fuelReport', 'reportHistory',
-    'bunkerPlan', 'bunkerAfter', 'bunkerSummary', 'bunkerHistory',
+    'bunkerPlan', 'bunkerAfter', 'bunkerSummary', 'bunkerHistory', 'assets',
   ];
   if (!allowed.includes(req.params.part)) {
     return res.status(400).json({ error: 'Invalid part' });

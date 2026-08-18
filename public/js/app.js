@@ -1870,6 +1870,7 @@ function renderCalibPrintTankBlock(tank, indexLabel) {
           ? ' — tabulated values are absolute volumes (m³) at the stated trim/heel.'
           : ' — trim/list tables are corrections applied with the volume curve and divisor.'}
       </p>
+      ${typeof FuelReport !== 'undefined' ? FuelReport.printSignatureBlock() : ''}
       ${calibPrintFooter(`${tank.name} · Identity`)}
     </section>
     ${renderCalibPrintGridPages({
@@ -1931,6 +1932,7 @@ function renderCalibPrintCover(tanks, bookTitle) {
       </thead>
       <tbody>${indexRows}</tbody>
     </table>
+    ${typeof FuelReport !== 'undefined' ? FuelReport.printSignatureBlock() : ''}
     ${calibPrintFooter('Cover & index')}
   </section>`;
 }
@@ -2234,6 +2236,9 @@ function renderSetup(main) {
       <div class="form-row"><label>Type</label><input id="s-type" value="${cur.type||''}"></div>
       <div class="form-row"><label>Owner / manager</label><input id="s-owner" value="${cur.owner||''}"></div>
     </div>
+    <div class="form-row"><label>Chief Engineer</label><input id="s-cheng" value="${cur.chiefEngineer||''}">
+      <div class="hint">Signs the printed documents. Signatures are filed under this name, so after a crew
+        change each officer keeps their own and earlier reports still print theirs.</div></div>
     <div class="form-row"><label>Notes</label><textarea id="s-notes" class="textarea-json" style="min-height:80px">${cur.notes||''}</textarea></div>
     <div class="btn-row">
       <button class="btn primary" id="btn-save-vessel">${cur.id?'Save vessel details':'Create vessel'}</button>
@@ -2250,6 +2255,7 @@ function renderSetup(main) {
       flag: document.getElementById('s-flag').value.trim(),
       type: document.getElementById('s-type').value.trim(),
       owner: document.getElementById('s-owner').value.trim(),
+      chiefEngineer: document.getElementById('s-cheng').value.trim(),
       notes: document.getElementById('s-notes').value.trim(),
     };
     if (!details.name) { showToast('Vessel name required'); return; }
@@ -2301,6 +2307,185 @@ function renderSetup(main) {
     showToast('Vessel cloned');
     navigate('setup');
   };
+
+  if (STATE.bundle) main.appendChild(buildPrintIdentityPanel());
+}
+
+/* ---------- Vessel logo & Chief Engineer signature ---------- */
+
+function vesselAssets() {
+  const b = STATE.bundle;
+  if (!b) return { vesselLogo: null, chEngSignatures: {} };
+  if (!b.assets || typeof b.assets !== 'object') b.assets = { vesselLogo: null, chEngSignatures: {} };
+  if (!b.assets.chEngSignatures || typeof b.assets.chEngSignatures !== 'object') {
+    b.assets.chEngSignatures = {};
+  }
+  return b.assets;
+}
+
+function signatureKeyFor(name) {
+  return String(name || '').trim().toLowerCase();
+}
+
+function currentChEngName() {
+  const field = document.getElementById('s-cheng');
+  const typed = field ? field.value.trim() : '';
+  return typed || (STATE.bundle?.vessel?.chiefEngineer || '').trim();
+}
+
+async function saveVesselAssets() {
+  await persistPart('assets', vesselAssets());
+}
+
+/**
+ * Upload panel for the two images every printout carries: the Chief Engineer's
+ * signature, printed in the space above the signature line, and the vessel logo
+ * printed just after it.
+ *
+ * Photographs of a signature on paper are the normal case, so the white
+ * background is lifted and the image cropped to the ink by default — the same
+ * treatment the voyage-manager app gives them.
+ */
+function buildPrintIdentityPanel() {
+  const panel = document.createElement('div');
+  panel.className = 'form-panel';
+  panel.style.marginTop = '16px';
+  panel.innerHTML = `
+    <div class="section-title" style="margin-top:0">Printed document identity</div>
+    <p class="hint" style="margin-top:0">Used on every printout: the signature sits on the signature line,
+      the logo just after it. Photograph a signature on white paper — the paper is made transparent and the
+      image trimmed to the ink. Stored with this vessel and included in backups and peer sync.</p>
+
+    <div class="section-title">Chief Engineer signature</div>
+    <div class="stamp-row">
+      <div class="stamp-preview" id="sig-preview"></div>
+      <div class="stamp-controls">
+        <div class="form-row"><label>Signature image (PNG or JPG)</label>
+          <input type="file" accept="image/*" id="sig-file"></div>
+        <label class="stamp-check"><input type="checkbox" id="sig-cutout" checked>
+          Remove background and trim to the signature</label>
+        <div class="hint" id="sig-for"></div>
+        <div class="btn-row">
+          <button class="btn small" id="sig-recut" style="display:none">Remove background now</button>
+          <button class="btn small danger" id="sig-remove" style="display:none">Remove signature</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-title">Vessel logo</div>
+    <div class="stamp-row">
+      <div class="stamp-preview" id="logo-preview"></div>
+      <div class="stamp-controls">
+        <div class="form-row"><label>Logo image (PNG or JPG)</label>
+          <input type="file" accept="image/*" id="logo-file"></div>
+        <label class="stamp-check"><input type="checkbox" id="logo-cutout">
+          Remove background and trim to the mark</label>
+        <div class="hint">Leave the box unticked for a logo that already has a transparent background.</div>
+        <div class="btn-row">
+          <button class="btn small" id="logo-recut" style="display:none">Remove background now</button>
+          <button class="btn small danger" id="logo-remove" style="display:none">Remove logo</button>
+        </div>
+      </div>
+    </div>`;
+
+  const renderPreviews = () => {
+    const assets = vesselAssets();
+    const name = currentChEngName();
+    const sig = assets.chEngSignatures[signatureKeyFor(name)] || null;
+    const sigBox = panel.querySelector('#sig-preview');
+    sigBox.innerHTML = sig
+      ? `<img src="${sig}" alt="Chief Engineer signature">`
+      : `<span class="stamp-empty">${name
+        ? 'No signature stored for ' + escapeHtml(name) + '.'
+        : 'Enter the Chief Engineer name above, save the vessel, then upload their signature.'}</span>`;
+    panel.querySelector('#sig-for').textContent = name ? `Signature on file for: ${name}` : '';
+    panel.querySelector('#sig-recut').style.display = sig ? '' : 'none';
+    panel.querySelector('#sig-remove').style.display = sig ? '' : 'none';
+
+    const logoBox = panel.querySelector('#logo-preview');
+    logoBox.innerHTML = assets.vesselLogo
+      ? `<img src="${assets.vesselLogo}" alt="Vessel logo">`
+      : '<span class="stamp-empty">No logo uploaded — printouts show the signature block only.</span>';
+    panel.querySelector('#logo-recut').style.display = assets.vesselLogo ? '' : 'none';
+    panel.querySelector('#logo-remove').style.display = assets.vesselLogo ? '' : 'none';
+  };
+
+  panel.querySelector('#sig-file').onchange = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    const name = currentChEngName();
+    if (!name) {
+      showToast('Enter the Chief Engineer name first — signatures are filed under it');
+      return;
+    }
+    try {
+      let url = await ImageCutout.toPngDataUrl(file, 900);
+      if (panel.querySelector('#sig-cutout').checked) {
+        url = await ImageCutout.removeBackground(url);
+      }
+      vesselAssets().chEngSignatures[signatureKeyFor(name)] = url;
+      await saveVesselAssets();
+      renderPreviews();
+      showToast('Signature saved for ' + name);
+    } catch (err) {
+      console.warn(err);
+      showToast('Could not read that image — use a PNG or JPG');
+    }
+  };
+  panel.querySelector('#sig-recut').onclick = async () => {
+    const key = signatureKeyFor(currentChEngName());
+    const cur = vesselAssets().chEngSignatures[key];
+    if (!cur) return;
+    try {
+      vesselAssets().chEngSignatures[key] = await ImageCutout.removeBackground(cur);
+      await saveVesselAssets();
+      renderPreviews();
+    } catch (err) { console.warn(err); showToast('Could not process that image'); }
+  };
+  panel.querySelector('#sig-remove').onclick = async () => {
+    delete vesselAssets().chEngSignatures[signatureKeyFor(currentChEngName())];
+    await saveVesselAssets();
+    renderPreviews();
+  };
+
+  panel.querySelector('#logo-file').onchange = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      let url = await ImageCutout.toPngDataUrl(file, 900);
+      if (panel.querySelector('#logo-cutout').checked) {
+        url = await ImageCutout.removeBackground(url);
+      }
+      vesselAssets().vesselLogo = url;
+      await saveVesselAssets();
+      renderPreviews();
+      showToast('Vessel logo saved');
+    } catch (err) {
+      console.warn(err);
+      showToast('Could not read that image — use a PNG or JPG');
+    }
+  };
+  panel.querySelector('#logo-recut').onclick = async () => {
+    const cur = vesselAssets().vesselLogo;
+    if (!cur) return;
+    try {
+      vesselAssets().vesselLogo = await ImageCutout.removeBackground(cur);
+      await saveVesselAssets();
+      renderPreviews();
+    } catch (err) { console.warn(err); showToast('Could not process that image'); }
+  };
+  panel.querySelector('#logo-remove').onclick = async () => {
+    vesselAssets().vesselLogo = null;
+    await saveVesselAssets();
+    renderPreviews();
+  };
+
+  // Signatures follow the name, so the preview follows the field.
+  document.getElementById('s-cheng')?.addEventListener('input', renderPreviews);
+  renderPreviews();
+  return panel;
 }
 
 /* ---------- Settings / backup / sync ---------- */

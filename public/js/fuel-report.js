@@ -581,6 +581,52 @@ const FuelReport = (() => {
     </footer>`;
   }
 
+  /* ---------- signature & vessel logo on printed sheets ---------- */
+
+  function vesselAssets() {
+    return (currentBundle() && currentBundle().assets) || { vesselLogo: null, chEngSignatures: {} };
+  }
+
+  /** Signatures are filed under the officer's name, lower-cased. */
+  function signatureKey(name) {
+    return String(name || '').trim().toLowerCase();
+  }
+
+  /**
+   * The signature belonging to a given Chief Engineer, or null. Filing them by
+   * name means a sheet reprinted after a crew change carries the signature of
+   * the officer named on it, not the incoming one's.
+   */
+  function signatureFor(name) {
+    const key = signatureKey(name);
+    if (!key) return null;
+    return (vesselAssets().chEngSignatures || {})[key] || null;
+  }
+
+  function vesselChiefEngineer() {
+    return ((currentBundle() && currentBundle().vessel) || {}).chiefEngineer || '';
+  }
+
+  /**
+   * The signature footer every printed sheet ends with: the signature image sits
+   * in the space directly above the line, so it reads as signed over it, and the
+   * vessel logo sits just after the block.
+   */
+  function printSignatureBlock(signerName, role) {
+    const signer = String(signerName || vesselChiefEngineer() || '').trim();
+    const sig = signatureFor(signer);
+    const logo = vesselAssets().vesselLogo;
+    return `<div class="fr-print-signrow">
+      <div class="fr-print-sign">
+        <div class="fr-print-sign-space">${sig ? `<img src="${esc(sig)}" alt="">` : ''}</div>
+        <div class="fr-print-sign-line"></div>
+        <div class="fr-print-sign-name">${esc(signer || '—')}</div>
+        <div class="fr-print-sign-role">${esc(role || 'Chief Engineer')}</div>
+      </div>
+      ${logo ? `<div class="fr-print-logo"><img src="${esc(logo)}" alt=""></div>` : ''}
+    </div>`;
+  }
+
   function metaGrid(entries) {
     return `<div class="calib-print-meta">${entries.map(([k, v]) =>
       `<div><span class="k">${esc(k)}</span><span class="v">${esc(v ?? '—')}</span></div>`).join('')}</div>`;
@@ -798,11 +844,7 @@ const FuelReport = (() => {
         </div>
       </div>
       <div class="fr-tc-signoff">
-        <div>
-          <span>Prepared by</span>
-          <div class="fr-print-sign-line">${esc(c.signature.preparedBy || '')}</div>
-          <div>${esc(c.signature.rank || 'Chief Engineer')}</div>
-        </div>
+        ${printSignatureBlock(c.signature.preparedBy, c.signature.rank)}
         <div class="fr-tc-page-no">Page 1 of 2</div>
       </div>
       ${footer(`${c.vessel.name} · tank condition · ${c.header.dateTime}`)}
@@ -1069,6 +1111,11 @@ const FuelReport = (() => {
     view,
     // Reused by the bunkering screens so both sheets look and behave the same.
     printHtml,
+    printSignatureBlock,
+    signatureFor,
+    signatureKey,
+    vesselChiefEngineer,
+    vesselAssets,
     sheetTableHtml: renderSectionPanel,
     sectionWouldChange,
     SECTION_SHORT,

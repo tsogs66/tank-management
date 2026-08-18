@@ -863,6 +863,34 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   .bp-progress { flex: 1 1 100%; }
 }
 
+/* ---------- Vessel logo / signature upload ---------- */
+.stamp-row { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; margin-top: 6px; }
+.stamp-controls { flex: 1 1 260px; min-width: 0; }
+.stamp-controls .form-row { margin-bottom: 8px; }
+.stamp-preview {
+  flex: 0 0 auto; width: 200px; min-height: 96px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px dashed var(--border); border-radius: 8px;
+  background: var(--bg-panel); padding: 8px; text-align: center;
+}
+/* Checkerboard, so a cut-out reads as transparent rather than as a white box. */
+.stamp-preview img {
+  max-width: 100%; max-height: 120px; object-fit: contain; display: block;
+  background-image:
+    linear-gradient(45deg, rgba(128,128,128,.22) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(128,128,128,.22) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(128,128,128,.22) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(128,128,128,.22) 75%);
+  background-size: 12px 12px;
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+}
+.stamp-empty { font-size: 11.5px; color: var(--text-faint); }
+.stamp-check {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--text-dim); cursor: pointer; margin-bottom: 8px;
+}
+.stamp-check input { width: 15px; height: 15px; cursor: pointer; }
+
 /* ---------- Screen-hidden print documents ---------- */
 .calib-print-doc { display: none; }
 .fuel-report-print-doc { display: none; }
@@ -1099,10 +1127,11 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   .fr-print-cols {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 6px;
   }
-  .fr-print-sign { margin-top: 12px; font-size: 8pt; width: 60mm; }
-  .fr-print-sign-line {
-    border-bottom: 0.6pt solid #111; min-height: 8mm; font-weight: 700;
-    padding-top: 6mm; margin-bottom: 2px;
+  /* The signature sits in the space above the line so it reads as signed over
+     it, and the vessel logo sits just after the block. */
+  .fr-print-signrow {
+    display: flex; align-items: center; justify-content: flex-end;
+    gap: 6mm; margin-top: 10px;
   }
 
   /* Modern TANK CONDITION face (page 1) + annex (page 2) */
@@ -1229,4 +1258,25 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     display: grid; grid-template-columns: 1fr; gap: 6px; margin-bottom: 4px;
   }
   .fr-tc-page-2 table.fr-print-table { font-size: 6.2pt; }
+
+  .fr-print-sign { flex: 0 0 62mm; font-size: 8pt; text-align: center; }
+  .fr-print-sign-space { position: relative; height: 15mm; width: 62mm; }
+  .fr-print-sign-space img {
+    position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
+    max-height: 15mm; max-width: 62mm; object-fit: contain;
+  }
+  .fr-print-sign-line { border-bottom: 0.6pt solid #111; width: 62mm; margin-bottom: 1.5mm; }
+  .fr-print-sign-name { font-weight: 700; font-size: 9pt; }
+  .fr-print-sign-role {
+    font-size: 7.5pt; text-transform: uppercase; letter-spacing: .06em; color: #555;
+  }
+  .fr-print-logo { flex: 0 0 auto; display: flex; align-items: center; }
+  .fr-print-logo img { height: 22mm; width: auto; max-width: 55mm; object-fit: contain; display: block; }
+  /* Inside the TANK CONDITION sign-off row the block hugs the left, leaving the
+     page number on the right; the line is drawn by .fr-print-sign-line itself,
+     so the taller legacy line rule is neutralised here. */
+  .fr-tc-signoff .fr-print-signrow { justify-content: flex-start; margin-top: 0; }
+  .fr-tc-signoff .fr-print-signrow .fr-print-sign-line {
+    width: 62mm; min-height: 0; padding-top: 0;
+  }
 }
