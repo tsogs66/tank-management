@@ -889,7 +889,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
 .fuel-report-print-doc { display: none; }
 
 @media print {
-  :root { --fr-sign-line: 62mm; --fr-logo-height: 44mm; --fr-sign-space: 15mm; }
+  :root { --fr-sign-line: 62mm; --fr-logo-height: 41.8mm; --fr-sign-space: 15mm; }
   @page {
     size: A4 portrait;
     margin: 10mm 10mm;
