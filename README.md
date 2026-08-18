@@ -16,7 +16,7 @@ Multi-vessel web app for fuel tank sounding (double interpolation + ASTM 54B), e
 - **Voyage fuel calculation** — per-leg distance/speed/daily burn → arrival ROB
 - **VCF / WCF calculator** — standalone ASTM 54B / WCF manual calc + reference tables
 - **ISO 8217 specs** — distillate & residual marine fuel limit tables (ISO 8217:2017)
-- **Vessel logo + Chief Engineer signature** — uploaded once, background lifted off a photographed signature, printed on every document
+- **Vessel logo + Chief Engineer signature** — signed on screen with a finger or stylus, or uploaded as a photo with the paper lifted off; printed on every document
 - **Progress bars** — signature/logo processing and CSV / Excel / PDF uploads report step, percentage and elapsed time
 - **Offline + sync** — IndexedDB cache + mutation queue; push/pull peer sync when online
 - **Backup / import** — full JSON backup of vessels + settings
@@ -112,10 +112,31 @@ litres × 0.882 ÷ 1000.
 | Image | Where it prints |
 |-------|-----------------|
 | Chief Engineer signature | in the space directly above the signature line, so it reads as signed over it |
-| Vessel logo | immediately after the signature block |
+| Vessel logo | 44 mm tall, standing off the end of the signature line by a third of the line's length |
+
+The logo prints like a rubber stamp. It is allowed to overlap whatever is already on the paper — that is what
+a stamp does — and it adds no height to the sheet, so changing `--fr-logo-height` resizes the mark without
+moving anything else or costing a tank row. It carries no white fill of its own either: a stamp with a card
+behind it would blank out the print it is meant to sit over. Upload the logo with background removal on to
+get the real stamp effect; an untrimmed photo prints its own paper as an opaque rectangle.
 
 Both appear on every printout — fuel report, bunker plan, after-bunkering report, bunkering summary, and the
 calibration book cover.
+
+### Signing on screen
+
+**Sign on screen** opens a pad that takes a signature straight from the device — a finger on a phone, or a
+stylus on a tablet. Nothing is photographed, so none of the background-removal work below runs: the strokes
+are drawn as dark ink on a transparent canvas, which is already the form the printout wants. The image is
+cropped to the ink before it is stored.
+
+Strokes are kept as points rather than as pixels, which is what makes **Undo** work and what lets the pad
+redraw itself if the tablet is rotated mid-signature. A stylus reporting pressure varies the nib width; a
+finger gets a constant one, because the pressure a touchscreen reports for a finger is not a real
+measurement. Once a pen has been used, plain touches are ignored for the rest of that signature, so a palm
+resting on the glass does not draw.
+
+### Signing from a photograph
 
 A signature is normally a photo of ink on paper, so by default the paper is lifted off and the image
 trimmed to the signature. The method is the one used in the companion voyage-manager app: paper brightness
@@ -133,6 +154,11 @@ Both images live in the vessel's `assets.json` and ride along in backups and pee
 Both preview panes are white. Once the paper has been lifted off, a signature is dark ink on nothing — on the
 dark app background it would be invisible, and white is also what it previews as on the printed page. The
 printed logo box is white for the same reason.
+
+Totals rows on the fuel-oil and diesel-oil tables print a pixel smaller than the rest of the sign-off, with
+tighter side padding. At the old size a seven-character total cleared its column by 2 px, so a four-figure
+total ran past it; the trim leaves 4 px of room. A five-figure total (over 9,999 MT) would still be about a
+pixel wide — drop the row to 7pt if a vessel that size ever needs it.
 
 The printed header and the facts strip under it are spaced tightly, because that space competes directly with
 the signature: on a sheet with a few more tanks than usual the sign-off is what gets pushed onto a page of its

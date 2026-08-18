@@ -889,6 +889,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
 .fuel-report-print-doc { display: none; }
 
 @media print {
+  :root { --fr-sign-line: 62mm; --fr-logo-height: 44mm; }
   @page {
     size: A4 portrait;
     margin: 10mm 10mm;
@@ -1132,7 +1133,8 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
      it, and the vessel logo sits just after the block. */
   .fr-print-signrow {
     display: flex; align-items: center; justify-content: flex-end;
-    gap: 6mm; margin-top: 10px;
+    /* The logo stands off the signature line by a third of its length. */
+    gap: calc(var(--fr-sign-line) / 3); margin-top: 10px;
   }
 
   /* Modern TANK CONDITION face (page 1) + annex (page 2) */
@@ -1209,12 +1211,17 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   }
   table.fr-tc-table tfoot td, table.fr-tc-table tfoot th {
     background: #d9e2ee !important; color: #000 !important; font-weight: 800;
-    font-size: 8pt; border-top: 1.2pt solid #111; border-bottom: 1.2pt solid #111;
+    /* 8pt fitted a seven-character total with 2px to spare, so a four-figure
+       one ran past its column. A pixel down, plus tighter side padding, buys
+       the extra digit back. */
+    font-size: 7.25pt; padding-left: 1px; padding-right: 1px;
+    border-top: 1.2pt solid #111; border-bottom: 1.2pt solid #111;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
+  /* No font-size here: the tfoot rule above outranks it, so the 9.5pt this
+     carried never applied. The cell is marked out by its fill and weight. */
   .fr-tc-total-mt {
     background: #c5d4e8 !important; color: #000 !important; font-weight: 800;
-    font-size: 9.5pt;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
   .fr-tc-capline {
@@ -1254,33 +1261,97 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     margin-top: 6px; font-size: 8pt;
   }
   .fr-tc-signoff .fr-print-sign-line { width: 70mm; min-height: 6mm; padding-top: 4mm; }
+  .fr-tc-signoff { --fr-sign-line: 62mm; }
   .fr-tc-page-no { font-size: 7.5pt; color: #555; letter-spacing: .04em; }
   .fr-tc-annex {
     display: grid; grid-template-columns: 1fr; gap: 6px; margin-bottom: 4px;
   }
   .fr-tc-page-2 table.fr-print-table { font-size: 6.2pt; }
 
-  .fr-print-sign { flex: 0 0 62mm; font-size: 8pt; text-align: center; }
-  .fr-print-sign-space { position: relative; height: 15mm; width: 62mm; }
+  .fr-print-sign { flex: 0 0 var(--fr-sign-line); font-size: 8pt; text-align: center; }
+  .fr-print-sign-space { position: relative; height: 15mm; width: var(--fr-sign-line); }
   .fr-print-sign-space img {
     position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
-    max-height: 15mm; max-width: 62mm; object-fit: contain;
+    max-height: 15mm; max-width: var(--fr-sign-line); object-fit: contain;
   }
-  .fr-print-sign-line { border-bottom: 0.6pt solid #111; width: 62mm; margin-bottom: 1.5mm; }
+  .fr-print-sign-line {
+    border-bottom: 0.6pt solid #111; width: var(--fr-sign-line); margin-bottom: 1.5mm;
+  }
   .fr-print-sign-name { font-weight: 700; font-size: 9pt; }
   .fr-print-sign-role {
     font-size: 7.5pt; text-transform: uppercase; letter-spacing: .06em; color: #555;
   }
+  /* The logo prints like a rubber stamp: it is allowed to overlap whatever is
+     already on the paper, and it must not push the sheet taller. The box is
+     zero-height so it adds nothing to the sign-off row, and the image is
+     lifted out of it to stand on the row's baseline and overlap upwards.
+     No white fill either — a stamp that carried its own card would blank out
+     the print it is supposed to sit over. */
   .fr-print-logo {
-    flex: 0 0 auto; display: flex; align-items: center;
-    background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    flex: 0 0 auto; display: block; align-self: flex-end;
+    height: 0; overflow: visible;
   }
-  .fr-print-logo img { height: 22mm; width: auto; max-width: 55mm; object-fit: contain; display: block; }
+  .fr-print-logo img {
+    height: var(--fr-logo-height); width: auto; max-width: 110mm;
+    object-fit: contain; display: block;
+    position: relative; bottom: var(--fr-logo-height);
+  }
   /* Inside the TANK CONDITION sign-off row the block hugs the left, leaving the
      page number on the right; the line is drawn by .fr-print-sign-line itself,
      so the taller legacy line rule is neutralised here. */
   .fr-tc-signoff .fr-print-signrow { justify-content: flex-start; margin-top: 0; }
   .fr-tc-signoff .fr-print-signrow .fr-print-sign-line {
-    width: 62mm; min-height: 0; padding-top: 0;
+    width: var(--fr-sign-line); min-height: 0; padding-top: 0;
   }
+}
+
+/* ---------- Signature pad (sign on screen with finger or stylus) ---------- */
+
+.sigpad-overlay {
+  position: fixed; inset: 0; z-index: 90;
+  background: rgba(4, 8, 18, .72);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+}
+.sigpad {
+  width: min(880px, 100%);
+  background: var(--panel, #16203a);
+  border: 1px solid var(--border, #2a3550);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex; flex-direction: column; gap: 12px;
+  max-height: 100%;
+}
+.sigpad-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.sigpad-title { font-weight: 700; font-size: 15px; }
+.sigpad-sub { font-size: 12px; color: #8b95a8; margin-top: 2px; }
+
+/* White, because that is the paper the signature ends up on — and because the
+   ink is drawn with no background of its own, anything darker would hide it. */
+.sigpad-sheet {
+  position: relative;
+  background: #fff;
+  border-radius: 8px;
+  height: min(46vh, 300px);
+  min-height: 180px;
+  overflow: hidden;
+  /* Without this the browser claims the gesture and pans the page instead of
+     letting the signature through. */
+  touch-action: none;
+}
+.sigpad-canvas { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+.sigpad-baseline {
+  position: absolute; left: 8%; right: 8%; bottom: 46px;
+  border-bottom: 1px solid #98a2b3; pointer-events: none;
+}
+.sigpad-hint {
+  position: absolute; left: 0; right: 0; bottom: 18px;
+  text-align: center; font-size: 11.5px; color: #98a2b3; pointer-events: none;
+}
+.sigpad-actions { display: flex; align-items: center; gap: 8px; }
+.sigpad-spacer { flex: 1 1 auto; }
+
+@media (max-width: 640px) {
+  .sigpad-sheet { height: min(52vh, 260px); }
+  .sigpad-baseline { left: 5%; right: 5%; }
 }
