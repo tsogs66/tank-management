@@ -27,6 +27,7 @@ const VESSEL_FILES = [
   'bunker-after.json',
   'bunker-summary.json',
   'bunker-history.json',
+  'assets.json',
   'meta.json',
 ];
 
@@ -161,6 +162,15 @@ function emptyLegs(n = 10) {
   }));
 }
 
+/**
+ * Printed-document identity: the vessel logo and a signature per Chief Engineer
+ * name, so a report reprinted after a crew change still carries the signature of
+ * the officer named on it.
+ */
+function emptyAssets() {
+  return { vesselLogo: null, chEngSignatures: {} };
+}
+
 /** Saved bunkering paperwork, newest first in each list. */
 function emptyBunkerHistory() {
   return { plans: [], after: [], summaries: [] };
@@ -216,6 +226,7 @@ function createVessel(details = {}) {
   writeJson(vesselPath(id, 'bunker-after.json'), details.bunkerAfter || null);
   writeJson(vesselPath(id, 'bunker-summary.json'), details.bunkerSummary || null);
   writeJson(vesselPath(id, 'bunker-history.json'), details.bunkerHistory || emptyBunkerHistory());
+  writeJson(vesselPath(id, 'assets.json'), details.assets || emptyAssets());
   writeJson(vesselPath(id, 'meta.json'), {
     version: 1,
     revision: 1,
@@ -286,6 +297,7 @@ function getVesselBundle(id) {
     bunkerAfter: readJson(vesselPath(id, 'bunker-after.json'), null),
     bunkerSummary: readJson(vesselPath(id, 'bunker-summary.json'), null),
     bunkerHistory: readJson(vesselPath(id, 'bunker-history.json'), emptyBunkerHistory()),
+    assets: readJson(vesselPath(id, 'assets.json'), emptyAssets()),
     meta: readJson(vesselPath(id, 'meta.json'), {}),
   };
 }
@@ -305,6 +317,7 @@ function saveVesselPart(id, part, data) {
     bunkerAfter: 'bunker-after.json',
     bunkerSummary: 'bunker-summary.json',
     bunkerHistory: 'bunker-history.json',
+    assets: 'assets.json',
   };
   if (!allowed[part]) throw new Error('Unknown part: ' + part);
   if (!fs.existsSync(vesselDir(id))) throw new Error('Vessel not found');
@@ -458,6 +471,7 @@ function importBackup(backup, { merge = true } = {}) {
     writeJson(vesselPath(id, 'bunker-after.json'), bundle.bunkerAfter || null);
     writeJson(vesselPath(id, 'bunker-summary.json'), bundle.bunkerSummary || null);
     writeJson(vesselPath(id, 'bunker-history.json'), bundle.bunkerHistory || emptyBunkerHistory());
+    writeJson(vesselPath(id, 'assets.json'), bundle.assets || emptyAssets());
     writeJson(vesselPath(id, 'meta.json'), {
       ...(bundle.meta || {}),
       updatedAt: now(),
@@ -509,6 +523,7 @@ function applySyncPayload(payload) {
           'bunker-after': 'bunkerAfter',
           'bunker-summary': 'bunkerSummary',
           'bunker-history': 'bunkerHistory',
+          assets: 'assets',
           meta: 'meta',
         };
         const dataKey = map[key];
@@ -576,6 +591,7 @@ module.exports = {
   syncPushBundle,
   emptyTanks,
   emptyBunkerHistory,
+  emptyAssets,
   emptyVoyage,
   emptyBunkering,
   findTankInBundle,

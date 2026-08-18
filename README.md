@@ -16,6 +16,7 @@ Multi-vessel web app for fuel tank sounding (double interpolation + ASTM 54B), e
 - **Voyage fuel calculation** — per-leg distance/speed/daily burn → arrival ROB
 - **VCF / WCF calculator** — standalone ASTM 54B / WCF manual calc + reference tables
 - **ISO 8217 specs** — distillate & residual marine fuel limit tables (ISO 8217:2017)
+- **Vessel logo + Chief Engineer signature** — uploaded once, background lifted off a photographed signature, printed on every document
 - **Offline + sync** — IndexedDB cache + mutation queue; push/pull peer sync when online
 - **Backup / import** — full JSON backup of vessels + settings
 - **Android** — responsive PWA (Add to Home Screen)
@@ -59,6 +60,7 @@ data/
       bunker-after.json   # after-bunkering tank condition
       bunker-summary.json # bunkering report summary
       bunker-history.json # saved plans / after-reports / summaries
+      assets.json         # vessel logo + signature per Chief Engineer
       meta.json           # revision for sync
 ```
 
@@ -101,6 +103,31 @@ sheet & reference tables*) but are always included in the printout.
 
 Constants taken from the workbook: 100% capacity in MT = 100% m³ × 0.96, filling limit 85%, lube oil
 litres × 0.882 ÷ 1000.
+
+## Printed document identity — logo & signature
+
+**Vessel Setup → Printed document identity** takes two images:
+
+| Image | Where it prints |
+|-------|-----------------|
+| Chief Engineer signature | in the space directly above the signature line, so it reads as signed over it |
+| Vessel logo | immediately after the signature block |
+
+Both appear on every printout — fuel report, bunker plan, after-bunkering report, bunkering summary, and the
+calibration book cover.
+
+A signature is normally a photo of ink on paper, so by default the paper is lifted off and the image
+trimmed to the signature. The method is the one used in the companion voyage-manager app: paper brightness
+*and* paper colour are estimated locally on a coarse grid, and each pixel is judged against the paper
+beside it, so an uneven shadow does not survive as a grey slab and a cream or warm-lit page does not read
+as ink. Alpha is ramped rather than switched so stroke edges stay smooth, and the crop keeps only the main
+cluster of ink — a stray mark in the corner of the page does not stretch the crop and shrink the signature.
+If nothing resembling ink is found the image is returned untouched rather than blanked. A logo that already
+has a transparent background can be uploaded with the box unticked.
+
+Signatures are filed under the **Chief Engineer** name on the vessel record, so after a crew change each
+officer keeps their own and a sheet reprinted later still carries the signature of the officer named on it.
+Both images live in the vessel's `assets.json` and ride along in backups and peer sync.
 
 ## Bunkering chain
 

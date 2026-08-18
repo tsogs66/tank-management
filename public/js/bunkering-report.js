@@ -820,6 +820,7 @@ const BunkerReports = (() => {
           </tbody></table>
         </div>
       </div>
+      ${UI.printSignatureBlock()}
       ${UI.footer(`${c.vessel.name} · bunkering plan · ${c.header.date || ''}`)}
     </section>
     <section class="calib-print-page">
@@ -1036,6 +1037,7 @@ const BunkerReports = (() => {
       </table>
       <p class="calib-print-note">Added = present − ROB prior bunkering. A negative figure is consumption
         between the two soundings, not a delivery.</p>
+      ${UI.printSignatureBlock(c.signature && c.signature.preparedBy, c.signature && c.signature.rank)}
       ${UI.footer(`${c.vessel.name} · after bunkering · ${c.header.dateTime}`)}
     </section>`;
   }
@@ -1352,10 +1354,7 @@ const BunkerReports = (() => {
       </div>
       <h3 class="fr-print-h3">Remarks</h3>
       <p class="calib-print-note">${esc(c.remarks || '—')}</p>
-      <div class="fr-print-sign">
-        <div>Chief Engineer</div>
-        <div class="fr-print-sign-line"></div>
-      </div>
+      ${UI.printSignatureBlock()}
       ${UI.footer(`${c.vessel.name} · bunkering summary · ${c.date || ''}`)}
     </section>
     <section class="calib-print-page">
