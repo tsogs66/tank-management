@@ -636,9 +636,9 @@ const FuelReport = (() => {
     const moved = section.rows.filter((r) => r.moved);
     const rows = section.rows.map((r) => `<tr>
       <td class="fr-print-name">${esc(r.name)}${r.moved ? ' *' : ''}</td>
-      <td>${esc(r.fuelTypeLabel)}</td>
+      <td class="fr-print-label">${esc(r.fuelTypeLabel)}</td>
       <td>${n(r.reading, 0)}</td>
-      <td>${esc(r.methodLabel)}</td>
+      <td class="fr-print-label">${esc(r.methodLabel)}</td>
       <td>${n(r.tempC, 1)}</td>
       <td>${n(r.capacity100M3, 1)}</td>
       <td>${n(r.measuredM3, 3)}</td>
@@ -731,9 +731,9 @@ const FuelReport = (() => {
     const moved = section.rows.filter((r) => r.moved);
     const rows = section.rows.map((r) => `<tr>
       <td class="fr-print-name">${esc(r.name)}${r.moved ? ' *' : ''}</td>
-      <td>${esc(r.fuelTypeLabel)}</td>
+      <td class="fr-print-label">${esc(r.fuelTypeLabel)}</td>
       <td>${n(r.reading, 0)}</td>
-      <td>${esc(r.methodLabel)}</td>
+      <td class="fr-print-label">${esc(r.methodLabel)}</td>
       <td>${n(r.tempC, 1)}</td>
       <td>${n(r.capacity100M3, 1)}</td>
       <td>${n(r.measuredM3, 3)}</td>
