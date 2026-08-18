@@ -93,14 +93,14 @@ Below the grid: per-grade totals against the **log book ROB** (with the differen
 litres → MT, received quantities, daily consumption, and the preparer.
 
 **PRINT & SAVE** saves the form, writes the soundings back as tank readings, appends a snapshot to
-*Saved reports*, and prints a landscape A4 document of three pages:
+*Saved reports*, and prints a **single A4 sheet**: the TANK CONDITION face — both tank blocks with every
+column, totals, log-book comparison, lube / received / consumption, signature and stamp.
 
-1. **TANK CONDITION** — both tank blocks with every column, totals, log-book comparison, lube / received / consumption, signature
-2. **CALCULATION SHEET** — the derivation the entry grid hides: raw reading → table scale → trim/heel correction → observed volume → α 54B, ΔT, VCF → GSV → WCF → weight
-3. **FORMULAS & REFERENCE TABLES** — every formula with its workbook source, plus ASTM 54B VCF across temperature and Table 56 WCF for each density used in the report
-
-The calculation sheet and reference tables are collapsed on screen (**Show on screen** under *Calculation
-sheet & reference tables*) but are always included in the printout.
+The annex that used to print as a second sheet — entry fields not shown on the face, the calculation sheet
+(raw reading → table scale → trim/heel correction → observed volume → α 54B, ΔT, VCF → GSV → WCF → weight)
+and ASTM 54B VCF across temperature with Table 56 WCF for each density used — is **on screen only**, under
+**Show on screen** next to *Calculation sheet & reference tables*. It is still built from the same markup, so
+nothing was lost; it simply is not sent to the printer.
 
 Constants taken from the workbook: 100% capacity in MT = 100% m³ × 0.96, filling limit 85%, lube oil
 litres × 0.882 ÷ 1000.

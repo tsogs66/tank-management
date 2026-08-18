@@ -845,7 +845,6 @@ const FuelReport = (() => {
       </div>
       <div class="fr-tc-signoff">
         ${printSignatureBlock(c.signature.preparedBy, c.signature.rank)}
-        <div class="fr-tc-page-no">Page 1 of 2</div>
       </div>
       ${footer(`${c.vessel.name} · tank condition · ${c.header.dateTime}`)}
     </section>`;
@@ -909,10 +908,6 @@ const FuelReport = (() => {
         <thead><tr><th>Density @15</th>${vcfHead}<th>WCF</th></tr></thead>
         <tbody>${vcfRows}</tbody>
       </table>
-      <div class="fr-tc-signoff">
-        <div></div>
-        <div class="fr-tc-page-no">Page 2 of 2</div>
-      </div>
       ${footer(`${c.vessel.name} · annex · ${c.header.dateTime}`)}
     </section>`;
   }
@@ -1056,7 +1051,7 @@ const FuelReport = (() => {
   }
 
   function buildPrintPages(c) {
-    return printConditionPage(c) + printAnnexPage(c);
+    return printConditionPage(c);
   }
 
   /** Same content the printout carries, for the on-screen "show" toggle. */
