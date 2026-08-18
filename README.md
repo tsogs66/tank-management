@@ -112,11 +112,12 @@ litres × 0.882 ÷ 1000.
 | Image | Where it prints |
 |-------|-----------------|
 | Chief Engineer signature | in the space directly above the signature line, so it reads as signed over it |
-| Vessel logo | 44 mm tall, standing off the end of the signature line by a third of the line's length |
+| Vessel logo | 44 mm tall, struck over the right-hand end of the signature line — centred on the line, covering its last third, running off to the right |
 
-The logo prints like a rubber stamp. It is allowed to overlap whatever is already on the paper — that is what
-a stamp does — and it adds no height to the sheet, so changing `--fr-logo-height` resizes the mark without
-moving anything else or costing a tank row. It carries no white fill of its own either: a stamp with a card
+The logo prints like a rubber stamp struck across the end of the signature line: its centre sits on the line,
+it covers the line's last third, and the rest of it runs off to the right. It is allowed to overlap whatever
+is already on the paper — that is what a stamp does — and it adds no height to the sheet, so changing
+`--fr-logo-height` resizes the mark without moving anything else or costing a tank row. It carries no white fill of its own either: a stamp with a card
 behind it would blank out the print it is meant to sit over. Upload the logo with background removal on to
 get the real stamp effect; an untrimmed photo prints its own paper as an opaque rectangle.
 
