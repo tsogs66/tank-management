@@ -102,6 +102,12 @@ and ASTM 54B VCF across temperature with Table 56 WCF for each density used — 
 **Show on screen** next to *Calculation sheet & reference tables*. It is still built from the same markup, so
 nothing was lost; it simply is not sent to the printer.
 
+Printed table cells sit on the middle of their row. That shows wherever a row is taller than one line — the
+header, where some headings run to two lines and single-word ones would otherwise hang at the top, and any
+row where a long tank name wraps. Cells carrying words (tank name, fuel grade, sounding method, and the
+category column of the summary cards) are centred both ways; cells carrying figures keep their right edge, so
+decimal points line up down a column.
+
 Constants taken from the workbook: 100% capacity in MT = 100% m³ × 0.96, filling limit 85%, lube oil
 litres × 0.882 ÷ 1000.
 

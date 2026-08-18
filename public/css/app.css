@@ -1050,10 +1050,12 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     text-align: center;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+    vertical-align: middle;
   }
   table.calib-print-table th:first-child,
   table.calib-print-table td:first-child {
-    text-align: left;
+    text-align: center;
+    vertical-align: middle;
     font-weight: 600;
     width: 14mm;
   }
@@ -1115,14 +1117,19 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     font-variant-numeric: tabular-nums; margin-bottom: 4px;
   }
   table.fr-print-table th, table.fr-print-table td {
-    border: 0.4pt solid #222; padding: 2px 3px; text-align: right;
+    border: 0.4pt solid #222; padding: 2px 3px;
+    text-align: right; vertical-align: middle;
   }
   table.fr-print-table th {
     background: #f0f0f0 !important; font-weight: 700; text-align: center;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    vertical-align: middle;
   }
   table.fr-print-table td.fr-print-name, table.fr-print-table th.fr-print-name {
-    text-align: left; font-weight: 600;
+    text-align: center; vertical-align: middle; font-weight: 600;
+  }
+  table.fr-print-table td.fr-print-label, table.fr-print-table th.fr-print-label {
+    text-align: center; vertical-align: middle;
   }
   table.fr-print-table .fr-print-weight { font-weight: 700; }
   table.fr-print-table tfoot th, table.fr-print-table tfoot td {
@@ -1208,14 +1215,24 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     font-size: 6.6pt; font-variant-numeric: tabular-nums;
   }
   table.fr-tc-table th, table.fr-tc-table td {
-    border: 0.35pt solid #333; padding: 1px 3px; text-align: right;
+    border: 0.35pt solid #333; padding: 1px 3px;
+    /* Figures are read down a column, so they keep their right edge; the cells
+       that carry words are centred both ways just below. Everything sits on the
+       middle of its row, which is what shows once a row is taller than one
+       line — a wrapped tank name, or a header split over two lines. */
+    text-align: right; vertical-align: middle;
   }
   table.fr-tc-table th {
     background: #eef2f7 !important; font-weight: 700; text-align: center;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    vertical-align: middle;
   }
   table.fr-tc-table td.fr-print-name, table.fr-tc-table th.fr-print-name {
-    text-align: left; font-weight: 600; width: 32mm;
+    text-align: center; vertical-align: middle; font-weight: 600; width: 32mm;
+  }
+  /* Fuel and Method carry words, not figures. */
+  table.fr-tc-table td.fr-print-label, table.fr-tc-table th.fr-print-label {
+    text-align: center; vertical-align: middle;
   }
   table.fr-tc-table tbody tr:nth-child(even) td {
     background: #f7f8fb !important;
@@ -1257,13 +1274,17 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   }
   table.fr-tc-mini th, table.fr-tc-mini td {
     border: 0.3pt solid #555; padding-top: 1px; padding-bottom: 1px;
-    padding-left: 3px; padding-right: 3px; text-align: right;
+    padding-left: 3px; padding-right: 3px;
+    text-align: right; vertical-align: middle;
   }
   table.fr-tc-mini th {
     background: #f0f0f0 !important; text-align: center;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    vertical-align: middle;
   }
-  table.fr-tc-mini td.fr-print-name, table.fr-tc-mini th.fr-print-name { text-align: left; }
+  table.fr-tc-mini td.fr-print-name, table.fr-tc-mini th.fr-print-name {
+    text-align: center; vertical-align: middle;
+  }
   table.fr-tc-mini tfoot th, table.fr-tc-mini tfoot td {
     background: #d9e2ee !important; color: #000 !important; font-weight: 800;
     font-size: 8pt; border-top: 1pt solid #111;
