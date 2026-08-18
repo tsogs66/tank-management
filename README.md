@@ -114,6 +114,12 @@ litres × 0.882 ÷ 1000.
 | Chief Engineer signature | in the space directly above the signature line, so it reads as signed over it |
 | Vessel logo | 44 mm tall, standing off the end of the signature line by a third of the line's length |
 
+The logo prints like a rubber stamp. It is allowed to overlap whatever is already on the paper — that is what
+a stamp does — and it adds no height to the sheet, so changing `--fr-logo-height` resizes the mark without
+moving anything else or costing a tank row. It carries no white fill of its own either: a stamp with a card
+behind it would blank out the print it is meant to sit over. Upload the logo with background removal on to
+get the real stamp effect; an untrimmed photo prints its own paper as an opaque rectangle.
+
 Both appear on every printout — fuel report, bunker plan, after-bunkering report, bunkering summary, and the
 calibration book cover.
 
