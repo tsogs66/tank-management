@@ -134,6 +134,11 @@ Both preview panes are white. Once the paper has been lifted off, a signature is
 dark app background it would be invisible, and white is also what it previews as on the printed page. The
 printed logo box is white for the same reason.
 
+The printed header and the facts strip under it are spaced tightly, because that space competes directly with
+the signature: on a sheet with a few more tanks than usual the sign-off is what gets pushed onto a page of its
+own. Trimming the padding there (no type was made smaller) reclaims about 10 mm on the TANK CONDITION face —
+room for three more tank rows before the signature spills.
+
 Images are stored as JPEG when nothing in them is transparent and PNG only when transparency has to be kept.
 A photographed logo is around 11 KB as JPEG against 440 KB as PNG, which matters because both images travel
 inside the vessel bundle on every page load.
