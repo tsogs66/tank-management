@@ -2392,9 +2392,12 @@ function buildPrintIdentityPanel() {
           Remove background and trim to the signature</label>
         <div class="hint" id="sig-for"></div>
         <div class="btn-row">
+          <button class="btn small" id="sig-draw">Sign on screen</button>
           <button class="btn small" id="sig-recut" style="display:none">Remove background now</button>
           <button class="btn small danger" id="sig-remove" style="display:none">Remove signature</button>
         </div>
+        <div class="hint">Signing on screen needs no photograph: the strokes are already ink on a
+          transparent background, so nothing has to be lifted off.</div>
       </div>
     </div>
 
@@ -2466,6 +2469,32 @@ function buildPrintIdentityPanel() {
     }
     if (track) track.scrollIntoView({ block: 'nearest' });
   };
+  panel.querySelector('#sig-draw').onclick = async () => {
+    const name = currentChEngName();
+    if (!name) {
+      showToast('Enter the Chief Engineer name first — signatures are filed under it');
+      return;
+    }
+    if (!window.SignaturePad || !SignaturePad.isSupported()) {
+      showToast('This device cannot capture a drawn signature — upload a photo instead');
+      return;
+    }
+    const url = await SignaturePad.open({ signerName: name });
+    if (!url) return;
+    Progress.start(panel, 'Saving signature…');
+    try {
+      vesselAssets().chEngSignatures[signatureKeyFor(name)] = url;
+      await saveVesselAssets();
+      renderPreviews();
+      Progress.done('Signature saved');
+      showToast('Signature saved for ' + name);
+    } catch (err) {
+      console.warn(err);
+      Progress.done();
+      showToast('Could not save that signature');
+    }
+  };
+
   panel.querySelector('#sig-recut').onclick = async () => {
     const key = signatureKeyFor(currentChEngName());
     const cur = vesselAssets().chEngSignatures[key];
