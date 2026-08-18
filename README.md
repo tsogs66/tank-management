@@ -156,10 +156,15 @@ Both preview panes are white. Once the paper has been lifted off, a signature is
 dark app background it would be invisible, and white is also what it previews as on the printed page. The
 printed logo box is white for the same reason.
 
-Totals rows on the fuel-oil and diesel-oil tables print a pixel smaller than the rest of the sign-off, with
-tighter side padding. At the old size a seven-character total cleared its column by 2 px, so a four-figure
-total ran past it; the trim leaves 4 px of room. A five-figure total (over 9,999 MT) would still be about a
-pixel wide — drop the row to 7pt if a vessel that size ever needs it.
+Totals rows on the fuel-oil and diesel-oil tables are sized against the widest total a large vessel prints —
+five figures and three decimals, e.g. `12999.747`. Two things make that fit: the row is 7pt with 1px side
+padding, and the tank-name column is 32mm rather than 36mm, which hands the 4mm to the twelve numeric
+columns. 32mm is the floor — at 30mm the longest tank names wrap, and the extra row height costs more than
+the width is worth.
+
+Row padding through the sheet is 1px vertical rather than 1.5px, and the blocks, cards and capacity line are
+spaced tighter. Together that is about 11mm, which is what keeps a large vessel on one sheet: with
+five-figure totals the face fits up to roughly 25 fuel tanks. Beyond that it spills to a second page.
 
 The printed header and the facts strip under it are spaced tightly, because that space competes directly with
 the signature: on a sheet with a few more tanks than usual the sign-off is what gets pushed onto a page of its
