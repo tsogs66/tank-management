@@ -889,7 +889,13 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
 .fuel-report-print-doc { display: none; }
 
 @media print {
-  :root { --fr-sign-line: 62mm; --fr-logo-height: 41.8mm; --fr-sign-space: 15mm; }
+  :root {
+    --fr-sign-line: 62mm; --fr-logo-height: 41.8mm; --fr-sign-space: 15mm;
+    /* Printed below the signature line: the signer's name, their role, and the
+       page footer. The stamp's lower half has to fit inside this, or it runs
+       off the foot of the sheet. */
+    --fr-sign-foot: 15mm;
+  }
   @page {
     size: A4 portrait;
     margin: 10mm 10mm;
@@ -936,6 +942,12 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     page-break-after: always;
     break-after: page;
     padding: 0;
+    /* The stamp is centred on the signature line, so half of it hangs below.
+       The name, role and footer absorb most of that; this reserves whatever is
+       left over, so a sheet that reaches the bottom of the page cannot cut the
+       stamp in half. Nothing is reserved when the stamp is small enough to
+       clear on its own. */
+    padding-bottom: max(0mm, calc(var(--fr-logo-height) / 2 - var(--fr-sign-foot)));
   }
   /* No leading gap at the very top of a sheet — the page margin is the margin. */
   .calib-print-page > *:first-child,
