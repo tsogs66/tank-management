@@ -321,9 +321,65 @@ function saveVesselPart(id, part, data) {
   };
   if (!allowed[part]) throw new Error('Unknown part: ' + part);
   if (!fs.existsSync(vesselDir(id))) throw new Error('Vessel not found');
-  writeJson(vesselPath(id, allowed[part]), data);
+  const merged = mergePartOnWrite(id, part, allowed[part], data);
+  writeJson(vesselPath(id, allowed[part]), merged);
   touchVessel(id);
+  return merged;
+}
+
+/**
+ * Saved reports and bunkering history only ever grow, so a write of them is a
+ * contribution rather than a replacement. A tablet that was offline for a week
+ * replays its queue holding the history as it was a week ago; overwriting with
+ * that would delete every report the server gained in between. Union by id
+ * instead, newest copy of a given id winning.
+ *
+ * Removal still works, because deletions go through their own DELETE route
+ * rather than by sending a shorter list.
+ */
+function mergePartOnWrite(id, part, file, data) {
+  if (part === 'reportHistory') {
+    return unionById(readJson(vesselPath(id, file), []), data, 'savedAt');
+  }
+  if (part === 'bunkerHistory') {
+    const current = readJson(vesselPath(id, file), emptyBunkerHistory());
+    const incoming = data && typeof data === 'object' ? data : {};
+    const out = { ...current };
+    for (const key of ['plans', 'after', 'summaries']) {
+      out[key] = unionById(current[key], incoming[key], 'savedAt');
+    }
+    return out;
+  }
   return data;
+}
+
+/** Union two id-keyed lists, keeping whichever copy of an id is newer. */
+function unionById(currentList, incomingList, stampKey) {
+  const current = Array.isArray(currentList) ? currentList : [];
+  const incoming = Array.isArray(incomingList) ? incomingList : [];
+  if (!current.length) return incoming;
+  if (!incoming.length) return current;
+  const byId = new Map();
+  const order = [];
+  const put = (item) => {
+    if (!item || typeof item !== 'object') return;
+    const key = item.id != null ? String(item.id) : null;
+    if (key == null) { order.push({ key: Symbol('anon'), item }); return; }
+    const seen = byId.get(key);
+    if (!seen) {
+      byId.set(key, item);
+      order.push({ key, item });
+      return;
+    }
+    // Same id on both sides: keep the one stamped later.
+    const a = String(seen[stampKey] || '');
+    const b = String(item[stampKey] || '');
+    if (b > a) byId.set(key, item);
+  };
+  current.forEach(put);
+  incoming.forEach(put);
+  return order.map((e) => (typeof e.key === 'string' ? byId.get(e.key) : e.item))
+    .filter((v, i, arr) => arr.indexOf(v) === i);
 }
 
 function updateVesselDetails(id, patch) {

@@ -18,7 +18,7 @@ Multi-vessel web app for fuel tank sounding (double interpolation + ASTM 54B), e
 - **ISO 8217 specs** — distillate & residual marine fuel limit tables (ISO 8217:2017)
 - **Vessel logo + Chief Engineer signature** — signed on screen with a finger or stylus, or uploaded as a photo with the paper lifted off; printed on every document
 - **Progress bars** — signature/logo processing and CSV / Excel / PDF uploads report step, percentage and elapsed time
-- **Offline + sync** — IndexedDB cache + mutation queue; push/pull peer sync when online
+- **Runs offline** — the whole app, its data and its printouts work with no server in reach; changes queue in a local database and merge back when the server returns
 - **Backup / import** — full JSON backup of vessels + settings
 - **Android** — responsive PWA (Add to Home Screen)
 - **Debian / Proxmox LXC** — systemd install script included
@@ -110,6 +110,38 @@ decimal points line up down a column.
 
 Constants taken from the workbook: 100% capacity in MT = 100% m³ × 0.96, filling limit 85%, lube oil
 litres × 0.882 ÷ 1000.
+
+## Running offline
+
+Once the app has been opened against the server it keeps working with nothing in reach — no server, no
+network. The service worker holds the app shell; a vessel's whole bundle lives in IndexedDB; the report,
+bunkering and VCF maths run in the browser from the same modules the server uses, so the numbers are the
+same either way. Soundings can be entered, reports saved and sheets printed with the server switched off.
+
+Edits are written to the local database first and queued. Nothing is lost if the tablet is closed and
+reopened — the queue outlives the page.
+
+**Coming back.** `navigator.onLine` only reports whether the device has a network, which says nothing about
+whether the server is up; aboard a ship the usual case is a tablet on the vessel's wifi with the server box
+off. So the app asks the server itself, every 30 seconds when there is nothing waiting and every 5 seconds
+while there is. When it answers, the queue is replayed in order and the bundle pulled back down so both
+sides agree.
+
+**Merging.** Saved reports and bunkering history only grow, so a write of them is treated as a contribution
+rather than a replacement: the server unions by id and keeps the newer copy of any id it already had. Without
+that, a tablet offline for a week would replay week-old history and delete everything the server gained in
+the meantime. Deletions still work, because they travel as their own request rather than as a shorter list.
+The remaining parts — the current voyage, the report form, vessel details — are current-state rather than
+history, so the newer write wins.
+
+**A change the server rejects** (a 4xx — a vessel that no longer exists, say) is dropped and reported rather
+than retried forever, because retrying cannot change the answer and one bad item must not wedge everything
+behind it. Anything merely undeliverable keeps its place in the queue, in order.
+
+Two things to know if you are changing this. The scripts are requested with a `?v=NN` cache-buster but were
+cached under their bare paths, so the worker has to look them up with `ignoreSearch` — without it every
+script misses the cache and the app boots with nothing. And only a navigation may fall back to `index.html`:
+answering a script request with HTML is what turns an offline load into `Unexpected token '<'`.
 
 ## Printed document identity — logo & signature
 

@@ -3024,11 +3024,69 @@ async function boot() {
   }
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js?v=34').catch(() => {});
+    // No ?v here on purpose: the browser re-fetches this URL and compares the
+    // bytes, so a pinned version only ever goes stale. The cache name inside
+    // the worker is what versions the cached files.
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 
   render();
-  setInterval(() => { if (navigator.onLine) Api.flushQueue(); }, 30000);
+  startSyncLoop();
+}
+
+/**
+ * Keep the local database and the server in step.
+ *
+ * navigator.onLine only says whether the device has a network; it says nothing
+ * about whether the server at the other end is up, and aboard a ship the common
+ * case is exactly that — the tablet is on the vessel's wifi while the server box
+ * is off. So reachability is asked of the server itself, and the queue is
+ * retried on that answer rather than on the browser's opinion.
+ *
+ * While there is nothing waiting the check is cheap and infrequent. While there
+ * is queued work it runs often, so a server coming back is picked up in seconds
+ * rather than half a minute.
+ */
+function startSyncLoop() {
+  const IDLE_MS = 30000;
+  const PENDING_MS = 5000;
+  let timer = null;
+
+  Api.afterFlush(async ({ flushed, dropped, pending }) => {
+    // Pull the server's copy back down so both sides agree — the server may
+    // have merged our history into work of its own while we were away.
+    try {
+      await reloadBundle();
+      const st = await Api.getStatus();
+      STATE.vessels = st.vessels || [];
+      STATE.settings = st.settings || {};
+      render();
+    } catch { /* it went away again; the next tick will retry */ }
+    const parts = [`Synced ${flushed} offline change${flushed === 1 ? '' : 's'}`];
+    if (dropped) parts.push(`${dropped} rejected by the server`);
+    if (pending) parts.push(`${pending} still waiting`);
+    showToast(parts.join(' · '));
+  });
+
+  const tick = async () => {
+    let pending = 0;
+    try {
+      pending = (await OfflineDB.queueAll()).length;
+      if (pending) {
+        if (await Api.reachable()) await Api.flushQueue();
+      } else {
+        await Api.reachable();
+      }
+      pending = (await OfflineDB.queueAll()).length;
+    } catch { /* nothing to do but wait for the next tick */ }
+    timer = window.setTimeout(tick, pending ? PENDING_MS : IDLE_MS);
+  };
+
+  window.addEventListener('online', () => {
+    window.clearTimeout(timer);
+    tick();
+  });
+  timer = window.setTimeout(tick, PENDING_MS);
 }
 
 document.addEventListener('DOMContentLoaded', boot);
