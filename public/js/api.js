@@ -3,6 +3,7 @@
  */
 const Api = (() => {
   let online = navigator.onLine;
+  let flushing = false;
   const listeners = new Set();
 
   function setOnline(v) {
@@ -28,7 +29,14 @@ const Api = (() => {
       const text = await res.text();
       let data = null;
       try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-      if (!res.ok) throw new Error((data && data.error) || res.statusText || 'Request failed');
+      if (!res.ok) {
+        const err = new Error((data && data.error) || res.statusText || 'Request failed');
+        err.status = res.status;
+        // 4xx is the server saying no; retrying cannot change its mind. 503 is
+        // the worker's own offline stand-in, which is not a rejection.
+        err.rejected = res.status >= 400 && res.status < 500;
+        throw err;
+      }
       setOnline(true);
       return data;
     } catch (err) {
@@ -116,26 +124,69 @@ const Api = (() => {
     }
   }
 
+  /**
+   * Send everything that was written while the server was out of reach.
+   *
+   * Order is kept, because a later edit of the same part has to land after the
+   * earlier one. But a single item is not allowed to wedge the queue forever:
+   * a request the server actively rejects (a 4xx — malformed, or about a vessel
+   * that no longer exists) will never succeed no matter how often it is tried,
+   * so it is dropped and reported rather than retried until the end of time.
+   * Anything that merely could not be delivered — no server, a 5xx — stops the
+   * run and is tried again on the next one, still in order.
+   */
   async function flushQueue() {
-    if (!navigator.onLine) return { flushed: 0 };
-    const items = await OfflineDB.queueAll();
-    let flushed = 0;
-    for (const item of items) {
-      try {
-        await request(item.path, item.opts || {});
-        await OfflineDB.queueDelete(item.id);
-        flushed++;
-      } catch (e) {
-        console.warn('Queue flush failed', e);
-        break;
+    if (flushing) return { flushed: 0, busy: true };
+    flushing = true;
+    try {
+      const items = await OfflineDB.queueAll();
+      if (!items.length) return { flushed: 0, dropped: 0, pending: 0 };
+      let flushed = 0;
+      let dropped = 0;
+      for (const item of items) {
+        try {
+          await request(item.path, item.opts || {});
+          await OfflineDB.queueDelete(item.id);
+          flushed += 1;
+        } catch (err) {
+          if (err && err.rejected) {
+            console.warn('Dropping a queued change the server rejected', item.path, err.message);
+            await OfflineDB.queueDelete(item.id);
+            dropped += 1;
+            continue;
+          }
+          break; // undeliverable — keep it, and everything after it, in order
+        }
       }
+      const pending = (await OfflineDB.queueAll()).length;
+      if (flushed) setOnline(true);
+      if (flushed && typeof onFlushed === 'function') await onFlushed({ flushed, dropped, pending });
+      return { flushed, dropped, pending };
+    } finally {
+      flushing = false;
     }
-    if (flushed) setOnline(true);
-    return { flushed };
   }
+
+  /** Is the server itself reachable? Being on a network says nothing about it. */
+  async function reachable() {
+    try {
+      const res = await fetch('/api/health', { cache: 'no-store' });
+      const ok = res.ok;
+      setOnline(ok);
+      return ok;
+    } catch {
+      setOnline(false);
+      return false;
+    }
+  }
+
+  /** Called after a flush actually delivered something, so the app can re-pull. */
+  let onFlushed = null;
+  function afterFlush(fn) { onFlushed = fn; }
 
   return {
     request, upload, getStatus, getVessel, mutate, flushQueue, onStatus, isOnline,
+    reachable, afterFlush,
     listVessels: () => request('/api/vessels'),
     createVessel: (body) => request('/api/vessels', { method: 'POST', body }),
     setActive: (id) => request('/api/vessels/active', { method: 'POST', body: { id } }),
