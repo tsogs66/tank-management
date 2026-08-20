@@ -33,16 +33,47 @@
    * legibility decision and is not itself the standard — the family colour is.
    */
   const CONTENT = {
-    hfo:   { fill: '#3d2410', label: 'HFO',   family: 'Flammable liquid (ISO brown)' },
-    lsfo:  { fill: '#5b3a1b', label: 'LSFO',  family: 'Flammable liquid (ISO brown)' },
-    mdo:   { fill: '#8a5a24', label: 'MDO',   family: 'Flammable liquid (ISO brown)' },
-    mgo:   { fill: '#b07f2e', label: 'MGO',   family: 'Flammable liquid (ISO brown)' },
-    lsmgo: { fill: '#c29341', label: 'LSMGO', family: 'Flammable liquid (ISO brown)' },
-    lube:  { fill: '#6f6327', label: 'LUBE',  family: 'Flammable liquid (ISO brown)' },
+    hfo:   { fill: '#6b4220', label: 'HFO',   family: 'Residual fuel (ISO brown)' },
+    lsfo:  { fill: '#7d5228', label: 'LSFO',  family: 'Residual fuel (ISO brown)' },
+    mdo:   { fill: '#d2761d', label: 'MDO',   family: 'Distillate fuel (orange)' },
+    mgo:   { fill: '#d2761d', label: 'MGO',   family: 'Distillate fuel (orange)' },
+    lsmgo: { fill: '#dd8526', label: 'LSMGO', family: 'Distillate fuel (orange)' },
+    lube:  { fill: '#6f6327', label: 'LUBE',  family: 'Lubricating oil (ISO brown)' },
     water: { fill: '#2f6fb5', label: 'FW',    family: 'Fresh water (ISO blue)' },
     misc:  { fill: '#4a5261', label: 'MISC',  family: 'Waste / bilge (ISO black)' },
     other: { fill: '#6b5230', label: '—',     family: 'Unclassified' },
   };
+
+  /* Role shading follows the oil through the system. Storage is darkest; it
+     lightens as the fuel is drawn off to settle and again as it goes to the
+     service tank, so the chain reads as a chain at a glance and you can see
+     where any parcel has got to without reading a word.
+     Overflow sits outside that run and keeps the plain family colour.
+     One rule rather than a hand-kept matrix, so adding a grade cannot forget
+     to add its shades. */
+  const ROLE_SHADE = {
+    storage: -0.30,
+    settling: 0.12,
+    service: 0.34,
+    overflow: 0,
+    other: 0,
+  };
+
+  /** Move a hex colour toward black (amount < 0) or white (amount > 0). */
+  function shade(hex, amount) {
+    if (!amount) return hex;
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(hex));
+    if (!m) return hex;
+    const n = parseInt(m[1], 16);
+    const mix = (c) => {
+      const target = amount > 0 ? 255 : 0;
+      return Math.round(c + (target - c) * Math.abs(amount));
+    };
+    const r = mix((n >> 16) & 255);
+    const g = mix((n >> 8) & 255);
+    const b = mix(n & 255);
+    return '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
+  }
 
   /** The colour this tank's contents print in. */
   function contentKey(tank) {
@@ -59,7 +90,13 @@
     if (/hfo|rmg|ifo/.test(grade)) return 'hfo';
     return 'other';
   }
-  function liquidColour(tank) { return CONTENT[contentKey(tank)].fill; }
+
+  /** The family colour, before the tank's role shades it. */
+  function baseColour(tank) { return CONTENT[contentKey(tank)].fill; }
+
+  function liquidColour(tank) {
+    return shade(baseColour(tank), ROLE_SHADE[roleOf(tank)] || 0);
+  }
   function contentLabel(tank) { return CONTENT[contentKey(tank)].label; }
 
   /* ---------- geometry ---------- */
@@ -202,7 +239,7 @@
   };
 
   return {
-    tankSvg, liquidColour, contentLabel, contentKey, roleOf,
-    CONTENT, ROLE_MEANING,
+    tankSvg, liquidColour, baseColour, shade, contentLabel, contentKey, roleOf,
+    CONTENT, ROLE_MEANING, ROLE_SHADE,
   };
 });

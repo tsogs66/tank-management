@@ -598,6 +598,9 @@ function buildGroupTab(current) {
       <div class="tg-tab-title">Contents</div>
       ${['hfo', 'lsfo', 'mdo', 'mgo', 'lsmgo', 'lube', 'water', 'misc'].map((k) => `
         <div class="tg-key"><i style="background:${TankGraphics.CONTENT[k].fill}"></i>${TankGraphics.CONTENT[k].label}</div>`).join('')}
+      <div class="tg-tab-title">Along the chain</div>
+      ${[['storage', 'Storage'], ['settling', 'Settling'], ['service', 'Service'], ['overflow', 'Overflow']].map(([role, label]) => `
+        <div class="tg-key"><i style="background:${TankGraphics.shade(TankGraphics.CONTENT.mdo.fill, TankGraphics.ROLE_SHADE[role])}"></i>${label}</div>`).join('')}
     </div>`;
 
   tab.querySelector('.tg-tab-handle').onclick = () => {

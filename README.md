@@ -129,13 +129,18 @@ and the dashed line across fuel tanks is the 85% filling limit.
 The liquid is clipped to the cavity, so a sloped floor makes the oil slope with it and a nearly-empty settling
 tank looks like one. Tanks that settle also show the drop-out layer along the floor.
 
-**Colours.** ISO 14726 (identification colours for the content of piping systems) gives the family colour:
-brown for flammable liquids — fuel and lube alike — blue for fresh water, black for waste and bilge. Those are
-the colours used here. The standard separates grades *within* a family by additional colour bands rather than
-by shading, and shipping every band would leave eight near-identical brown tanks on one screen, so the grades
-are shaded instead: heaviest darkest, distillates lighter. **That shading is a legibility decision and is not
-itself the standard** — the family colour is. `CONTENT` in `public/js/tank-graphics.js` is the one place to
-change if your fleet uses a different convention.
+**Colours.** Residual fuel (HFO, LSFO) is brown; distillate (MDO, MGO, LSMGO) is orange; lube brown, fresh
+water blue, waste and bilge black — the ISO 14726 family colours, except that the distillates are given their
+own orange rather than sharing the residuals' brown, which is how they are read aboard.
+
+On top of the family colour, the shade follows the oil through the system. Storage is darkest and lightens as
+the fuel is drawn off to settle, and again as it goes to the service tank, so the chain reads as a chain and
+you can see where a parcel has got to without reading a word. Overflow sits outside that run and keeps the
+plain family colour.
+
+That is one rule rather than a hand-kept matrix — `ROLE_SHADE` applied to `CONTENT` in
+`public/js/tank-graphics.js` — so adding a grade cannot forget to add its shades. Both tables are the single
+place to change if your fleet uses a different convention.
 
 **Floating group tab.** The picker rides on the right edge rather than in the flow, so switching between fuel,
 settling, service, lube or water does not cost a scroll back to the top on a screen showing forty tanks. It
