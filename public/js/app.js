@@ -14,7 +14,15 @@ const STATE = {
   conversionTable: null,
   online: navigator.onLine,
   route: { page: 'dashboard', tankId: null },
+  // Dashboard tank view, remembered between visits.
+  tankView: readPref('tankView', 'table'),
+  tankGroup: readPref('tankGroup', 'all'),
+  tankTabOpen: readPref('tankTabOpen', 'true') !== 'false',
 };
+
+function readPref(key, fallback) {
+  try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
+}
 
 function fmt(n, d = 2) {
   if (n === null || n === undefined || Number.isNaN(n)) return '–';
@@ -477,6 +485,21 @@ function renderDashboard(main) {
   main.appendChild(summary);
   main.appendChild(cards);
 
+  const modeRow = document.createElement('div');
+  modeRow.className = 'btn-row no-print';
+  modeRow.style.margin = '4px 0 2px';
+  modeRow.innerHTML = `
+    <button class="btn small ${STATE.tankView === 'graphic' ? 'primary' : ''}" id="tv-graphic">Graphical tanks</button>
+    <button class="btn small ${STATE.tankView === 'graphic' ? '' : 'primary'}" id="tv-table">Table</button>`;
+  main.appendChild(modeRow);
+  modeRow.querySelector('#tv-graphic').onclick = () => setTankView('graphic');
+  modeRow.querySelector('#tv-table').onclick = () => setTankView('table');
+
+  if (STATE.tankView === 'graphic') {
+    renderTankGraphics(main);
+    return;
+  }
+
   for (const c of CATS) {
     const title = document.createElement('div');
     title.className = 'section-title';
@@ -484,6 +507,114 @@ function renderDashboard(main) {
     main.appendChild(title);
     main.appendChild(buildTankTable(STATE.bundle.tanks[c.id] || []));
   }
+}
+
+function setTankView(mode) {
+  STATE.tankView = mode;
+  try { localStorage.setItem('tankView', mode); } catch { /* private mode */ }
+  navigate('dashboard');
+}
+
+/* ---------- graphical tank view ---------- */
+
+const TANK_GROUPS = [
+  { id: 'all', label: 'All tanks', match: () => true },
+  { id: 'fuel', label: 'Fuel oil', match: (t) => t.category === 'fuel' },
+  { id: 'storage', label: 'Storage', match: (t) => t.category === 'fuel' && roleIs(t, 'storage') },
+  { id: 'settling', label: 'Settling', match: (t) => roleIs(t, 'settling') },
+  { id: 'service', label: 'Service', match: (t) => roleIs(t, 'service') },
+  { id: 'overflow', label: 'Overflow', match: (t) => roleIs(t, 'overflow') },
+  { id: 'lube', label: 'Lube oil', match: (t) => t.category === 'lube' },
+  { id: 'water', label: 'Fresh water', match: (t) => t.category === 'water' },
+  { id: 'misc', label: 'Misc / bilge', match: (t) => t.category === 'misc' },
+];
+
+function roleIs(tank, role) {
+  return String(tank.fuelRole || '').toLowerCase() === role;
+}
+
+function allTanks() {
+  const out = [];
+  for (const c of CATS) for (const t of (STATE.bundle.tanks[c.id] || [])) out.push(t);
+  return out;
+}
+
+function renderTankGraphics(main) {
+  const group = TANK_GROUPS.find((g) => g.id === STATE.tankGroup) || TANK_GROUPS[0];
+  const tanks = allTanks().filter(group.match);
+
+  const grid = document.createElement('div');
+  grid.className = 'tg-grid' + (STATE.tankTabOpen === false ? ' tab-collapsed' : '');
+  if (!tanks.length) {
+    grid.innerHTML = '<div class="empty-state">No tanks in this group</div>';
+  }
+  for (const t of tanks) {
+    const r = getReading(t.id);
+    const pct = r?.result?.fillPercent ?? null;
+    const card = document.createElement('div');
+    card.className = 'tg-card clickable';
+    card.onclick = () => navigate(t.category, t.id);
+    const role = TankGraphics.roleOf(t);
+    card.title = `${t.name} — ${TankGraphics.ROLE_MEANING[role] || ''}`;
+    card.innerHTML = `
+      <div class="tg-name">${escapeHtml(t.name)}</div>
+      <div class="tg-art">${TankGraphics.tankSvg(t, pct, { safeFill: t.category === 'fuel' ? 85 : null })}
+        <div class="tg-pct">${pct != null ? fmt(pct, 0) + '%' : '—'}</div>
+      </div>
+      <div class="tg-stats">
+        <span class="tg-chip" style="--tg-chip:${TankGraphics.liquidColour(t)}">${escapeHtml(TankGraphics.contentLabel(t))}</span>
+        <span>${r ? fmt(r.result.volumeObserved, 1) : '–'} m³</span>
+        <span>${r?.tempC != null && r.tempC !== '' ? fmt(r.tempC, 1) + ' °C' : '– °C'}</span>
+        <span>${r?.result?.weightMT != null ? fmt(r.result.weightMT, 2) + ' MT' : '– MT'}</span>
+      </div>`;
+    grid.appendChild(card);
+  }
+  main.appendChild(grid);
+  main.appendChild(buildGroupTab(group));
+}
+
+/**
+ * The group picker rides on the right edge rather than sitting in the flow, so
+ * switching between fuel, lube and water does not cost a scroll back to the top
+ * on a screen showing forty tanks.
+ */
+function buildGroupTab(current) {
+  const counts = {};
+  const all = allTanks();
+  for (const g of TANK_GROUPS) counts[g.id] = all.filter(g.match).length;
+
+  const tab = document.createElement('aside');
+  tab.className = 'tg-tab no-print' + (STATE.tankTabOpen === false ? ' collapsed' : '');
+  tab.innerHTML = `
+    <button class="tg-tab-handle" aria-expanded="${STATE.tankTabOpen !== false}">
+      <span class="tg-tab-handle-text">Groups</span>
+    </button>
+    <div class="tg-tab-body">
+      <div class="tg-tab-title">Show</div>
+      ${TANK_GROUPS.map((g) => `
+        <button class="tg-group ${g.id === current.id ? 'on' : ''}" data-group="${g.id}" ${counts[g.id] ? '' : 'disabled'}>
+          <span>${escapeHtml(g.label)}</span><b>${counts[g.id]}</b>
+        </button>`).join('')}
+      <div class="tg-tab-title">Contents</div>
+      ${['hfo', 'lsfo', 'mdo', 'mgo', 'lsmgo', 'lube', 'water', 'misc'].map((k) => `
+        <div class="tg-key"><i style="background:${TankGraphics.CONTENT[k].fill}"></i>${TankGraphics.CONTENT[k].label}</div>`).join('')}
+    </div>`;
+
+  tab.querySelector('.tg-tab-handle').onclick = () => {
+    STATE.tankTabOpen = STATE.tankTabOpen === false;
+    try { localStorage.setItem('tankTabOpen', String(STATE.tankTabOpen)); } catch { /* private mode */ }
+    tab.classList.toggle('collapsed', STATE.tankTabOpen === false);
+    const grid = document.querySelector('.tg-grid');
+    if (grid) grid.classList.toggle('tab-collapsed', STATE.tankTabOpen === false);
+  };
+  tab.querySelectorAll('[data-group]').forEach((btn) => {
+    btn.onclick = () => {
+      STATE.tankGroup = btn.dataset.group;
+      try { localStorage.setItem('tankGroup', STATE.tankGroup); } catch { /* private mode */ }
+      navigate('dashboard');
+    };
+  });
+  return tab;
 }
 
 function buildTankTable(tanks) {

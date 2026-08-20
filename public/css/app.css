@@ -1402,3 +1402,107 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   .sigpad-sheet { height: min(52vh, 260px); }
   .sigpad-baseline { left: 5%; right: 5%; }
 }
+
+/* ---------- Graphical tank view ---------- */
+
+/* Four across, as asked. Below that the tanks would be postage stamps, so the
+   count steps down rather than the drawings shrinking away. */
+.tg-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+  /* Reserve the width the floating tab occupies, so it sits beside the fourth
+     column rather than on top of it. Collapsing the tab gives the width back. */
+  padding-right: 214px;
+}
+.tg-grid.tab-collapsed { padding-right: 46px; }
+@media (max-width: 1400px) { .tg-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 1100px) { .tg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px)  { .tg-grid { grid-template-columns: 1fr; } }
+
+.tg-card {
+  background: var(--panel, #16203a);
+  border: 1px solid var(--border, #2a3550);
+  border-radius: 10px;
+  padding: 10px 10px 8px;
+  display: flex; flex-direction: column; gap: 6px;
+  min-width: 0;
+}
+.tg-card.clickable { cursor: pointer; }
+.tg-card.clickable:hover { border-color: #3d6ea8; }
+.tg-name {
+  font-size: 11.5px; font-weight: 700; line-height: 1.25;
+  min-height: 2.4em; overflow: hidden;
+}
+.tg-art { position: relative; }
+.tg-svg { display: block; width: 100%; height: auto; --tg-ink: #93a1b8; }
+.tg-pct {
+  position: absolute; right: 4px; top: 4px;
+  font-size: 13px; font-weight: 800; color: var(--text, #e8eef8);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .65);
+}
+
+/* The tank body itself: an empty tank reads as empty, not as a void. */
+.tg-void { fill: rgba(255, 255, 255, .04); }
+.tg-shell { fill: none; stroke: #8b9ab4; stroke-width: 2.4; stroke-linejoin: round; }
+/* The 85% filling limit, shown where it matters rather than written down. */
+.tg-safe { stroke: #d98c2b; stroke-width: 1.2; stroke-dasharray: 4 3; opacity: .85; }
+
+.tg-stats {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1px 8px;
+  font-size: 11px; color: #9fb0c8; font-variant-numeric: tabular-nums;
+}
+.tg-chip {
+  font-weight: 700; color: #dfe8f6; font-size: 10px;
+  letter-spacing: .04em; display: inline-flex; align-items: center; gap: 5px;
+}
+.tg-chip::before {
+  content: ''; width: 9px; height: 9px; border-radius: 2px;
+  background: var(--tg-chip); border: 1px solid rgba(255, 255, 255, .35);
+}
+
+/* ---------- floating group tab ---------- */
+
+.tg-tab {
+  position: fixed; right: 0; top: 50%; transform: translateY(-50%);
+  z-index: 40; display: flex; align-items: stretch;
+  max-height: 86vh;
+}
+.tg-tab-handle {
+  flex: 0 0 auto; width: 26px;
+  background: var(--panel, #16203a);
+  border: 1px solid var(--border, #2a3550); border-right: none;
+  border-radius: 8px 0 0 8px;
+  color: #cfe0f5; cursor: pointer; padding: 0;
+}
+.tg-tab-handle-text {
+  writing-mode: vertical-rl; text-orientation: mixed;
+  font-size: 11px; font-weight: 700; letter-spacing: .08em;
+}
+.tg-tab-body {
+  flex: 0 0 auto; width: 178px; overflow-y: auto;
+  background: var(--panel, #16203a);
+  border: 1px solid var(--border, #2a3550); border-right: none;
+  border-radius: 8px 0 0 8px;
+  padding: 8px; display: flex; flex-direction: column; gap: 3px;
+}
+.tg-tab.collapsed .tg-tab-body { display: none; }
+.tg-tab-title {
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: .09em;
+  color: #7c8aa3; font-weight: 700; margin: 4px 0 1px;
+}
+.tg-group {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  background: transparent; border: 1px solid transparent; border-radius: 6px;
+  color: #cfe0f5; font-size: 12px; padding: 5px 7px; cursor: pointer; text-align: left;
+}
+.tg-group:hover:not(:disabled) { background: rgba(255, 255, 255, .06); }
+.tg-group.on { background: #1f4b7d; border-color: #3d6ea8; color: #fff; }
+.tg-group:disabled { opacity: .35; cursor: default; }
+.tg-group b { font-size: 11px; color: #9fb0c8; font-variant-numeric: tabular-nums; }
+.tg-group.on b { color: #cfe0f5; }
+.tg-key { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: #9fb0c8; padding: 1px 7px; }
+.tg-key i { width: 11px; height: 11px; border-radius: 2px; border: 1px solid rgba(255, 255, 255, .3); }
+
+@media print { .tg-tab { display: none; } }

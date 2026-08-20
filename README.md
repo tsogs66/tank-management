@@ -111,6 +111,40 @@ decimal points line up down a column.
 Constants taken from the workbook: 100% capacity in MT = 100% m³ × 0.96, filling limit 85%, lube oil
 litres × 0.882 ÷ 1000.
 
+## Graphical tank view
+
+**Dashboard → Graphical tanks** draws each tank as a tank, four across, with the liquid filling the tank's
+actual cavity rather than a bar. Each card carries the fill percentage, volume, temperature and weight in air,
+and the dashed line across fuel tanks is the 85% filling limit.
+
+**Purpose is drawn, not captioned.** No card says "settling" anywhere; the silhouette says it:
+
+| tank | what is drawn | why |
+|------|---------------|-----|
+| Storage | plain box, bottom suction | nothing else to say about it |
+| Settling | floor falling to a sump, drain cock at the low corner, heating coil along the slope | water and heavy particles drop out and are drained off |
+| Service | as settling, plus a suction standing clear above the sump | clean oil is drawn from above whatever has settled — the reason the pair exists |
+| Overflow | weir and downcomer entering the top | it catches what the other tanks cannot hold |
+
+The liquid is clipped to the cavity, so a sloped floor makes the oil slope with it and a nearly-empty settling
+tank looks like one. Tanks that settle also show the drop-out layer along the floor.
+
+**Colours.** ISO 14726 (identification colours for the content of piping systems) gives the family colour:
+brown for flammable liquids — fuel and lube alike — blue for fresh water, black for waste and bilge. Those are
+the colours used here. The standard separates grades *within* a family by additional colour bands rather than
+by shading, and shipping every band would leave eight near-identical brown tanks on one screen, so the grades
+are shaded instead: heaviest darkest, distillates lighter. **That shading is a legibility decision and is not
+itself the standard** — the family colour is. `CONTENT` in `public/js/tank-graphics.js` is the one place to
+change if your fleet uses a different convention.
+
+**Floating group tab.** The picker rides on the right edge rather than in the flow, so switching between fuel,
+settling, service, lube or water does not cost a scroll back to the top on a screen showing forty tanks. It
+collapses to a spine, and the grid takes the width back when it does. The view, the chosen group and whether
+the tab is open are all remembered.
+
+Four across is the wide layout; it steps down to three, two and one as the screen narrows, because four tanks
+across a phone would be postage stamps.
+
 ## Running offline
 
 Once the app has been opened against the server it keeps working with nothing in reach — no server, no
