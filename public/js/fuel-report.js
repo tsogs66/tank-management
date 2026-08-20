@@ -320,6 +320,49 @@ const FuelReport = (() => {
     </div>`;
   }
 
+  /**
+   * Compare a saved record against the same record recomputed now.
+   *
+   * Reprinting a saved report recomputes it from the vessel's current tanks and
+   * calibration, because that is the only thing the form can be turned into
+   * numbers with. If a tank has been re-measured since, the reprint is no
+   * longer the sheet that was signed — so say so rather than hand over a
+   * different document under the same date.
+   *
+   * The comparison walks whatever the snapshot function chose to keep, so it
+   * stays honest without a separate list of "fields that matter".
+   */
+  function snapshotDrift(saved, fresh, tolerance = 0.001) {
+    const changed = [];
+    const walk = (a, b, path) => {
+      if (changed.length > 6) return;
+      if (typeof a === 'number' && typeof b === 'number') {
+        if (Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) > tolerance) changed.push(path);
+        return;
+      }
+      if (Array.isArray(a) && Array.isArray(b)) {
+        for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+          walk(a[i], b[i], `${path}[${i}]`);
+        }
+        return;
+      }
+      if (a && b && typeof a === 'object' && typeof b === 'object') {
+        for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+          if (k === 'id' || k === 'savedAt' || k === 'form') continue;
+          walk(a[k], b[k], path ? `${path}.${k}` : k);
+        }
+      }
+    };
+    walk(saved, fresh, '');
+    return changed;
+  }
+
+  /** Warn once, in plain terms, when a reprint no longer matches what was saved. */
+  function warnIfDrifted(changed) {
+    if (!changed.length) return;
+    showToast(`Printed from today's tank data — ${changed.length} figure${changed.length === 1 ? '' : 's'} differ${changed.length === 1 ? 's' : ''} from the saved report`);
+  }
+
   function renderHistoryPanel(history) {
     const rows = (history || []).map((s) => `<tr>
       <td>${esc((s.savedAt || '').replace('T', ' ').slice(0, 16))}</td>
@@ -327,7 +370,8 @@ const FuelReport = (() => {
       <td>${esc(s.voyageNo || '')}</td>
       <td>${esc(s.port || '')}</td>
       <td>${n(s.totals && s.totals.weightAirMT, 3)}</td>
-      <td class="btn-row"><button class="btn small" data-load-snapshot="${esc(s.id)}">Load</button>
+      <td class="btn-row"><button class="btn small" data-print-snapshot="${esc(s.id)}">Print</button>
+        <button class="btn small" data-load-snapshot="${esc(s.id)}">Load</button>
         <button class="btn small danger" data-del-snapshot="${esc(s.id)}">Delete</button></td>
     </tr>`).join('');
     return `<div class="form-panel no-print" id="fr-history-panel">
@@ -514,6 +558,17 @@ const FuelReport = (() => {
       if (view.showCalcSheet) host.innerHTML = buildCalcSheetHtml(view.computed);
     };
 
+    wrap.querySelectorAll('[data-print-snapshot]').forEach((btn) => {
+      btn.onclick = () => {
+        const snap = (currentBundle().reportHistory || []).find((s) => s.id === btn.dataset.printSnapshot);
+        if (!snap || !snap.form) { showToast('That saved report has no sheet to print'); return; }
+        // Computed from the saved form, not from the sheet on screen, so
+        // printing an old report never disturbs the one being worked on.
+        const computed = Core.computeFuelReport(currentBundle(), snap.form, view.conversion);
+        warnIfDrifted(snapshotDrift(snap, Core.snapshotFromReport(computed)));
+        printReport(computed);
+      };
+    });
     wrap.querySelectorAll('[data-load-snapshot]').forEach((btn) => {
       btn.onclick = () => {
         const snap = (currentBundle().reportHistory || []).find((s) => s.id === btn.dataset.loadSnapshot);
@@ -1121,6 +1176,8 @@ const FuelReport = (() => {
     COMPUTED_COLUMNS,
     CELL_FORMAT,
     printSectionTable,
+    snapshotDrift,
+    warnIfDrifted,
     masthead,
     footer,
     metaGrid,

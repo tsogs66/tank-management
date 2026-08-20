@@ -84,6 +84,7 @@ const BunkerReports = (() => {
         : (s.grades || []).filter((g) => g.presentMT != null)
             .map((g) => `${g.label} ${n(g.presentMT, 1)}`).join(' · '))}</td>
       <td class="btn-row">
+        <button class="btn small" data-print="${esc(s.id)}">Print</button>
         <button class="btn small" data-load="${esc(s.id)}">Load</button>
         <button class="btn small danger" data-del="${esc(s.id)}">Delete</button>
       </td></tr>`).join('');
@@ -93,7 +94,45 @@ const BunkerReports = (() => {
     </table></div>`;
   }
 
+  /**
+   * Rebuild a saved record from its own form and send it to the printer.
+   *
+   * Each entry keeps the form it was saved from, so it can be turned back into
+   * a sheet without loading it over whatever is on screen — reprinting last
+   * month's summary should not cost you the plan you are in the middle of.
+   */
+  const REPRINTERS = {
+    plans: (entry) => {
+      const c = Core.computeBunkerPlan(bundle(), entry.form, view.conversion);
+      return { computed: c, fresh: Core.planSnapshot(c), pages: planPrintPages(c) };
+    },
+    after: (entry) => {
+      const c = Core.computeAfterBunkering(bundle(), entry.form, view.conversion);
+      return { computed: c, fresh: Core.afterSnapshot(c), pages: afterPrintPages(c) };
+    },
+    summaries: (entry) => {
+      const c = Core.computeBunkerSummary(bundle(), entry.form, null, view.conversion);
+      return { computed: c, fresh: Core.summarySnapshot(c), pages: summaryPrintPages(c) };
+    },
+  };
+
   function bindHistory(wrap, kind, onLoad) {
+    wrap.querySelectorAll('[data-print]').forEach((btn) => {
+      btn.onclick = () => {
+        const entry = (bunkerHistory()[kind] || []).find((s) => s.id === btn.dataset.print);
+        if (!entry || !entry.form) { showToast('That saved record has no sheet to print'); return; }
+        const build = REPRINTERS[kind];
+        if (!build) return;
+        try {
+          const { fresh, pages } = build(entry);
+          UI.warnIfDrifted(UI.snapshotDrift(entry, fresh));
+          UI.printHtml(pages);
+        } catch (err) {
+          console.warn(err);
+          showToast('Could not rebuild that saved record for printing');
+        }
+      };
+    });
     wrap.querySelectorAll('[data-load]').forEach((btn) => {
       btn.onclick = () => {
         const entry = (bunkerHistory()[kind] || []).find((s) => s.id === btn.dataset.load);

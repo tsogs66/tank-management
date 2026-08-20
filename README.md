@@ -143,6 +143,20 @@ cached under their bare paths, so the worker has to look them up with `ignoreSea
 script misses the cache and the app boots with nothing. And only a navigation may fall back to `index.html`:
 answering a script request with HTML is what turns an offline load into `Unexpected token '<'`.
 
+## Reprinting a saved record
+
+Every saved record — reports, bunker plans, after-bunkering reports and summaries — has a **Print** button
+beside Load and Delete. It prints that record directly: unlike Load, it does not put the old record into the
+sheet on screen, so reprinting last month's summary costs you nothing you are in the middle of.
+
+Each record keeps the form it was saved from, and the sheet is rebuilt from that form against the vessel's
+current tanks and calibration — the only thing a form can be turned into numbers with. If a tank has been
+re-measured since, the reprint is no longer the sheet that was signed, so the app says which figures moved
+and prints anyway rather than quietly handing over a different document under the same date. The comparison
+runs over whatever the snapshot kept, so it stays honest without a separate list of fields that matter.
+
+Reprinting works with no server, like everything else on these screens.
+
 ## Printed document identity — logo & signature
 
 **Vessel Setup → Printed document identity** takes two images:
