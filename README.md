@@ -111,6 +111,45 @@ decimal points line up down a column.
 Constants taken from the workbook: 100% capacity in MT = 100% m³ × 0.96, filling limit 85%, lube oil
 litres × 0.882 ÷ 1000.
 
+## Graphical tank view
+
+**Dashboard → Graphical tanks** draws each tank as a tank, four across, with the liquid filling the tank's
+actual cavity rather than a bar. Each card carries the fill percentage, volume, temperature and weight in air,
+and the dashed line across fuel tanks is the 85% filling limit.
+
+**Purpose is drawn, not captioned.** No card says "settling" anywhere; the silhouette says it:
+
+| tank | what is drawn | why |
+|------|---------------|-----|
+| Storage | plain box, bottom suction | nothing else to say about it |
+| Settling | floor falling to a sump, drain cock at the low corner, heating coil along the slope | water and heavy particles drop out and are drained off |
+| Service | as settling, plus a suction standing clear above the sump | clean oil is drawn from above whatever has settled — the reason the pair exists |
+| Overflow | weir and downcomer entering the top | it catches what the other tanks cannot hold |
+
+The liquid is clipped to the cavity, so a sloped floor makes the oil slope with it and a nearly-empty settling
+tank looks like one. Tanks that settle also show the drop-out layer along the floor.
+
+**Colours.** Residual fuel (HFO, LSFO) is brown; distillate (MDO, MGO, LSMGO) is orange; lube brown, fresh
+water blue, waste and bilge black — the ISO 14726 family colours, except that the distillates are given their
+own orange rather than sharing the residuals' brown, which is how they are read aboard.
+
+On top of the family colour, the shade follows the oil through the system. Storage is darkest and lightens as
+the fuel is drawn off to settle, and again as it goes to the service tank, so the chain reads as a chain and
+you can see where a parcel has got to without reading a word. Overflow sits outside that run and keeps the
+plain family colour.
+
+That is one rule rather than a hand-kept matrix — `ROLE_SHADE` applied to `CONTENT` in
+`public/js/tank-graphics.js` — so adding a grade cannot forget to add its shades. Both tables are the single
+place to change if your fleet uses a different convention.
+
+**Floating group tab.** The picker rides on the right edge rather than in the flow, so switching between fuel,
+settling, service, lube or water does not cost a scroll back to the top on a screen showing forty tanks. It
+collapses to a spine, and the grid takes the width back when it does. The view, the chosen group and whether
+the tab is open are all remembered.
+
+Four across is the wide layout; it steps down to three, two and one as the screen narrows, because four tanks
+across a phone would be postage stamps.
+
 ## Running offline
 
 Once the app has been opened against the server it keeps working with nothing in reach — no server, no
