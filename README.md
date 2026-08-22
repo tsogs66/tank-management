@@ -289,6 +289,20 @@ requests are allowed straight through to the network.
 
 ## Bunkering chain
 
+**Pumping time** on the live monitoring panel runs in `h m s` and retimes every second, because a clock that
+only moves once a minute looks stopped — the one thing a monitoring screen must not look like while fuel is
+going aboard. The per-tank running times do the same. Everything else on the panel (quantities, rates, ETAs)
+comes from a full recompute over every tank and keeps a slower beat; those figures move on the scale of
+minutes anyway.
+
+Elapsed time is **floored, never rounded**: a clock reads 1h 59m until it is 2h 00m. Rounding made the panel
+show `0h 01m` after thirty seconds — claiming time that had not passed, on a figure the engineer copies into
+the paperwork and which multiplies the rate into an expected quantity.
+
+Printouts and saved history keep the minute form; seconds are noise there.
+
+
+
 Three screens run one operation, each reading the stage before it:
 
 ```

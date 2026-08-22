@@ -179,21 +179,50 @@ const BunkerReports = (() => {
   }
 
   let clockTimer = null;
+  let tickTimer = null;
   function stopClockTicker() {
     if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
+    if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
   }
-  /** Tick the pumping clock while the page is open and the transfer is running. */
+
+  /**
+   * Two cadences, because they cost different amounts.
+   *
+   * The clock itself is retimed every second — while fuel is going aboard the
+   * pumping time has to be seen running, and it is only a few text nodes. The
+   * quantities, rates and ETAs come from a full recompute over every tank, so
+   * those keep the slower beat; they move on the scale of minutes anyway.
+   */
   function startClockTicker() {
     stopClockTicker();
+    const alive = () => view.page === 'bunker-plan' && document.getElementById('bp-clock-toggle');
+
+    tickTimer = setInterval(() => {
+      if (!alive()) { stopClockTicker(); return; }
+      tickClockOnly();
+    }, 1000);
+
     clockTimer = setInterval(() => {
-      if (view.page !== 'bunker-plan' || !document.getElementById('bp-clock-toggle')) {
-        stopClockTicker();
-        return;
-      }
+      if (!alive()) { stopClockTicker(); return; }
       const c = Core.computeBunkerPlan(bundle(), view.plan, view.conversion);
       if (!c.monitoring.clock.running && !c.monitoring.tanksFilling) return;
       refreshPlan();
     }, 15000);
+  }
+
+  /** Retime the running clocks without recomputing the plan behind them. */
+  function tickClockOnly() {
+    const clock = Core.pumpingClock(view.plan, 0, null);
+    if (clock.running) {
+      UI.setCell('[data-bp-mon="elapsedLabel"]', clock.elapsedLabelLive || clock.elapsedLabel);
+    }
+    const seq = Array.isArray(view.plan.sequence) ? view.plan.sequence : [];
+    seq.forEach((slot, i) => {
+      const tc = Core.tankClock(slot || {});
+      if (!tc.running) return;
+      const el = document.querySelector(`tr[data-slot="${i}"] .bp-state-time`);
+      if (el) el.firstChild ? (el.firstChild.nodeValue = tc.elapsedLabelLive) : (el.textContent = tc.elapsedLabelLive);
+    });
   }
 
   function recomputePlan() {
@@ -477,7 +506,7 @@ const BunkerReports = (() => {
     const closeable = row.status === 'filling' || row.status === 'paused';
     cell.innerHTML = `
       <span class="bp-state bp-state-${state.id}">${esc(state.label)}</span>
-      <span class="bp-state-time">${esc(row.clock.elapsedLabel)}${
+      <span class="bp-state-time">${esc(row.clock.elapsedLabelLive || row.clock.elapsedLabel)}${
         row.rateShareMTPerHour > 0 ? ` · ${n(row.rateShareMTPerHour, 0)} MT/h` : ''}</span>
       <span class="bp-state-btns">
         <button class="btn small ${state.id === 'filling' ? '' : 'primary'}"
@@ -548,7 +577,7 @@ const BunkerReports = (() => {
     if (fill) fill.style.width = `${Math.max(0, Math.min(100, c.monitoring.percentComplete || 0))}%`;
 
     const clock = c.monitoring.clock;
-    set('[data-bp-mon="elapsedLabel"]', clock.elapsedLabel);
+    set('[data-bp-mon="elapsedLabel"]', clock.elapsedLabelLive || clock.elapsedLabel);
     set('[data-bp-mon="expectedMT"]', clock.expectedMT != null ? `${n(clock.expectedMT, 2)} MT` : '—');
     set('[data-bp-mon="varianceMT"]', clock.varianceMT != null ? `${signed(clock.varianceMT, 2)} MT` : '—');
     const toggle = document.getElementById('bp-clock-toggle');
