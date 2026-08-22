@@ -299,6 +299,13 @@ Elapsed time is **floored, never rounded**: a clock reads 1h 59m until it is 2h 
 show `0h 01m` after thirty seconds — claiming time that had not passed, on a figure the engineer copies into
 the paperwork and which multiplies the rate into an expected quantity.
 
+Every tank in the sequence keeps its own timer alongside the overall one. Pausing a tank holds its duration
+where it stopped — that figure is the record of how long the valve was open, so a live count would be a lie
+about a shut valve — and resuming continues from there rather than starting again. Closing a tank freezes its
+final duration. Only running clocks are retimed, so a paused or closed tank keeps what it earned. The overall
+clock and the tank clocks are independent: pausing one tank does not stop the operation, and resetting the
+overall clock does not stop a tank still taking fuel.
+
 Printouts and saved history keep the minute form; seconds are noise there.
 
 
