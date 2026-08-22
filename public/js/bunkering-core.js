@@ -783,8 +783,22 @@ function computeBunkerSummary(bundle, form, after, conversion) {
     }
   }
 
-  const pumpingHours = eventGapHours(summary.events.pumpStart, summary.events.pumpStop);
-  const alongsideHours = eventGapHours(summary.events.alongside, summary.events.castOff);
+  const rawPumping = eventGapHours(summary.events.pumpStart, summary.events.pumpStop);
+  const rawAlongside = eventGapHours(summary.events.alongside, summary.events.castOff);
+  // A negative gap means the times were entered the wrong way round. Reporting
+  // it as a duration would be nonsense and hiding it as a dash lets the typo
+  // through, so it is dropped and said out loud instead.
+  const timingWarnings = [];
+  if (rawPumping != null && rawPumping < 0) timingWarnings.push('Pump stop is before pump start — check the times.');
+  if (rawAlongside != null && rawAlongside < 0) timingWarnings.push('Cast off is before alongside — check the times.');
+  const pumpingHours = rawPumping != null && rawPumping >= 0 ? rawPumping : null;
+  const alongsideHours = rawAlongside != null && rawAlongside >= 0 ? rawAlongside : null;
+
+  /* The BDN can only be reconciled once the tanks have been sounded. Until then
+     there is no measured figure, and the difference is unknown — not zero, and
+     emphatically not a shortfall. Saying otherwise on this sheet would advise a
+     letter of protest against a supplier over soundings nobody has taken yet. */
+  const comparable = bdnQuantity != null && receivedQuantity != null;
 
   return {
     vessel: {
@@ -816,13 +830,20 @@ function computeBunkerSummary(bundle, form, after, conversion) {
     quantities: {
       bdnQuantityMT: bdnQuantity,
       receivedQuantityMT: receivedQuantity,
-      differenceMT: bdnQuantity != null && receivedQuantity != null
-        ? round(receivedQuantity - bdnQuantity, 3)
-        : null,
+      differenceMT: comparable ? round(receivedQuantity - bdnQuantity, 3) : null,
       // A BDN is normally accepted within 0.5%; anything past that is a protest.
-      differencePercent: bdnQuantity ? round(((receivedQuantity - bdnQuantity) / bdnQuantity) * 100, 3) : null,
+      // Guarded on both figures: without the measurement this divided a missing
+      // receipt by the BDN and reported a flat -100%.
+      differencePercent: comparable && bdnQuantity
+        ? round(((receivedQuantity - bdnQuantity) / bdnQuantity) * 100, 3)
+        : null,
+      comparable,
+      pendingReason: comparable ? null
+        : bdnQuantity == null ? 'no-bdn'
+          : 'no-measurement',
     },
     timing: {
+      warnings: timingWarnings,
       pumpingHours,
       pumpingLabel: pumpingHours != null ? hoursLabel(pumpingHours) : '—',
       alongsideHours,

@@ -1293,17 +1293,24 @@ const BunkerReports = (() => {
       ? signed(c.quantities.differenceMT, 3) : '—');
 
     const diff = c.quantities.differencePercent;
+    // Say which half of the comparison is missing. "Enter a BDN quantity" was
+    // wrong advice when the BDN was already in and the soundings were not.
+    const pending = c.quantities.pendingReason === 'no-bdn'
+      ? 'Enter the BDN quantity to compare it with what the tanks show.'
+      : 'Waiting on the after-bunkering soundings for this grade — no measured '
+        + 'figure to compare the BDN against yet.';
     set('[data-bs="difference-note"]', diff != null
       ? `${signed(diff, 3)}% against the BDN figure — ${Math.abs(diff) > 0.5
         ? 'outside the 0.5% normally accepted; consider a letter of protest'
         : 'within the 0.5% normally accepted'}.`
-      : 'Enter a BDN quantity to compare it with what the tanks show.');
+      : pending);
     const box = document.getElementById('bs-diff-box');
     if (box) box.classList.toggle('bp-monitor-bad', diff != null && Math.abs(diff) > 0.5);
 
     set('[data-bs="timing"]', `Pumping ${c.timing.pumpingLabel} · alongside ${c.timing.alongsideLabel}`
       + (c.timing.averageRateMTPerHour != null
-        ? ` · average rate ${n(c.timing.averageRateMTPerHour, 1)} MT/h` : ''));
+        ? ` · average rate ${n(c.timing.averageRateMTPerHour, 1)} MT/h` : '')
+      + ((c.timing.warnings || []).length ? ` · ${c.timing.warnings.join(' ')}` : ''));
   }
 
   function bindSummaryEvents(wrap) {

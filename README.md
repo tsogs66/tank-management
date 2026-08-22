@@ -182,6 +182,21 @@ cached under their bare paths, so the worker has to look them up with `ignoreSea
 script misses the cache and the app boots with nothing. And only a navigation may fall back to `index.html`:
 answering a script request with HTML is what turns an offline load into `Unexpected token '<'`.
 
+## Bunkering summary — reconciling the BDN
+
+The delivered figure is compared against what the tanks actually show, and only when both halves exist. A BDN
+in hand with the after-bunkering soundings not yet taken is the normal sequence, not a shortfall: the sheet
+shows an em dash and says it is waiting on the soundings for that grade. It does **not** compute a percentage
+against a missing measurement.
+
+That guard matters because the percentage drives advice. Past 0.5% — the tolerance a BDN is normally accepted
+within — the difference box turns red and the sheet suggests a letter of protest, which is a commercial
+dispute with the supplier. A genuine shortfall still raises it; a missing sounding no longer does.
+
+Event times are read as entered, so a bunkering that runs past midnight is measured across the date change. A
+gap that comes out negative means the times were entered the wrong way round; the duration is dropped and the
+contradiction is said out loud rather than shown as a dash.
+
 ## Reprinting a saved record
 
 Every saved record — reports, bunker plans, after-bunkering reports and summaries — has a **Print** button
