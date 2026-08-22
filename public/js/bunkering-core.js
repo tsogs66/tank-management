@@ -156,13 +156,36 @@ function asUllage(tank, reading) {
   return top > 0 ? round(top - r, 1) : null;
 }
 
+/**
+ * Elapsed time as a clock reads it: floored, never rounded up.
+ *
+ * Rounding made the pumping clock show 0h 01m after thirty seconds — it claimed
+ * time that had not passed, on a figure the engineer copies into the paperwork
+ * and which multiplies the rate into an expected quantity. A clock shows 1h 59m
+ * until it is 2h 00m.
+ */
 function hoursLabel(hours) {
   const h = num(hours);
   if (h == null || !Number.isFinite(h) || h < 0) return '—';
-  const whole = Math.floor(h);
-  const mins = Math.round((h - whole) * 60);
-  if (mins === 60) return `${whole + 1}h 00m`;
-  return `${whole}h ${String(mins).padStart(2, '0')}m`;
+  const totalMinutes = Math.floor(h * 60 + 1e-9);
+  return `${Math.floor(totalMinutes / 60)}h ${String(totalMinutes % 60).padStart(2, '0')}m`;
+}
+
+/**
+ * The same elapsed time with seconds, for the live monitoring panel.
+ *
+ * A pumping clock that only moves once a minute looks stopped, which is the one
+ * thing a monitoring screen must never look like while fuel is going aboard.
+ * Printouts and history keep the minute form — seconds are noise there.
+ */
+function hmsLabel(hours) {
+  const h = num(hours);
+  if (h == null || !Number.isFinite(h) || h < 0) return '—';
+  const totalSeconds = Math.floor(h * 3600 + 1e-9);
+  const hh = Math.floor(totalSeconds / 3600);
+  const mm = Math.floor((totalSeconds % 3600) / 60);
+  const ss = totalSeconds % 60;
+  return `${hh}h ${String(mm).padStart(2, '0')}m ${String(ss).padStart(2, '0')}s`;
 }
 
 /* ---------------------------------------------------------------- plan ---- */
@@ -250,7 +273,7 @@ function tankClock(slot, now = Date.now()) {
   const status = TANK_STATES.some((s) => s.id === slot.status) ? slot.status : 'pending';
   const startMs = slot.startedAt ? Date.parse(slot.startedAt) : null;
   if (!startMs) {
-    return { status, running: false, elapsedHours: 0, elapsedLabel: '—' };
+    return { status, running: false, elapsedHours: 0, elapsedLabel: '—', elapsedLabelLive: '—' };
   }
   const pauseMs = slot.pausedAt ? Date.parse(slot.pausedAt) : null;
   const endMs = slot.completedAt ? Date.parse(slot.completedAt) : (pauseMs || now);
@@ -261,6 +284,7 @@ function tankClock(slot, now = Date.now()) {
     running: status === 'filling',
     elapsedHours: round(hours, 4),
     elapsedLabel: hoursLabel(hours),
+    elapsedLabelLive: hmsLabel(hours),
   };
 }
 
@@ -272,7 +296,10 @@ function tankClock(slot, now = Date.now()) {
 function pumpingClock(plan, rate, receivedMT, now = Date.now()) {
   const startMs = plan.startedAt ? Date.parse(plan.startedAt) : null;
   if (!startMs) {
-    return { running: false, started: false, elapsedHours: null, elapsedLabel: '—', expectedMT: null, varianceMT: null };
+    return {
+      running: false, started: false, elapsedHours: null,
+      elapsedLabel: '—', elapsedLabelLive: '—', expectedMT: null, varianceMT: null,
+    };
   }
   const pauseMs = plan.pausedAt ? Date.parse(plan.pausedAt) : null;
   const endMs = plan.completedAt ? Date.parse(plan.completedAt) : (pauseMs || now);
@@ -286,6 +313,7 @@ function pumpingClock(plan, rate, receivedMT, now = Date.now()) {
     completed: Boolean(plan.completedAt),
     elapsedHours: round(elapsedHours, 4),
     elapsedLabel: hoursLabel(elapsedHours),
+    elapsedLabelLive: hmsLabel(elapsedHours),
     expectedMT: expected,
     varianceMT: expected != null && receivedMT != null ? round(receivedMT - expected, 3) : null,
   };
@@ -872,6 +900,7 @@ return {
   fillTolerance,
   scaleTop,
   hoursLabel,
+  hmsLabel,
   robBeforeBunkering,
   priorRobFromFuelReport,
   emptyBunkerPlan,

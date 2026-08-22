@@ -179,21 +179,63 @@ const BunkerReports = (() => {
   }
 
   let clockTimer = null;
+  let tickTimer = null;
   function stopClockTicker() {
     if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
+    if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
   }
-  /** Tick the pumping clock while the page is open and the transfer is running. */
+
+  /**
+   * Two cadences, because they cost different amounts.
+   *
+   * The clock itself is retimed every second — while fuel is going aboard the
+   * pumping time has to be seen running, and it is only a few text nodes. The
+   * quantities, rates and ETAs come from a full recompute over every tank, so
+   * those keep the slower beat; they move on the scale of minutes anyway.
+   */
   function startClockTicker() {
     stopClockTicker();
+    const alive = () => view.page === 'bunker-plan' && document.getElementById('bp-clock-toggle');
+
+    tickTimer = setInterval(() => {
+      if (!alive()) { stopClockTicker(); return; }
+      if (!tickClockOnly()) stopClockTicker();
+    }, 1000);
+
     clockTimer = setInterval(() => {
-      if (view.page !== 'bunker-plan' || !document.getElementById('bp-clock-toggle')) {
-        stopClockTicker();
-        return;
-      }
+      if (!alive()) { stopClockTicker(); return; }
       const c = Core.computeBunkerPlan(bundle(), view.plan, view.conversion);
       if (!c.monitoring.clock.running && !c.monitoring.tanksFilling) return;
       refreshPlan();
     }, 15000);
+  }
+
+  /**
+   * Retime whatever is running, without recomputing the plan behind it.
+   *
+   * Only running clocks are touched. A paused or closed tank keeps the figure
+   * it stopped on — that is the record of how long it took, and overwriting it
+   * with a live count would be a lie about a valve that is shut.
+   *
+   * Returns whether anything is still running, so the ticker can retire itself
+   * rather than burn a timer over a finished operation.
+   */
+  function tickClockOnly() {
+    let anyRunning = false;
+    const clock = Core.pumpingClock(view.plan, 0, null);
+    if (clock.running) {
+      anyRunning = true;
+      UI.setCell('[data-bp-mon="elapsedLabel"]', clock.elapsedLabelLive || clock.elapsedLabel);
+    }
+    const seq = Array.isArray(view.plan.sequence) ? view.plan.sequence : [];
+    seq.forEach((slot, i) => {
+      const tc = Core.tankClock(slot || {});
+      if (!tc.running) return;
+      anyRunning = true;
+      const el = document.querySelector(`[data-bp-tank-time="${i}"]`);
+      if (el) el.textContent = tc.elapsedLabelLive;
+    });
+    return anyRunning;
   }
 
   function recomputePlan() {
@@ -477,7 +519,8 @@ const BunkerReports = (() => {
     const closeable = row.status === 'filling' || row.status === 'paused';
     cell.innerHTML = `
       <span class="bp-state bp-state-${state.id}">${esc(state.label)}</span>
-      <span class="bp-state-time">${esc(row.clock.elapsedLabel)}${
+      <span class="bp-state-time"><span data-bp-tank-time="${i}">${
+        esc(row.clock.elapsedLabelLive || row.clock.elapsedLabel)}</span>${
         row.rateShareMTPerHour > 0 ? ` · ${n(row.rateShareMTPerHour, 0)} MT/h` : ''}</span>
       <span class="bp-state-btns">
         <button class="btn small ${state.id === 'filling' ? '' : 'primary'}"
@@ -548,7 +591,7 @@ const BunkerReports = (() => {
     if (fill) fill.style.width = `${Math.max(0, Math.min(100, c.monitoring.percentComplete || 0))}%`;
 
     const clock = c.monitoring.clock;
-    set('[data-bp-mon="elapsedLabel"]', clock.elapsedLabel);
+    set('[data-bp-mon="elapsedLabel"]', clock.elapsedLabelLive || clock.elapsedLabel);
     set('[data-bp-mon="expectedMT"]', clock.expectedMT != null ? `${n(clock.expectedMT, 2)} MT` : '—');
     set('[data-bp-mon="varianceMT"]', clock.varianceMT != null ? `${signed(clock.varianceMT, 2)} MT` : '—');
     const toggle = document.getElementById('bp-clock-toggle');
@@ -688,8 +731,10 @@ const BunkerReports = (() => {
       view.plan.pausedAt = null;
       view.plan.elapsedPausedMs = 0;
       view.plan.status = 'planning';
-      stopClockTicker();
       refreshPlan();
+      // A tank may still be taking fuel; its own clock keeps running, and the
+      // ticker retires itself if nothing is.
+      startClockTicker();
     };
 
     document.getElementById('bp-blend-toggle').onclick = (e) => {
