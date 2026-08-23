@@ -357,6 +357,9 @@ function computeBunkerPlan(bundle, form, conversion) {
   // The barge pumps at one rate; tanks taking fuel at the same time share it.
   const rateShare = rate > 0 && filling > 0 ? rate / filling : 0;
 
+  /* Per-row workings the estimating pass needs, keyed by slot index. */
+  const estimateBasis = new Map();
+
   const rows = plan.sequence.map((slot, i) => {
     const out = {
       slot: i + 1,
@@ -386,6 +389,26 @@ function computeBunkerPlan(bundle, form, conversion) {
       currentVolumeM3: null,
       currentVolumePercent: null,
       quantityAddMT: null,
+      // Filled in by the estimating pass below, once the measured rate is known.
+      estimateRateMTPerHour: 0,
+      estimatedVolumeM3: null,
+      estimatedVolumePercent: null,
+      estimatedReadingMM: null,
+      estimatedUllageMM: null,
+      // The estimate in the same units the current-sound box is entered in,
+      // which is not always an ullage — half these tanks are dipped.
+      estimatedSoundingMM: null,
+      estimatedAddedMT: null,
+      estimatedFrom: '',
+      estimatedAgeHours: null,
+      estimatedAgeLabel: '—',
+      estimatedToTargetHours: null,
+      estimatedToTargetLabel: '—',
+      estimatedTargetAtIso: null,
+      estimatedToLimitHours: null,
+      estimatedToLimitLabel: '—',
+      estimatedLimitAtIso: null,
+      estimatedOverLimit: false,
       warnings: [],
     };
     if (!slot.tankId) return out;
@@ -457,36 +480,9 @@ function computeBunkerPlan(bundle, form, conversion) {
       if (capacity > 0 && out.currentVolumeM3 > capacity) out.warnings.push('above 100% capacity');
     }
 
-    /* Where the sounding pipe would read now, if nobody has been down to look.
-     *
-     * Anchored on the last real measurement — the current sounding if one has
-     * been entered, otherwise the ullage the tank was opened at — and carried
-     * forward at this tank's share of the delivery rate. The anchor is held in
-     * the tank's own running hours rather than wall time, so a tank that was
-     * shut for twenty minutes does not come back claiming to have taken fuel
-     * while its valve was closed.
-     *
-     * This is an estimate and is kept apart from quantityAddMT on purpose. The
-     * received figure is what the BDN is reconciled against, and it must come
-     * from a sounding somebody actually took.
-     */
-    if (out.rateShareMTPerHour > 0 && density15 != null && capacity > 0) {
-      const anchorVol = out.currentVolumeM3 != null ? out.currentVolumeM3 : startVol;
-      const anchorAtH = out.currentVolumeM3 != null ? (num(slot.currentSoundingAtElapsedH, 0) || 0) : 0;
-      const sinceH = Math.max(0, (out.clock.elapsedHours || 0) - anchorAtH);
-      if (sinceH > 0) {
-        const addedVol = volumeFromMT(out.rateShareMTPerHour * sinceH, density15, tempC) || 0;
-        const estVol = Math.min(anchorVol + addedVol, capacity);
-        out.estimatedVolumeM3 = round(estVol, 3);
-        out.estimatedVolumePercent = round((estVol / capacity) * 100, 1);
-        const estReading = readingForVolume(tank, estVol, ctx);
-        out.estimatedReadingMM = estReading;
-        out.estimatedUllageMM = estReading != null ? asUllage(tank, estReading) : null;
-        out.estimatedFrom = out.currentVolumeM3 != null ? 'last sounding' : 'opening ullage';
-        out.estimatedAgeHours = round(sinceH, 4);
-        out.estimatedAgeLabel = hmsLabel(sinceH);
-      }
-    }
+    /* The estimating pass below needs the tank and its opening volume again;
+       hold on to them rather than looking them up a second time. */
+    estimateBasis.set(i, { tank, capacity, startVol, anchorAtH: num(slot.currentSoundingAtElapsedH, 0) || 0 });
 
     // What is left to put in this tank, and how long that takes at its share of
     // the delivery rate.
@@ -526,6 +522,128 @@ function computeBunkerPlan(bundle, form, conversion) {
     : null;
   const etcAtIso = etcHours != null && liveClock.running
     ? new Date(Date.now() + etcHours * 3600000).toISOString()
+    : null;
+
+  /* ------------------------------------------------------------------ *
+   * Operation estimates.
+   *
+   * Where the sounding pipe would read now, if nobody has been down to
+   * look, and when each tank reaches its target — carried forward from the
+   * last real measurement at the rate the fuel is actually coming aboard.
+   *
+   * The rate everything here is projected at is observed, not agreed — which
+   * is why this pass runs after the received total is known rather than
+   * inside the row loop above.
+   *
+   * Observed does not mean received over pumping time, though. That figure
+   * decays the longer nobody sounds a tank, because the fuel keeps coming
+   * while the measured total stands still, and it halves when half the tanks
+   * are still unsounded, because their intake is missing from the total
+   * while their pumping time is not. Instead take each sounded tank's
+   * measured intake over the time that tank had actually been open when it
+   * was sounded: a rate measured over the window it was measured in, which
+   * neither decays nor cares how many tanks are still unsounded. Multiplied
+   * by the tanks now open, that is what the barge is delivering. Until
+   * something has been sounded there is nothing to observe, and the planned
+   * rate stands in — estimateBasisLabel says which is in use.
+   *
+   * Anchors are held in each tank's own running hours, not wall time, so a
+   * tank shut for twenty minutes does not come back claiming to have taken
+   * fuel while its valve was closed.
+   *
+   * Every figure here is kept apart from quantityAddMT and receivedMT on
+   * purpose. Those are what the BDN is reconciled against and they must
+   * come from a sounding somebody actually took.
+   * ------------------------------------------------------------------ */
+  let sampleMT = 0;
+  let sampleH = 0;
+  for (const out of rows) {
+    const basis = estimateBasis.get(out.slot - 1);
+    if (!basis || out.quantityAddMT == null || !(basis.anchorAtH > 0)) continue;
+    sampleMT += out.quantityAddMT;
+    sampleH += basis.anchorAtH;
+  }
+  const observedShare = sampleH > 0.03 && sampleMT > 0 ? round(sampleMT / sampleH, 3) : null;
+  const estimateShare = observedShare != null ? observedShare
+    : (workingRate > 0 && filling > 0 ? workingRate / filling : 0);
+  const estimating = estimateShare > 0 && density15 != null;
+  for (const out of rows) {
+    const basis = estimateBasis.get(out.slot - 1);
+    if (!estimating || !basis || out.status !== 'filling' || basis.capacity <= 0) continue;
+    const { tank, capacity, startVol, anchorAtH } = basis;
+
+    out.estimateRateMTPerHour = round(estimateShare, 3);
+    const anchorVol = out.currentVolumeM3 != null ? out.currentVolumeM3 : startVol;
+    const sinceH = Math.max(0, (out.clock.elapsedHours || 0) - (out.currentVolumeM3 != null ? anchorAtH : 0));
+    {
+      /* Run even at zero elapsed. A tank sounded this second projects to the
+         level just read off the tape, which is the honest answer; leaving the
+         row blank until a minute has passed only looks broken. */
+      const addedVol = volumeFromMT(estimateShare * sinceH, density15, tempC) || 0;
+      const estVol = Math.min(anchorVol + addedVol, capacity);
+      out.estimatedVolumeM3 = round(estVol, 3);
+      out.estimatedVolumePercent = round((estVol / capacity) * 100, 1);
+      const estReading = readingForVolume(tank, estVol, ctx);
+      out.estimatedReadingMM = estReading;
+      out.estimatedUllageMM = estReading != null ? asUllage(tank, estReading) : null;
+      out.estimatedSoundingMM = estReading == null ? null
+        : (out.startingMethod === FuelReport.normalizeMethod(tank.soundingMethod)
+          ? round(estReading, 0)
+          : round((scaleTop(tank) || 0) - estReading, 0));
+      out.estimatedFrom = out.currentVolumeM3 != null ? 'last sounding' : 'opening ullage';
+      out.estimatedAgeHours = round(sinceH, 4);
+      out.estimatedAgeLabel = hmsLabel(sinceH);
+      out.estimatedAddedMT = round(mtFromVolume(Math.max(0, estVol - startVol), density15, tempC), 3);
+    }
+
+    /* When this tank reaches the 85% filling limit at the projected rate.
+       The whole point of running the level forward is to see a limit coming
+       before it arrives, so it is counted whether or not a target was set —
+       an untargeted tank left open is exactly the one that overfills. */
+    {
+      const nowVol = out.estimatedVolumeM3 != null ? out.estimatedVolumeM3 : anchorVol;
+      const lim = capacity * SAFE_FILL;
+      out.estimatedOverLimit = nowVol > lim + fillTolerance(capacity);
+      const toLimMT = mtFromVolume(Math.max(0, lim - nowVol), density15, tempC);
+      if (toLimMT != null) {
+        const h = toLimMT / estimateShare;
+        out.estimatedToLimitHours = round(h, 3);
+        out.estimatedToLimitLabel = out.estimatedOverLimit ? 'over' : hmsLabel(h);
+        if (out.clock.running && !out.estimatedOverLimit) {
+          out.estimatedLimitAtIso = new Date(Date.now() + h * 3600000).toISOString();
+        }
+      }
+    }
+
+    // How long until this tank reaches its target, counted from the
+    // estimated level rather than from the last sounding, so the clock
+    // keeps running between soundings instead of standing still.
+    if (out.targetVolumeM3 != null) {
+      const fromVol = out.estimatedVolumeM3 != null ? out.estimatedVolumeM3 : anchorVol;
+      const toGoMT = mtFromVolume(Math.max(0, out.targetVolumeM3 - fromVol), density15, tempC);
+      if (toGoMT != null) {
+        const h = toGoMT / estimateShare;
+        out.estimatedToTargetHours = round(h, 3);
+        out.estimatedToTargetLabel = hmsLabel(h);
+        if (out.clock.running) {
+          out.estimatedTargetAtIso = new Date(Date.now() + h * 3600000).toISOString();
+        }
+      }
+    }
+  }
+  const estimatedReceivedMT = rows.reduce(
+    (a, r) => a + (r.estimatedAddedMT != null ? r.estimatedAddedMT : (num(r.quantityAddMT, 0) || 0)), 0);
+
+  // When the parcel finishes, counted from the estimated intake at the
+  // observed rate — the estimates panel's own clock, kept apart from the
+  // countdown in the pumping panel, which runs on the measured total alone.
+  const estRemaining = estimating && quantity != null
+    ? Math.max(0, quantity - estimatedReceivedMT)
+    : null;
+  const estOperationRate = estimateShare * (filling || 1);
+  const estEtcHours = estRemaining != null && estOperationRate > 0
+    && liveClock.started && !liveClock.completed
+    ? estRemaining / estOperationRate
     : null;
 
   return {
@@ -571,7 +689,39 @@ function computeBunkerPlan(bundle, form, conversion) {
       etcLabel: etcHours != null ? hoursLabel(etcHours) : '—',
       etcAtIso: etcAtIso,
       countdownLabel: etcHours != null ? hmsLabel(etcHours) : '—',
+      /* The estimates panel. Everything below is projected, never measured. */
+      estimateShareMTPerHour: round(estimateShare, 3),
+      estimateRateMTPerHour: round(estimateShare * (filling || 1), 3),
+      estimateRateIsMeasured: observedShare != null || measuredRate != null,
+      estimateBasisLabel: observedShare != null
+        ? `observed — ${round(observedShare * (filling || 1), 1)} MT/h from the soundings taken`
+        : (measuredRate != null
+          ? `measured — ${round(measuredRate, 1)} MT/h over the pumping time`
+          : (rate > 0 ? `planned — ${round(rate, 1)} MT/h, nothing sounded yet` : 'no rate to project from')),
+      estimating: estimating,
+      /* Received, carried forward to this moment: measured where a tank has
+         been sounded since it opened, estimated where it has not. Shown
+         alongside receivedMT, never in place of it. */
+      estimatedReceivedMT: estimating ? round(estimatedReceivedMT, 3) : null,
+      estimatedAheadMT: estimating ? round(estimatedReceivedMT - (receivedMT || 0), 3) : null,
+      estimatedRemainingMT: estRemaining != null ? round(estRemaining, 3) : null,
+      estimatedLimitSoonestHours: rows.reduce((a, r) => (r.estimatedToLimitHours != null
+        && !r.estimatedOverLimit && (a == null || r.estimatedToLimitHours < a)
+        ? r.estimatedToLimitHours : a), null),
+      estimatedOverLimitTanks: rows.filter((r) => r.estimatedOverLimit).map((r) => r.name),
+      estimatedEtcHours: estEtcHours != null ? round(estEtcHours, 3) : null,
+      estimatedEtcLabel: estEtcHours != null ? hmsLabel(estEtcHours) : '—',
+      estimatedEtcAtIso: estEtcHours != null && liveClock.running
+        ? new Date(Date.now() + estEtcHours * 3600000).toISOString()
+        : null,
+      estimatedPercentComplete: estimating && quantity > 0
+        ? round((estimatedReceivedMT / quantity) * 100, 1)
+        : null,
       tanksFilling: filling,
+      /* How many of the tanks taking fuel have actually been sounded. Without
+         it, receivedMT reads 0 and the variance against the expected intake
+         becomes a shortfall the barge never caused. */
+      tanksSounded: rows.filter((r) => r.tankId && r.currentSoundingMM != null).length,
       rateSharePerTank: round(rateShare, 3),
       // Longest ETA among the open tanks — when the last one reaches its target.
       etaHours: used.reduce((a, r) => (r.etaHours != null ? Math.max(a, r.etaHours) : a), 0) || null,

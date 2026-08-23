@@ -230,7 +230,7 @@ const BunkerReports = (() => {
       // The countdown counts down. It is rebuilt from the quantity still to come
       // on the slower beat; between those it just runs off the wall clock, so it
       // moves every second instead of jumping every fifteen.
-      const el = document.querySelector('[data-bp-mon="countdownLabel"]');
+      const el = document.querySelector('[data-bp-est-mon="countdown"]');
       if (el && countdownEndsAt) {
         const leftH = (countdownEndsAt - Date.now()) / 3600000;
         el.textContent = leftH > 0 ? Core.hmsLabel(leftH) : '0h 00m 00s';
@@ -276,6 +276,7 @@ const BunkerReports = (() => {
     wrap.innerHTML = `
       ${planHeaderPanel(c)}
       ${planSequencePanel(c)}
+      ${planEstimatesPanel()}
       ${planBlendPanel()}
       ${planTankTablesPanel(c)}
       <div class="form-panel no-print">
@@ -354,8 +355,7 @@ const BunkerReports = (() => {
         <td><input type="number" step="any" data-slot="${i}" data-field="targetVolumeM3" value="${esc(f.targetVolumeM3)}"></td>
         ${cell('targetVolumePercent')}${cell('targetUllageMM')}${cell('planAddMT')}
         <td class="bp-valve" data-bp-valve="${i}"></td>
-        <td><input type="number" step="any" data-slot="${i}" data-field="currentSoundingMM" value="${esc(f.currentSoundingMM)}">
-          <span class="bp-est" data-bp-est="${i}"></span></td>
+        <td><input type="number" step="any" data-slot="${i}" data-field="currentSoundingMM" value="${esc(f.currentSoundingMM)}"></td>
         ${cell('currentVolumePercent')}${cell('currentVolumeM3')}${cell('quantityAddMT')}
         ${cell('remainingToTargetMT')}
         <td class="fr-calc" data-bp-cell="${i}.etaLabel"></td>
@@ -421,8 +421,6 @@ const BunkerReports = (() => {
               <input type="datetime-local" id="bp-start-at" class="bp-clock-input"></div>
             <div class="bp-clock-row"><span>PUMPING TIME</span><b data-bp-mon="elapsedLabel">—</b></div>
             <div class="bp-clock-row"><span>RATE</span><b data-bp-mon="rateLabel">—</b></div>
-            <div class="bp-clock-row"><span>FINISHES IN</span><b data-bp-mon="countdownLabel">—</b></div>
-            <div class="bp-clock-row"><span>ESTIMATED COMPLETION</span><b data-bp-mon="etcAt">—</b></div>
             <div class="bp-clock-row"><span>EXPECTED AT RATE</span><b data-bp-mon="expectedMT">—</b></div>
             <div class="bp-clock-row"><span>MEASURED − EXPECTED</span><b data-bp-mon="varianceMT">—</b></div>
             <div class="btn-row">
@@ -437,6 +435,54 @@ const BunkerReports = (() => {
           </div>
         </div>
       </div>
+    </div>`;
+  }
+
+  /**
+   * Operation estimates — everything on this panel is projected, none of it
+   * measured.
+   *
+   * It is kept in its own panel, away from the CURRENT SOUND column, on
+   * purpose. What is typed into that column is a measurement, and it feeds the
+   * received quantity the delivery note is reconciled against. An estimate
+   * sitting in or beside that box invites somebody to copy it across on a busy
+   * deck, and a projected figure has no business on a bunker dispute.
+   *
+   * So: soundings are entered on the sequence sheet, projections are read here,
+   * and the two totals are shown side by side so the gap between them is
+   * visible rather than blurred.
+   */
+  function planEstimatesPanel() {
+    return `<div class="form-panel no-print bp-estimates" style="margin-top:16px">
+      <div class="section-title" style="margin-top:0">Operation estimates</div>
+      <div class="hint bp-est-basis" data-bp-est-mon="basis">—</div>
+      <div class="bp-est-alarm" data-bp-est-mon="alarm" hidden></div>
+      <div class="bp-est-grid">
+        <div class="bp-est-box"><span>PROJECTED RATE</span>
+          <b data-bp-est-mon="rate">—</b><i data-bp-est-mon="rateShare"></i></div>
+        <div class="bp-est-box"><span>ESTIMATED RECEIVED</span>
+          <b data-bp-est-mon="received">—</b><i data-bp-est-mon="receivedSub"></i></div>
+        <div class="bp-est-box"><span>AHEAD OF SOUNDINGS</span>
+          <b data-bp-est-mon="ahead">—</b><i>not yet confirmed by a sounding</i></div>
+        <div class="bp-est-box"><span>ESTIMATED REMAINING</span>
+          <b data-bp-est-mon="remaining">—</b><i data-bp-est-mon="remainingSub"></i></div>
+        <div class="bp-est-box bp-est-countdown"><span>FINISHES IN</span>
+          <b data-bp-est-mon="countdown">—</b><i data-bp-est-mon="etcAt"></i></div>
+      </div>
+      <div class="scroll-x">
+        <table class="fr-sheet bp-est-sheet">
+          <thead><tr>
+            <th>TANK</th><th>SHARE<br>(MT/H)</th>
+            <th>EST. SOUND<br>(MM)</th><th>EST. ULLAGE<br>(MM)</th>
+            <th>EST. VOL<br>(%)</th><th>EST. VOL<br>(M3)</th><th>EST. ADDED<br>(MT)</th>
+            <th>TARGET<br>IN</th><th>TARGET<br>AT</th><th>HITS 85%<br>IN</th><th>PROJECTED FROM</th>
+          </tr></thead>
+          <tbody data-bp-est-body></tbody>
+        </table>
+      </div>
+      <div class="hint">Projected from the last real measurement at the rate above — never counted as
+        received, and never written into a tank. Sound the tank and enter the reading on the sequence
+        sheet to turn any of this into a figure that counts.</div>
     </div>`;
   }
 
@@ -523,17 +569,6 @@ const BunkerReports = (() => {
     <div class="hint">${grades ? esc('Totals: ' + grades) : 'No totals yet'}</div>`;
   }
 
-  /**
-   * The per-tank valve cell: what the tank is doing, how long it has been doing
-   * it, and the buttons to open, hold or close it.
-   */
-  /**
-   * The sounding the pipe would read now, shown under the entry box.
-   *
-   * Deliberately not put *into* the box: what is typed there is a measurement
-   * and feeds the received quantity the BDN is reconciled against. An estimate
-   * that quietly filled that field would end up on a delivery note dispute.
-   */
   /** An ISO instant as a datetime-local input wants it, in the device's zone. */
   function localInputValue(iso) {
     const d = new Date(iso);
@@ -543,16 +578,87 @@ const BunkerReports = (() => {
       + `T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
   }
 
-  function paintEstimate(i, row) {
-    const el = document.querySelector(`[data-bp-est="${i}"]`);
-    if (!el) return;
-    if (!row.tankId || row.estimatedUllageMM == null) { el.textContent = ''; el.title = ''; return; }
-    el.textContent = `≈ ${n(row.estimatedUllageMM, 0)} mm · ${pct(row.estimatedVolumePercent)}`;
-    el.title = `Estimated from the ${row.estimatedFrom}, ${row.estimatedAgeLabel} ago, `
-      + `at ${n(row.rateShareMTPerHour, 0)} MT/h — about ${n(row.estimatedVolumeM3, 1)} m³. `
-      + 'Sound the tank and enter the reading; this figure is not counted as received.';
+  /** Fill the estimates panel from a fresh computation. */
+  function refreshEstimates(c) {
+    const set = UI.setCell;
+    const m = c.monitoring;
+    const clockTime = (iso) => (iso
+      ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : '—');
+
+    // The alarm box below names the tanks already over; here, only the warning
+    // that has not fired yet.
+    const limitNote = m.estimatedLimitSoonestHours != null
+      ? ` First tank reaches the 85% limit in ${Core.hmsLabel(m.estimatedLimitSoonestHours)}.`
+      : '';
+    set('[data-bp-est-mon="basis"]', m.estimating
+      ? `Projecting at the rate ${m.estimateBasisLabel}.${limitNote}`
+      : (m.tanksFilling
+        ? 'Nothing to project from yet — enter a delivery rate and a density.'
+        : 'No tank is open. Estimates start once a valve is opened.'));
+
+    const alarm = document.querySelector('[data-bp-est-mon="alarm"]');
+    if (alarm) {
+      const over = m.estimatedOverLimitTanks || [];
+      alarm.hidden = over.length === 0;
+      alarm.textContent = over.length
+        ? `${over.length} tank(s) projected above the 85% filling limit — ${over.join(', ')}. `
+          + 'Sound them now; this is a projection, not a reading.'
+        : '';
+    }
+
+    set('[data-bp-est-mon="rate"]', m.estimating ? `${n(m.estimateRateMTPerHour, 1)} MT/h` : '—');
+    set('[data-bp-est-mon="rateShare"]', m.estimating && m.tanksFilling
+      ? `${n(m.estimateShareMTPerHour, 1)} MT/h into each of ${m.tanksFilling} tank(s)` : '');
+    set('[data-bp-est-mon="received"]', m.estimatedReceivedMT != null
+      ? `${n(m.estimatedReceivedMT, 3)} MT` : '—');
+    set('[data-bp-est-mon="receivedSub"]', `sounded so far: ${n(m.receivedMT, 3)} MT`);
+    set('[data-bp-est-mon="ahead"]', m.estimatedAheadMT != null
+      ? `${signed(m.estimatedAheadMT, 3)} MT` : '—');
+    set('[data-bp-est-mon="remaining"]', m.estimatedRemainingMT != null
+      ? `${n(m.estimatedRemainingMT, 3)} MT` : '—');
+    set('[data-bp-est-mon="remainingSub"]', m.estimatedPercentComplete != null
+      ? `${n(m.estimatedPercentComplete, 1)}% of ${n(c.header.bunkerQuantityMT, 1)} MT` : '');
+    set('[data-bp-est-mon="countdown"]', m.estimatedEtcLabel || '—');
+    set('[data-bp-est-mon="etcAt"]', m.estimatedEtcAtIso
+      ? `completing about ${clockTime(m.estimatedEtcAtIso)}` : '');
+    // Let the per-second tick run this down between recomputes.
+    countdownEndsAt = m.estimatedEtcAtIso ? Date.parse(m.estimatedEtcAtIso) : null;
+
+    const body = document.querySelector('[data-bp-est-body]');
+    if (!body) return;
+    const rows = c.rows.filter((r) => r.tankId && r.estimateRateMTPerHour > 0);
+    if (!rows.length) {
+      body.innerHTML = `<tr><td colspan="11" class="bp-est-empty">${
+        m.tanksFilling ? 'Waiting for the first minute of pumping.'
+          : 'Open a tank on the sequence sheet to project it.'}</td></tr>`;
+      return;
+    }
+    body.innerHTML = rows.map((r) => {
+      const from = r.estimatedFrom
+        ? `${esc(r.estimatedFrom)}, ${esc(r.estimatedAgeLabel)} ago`
+        : 'just opened';
+      const method = r.startingMethod ? `<i>${esc(r.startingMethod)}</i>` : '';
+      return `<tr class="${r.estimatedOverLimit ? 'bp-est-over' : ''}">
+        <th class="fr-tank-name">${esc(r.name)}</th>
+        <td>${n(r.estimateRateMTPerHour, 1)}</td>
+        <td class="bp-est-figure">${n(r.estimatedSoundingMM, 0)}${method}</td>
+        <td>${n(r.estimatedUllageMM, 0)}</td>
+        <td>${pct(r.estimatedVolumePercent)}</td>
+        <td>${n(r.estimatedVolumeM3, 3)}</td>
+        <td>${n(r.estimatedAddedMT, 3)}</td>
+        <td>${esc(r.estimatedToTargetLabel)}</td>
+        <td>${clockTime(r.estimatedTargetAtIso)}</td>
+        <td class="bp-est-limit">${esc(r.estimatedToLimitLabel)}</td>
+        <td class="bp-est-from">${from}</td>
+      </tr>`;
+    }).join('');
   }
 
+  /**
+   * The per-tank valve cell: what the tank is doing, how long it has been doing
+   * it, and the buttons to open, hold or close it.
+   */
   function paintValveCell(i, row) {
     const cell = document.querySelector(`[data-bp-valve="${i}"]`);
     if (!cell) return;
@@ -600,7 +706,6 @@ const BunkerReports = (() => {
           row.warnings.length ? row.warnings.join(' · ') : '');
       }
       set(`[data-bp-cell="${i}.etaLabel"]`, row.tankId ? row.etaLabel : '');
-      paintEstimate(i, row);
       paintValveCell(i, row);
       const tr = document.querySelector(`tr[data-slot="${i}"]`);
       if (tr) {
@@ -642,17 +747,20 @@ const BunkerReports = (() => {
     set('[data-bp-mon="rateLabel"]', mon.effectiveRateMTPerHour > 0
       ? `${n(mon.effectiveRateMTPerHour, 1)} MT/h ${mon.rateSourceIsMeasured ? '(measured)' : '(planned)'}`
       : '—');
-    set('[data-bp-mon="countdownLabel"]', mon.countdownLabel || '—');
-    countdownEndsAt = mon.etcAtIso ? Date.parse(mon.etcAtIso) : null;
-    set('[data-bp-mon="etcAt"]', mon.etcAtIso
-      ? new Date(mon.etcAtIso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      : '—');
+    refreshEstimates(c);
     const startBox = document.getElementById('bp-start-at');
     if (startBox && document.activeElement !== startBox) {
       startBox.value = view.plan.startedAt ? localInputValue(view.plan.startedAt) : '';
     }
     set('[data-bp-mon="expectedMT"]', clock.expectedMT != null ? `${n(clock.expectedMT, 2)} MT` : '—');
-    set('[data-bp-mon="varianceMT"]', clock.varianceMT != null ? `${signed(clock.varianceMT, 2)} MT` : '—');
+    /* Only a variance once there is something to hold against the expected
+       intake. Unsounded tanks make received read 0, and the difference then
+       looks like the barge short-delivered the whole parcel. */
+    set('[data-bp-mon="varianceMT"]',
+      clock.varianceMT != null && mon.tanksSounded > 0 ? `${signed(clock.varianceMT, 2)} MT` : '—',
+      mon.tanksSounded > 0
+        ? `Against ${mon.tanksSounded} of ${mon.tanksFilling} open tank(s) sounded.`
+        : 'No tank has been sounded yet — nothing to compare against the expected intake.');
     const toggle = document.getElementById('bp-clock-toggle');
     if (toggle) {
       toggle.textContent = !clock.started ? 'Start pumping' : clock.paused ? 'Resume' : 'Pause';
