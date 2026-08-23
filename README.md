@@ -351,6 +351,47 @@ Elapsed time is **floored, never rounded**: a clock reads 1h 59m until it is 2h 
 show `0h 01m` after thirty seconds — claiming time that had not passed, on a figure the engineer copies into
 the paperwork and which multiplies the rate into an expected quantity.
 
+### Planning the fill
+
+**Smart — level up the emptiest first** brings the tank with least in it up to the level of the next emptiest,
+then those two rise together to the third, and so on, until the parcel runs out or every tank reaches its 85%
+limit. That answers both halves of what a fill plan is for at once: the emptiest tank is filled first and the
+rest of the parcel spills into the next, and because tanks only ever rise to meet the one above they finish
+level with each other rather than at whatever proportion of their own size they happened to get. Levels are
+compared as a percentage of capacity, so a small tank and a large one at the same percentage count as equally
+full. The old free-space-weighted split is still there as **Equal — all storage**.
+
+If the selected tanks cannot hold the parcel, the warning says how much room they have, how far short that is
+in both m³ and MT, and what to do about it. A tank already above 85% before a drop goes into it is named at
+planning time, and once filling the warning carries the level and percentage rather than just saying the limit
+is passed.
+
+### Watching it go aboard
+
+**Estimated soundings.** While a tank is filling, the sounding the pipe would read now is shown under the entry
+box, carried forward from the last real measurement — the current sounding if one has been entered, otherwise
+the ullage the tank was opened at — at that tank's share of the rate. The anchor is held in the tank's own
+running hours, so a tank shut for twenty minutes does not come back claiming to have taken fuel with its valve
+closed. It refreshes with the rest of the panel, well inside a minute.
+
+The estimate is deliberately kept out of the entry box and out of the received quantity. What is typed there is
+a measurement, and the received figure is what the BDN is reconciled against — an estimate that quietly filled
+that field would end up on a delivery-note dispute.
+
+**Pump start, rate and finishing time.** The start can be entered after the fact, from the barge's log or the
+BDN, and the elapsed time, rate and finishing time all follow it. The rate shown is the one worked out from
+what has actually come aboard over the time it took, falling back to the planned rate until there is enough of
+it to mean anything; the label says which. The finishing time counts down every second and is rebuilt whenever
+a sounding is entered.
+
+Pausing the transfer shuts the valves. Every tank that was filling is paused with the operation, and each is
+marked so that resuming reopens exactly those — a tank the engineer had already shut by hand stays shut, and
+one they reopened by hand is not touched twice. Without that, the overall clock stopped while every tank still
+read FILLING, which said the pumps had stopped and the tanks were still taking fuel at the same time.
+
+Resetting the overall clock is different: it clears the stopwatch and leaves the tanks alone, since a tank may
+legitimately still be taking fuel.
+
 Every tank in the sequence keeps its own timer alongside the overall one. Pausing a tank holds its duration
 where it stopped — that figure is the record of how long the valve was open, so a live count would be a lie
 about a shut valve — and resuming continues from there rather than starting again. Closing a tank freezes its
