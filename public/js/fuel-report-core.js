@@ -462,6 +462,13 @@ function computeFuelReport(bundle, form, conversion) {
       averageDensityInUse: inUse.length
         ? round(inUse.reduce((a, r) => a + r.density15, 0) / inUse.length, 4)
         : null,
+      // A tank that was sounded but has no density has a volume and no weight,
+      // so it drops out of the MT total silently. Counting those here lets the
+      // sheet say the total is short rather than look complete.
+      tanksWeighed: section.rows.filter((r) => r.weightAirMT != null).length,
+      soundedWithoutWeight: section.rows
+        .filter((r) => r.measuredM3 != null && r.weightAirMT == null)
+        .map((r) => r.name),
       tanksInUse: section.rows.filter((r) => r.inUse).length,
       movedIn: section.rows.filter((r) => r.moved).length,
       pinned: section.rows.filter((r) => r.pinned).length,
@@ -483,6 +490,12 @@ function computeFuelReport(bundle, form, conversion) {
       actualMT,
       logbookMT,
       differenceMT: actualMT != null && logbookMT != null ? round(actualMT - logbookMT, 3) : null,
+      // Named so the log-book comparison can say it is being made against an
+      // incomplete figure — a missing density moves the difference by the whole
+      // weight of the tank it belongs to.
+      soundedWithoutWeight: rows
+        .filter((r) => r.measuredM3 != null && r.weightAirMT == null)
+        .map((r) => r.name),
     };
   });
 
