@@ -92,6 +92,9 @@ Grade totals (HFO / LSFO / MDO-MGO / LSMGO) follow the fuel type regardless of w
 Below the grid: per-grade totals against the **log book ROB** (with the difference), lube oil quantities in
 litres → MT, received quantities, daily consumption, and the preparer.
 
+Each report screen offers the same three: **PRINT & SAVE**, **Save only**, and **Print only** — print with
+nothing written, for a copy someone wants to see without filing it as a record.
+
 **PRINT & SAVE** saves the form, writes the soundings back as tank readings, appends a snapshot to
 *Saved reports*, and prints a **single A4 sheet**: the TANK CONDITION face — both tank blocks with every
 column, totals, log-book comparison, lube / received / consumption, signature and stamp.

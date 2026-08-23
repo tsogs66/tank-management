@@ -257,6 +257,7 @@ const BunkerReports = (() => {
       <div class="btn-row">
         <button class="btn primary" id="bp-print-save">PRINT &amp; SAVE</button>
         <button class="btn" id="bp-save">Save only</button>
+        <button class="btn" id="bp-print-only">Print only</button>
         <button class="btn" id="bp-new">NEW PLAN</button>
         <button class="btn" id="bp-menu">MAIN MENU</button>
       </div></div>`;
@@ -670,6 +671,9 @@ const BunkerReports = (() => {
     };
     document.getElementById('bp-save').onclick = () => saveChainPart('bunker-plan', 'bunkerPlan',
       { ...view.plan, updatedAt: new Date().toISOString() });
+    // Print without saving: no snapshot filed, nothing written to the vessel.
+    document.getElementById('bp-print-only').onclick = () =>
+      UI.printHtml(planPrintPages(recomputePlan()));
     document.getElementById('bp-menu').onclick = () => navigate('dashboard');
     document.getElementById('bp-new').onclick = () => {
       if (!confirm('Start a new plan? The current sequence and targets are cleared.')) return;
@@ -936,6 +940,7 @@ const BunkerReports = (() => {
         <button class="btn" id="ba-get-data">GET DATA</button>
         <button class="btn primary" id="ba-print-save">PRINT &amp; SAVE</button>
         <button class="btn" id="ba-save">Save only</button>
+        <button class="btn" id="ba-print-only">Print only</button>
         <button class="btn" id="ba-menu">MAIN MENU</button>
       </div></div>`;
 
@@ -1084,6 +1089,8 @@ const BunkerReports = (() => {
     };
     document.getElementById('ba-save').onclick = () => saveChainPart('bunker-after', 'bunkerAfter',
       { ...view.after, updatedAt: new Date().toISOString() });
+    document.getElementById('ba-print-only').onclick = () =>
+      UI.printHtml(afterPrintPages(recomputeAfter()));
     document.getElementById('ba-menu').onclick = () => navigate('dashboard');
 
     bindHistory(wrap, 'after', (entry) => {
@@ -1147,6 +1154,7 @@ const BunkerReports = (() => {
       <div class="btn-row">
         <button class="btn primary" id="bs-print-save">PRINT &amp; SAVE</button>
         <button class="btn" id="bs-save">Save only</button>
+        <button class="btn" id="bs-print-only">Print only</button>
         <button class="btn" id="bs-new">NEW REPORT</button>
         <button class="btn" id="bs-menu">MAIN MENU</button>
       </div></div>`;
@@ -1341,6 +1349,8 @@ const BunkerReports = (() => {
     };
     document.getElementById('bs-save').onclick = () => saveChainPart('bunker-summary', 'bunkerSummary',
       { ...view.summary, updatedAt: new Date().toISOString() });
+    document.getElementById('bs-print-only').onclick = () =>
+      UI.printHtml(summaryPrintPages(recomputeSummary()));
     document.getElementById('bs-menu').onclick = () => navigate('dashboard');
     document.getElementById('bs-new').onclick = () => {
       if (!confirm('Start a new summary? The current paperwork is cleared.')) return;
