@@ -111,6 +111,13 @@ row where a long tank name wraps. Cells carrying words (tank name, fuel grade, s
 category column of the summary cards) are centred both ways; cells carrying figures keep their right edge, so
 decimal points line up down a column.
 
+A tank can be sounded without a density — the volume is known, the weight is not. Such a tank has no weight
+to add, and adding it as nothing would leave the block TOTAL and the log-book comparison looking complete
+while being short by whatever that tank holds. The block total is labelled with how many tanks it covers
+(`TOTAL (9 of 10 tanks)`), the tanks are named under the block, and the affected grade is daggered in the
+survey summary with a line saying the difference is not a real discrepancy until the densities are entered.
+Nothing appears when the data is complete.
+
 Constants taken from the workbook: 100% capacity in MT = 100% m³ × 0.96, filling limit 85%, lube oil
 litres × 0.882 ÷ 1000.
 

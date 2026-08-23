@@ -827,7 +827,9 @@ const FuelReport = (() => {
         <tbody>${rows}</tbody>
         <tfoot>
           <tr>
-            <th class="fr-print-name" colspan="5">TOTAL</th>
+            <th class="fr-print-name" colspan="5">TOTAL${
+              t.soundedWithoutWeight && t.soundedWithoutWeight.length
+                ? ` (${t.tanksWeighed} of ${t.tanks} tanks)` : ''}</th>
             <td>${n(t.capacity100M3, 1)}</td>
             <td>${n(t.measuredM3, 3)}</td>
             <td colspan="3"></td>
@@ -841,18 +843,28 @@ const FuelReport = (() => {
         <span>TOTAL (MT) <b>${n(t.weightAirMT, 3)}</b></span>
         <span>100% m³ × ${options.capacityMtFactor} · ${(options.safeFillRatio * 100).toFixed(0)}% limit <b>${n(t.capacity85MT, 2)} MT</b></span>
       </div>
+      ${t.soundedWithoutWeight && t.soundedWithoutWeight.length
+        ? `<p class="calib-print-note">Sounded with no density, so outside the MT total:
+            ${t.soundedWithoutWeight.map((n) => esc(n)).join(', ')}.</p>` : ''}
       ${moved.length ? `<p class="calib-print-note">* ${moved.map((r) => esc(r.name)).join(', ')} counted in this block from the fuel type entered this voyage.</p>` : ''}
     </section>`;
   }
 
   function printConditionPage(c) {
     const grades = c.grades.filter((g) => g.tanks > 0 || g.logbookMT != null);
-    const surveyRows = grades.map((g) => `<tr>
+    /* A grade missing a density is short by that whole tank, and the difference
+       against the log book moves with it — so the figure is marked rather than
+       left to read as a real discrepancy. */
+    const shortGrades = grades.filter((g) => (g.soundedWithoutWeight || []).length);
+    const surveyRows = grades.map((g) => {
+      const short = (g.soundedWithoutWeight || []).length;
+      return `<tr>
       <td class="fr-print-name">${esc(g.label)}</td>
-      <td>${n(g.actualMT, 3, '—')}</td>
+      <td>${n(g.actualMT, 3, '—')}${short ? ' †' : ''}</td>
       <td>${n(g.logbookMT, 3, '—')}</td>
-      <td class="${g.differenceMT != null && Math.abs(g.differenceMT) > 0.001 ? 'fr-tc-diff' : ''}">${signed(g.differenceMT, 3) || '—'}</td>
-    </tr>`).join('');
+      <td class="${!short && g.differenceMT != null && Math.abs(g.differenceMT) > 0.001 ? 'fr-tc-diff' : ''}">${signed(g.differenceMT, 3) || '—'}${short ? ' †' : ''}</td>
+    </tr>`;
+    }).join('');
     const lubeRows = c.lube.rows.map((r) => `<tr>
       <td class="fr-print-name">${esc(r.label)}</td>
       <td>${n(r.litres, 0, '—')}</td>
@@ -896,6 +908,9 @@ const FuelReport = (() => {
           <table class="fr-tc-mini">
             <thead><tr><th>Grade</th><th>Monitoring</th><th>Log book</th><th>Difference</th></tr></thead>
             <tbody>${surveyRows || '<tr><td colspan="4">—</td></tr>'}</tbody>
+            ${shortGrades.length ? `<tfoot><tr><td colspan="4" class="fr-print-name">
+              † short of ${shortGrades.reduce((a, g) => a + g.soundedWithoutWeight.length, 0)} sounded tank(s)
+              with no density — the difference is not a real discrepancy until they are entered.</td></tr></tfoot>` : ''}
           </table>
         </div>
       </div>
