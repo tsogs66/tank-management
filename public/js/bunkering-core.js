@@ -63,6 +63,7 @@ const SUMMARY_EVENTS = [
  * until the tanks are actually sounded on the after-bunkering report.
  */
 const DISTRIBUTION_MODES = [
+  { id: 'level-storage', label: 'Smart — level up the emptiest first' },
   { id: 'equal-storage', label: 'Equal — all storage' },
   { id: 'port-storage', label: 'Port storage only' },
   { id: 'starboard-storage', label: 'Starboard storage only' },
@@ -450,9 +451,41 @@ function computeBunkerPlan(bundle, form, conversion) {
         ? round(mtFromVolume(addVol, density15, tempC), 3)
         : null;
       if (out.currentVolumeM3 > cap85 + fillTolerance(capacity)) {
-        out.warnings.push('above the 85% filling limit');
+        out.warnings.push(`above the 85% filling limit — ${round(out.currentVolumePercent, 1)}% `
+          + `(${round(out.currentVolumeM3, 1)} of ${round(capacity, 1)} m³, limit ${round(cap85, 1)})`);
       }
       if (capacity > 0 && out.currentVolumeM3 > capacity) out.warnings.push('above 100% capacity');
+    }
+
+    /* Where the sounding pipe would read now, if nobody has been down to look.
+     *
+     * Anchored on the last real measurement — the current sounding if one has
+     * been entered, otherwise the ullage the tank was opened at — and carried
+     * forward at this tank's share of the delivery rate. The anchor is held in
+     * the tank's own running hours rather than wall time, so a tank that was
+     * shut for twenty minutes does not come back claiming to have taken fuel
+     * while its valve was closed.
+     *
+     * This is an estimate and is kept apart from quantityAddMT on purpose. The
+     * received figure is what the BDN is reconciled against, and it must come
+     * from a sounding somebody actually took.
+     */
+    if (out.rateShareMTPerHour > 0 && density15 != null && capacity > 0) {
+      const anchorVol = out.currentVolumeM3 != null ? out.currentVolumeM3 : startVol;
+      const anchorAtH = out.currentVolumeM3 != null ? (num(slot.currentSoundingAtElapsedH, 0) || 0) : 0;
+      const sinceH = Math.max(0, (out.clock.elapsedHours || 0) - anchorAtH);
+      if (sinceH > 0) {
+        const addedVol = volumeFromMT(out.rateShareMTPerHour * sinceH, density15, tempC) || 0;
+        const estVol = Math.min(anchorVol + addedVol, capacity);
+        out.estimatedVolumeM3 = round(estVol, 3);
+        out.estimatedVolumePercent = round((estVol / capacity) * 100, 1);
+        const estReading = readingForVolume(tank, estVol, ctx);
+        out.estimatedReadingMM = estReading;
+        out.estimatedUllageMM = estReading != null ? asUllage(tank, estReading) : null;
+        out.estimatedFrom = out.currentVolumeM3 != null ? 'last sounding' : 'opening ullage';
+        out.estimatedAgeHours = round(sinceH, 4);
+        out.estimatedAgeLabel = hmsLabel(sinceH);
+      }
     }
 
     // What is left to put in this tank, and how long that takes at its share of
@@ -482,6 +515,18 @@ function computeBunkerPlan(bundle, form, conversion) {
   const receivedMT = round(sum('quantityAddMT'), 3);
   const plannedAddMT = round(sum('planAddMT'), 3);
   const remaining = quantity != null ? Math.max(0, quantity - (receivedMT || 0)) : null;
+
+  const liveClock = pumpingClock(plan, rate, receivedMT);
+  const measuredRate = liveClock.elapsedHours != null && liveClock.elapsedHours > 0.03 && receivedMT > 0
+    ? round(receivedMT / liveClock.elapsedHours, 2)
+    : null;
+  const workingRate = measuredRate != null ? measuredRate : rate;
+  const etcHours = workingRate > 0 && remaining != null && liveClock.started && !liveClock.completed
+    ? remaining / workingRate
+    : null;
+  const etcAtIso = etcHours != null && liveClock.running
+    ? new Date(Date.now() + etcHours * 3600000).toISOString()
+    : null;
 
   return {
     vessel: {
@@ -514,7 +559,18 @@ function computeBunkerPlan(bundle, form, conversion) {
       receivedMT,
     },
     monitoring: {
-      clock: pumpingClock(plan, rate, receivedMT),
+      clock: liveClock,
+      /* The rate the fuel is actually coming aboard at, rather than the one
+         agreed beforehand. Ignored until there is enough of it to mean
+         anything — a couple of minutes and some fuel — because received over a
+         very short elapsed time swings wildly. */
+      actualRateMTPerHour: measuredRate,
+      rateSourceIsMeasured: measuredRate != null,
+      effectiveRateMTPerHour: workingRate,
+      etcHours: etcHours != null ? round(etcHours, 3) : null,
+      etcLabel: etcHours != null ? hoursLabel(etcHours) : '—',
+      etcAtIso: etcAtIso,
+      countdownLabel: etcHours != null ? hmsLabel(etcHours) : '—',
       tanksFilling: filling,
       rateSharePerTank: round(rateShare, 3),
       // Longest ETA among the open tanks — when the last one reaches its target.
@@ -567,6 +623,75 @@ function tanksForMode(bundle, mode, fuelType, byTank) {
  * quantity that does not fit comes back short with a warning rather than
  * silently overfilling.
  */
+/**
+ * Free-space weighted: every tank takes a slice in proportion to the room it
+ * has, capped at its own limit, with anything a capped tank cannot take passed
+ * on. Tanks finish at different levels but all of them are worked at once.
+ */
+function shareByFreeSpace(rows, volume) {
+  const share = new Map(rows.map((r) => [r.tank.id, 0]));
+  let toPlace = volume;
+  for (let pass = 0; pass < 4 && toPlace > 0.001; pass++) {
+    const open = rows.filter((r) => share.get(r.tank.id) < r.free - 0.001);
+    const openFree = open.reduce((a, r) => a + (r.free - share.get(r.tank.id)), 0);
+    if (!open.length || openFree <= 0.001) break;
+    let placed = 0;
+    for (const r of open) {
+      const room = r.free - share.get(r.tank.id);
+      const take = Math.min(room, toPlace * (room / openFree));
+      share.set(r.tank.id, share.get(r.tank.id) + take);
+      placed += take;
+    }
+    toPlace -= placed;
+  }
+  return share;
+}
+
+/**
+ * Level up the emptiest first.
+ *
+ * The emptiest tank is brought up to the level of the next emptiest; then those
+ * two rise together to the third, and so on, until the parcel runs out or every
+ * tank reaches its 85% limit. That answers both halves of what is wanted from a
+ * fill plan at once: the tank with least in it is filled first and the rest of
+ * the parcel spills into the next, and because tanks only ever rise to meet the
+ * one above, they finish level with each other rather than at whatever
+ * proportion of their own size they happened to get.
+ *
+ * Levels are compared as a percentage of capacity, not as depth, so a small
+ * tank and a large one at the same percentage are treated as equally full.
+ */
+function shareByLevellingUp(rows, volume) {
+  const share = new Map(rows.map((r) => [r.tank.id, 0]));
+  const level = (r) => (r.capacity > 0
+    ? ((r.startVol + share.get(r.tank.id)) / r.capacity) * 100
+    : 100);
+  const limitLevel = (r) => (r.capacity > 0 ? (r.limit / r.capacity) * 100 : 0);
+  let left = volume;
+
+  for (let guard = 0; guard < rows.length * 4 && left > 0.001; guard += 1) {
+    const open = rows.filter((r) => level(r) < limitLevel(r) - 1e-9);
+    if (!open.length) break;
+    const lowest = Math.min(...open.map(level));
+    const group = open.filter((r) => level(r) <= lowest + 1e-9);
+    // Rise to whichever comes first: the next tank up, or the group's own limit.
+    const above = open.map(level).filter((l) => l > lowest + 1e-9);
+    const nextLevel = Math.min(
+      above.length ? Math.min(...above) : Infinity,
+      ...group.map(limitLevel)
+    );
+    const perPercent = group.reduce((a, r) => a + r.capacity / 100, 0);
+    if (!(perPercent > 0)) break;
+    const needed = (nextLevel - lowest) * perPercent;
+    const step = Math.min(needed, left);
+    const rise = step / perPercent;
+    for (const r of group) share.set(r.tank.id, share.get(r.tank.id) + (rise * r.capacity) / 100);
+    left -= step;
+    if (step < needed - 0.001) break;   // parcel ran out part-way up
+  }
+  return share;
+}
+
 function distributeToSequence(bundle, opts = {}, conversion = null) {
   const quantity = num(opts.quantityMT);
   const fuelType = opts.fuelType || 'lsfo';
@@ -582,41 +707,48 @@ function distributeToSequence(bundle, opts = {}, conversion = null) {
   const tanks = tanksForMode(bundle, mode, fuelType, byTank);
   if (!tanks.length) return { sequence: [], warnings: [`no ${fuelType.toUpperCase()} tanks match "${mode}"`] };
 
+  const levelUp = mode.startsWith('level');
   const rows = tanks.map((tank) => {
     const row = byTank.get(tank.id);
     const startVol = row && row.measuredM3 != null ? row.measuredM3 : 0;
-    const limit = (num(tank.capacity, 0) || 0) * SAFE_FILL;
-    return { tank, startVol, limit, free: Math.max(0, limit - startVol) };
+    const capacity = num(tank.capacity, 0) || 0;
+    const limit = capacity * SAFE_FILL;
+    return {
+      tank,
+      startVol,
+      capacity,
+      limit,
+      free: Math.max(0, limit - startVol),
+      startPercent: capacity > 0 ? (startVol / capacity) * 100 : 0,
+    };
   }).filter((r) => r.free > 0.01)
-    .sort((a, b) => b.free - a.free);
+    // Emptiest first: that is the order the tanks are opened in, and for the
+    // levelling allocator it is also the order they receive fuel.
+    .sort((a, b) => (levelUp ? a.startPercent - b.startPercent : b.free - a.free));
 
   if (!rows.length) return { sequence: [], warnings: ['the matching tanks are already at the 85% limit'] };
 
   const totalVolume = volumeFromMT(quantity, density15, tempC) || 0;
   const totalFree = rows.reduce((a, r) => a + r.free, 0);
   if (totalVolume > totalFree + 0.01) {
-    warnings.push(`${round(totalVolume - totalFree, 1)} m³ more than these tanks can hold below 85% — `
-      + 'the shortfall is left unallocated');
+    const shortM3 = totalVolume - totalFree;
+    const shortMT = mtFromVolume(shortM3, density15, tempC);
+    warnings.push(`the ${rows.length} selected tank(s) hold ${round(totalFree, 1)} m³ below the 85% limit, `
+      + `${round(shortM3, 1)} m³ (${round(shortMT, 1)} MT) short of this parcel — `
+      + 'select more tanks or reduce the quantity; the shortfall is left unallocated');
+  }
+  // A tank already over the limit before a drop is put into it is worth saying
+  // out loud at planning time, not only once it is filling.
+  for (const r of rows) {
+    if (r.capacity > 0 && r.startPercent > SAFE_FILL * 100 + 0.05) {
+      warnings.push(`${r.tank.name} is already at ${round(r.startPercent, 1)}% `
+        + `(${round(r.startVol, 1)} of ${round(r.capacity, 1)} m³) — above the 85% limit before bunkering`);
+    }
   }
 
-  // Free-space weighted, capped at each tank's limit; anything a capped tank
-  // cannot take is passed on to the tanks that still have room.
-  const share = new Map(rows.map((r) => [r.tank.id, 0]));
-  let toPlace = Math.min(totalVolume, totalFree);
-  for (let pass = 0; pass < 4 && toPlace > 0.001; pass++) {
-    const open = rows.filter((r) => share.get(r.tank.id) < r.free - 0.001);
-    const openFree = open.reduce((a, r) => a + (r.free - share.get(r.tank.id)), 0);
-    if (!open.length || openFree <= 0.001) break;
-    let placed = 0;
-    for (const r of open) {
-      const room = r.free - share.get(r.tank.id);
-      const want = toPlace * (room / openFree);
-      const take = Math.min(room, want);
-      share.set(r.tank.id, share.get(r.tank.id) + take);
-      placed += take;
-    }
-    toPlace -= placed;
-  }
+  const share = levelUp
+    ? shareByLevellingUp(rows, Math.min(totalVolume, totalFree))
+    : shareByFreeSpace(rows, Math.min(totalVolume, totalFree));
 
   const sequence = rows
     .filter((r) => share.get(r.tank.id) > 0.001)

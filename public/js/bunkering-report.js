@@ -180,6 +180,7 @@ const BunkerReports = (() => {
 
   let clockTimer = null;
   let tickTimer = null;
+  let countdownEndsAt = null;
   function stopClockTicker() {
     if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
     if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
@@ -226,6 +227,14 @@ const BunkerReports = (() => {
     if (clock.running) {
       anyRunning = true;
       UI.setCell('[data-bp-mon="elapsedLabel"]', clock.elapsedLabelLive || clock.elapsedLabel);
+      // The countdown counts down. It is rebuilt from the quantity still to come
+      // on the slower beat; between those it just runs off the wall clock, so it
+      // moves every second instead of jumping every fifteen.
+      const el = document.querySelector('[data-bp-mon="countdownLabel"]');
+      if (el && countdownEndsAt) {
+        const leftH = (countdownEndsAt - Date.now()) / 3600000;
+        el.textContent = leftH > 0 ? Core.hmsLabel(leftH) : '0h 00m 00s';
+      }
     }
     const seq = Array.isArray(view.plan.sequence) ? view.plan.sequence : [];
     seq.forEach((slot, i) => {
@@ -345,7 +354,8 @@ const BunkerReports = (() => {
         <td><input type="number" step="any" data-slot="${i}" data-field="targetVolumeM3" value="${esc(f.targetVolumeM3)}"></td>
         ${cell('targetVolumePercent')}${cell('targetUllageMM')}${cell('planAddMT')}
         <td class="bp-valve" data-bp-valve="${i}"></td>
-        <td><input type="number" step="any" data-slot="${i}" data-field="currentSoundingMM" value="${esc(f.currentSoundingMM)}"></td>
+        <td><input type="number" step="any" data-slot="${i}" data-field="currentSoundingMM" value="${esc(f.currentSoundingMM)}">
+          <span class="bp-est" data-bp-est="${i}"></span></td>
         ${cell('currentVolumePercent')}${cell('currentVolumeM3')}${cell('quantityAddMT')}
         ${cell('remainingToTargetMT')}
         <td class="fr-calc" data-bp-cell="${i}.etaLabel"></td>
@@ -407,7 +417,12 @@ const BunkerReports = (() => {
           <div class="hint" data-bp-mon="progressText"></div>
 
           <div class="bp-clock">
+            <div class="bp-clock-row"><span>PUMP START</span>
+              <input type="datetime-local" id="bp-start-at" class="bp-clock-input"></div>
             <div class="bp-clock-row"><span>PUMPING TIME</span><b data-bp-mon="elapsedLabel">—</b></div>
+            <div class="bp-clock-row"><span>RATE</span><b data-bp-mon="rateLabel">—</b></div>
+            <div class="bp-clock-row"><span>FINISHES IN</span><b data-bp-mon="countdownLabel">—</b></div>
+            <div class="bp-clock-row"><span>ESTIMATED COMPLETION</span><b data-bp-mon="etcAt">—</b></div>
             <div class="bp-clock-row"><span>EXPECTED AT RATE</span><b data-bp-mon="expectedMT">—</b></div>
             <div class="bp-clock-row"><span>MEASURED − EXPECTED</span><b data-bp-mon="varianceMT">—</b></div>
             <div class="btn-row">
@@ -512,6 +527,32 @@ const BunkerReports = (() => {
    * The per-tank valve cell: what the tank is doing, how long it has been doing
    * it, and the buttons to open, hold or close it.
    */
+  /**
+   * The sounding the pipe would read now, shown under the entry box.
+   *
+   * Deliberately not put *into* the box: what is typed there is a measurement
+   * and feeds the received quantity the BDN is reconciled against. An estimate
+   * that quietly filled that field would end up on a delivery note dispute.
+   */
+  /** An ISO instant as a datetime-local input wants it, in the device's zone. */
+  function localInputValue(iso) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const pad2 = (x) => String(x).padStart(2, '0');
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+      + `T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  }
+
+  function paintEstimate(i, row) {
+    const el = document.querySelector(`[data-bp-est="${i}"]`);
+    if (!el) return;
+    if (!row.tankId || row.estimatedUllageMM == null) { el.textContent = ''; el.title = ''; return; }
+    el.textContent = `≈ ${n(row.estimatedUllageMM, 0)} mm · ${pct(row.estimatedVolumePercent)}`;
+    el.title = `Estimated from the ${row.estimatedFrom}, ${row.estimatedAgeLabel} ago, `
+      + `at ${n(row.rateShareMTPerHour, 0)} MT/h — about ${n(row.estimatedVolumeM3, 1)} m³. `
+      + 'Sound the tank and enter the reading; this figure is not counted as received.';
+  }
+
   function paintValveCell(i, row) {
     const cell = document.querySelector(`[data-bp-valve="${i}"]`);
     if (!cell) return;
@@ -559,6 +600,7 @@ const BunkerReports = (() => {
           row.warnings.length ? row.warnings.join(' · ') : '');
       }
       set(`[data-bp-cell="${i}.etaLabel"]`, row.tankId ? row.etaLabel : '');
+      paintEstimate(i, row);
       paintValveCell(i, row);
       const tr = document.querySelector(`tr[data-slot="${i}"]`);
       if (tr) {
@@ -593,6 +635,22 @@ const BunkerReports = (() => {
 
     const clock = c.monitoring.clock;
     set('[data-bp-mon="elapsedLabel"]', clock.elapsedLabelLive || clock.elapsedLabel);
+    const mon = c.monitoring;
+    // Say which rate the finishing time is built on. A number worked out from
+    // what has actually come aboard is worth more than the one agreed ashore,
+    // but only once enough has come aboard to mean anything.
+    set('[data-bp-mon="rateLabel"]', mon.effectiveRateMTPerHour > 0
+      ? `${n(mon.effectiveRateMTPerHour, 1)} MT/h ${mon.rateSourceIsMeasured ? '(measured)' : '(planned)'}`
+      : '—');
+    set('[data-bp-mon="countdownLabel"]', mon.countdownLabel || '—');
+    countdownEndsAt = mon.etcAtIso ? Date.parse(mon.etcAtIso) : null;
+    set('[data-bp-mon="etcAt"]', mon.etcAtIso
+      ? new Date(mon.etcAtIso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : '—');
+    const startBox = document.getElementById('bp-start-at');
+    if (startBox && document.activeElement !== startBox) {
+      startBox.value = view.plan.startedAt ? localInputValue(view.plan.startedAt) : '';
+    }
     set('[data-bp-mon="expectedMT"]', clock.expectedMT != null ? `${n(clock.expectedMT, 2)} MT` : '—');
     set('[data-bp-mon="varianceMT"]', clock.varianceMT != null ? `${signed(clock.varianceMT, 2)} MT` : '—');
     const toggle = document.getElementById('bp-clock-toggle');
@@ -689,7 +747,16 @@ const BunkerReports = (() => {
       const el = e.target;
       if (el.dataset.slot != null && el.dataset.field) {
         const slot = view.plan.sequence[Number(el.dataset.slot)];
-        if (slot) slot[el.dataset.field] = el.value;
+        if (slot) {
+          slot[el.dataset.field] = el.value;
+          if (el.dataset.field === 'currentSoundingMM') {
+            // Anchor the estimate on this reading, in the tank's own running
+            // hours so time spent shut is not counted as time taking fuel.
+            const tc = Core.tankClock(slot);
+            slot.currentSoundingAtElapsedH = tc.elapsedHours || 0;
+            slot.currentSoundingAt = new Date().toISOString();
+          }
+        }
       } else if (el.dataset.head) {
         view.plan.header[el.dataset.head] = el.value;
       } else {
@@ -762,6 +829,26 @@ const BunkerReports = (() => {
       } else {
         view.plan.pausedAt = nowIso;
         pauseTanksWithOperation(nowIso);
+      }
+      refreshPlan();
+      startClockTicker();
+    };
+    /* Pumping usually starts before anyone reaches the tablet, so the start can
+       be entered after the fact — from the barge's own log or the BDN — and the
+       elapsed time, the measured rate and the finishing time all follow it. */
+    document.getElementById('bp-start-at').onchange = (e) => {
+      const v = e.target.value;
+      if (!v) { view.plan.startedAt = null; view.plan.status = 'planning'; }
+      else {
+        const d = new Date(v);
+        if (Number.isNaN(d.getTime())) return;
+        if (d.getTime() > Date.now() + 60000) {
+          showToast('Pump start is in the future — check the time');
+          return;
+        }
+        view.plan.startedAt = d.toISOString();
+        view.plan.pausedAt = null;
+        view.plan.status = 'pumping';
       }
       refreshPlan();
       startClockTicker();
