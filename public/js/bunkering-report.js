@@ -277,6 +277,7 @@ const BunkerReports = (() => {
       ${planHeaderPanel(c)}
       ${planSequencePanel(c)}
       ${planEstimatesPanel()}
+      ${planFinishPanel(c)}
       ${planBlendPanel()}
       ${planTankTablesPanel(c)}
       <div class="form-panel no-print">
@@ -355,7 +356,8 @@ const BunkerReports = (() => {
         <td><input type="number" step="any" data-slot="${i}" data-field="targetVolumeM3" value="${esc(f.targetVolumeM3)}"></td>
         ${cell('targetVolumePercent')}${cell('targetUllageMM')}${cell('planAddMT')}
         <td class="bp-valve" data-bp-valve="${i}"></td>
-        <td><input type="number" step="any" data-slot="${i}" data-field="currentSoundingMM" value="${esc(f.currentSoundingMM)}"></td>
+        <td><input type="number" step="any" data-slot="${i}" data-field="currentSoundingMM" value="${esc(f.currentSoundingMM)}">
+          <span class="bp-method" data-bp-method="${i}"></span></td>
         ${cell('currentVolumePercent')}${cell('currentVolumeM3')}${cell('quantityAddMT')}
         ${cell('remainingToTargetMT')}
         <td class="fr-calc" data-bp-cell="${i}.etaLabel"></td>
@@ -427,6 +429,9 @@ const BunkerReports = (() => {
               <button class="btn small primary" id="bp-clock-toggle">Start pumping</button>
               <button class="btn small" id="bp-clock-reset">Reset</button>
             </div>
+            <div class="btn-row">
+              <button class="btn small" id="bp-finish">Finish bunkering</button>
+            </div>
           </div>
 
           <div class="btn-row">
@@ -436,6 +441,87 @@ const BunkerReports = (() => {
         </div>
       </div>
     </div>`;
+  }
+
+  /**
+   * Finishing the transfer: the measured intake against the delivery note.
+   *
+   * Nothing projected reaches this panel. The received figure is the sum of
+   * the soundings, and the difference against the note is withheld until every
+   * tank that took fuel has a reading — a shortfall assembled out of tanks
+   * nobody has sounded would send a letter of protest to a supplier who
+   * delivered exactly what the note says.
+   */
+  function planFinishPanel(c) {
+    const h = view.plan.header;
+    return `<div class="form-panel no-print bp-finish" style="margin-top:16px">
+      <div class="section-title" style="margin-top:0">Finish bunkering — delivery note</div>
+      <div class="hint" data-bp-fin="status">—</div>
+      <div class="bp-fin-grid">
+        <div class="bp-est-box"><span>RECEIVED (SOUNDED)</span>
+          <b data-bp-fin="received">—</b><i data-bp-fin="receivedSub"></i></div>
+        <label class="fr-field bp-fin-input"><span>BDN QUANTITY (MT)</span>
+          <input type="number" step="any" data-head="bdnQuantityMT" id="bp-bdn"
+            value="${esc(h.bdnQuantityMT)}"></label>
+        <div class="bp-est-box"><span>DIFFERENCE</span>
+          <b data-bp-fin="difference">—</b><i data-bp-fin="differencePercent"></i></div>
+        <div class="bp-est-box" data-bp-fin="verdictBox"><span>AGAINST THE NOTE</span>
+          <b data-bp-fin="verdict">—</b><i data-bp-fin="verdictSub"></i></div>
+      </div>
+      <div class="bp-est-alarm" data-bp-fin="protest" hidden></div>
+      <div class="btn-row">
+        <button class="btn small" id="bp-to-summary">Open bunker summary</button>
+      </div>
+      <div class="hint">The protest paperwork — barge, supplier, BDN number, samples, times alongside —
+        is on <b>Bunker Summary</b>. The quantity entered here is carried across to it.</div>
+    </div>`;
+  }
+
+  /** Fill the finish panel from a fresh computation. */
+  function refreshFinish(c) {
+    const set = UI.setCell;
+    const r = c.reconciliation;
+
+    const pending = {
+      'no-tanks': 'No tank has taken fuel yet.',
+      unsounded: `Waiting on a final sounding for ${r.tanksUnsounded.join(', ')}.`
+        + ' Until every tank that took fuel is sounded there is no measured intake to hold'
+        + ' against the note.',
+      'no-bdn': 'Enter the quantity from the delivery note to compare it with the soundings.',
+    };
+    set('[data-bp-fin="status"]', r.reconcilable
+      ? `Reconciled against ${r.tanksUsed} sounded tank(s)${
+        r.finished ? ', transfer finished' : ' — the transfer is still open'}.`
+      : (pending[r.pendingReason] || '—'));
+
+    set('[data-bp-fin="received"]', `${n(r.receivedMT, 3)} MT`);
+    set('[data-bp-fin="receivedSub"]', r.tanksUnsounded.length
+      ? `${r.tanksUsed - r.tanksUnsounded.length} of ${r.tanksUsed} tanks sounded`
+      : `all ${r.tanksUsed} tank(s) sounded`);
+    set('[data-bp-fin="difference"]', r.differenceMT != null ? `${signed(r.differenceMT, 3)} MT` : '—');
+    set('[data-bp-fin="differencePercent"]', r.differencePercent != null
+      ? `${signed(r.differencePercent, 3)}% of the note` : '');
+
+    const box = document.querySelector('[data-bp-fin="verdictBox"]');
+    const bad = r.protestAdvised === true;
+    if (box) {
+      box.classList.toggle('bp-fin-bad', bad);
+      box.classList.toggle('bp-fin-good', r.withinTolerance === true);
+    }
+    set('[data-bp-fin="verdict"]', r.withinTolerance == null ? '—'
+      : (r.withinTolerance ? 'Within tolerance' : (bad ? 'Short delivery' : 'Over delivery')));
+    set('[data-bp-fin="verdictSub"]', r.withinTolerance == null ? ''
+      : `tolerance ±${r.tolerancePercent}%`);
+
+    const alarm = document.querySelector('[data-bp-fin="protest"]');
+    if (alarm) {
+      alarm.hidden = !bad;
+      alarm.textContent = bad
+        ? `Short of the delivery note by ${n(Math.abs(r.differenceMT), 3)} MT `
+          + `(${n(Math.abs(r.differencePercent), 3)}%), beyond the ${r.tolerancePercent}% tolerance. `
+          + 'Grounds for a letter of protest — raise it on Bunker Summary before the barge casts off.'
+        : '';
+    }
   }
 
   /**
@@ -656,6 +742,33 @@ const BunkerReports = (() => {
   }
 
   /**
+   * Which sense the CURRENT SOUND box wants for this tank, and where it
+   * started.
+   *
+   * The column takes the reading in the tank's own gauging method, but every
+   * other reading on this sheet is an ullage, and the box used to say nothing
+   * at all. Entering the ullage into a dipped tank turns an empty tank into a
+   * full one. The tag says which is wanted; the placeholder shows the tank's
+   * opening reading in that same sense, so there is something to measure the
+   * new one against.
+   */
+  function paintSoundingMethod(i, row) {
+    const tag = document.querySelector(`[data-bp-method="${i}"]`);
+    const box = document.querySelector(`input[data-slot="${i}"][data-field="currentSoundingMM"]`);
+    if (tag) {
+      tag.textContent = row.tankId && row.startingMethod ? String(row.startingMethod).toUpperCase() : '';
+      tag.title = row.startingMethod
+        ? `This tank is gauged by ${row.startingMethod}. Enter the reading the same way.`
+        : '';
+      tag.classList.toggle('bp-method-bad', Boolean(row.reversedReading));
+    }
+    if (box) {
+      box.placeholder = row.tankId && row.startingReadingMM != null
+        ? `from ${n(row.startingReadingMM, 0)}` : '';
+    }
+  }
+
+  /**
    * The per-tank valve cell: what the tank is doing, how long it has been doing
    * it, and the buttons to open, hold or close it.
    */
@@ -706,6 +819,7 @@ const BunkerReports = (() => {
           row.warnings.length ? row.warnings.join(' · ') : '');
       }
       set(`[data-bp-cell="${i}.etaLabel"]`, row.tankId ? row.etaLabel : '');
+      paintSoundingMethod(i, row);
       paintValveCell(i, row);
       const tr = document.querySelector(`tr[data-slot="${i}"]`);
       if (tr) {
@@ -748,6 +862,7 @@ const BunkerReports = (() => {
       ? `${n(mon.effectiveRateMTPerHour, 1)} MT/h ${mon.rateSourceIsMeasured ? '(measured)' : '(planned)'}`
       : '—');
     refreshEstimates(c);
+    refreshFinish(c);
     const startBox = document.getElementById('bp-start-at');
     if (startBox && document.activeElement !== startBox) {
       startBox.value = view.plan.startedAt ? localInputValue(view.plan.startedAt) : '';
@@ -763,8 +878,19 @@ const BunkerReports = (() => {
         : 'No tank has been sounded yet — nothing to compare against the expected intake.');
     const toggle = document.getElementById('bp-clock-toggle');
     if (toggle) {
-      toggle.textContent = !clock.started ? 'Start pumping' : clock.paused ? 'Resume' : 'Pause';
+      /* A finished transfer must not still offer to pause itself. Reopening is
+         offered instead, so a transfer finished by mistake — or one the barge
+         resumes after a stoppage — is not stuck behind a Reset that would
+         throw the pumping time away. */
+      toggle.textContent = clock.completed ? 'Reopen transfer'
+        : !clock.started ? 'Start pumping' : clock.paused ? 'Resume' : 'Pause';
       toggle.classList.toggle('primary', !clock.started || clock.paused);
+    }
+    const finish = document.getElementById('bp-finish');
+    if (finish) {
+      finish.disabled = clock.completed || !clock.started;
+      finish.title = clock.completed ? 'The transfer is already finished.'
+        : (!clock.started ? 'Start pumping first.' : '');
     }
   }
 
@@ -924,10 +1050,22 @@ const BunkerReports = (() => {
     document.getElementById('bp-clock-toggle').onclick = () => {
       const clock = Core.pumpingClock(view.plan, 0, null);
       const nowIso = new Date().toISOString();
-      if (!clock.started) {
+      if (clock.completed) {
+        /* Reopen. The clock picks up exactly where it stopped: everything
+           between finishing and reopening goes to the paused total, or the
+           gap would be counted as time spent taking fuel and inflate the
+           expected intake. It reopens held, and the tanks stay shut until
+           somebody opens the ones that are taking fuel again. */
+        view.plan.elapsedPausedMs = (view.plan.elapsedPausedMs || 0)
+          + Math.max(0, Date.now() - Date.parse(view.plan.completedAt));
+        view.plan.completedAt = null;
+        view.plan.pausedAt = nowIso;
+        view.plan.status = 'pumping';
+      } else if (!clock.started) {
         view.plan.startedAt = nowIso;
         view.plan.pausedAt = null;
         view.plan.elapsedPausedMs = 0;
+        view.plan.completedAt = null;
         view.plan.status = 'pumping';
       } else if (clock.paused) {
         view.plan.elapsedPausedMs = (view.plan.elapsedPausedMs || 0)
@@ -965,11 +1103,77 @@ const BunkerReports = (() => {
       view.plan.startedAt = null;
       view.plan.pausedAt = null;
       view.plan.elapsedPausedMs = 0;
+      view.plan.completedAt = null;
       view.plan.status = 'planning';
       refreshPlan();
       // A tank may still be taking fuel; its own clock keeps running, and the
       // ticker retires itself if nothing is.
       startClockTicker();
+    };
+
+    /**
+     * Finish the transfer: shut every tank still open, stop the clock, and put
+     * the sheet in front of the delivery note.
+     *
+     * A tank that took fuel and was never sounded is called out before
+     * anything is closed. Closing it makes its intake unmeasurable — the level
+     * is still in the tank, but the reading that would have caught a short
+     * delivery is gone once the barge has cast off.
+     */
+    document.getElementById('bp-finish').onclick = () => {
+      const c = recomputePlan();
+      const open = c.rows.filter((r) => r.tankId && (r.status === 'filling' || r.status === 'paused'));
+      const short = c.reconciliation.tanksUnsounded;
+      const ask = short.length
+        ? `Finish bunkering? ${short.join(', ')} took fuel and ${short.length > 1 ? 'have' : 'has'}`
+          + ' no final sounding, so the received quantity will be short of the truth'
+          + ' and cannot be held against the delivery note.'
+        : `Finish bunkering? ${open.length} tank(s) will be closed and the pumping clock stopped.`;
+      if (!confirm(ask)) return;
+
+      const nowIso = new Date().toISOString();
+      for (const slot of view.plan.sequence) {
+        if (!slot.tankId || (slot.status !== 'filling' && slot.status !== 'paused')) continue;
+        if (slot.status === 'paused' && slot.pausedAt) {
+          slot.elapsedPausedMs = (slot.elapsedPausedMs || 0)
+            + Math.max(0, Date.now() - Date.parse(slot.pausedAt));
+        }
+        slot.pausedAt = null;
+        slot.pausedWithOperation = false;
+        slot.completedAt = nowIso;
+        slot.status = 'done';
+      }
+      if (view.plan.startedAt && view.plan.pausedAt) {
+        view.plan.elapsedPausedMs = (view.plan.elapsedPausedMs || 0)
+          + Math.max(0, Date.now() - Date.parse(view.plan.pausedAt));
+        view.plan.pausedAt = null;
+      }
+      view.plan.completedAt = nowIso;
+      view.plan.status = 'completed';
+      refreshPlan();
+      stopClockTicker();
+
+      const panel = document.querySelector('.bp-finish');
+      if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const bdn = document.getElementById('bp-bdn');
+      if (bdn && !bdn.value) setTimeout(() => bdn.focus(), 400);
+    };
+
+    /* Carry the delivery-note quantity across to the paperwork, without
+       overwriting a figure already entered there. */
+    document.getElementById('bp-to-summary').onclick = () => {
+      const qty = view.plan.header.bdnQuantityMT;
+      const current = Core.normalizeSummary(bundle(), bundle().bunkerSummary);
+      if (qty !== '' && qty != null && (current.bdn.quantityMT === '' || current.bdn.quantityMT == null)) {
+        view.pendingSummary = {
+          ...current,
+          bdn: { ...current.bdn, quantityMT: qty, fuelType: view.plan.header.fuelType || current.bdn.fuelType },
+        };
+        showToast(`BDN quantity ${qty} MT carried to the summary`);
+      } else if (qty !== '' && qty != null && String(current.bdn.quantityMT) !== String(qty)) {
+        showToast(`Summary already has ${current.bdn.quantityMT} MT on the BDN — left as it is`);
+      }
+      navigate('bunker-summary');
     };
 
     document.getElementById('bp-blend-toggle').onclick = (e) => {

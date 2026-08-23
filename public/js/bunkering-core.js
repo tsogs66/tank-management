@@ -90,6 +90,9 @@ function round(v, d = 3) {
   return Math.round(Number(v) * f) / f;
 }
 
+/** How far a measured intake may sit from the delivery note before it is a protest. */
+const BDN_TOLERANCE_PERCENT = 0.5;
+
 /** Slack allowed against a filling limit before a row is flagged as overfilled. */
 function fillTolerance(capacity) {
   return Math.max(0.05, (num(capacity, 0) || 0) * 0.001);
@@ -221,6 +224,10 @@ function emptyBunkerPlan(bundle, conversion) {
       tempC: '',
       deliveryRateMTPerHour: '',
       bunkerQuantityMT: '',
+      // What the delivery note says was pumped. Entered when the transfer is
+      // finished, and held apart from bunkerQuantityMT, which is the quantity
+      // that was ordered.
+      bdnQuantityMT: '',
     },
     sequence: Array.from({ length: PLAN_SLOTS }, () => ({
       tankId: '',
@@ -409,6 +416,7 @@ function computeBunkerPlan(bundle, form, conversion) {
       estimatedToLimitLabel: '—',
       estimatedLimitAtIso: null,
       estimatedOverLimit: false,
+      reversedReading: false,
       warnings: [],
     };
     if (!slot.tankId) return out;
@@ -478,6 +486,41 @@ function computeBunkerPlan(bundle, form, conversion) {
           + `(${round(out.currentVolumeM3, 1)} of ${round(capacity, 1)} m³, limit ${round(cap85, 1)})`);
       }
       if (capacity > 0 && out.currentVolumeM3 > capacity) out.warnings.push('above 100% capacity');
+
+      /* Very likely the reading was entered in the other sense.
+       *
+       * This column takes the reading in the tank's own gauging method, but
+       * every other reading on the sheet is shown as an ullage, and nothing
+       * used to say which was wanted. Entering the ullage into a dipped tank
+       * turns an empty tank into a full one.
+       *
+       * Being merely high is not the marker. Flipping a high reading in a
+       * roughly symmetric tank always yields a low one, so "the other sense
+       * looks plausible" flags every genuine overfill too — a real 90% fill
+       * would be accused of being a typo. What does mark it is the reading
+       * running the tank up to the very top of its calibration table and
+       * staying there: a controlled transfer stops well short of that, and a
+       * reading that saturates is far more often the wrong sense than a tank
+       * genuinely brimmed. Anything short of that is left to the 85% warning
+       * to report as the overfill it may well be. */
+      if (out.currentVolumeM3 >= capacity - fillTolerance(capacity)) {
+        // A flipped reading of exactly zero is a real reading — an empty
+        // dipped tank — so the bound is inclusive.
+        const alt = (scaleTop(tank) || 0) - native;
+        const altRes = alt >= 0
+          ? computeTank(tank, { reading: alt, trim: trimByStern, list: heel, tempC, density15 })
+          : null;
+        const altVol = altRes ? altRes.volumeObserved : null;
+        /* The opening volume came off the fuel report's own interpolation, so
+           comparing to it needs real slack, not a floating-point epsilon. */
+        const slack = fillTolerance(capacity);
+        if (altVol != null && altVol <= cap85 + slack && altVol >= startVol - slack) {
+          out.reversedReading = true;
+          out.warnings.push(`this column takes a ${String(out.startingMethod).toUpperCase()} for this tank `
+            + `— ${round(out.currentSoundingMM, 0)} read the other way is `
+            + `${round(altVol, 1)} m³ (${round((altVol / capacity) * 100, 1)}%)`);
+        }
+      }
     }
 
     /* The estimating pass below needs the tank and its opening volume again;
@@ -640,6 +683,27 @@ function computeBunkerPlan(bundle, form, conversion) {
   const estRemaining = estimating && quantity != null
     ? Math.max(0, quantity - estimatedReceivedMT)
     : null;
+  /* ------------------------------------------------------------------ *
+   * Finishing the transfer: the measured intake against the delivery note.
+   *
+   * The received figure here is the sum of the soundings, and nothing else —
+   * no estimate reaches it. A tank that took fuel and was never sounded is
+   * named rather than counted as zero, and the difference is withheld until
+   * every one of them has a reading. Reporting a shortfall built out of tanks
+   * nobody has sounded would advise a letter of protest against a supplier
+   * who delivered exactly what the note says.
+   * ------------------------------------------------------------------ */
+  const bdnQuantity = num(header.bdnQuantityMT);
+  const tookFuel = used.filter((r) => r.status === 'done' || r.status === 'filling' || r.status === 'paused');
+  const unsounded = tookFuel.filter((r) => r.currentSoundingMM == null).map((r) => r.name);
+  const reversed = used.filter((r) => r.reversedReading).map((r) => r.name);
+  const finished = Boolean(plan.completedAt);
+  const reconcilable = bdnQuantity != null && tookFuel.length > 0 && unsounded.length === 0;
+  const bdnDifference = reconcilable ? round((receivedMT || 0) - bdnQuantity, 3) : null;
+  const bdnDifferencePercent = reconcilable && bdnQuantity
+    ? round((((receivedMT || 0) - bdnQuantity) / bdnQuantity) * 100, 3)
+    : null;
+
   const estOperationRate = estimateShare * (filling || 1);
   const estEtcHours = estRemaining != null && estOperationRate > 0
     && liveClock.started && !liveClock.completed
@@ -735,6 +799,31 @@ function computeBunkerPlan(bundle, form, conversion) {
         : null,
       freeSpaceShortfallM3: quantity != null && density15 != null
         ? round((volumeFromMT(quantity, density15, tempC) || 0) - (sum('freeM3At85') || 0), 3)
+        : null,
+    },
+    reconciliation: {
+      finished,
+      completedAtIso: plan.completedAt || null,
+      tanksUsed: tookFuel.length,
+      tanksUnsounded: unsounded,
+      tanksReversed: reversed,
+      receivedMT,
+      bdnQuantityMT: bdnQuantity,
+      differenceMT: bdnDifference,
+      differencePercent: bdnDifferencePercent,
+      reconcilable,
+      pendingReason: reconcilable ? null
+        : tookFuel.length === 0 ? 'no-tanks'
+          : unsounded.length ? 'unsounded'
+            : 'no-bdn',
+      /* A delivery note is normally accepted within half a percent; past that,
+         short, is what a letter of protest is for. */
+      tolerancePercent: BDN_TOLERANCE_PERCENT,
+      withinTolerance: bdnDifferencePercent != null
+        ? Math.abs(bdnDifferencePercent) <= BDN_TOLERANCE_PERCENT
+        : null,
+      protestAdvised: bdnDifferencePercent != null
+        ? bdnDifferencePercent < -BDN_TOLERANCE_PERCENT
         : null,
     },
     before: report,
@@ -1189,6 +1278,7 @@ function afterSnapshot(computed) {
 return {
   PLAN_SLOTS,
   SAFE_FILL,
+  BDN_TOLERANCE_PERCENT,
   TANK_STATES,
   tankClock,
   DISTRIBUTION_MODES,

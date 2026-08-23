@@ -1561,3 +1561,24 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
 .bp-est-limit { white-space: nowrap; }
 tr.bp-est-over td, tr.bp-est-over th { color: var(--bad); }
 tr.bp-est-over th.fr-tank-name { box-shadow: inset 3px 0 0 var(--bad); }
+
+/* Which sense the CURRENT SOUND box wants. Every other reading on the sheet is
+   an ullage, so a dipped tank has to say so or the ullage gets typed in. */
+.bp-method {
+  display: block; margin-top: 2px;
+  font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--text-faint); font-weight: 700;
+}
+.bp-method-bad { color: var(--bad); }
+
+/* Finishing against the delivery note. */
+.bp-fin-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px; margin-bottom: 12px; align-items: end;
+}
+.bp-fin-input { margin: 0; }
+.bp-fin-input input { font-size: 17px; font-variant-numeric: tabular-nums; }
+.bp-fin-good { border-color: var(--good); border-style: solid; }
+.bp-fin-good > b { color: var(--good); }
+.bp-fin-bad { border-color: var(--bad); border-style: solid; }
+.bp-fin-bad > b { color: var(--bad); }
