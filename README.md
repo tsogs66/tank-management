@@ -182,6 +182,20 @@ cached under their bare paths, so the worker has to look them up with `ignoreSea
 script misses the cache and the app boots with nothing. And only a navigation may fall back to `index.html`:
 answering a script request with HTML is what turns an offline load into `Unexpected token '<'`.
 
+## Sounding-pipe height
+
+The pipe height is only needed to flip a reading between dip and ullage, and for these workbook tables it is
+the top of the calibration axis — so that is where it comes from by default, read off the table rather than
+typed. **Tank setup shows the table's figure as the placeholder and leaves the box empty**, because empty is
+the normal state.
+
+Enter a value only to override it. That is for the tanks where the table stops short of the sounding point:
+the inferred height would then be too small and every flipped reading on that tank would be out by the
+shortfall. Clearing the box goes back to the table.
+
+The calibration book prints the height that was actually used and says which it was — `5,090 mm (from table)`
+or `5,200 mm (set)` — so a sheet carries its own provenance.
+
 ## Bunkering summary — reconciling the BDN
 
 The delivered figure is compared against what the tanks actually show, and only when both halves exist. A BDN

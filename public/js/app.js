@@ -912,6 +912,42 @@ function renderResultSteps(panel, tank, r, inputs) {
 }
 
 /* ---------- Add tank ---------- */
+/**
+ * The sounding-pipe height a tank will actually be read against.
+ *
+ * It is only needed to flip a reading between dip and ullage, and for the
+ * workbook tables it is the top of the calibration axis — so that is the
+ * default, taken from the table rather than typed. An explicit value on the
+ * tank overrides it, for the tanks where the table does not run all the way to
+ * the sounding point and the flip would otherwise be out by the shortfall.
+ */
+function pipeHeightInfo(tank) {
+  const Core = window.FuelReportCore;
+  const explicit = Number(tank && tank.pipeHeight) || 0;
+  const fromTable = Core && Core.soundingPipeHeight
+    ? Number(Core.soundingPipeHeight({ ...tank, pipeHeight: 0 })) || 0
+    : 0;
+  return {
+    explicit,
+    fromTable,
+    effective: explicit > 0 ? explicit : fromTable,
+    overridden: explicit > 0,
+  };
+}
+
+/** One line saying where the height comes from, under the override box. */
+function pipeHeightHint(tank) {
+  const info = pipeHeightInfo(tank);
+  if (!info.fromTable) {
+    return 'No calibration table yet — import one and the height is taken from it. '
+      + 'Enter a value only to override.';
+  }
+  return `From the calibration table: <b>${fmt(info.fromTable, 0)} mm</b>. `
+    + (info.overridden
+      ? `Overridden with ${fmt(info.explicit, 0)} mm — clear the box to go back to the table.`
+      : 'Leave blank to use it; enter a value only to override.');
+}
+
 function renderAddTank(main) {
   main.innerHTML += `<div class="page-head"><div><h1>Add Tank</h1>
     <div class="desc">Manually add storage, settling, or service tanks — or import tanks and sounding tables from a capacity PDF.</div></div></div>
@@ -951,7 +987,9 @@ function renderAddTank(main) {
         <select id="t-calc"><option value="correction">Correction (trim+list + curve)</option><option value="direct">Direct volume grid</option></select></div>
       <div class="form-row"><label>Sounding method</label>
         <select id="t-method"><option value="ullage">Ullage</option><option value="sounding">Sounding</option></select></div>
-      <div class="form-row"><label>Pipe height</label><input id="t-pipe" type="number" step="any" value="0"></div>
+      <div class="form-row"><label>Pipe height mm <span class="hint-inline">override</span></label>
+        <input id="t-pipe" type="number" step="any" placeholder="from the table"
+          title="Leave blank: the height is taken from the top of the calibration table once one is imported."></div>
     </div>
     <div class="btn-row">
       <button class="btn primary" id="btn-add-tank">Add tank</button>
@@ -1589,7 +1627,11 @@ function renderCalibrationEditor(main, tankId) {
       <div class="form-row"><label>Correction divisor</label><input id="c-div" type="number" step="any" value="${tank.correctionDivisor|| (isDirect?1:10)}"></div>
     </div>
     <div class="form-row-3">
-      <div class="form-row"><label>Pipe height</label><input id="c-pipe" type="number" step="any" value="${tank.pipeHeight||0}"></div>
+      <div class="form-row"><label>Pipe height mm <span class="hint-inline">override</span></label>
+        <input id="c-pipe" type="number" step="any"
+          value="${Number(tank.pipeHeight) > 0 ? tank.pipeHeight : ''}"
+          placeholder="${Math.round(pipeHeightInfo(tank).fromTable) || ''}">
+        <div class="hint">${pipeHeightHint(tank)}</div></div>
       <div class="form-row"><label>Sounding method</label>
         <select id="c-method">
           <option value="ullage" ${tank.soundingMethod==='ullage'?'selected':''}>ullage</option>
@@ -1924,7 +1966,12 @@ function calibPrintTankMetaEntries(tank) {
     ['Calculation', tank.calcType || 'direct'],
     ['Divisor', tank.correctionDivisor != null ? String(tank.correctionDivisor) : '—'],
     ['Sounding method', tank.soundingMethod || '—'],
-    ['Pipe height', tank.pipeHeight != null ? `${fmt(tank.pipeHeight, 3)} m` : '—'],
+    ['Pipe height', (() => {
+      // Was labelled metres while every axis and reading here is millimetres.
+      const info = pipeHeightInfo(tank);
+      if (!info.effective) return '—';
+      return `${fmt(info.effective, 0)} mm ${info.overridden ? '(set)' : '(from table)'}`;
+    })()],
     ['Sounding increment', tank.soundingIncrement != null ? String(tank.soundingIncrement) : '—'],
     ['Heel increment', tank.heelIncrement != null ? String(tank.heelIncrement) : '—'],
     ['Trim table', rowN && trimN ? `${rowN} × ${trimN}` : '—'],
