@@ -140,6 +140,7 @@ const FuelReport = (() => {
       <div class="btn-row">
         <button class="btn primary" id="fr-print-save">PRINT &amp; SAVE</button>
         <button class="btn" id="fr-save">Save only</button>
+        <button class="btn" id="fr-print-only">Print only</button>
         <button class="btn" id="fr-main-menu">MAIN MENU</button>
       </div>
     </div>`;
@@ -311,10 +312,10 @@ const FuelReport = (() => {
   function renderCalcSheetPanel() {
     return `<div class="form-panel no-print">
       <div class="section-title" style="margin-top:0">Calculation sheet &amp; reference tables</div>
-      <p class="hint">The white pages below are the printout. Use PRINT &amp; SAVE (or Print / PDF without saving) to send them to the printer.</p>
+      <p class="hint">The white pages below are the printout. Send them to the printer with
+        PRINT &amp; SAVE, or with Print only to print without filing a saved report.</p>
       <div class="btn-row">
         <button class="btn small" id="fr-toggle-calc">Show on screen</button>
-        <button class="btn small" id="fr-print-only">Print / PDF without saving</button>
       </div>
       <div id="fr-calc-sheet" class="fr-calc-sheet" hidden></div>
     </div>`;

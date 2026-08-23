@@ -92,6 +92,9 @@ Grade totals (HFO / LSFO / MDO-MGO / LSMGO) follow the fuel type regardless of w
 Below the grid: per-grade totals against the **log book ROB** (with the difference), lube oil quantities in
 litres → MT, received quantities, daily consumption, and the preparer.
 
+Each report screen offers the same three: **PRINT & SAVE**, **Save only**, and **Print only** — print with
+nothing written, for a copy someone wants to see without filing it as a record.
+
 **PRINT & SAVE** saves the form, writes the soundings back as tank readings, appends a snapshot to
 *Saved reports*, and prints a **single A4 sheet**: the TANK CONDITION face — both tank blocks with every
 column, totals, log-book comparison, lube / received / consumption, signature and stamp.
@@ -181,6 +184,19 @@ Two things to know if you are changing this. The scripts are requested with a `?
 cached under their bare paths, so the worker has to look them up with `ignoreSearch` — without it every
 script misses the cache and the app boots with nothing. And only a navigation may fall back to `index.html`:
 answering a script request with HTML is what turns an offline load into `Unexpected token '<'`.
+
+## Voyage report
+
+A printable ROB summary per category, from the readings as they were last saved. Report types come from the
+fuel report's own list rather than a second copy, because the fuel report reads `voyage.reportType` and prints
+it as the sheet's condition — two lists meant this form offered "Weekly Monitoring" while the fuel report
+understood "Monitoring". A stored value is always included in the dropdown, so saving cannot quietly change a
+type this form did not offer.
+
+A tank with no density has no weight. Those tanks are counted out of the MT subtotal and named underneath
+rather than added in as zero, which would understate the total by whatever the tank holds while its own row
+shows a dash. The bottom line is labelled **All categories**, since it adds fuel, lube, misc and fresh water
+together.
 
 ## Sounding-pipe height
 

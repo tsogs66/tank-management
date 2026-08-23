@@ -1,5 +1,5 @@
 /* Service worker — cache shell for offline Android / local use */
-const CACHE = 'fuel-tms-v53';
+const CACHE = 'fuel-tms-v55';
 const ASSETS = [
   '/',
   '/index.html',
