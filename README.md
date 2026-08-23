@@ -351,6 +351,14 @@ Elapsed time is **floored, never rounded**: a clock reads 1h 59m until it is 2h 
 show `0h 01m` after thirty seconds — claiming time that had not passed, on a figure the engineer copies into
 the paperwork and which multiplies the rate into an expected quantity.
 
+Pausing the transfer shuts the valves. Every tank that was filling is paused with the operation, and each is
+marked so that resuming reopens exactly those — a tank the engineer had already shut by hand stays shut, and
+one they reopened by hand is not touched twice. Without that, the overall clock stopped while every tank still
+read FILLING, which said the pumps had stopped and the tanks were still taking fuel at the same time.
+
+Resetting the overall clock is different: it clears the stopwatch and leaves the tanks alone, since a tank may
+legitimately still be taking fuel.
+
 Every tank in the sequence keeps its own timer alongside the overall one. Pausing a tank holds its duration
 where it stopped — that figure is the record of how long the valve was open, so a live count would be a lie
 about a shut valve — and resuming continues from there rather than starting again. Closing a tank freezes its

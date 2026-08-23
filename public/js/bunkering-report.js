@@ -620,6 +620,7 @@ const BunkerReports = (() => {
       slot.pausedAt = null;
       slot.completedAt = null;
       slot.status = 'filling';
+      slot.pausedWithOperation = false;
       // Opening a tank starts the overall pumping clock if it is not running.
       if (!view.plan.startedAt) {
         view.plan.startedAt = nowIso;
@@ -631,6 +632,8 @@ const BunkerReports = (() => {
     } else if (next === 'paused') {
       slot.pausedAt = nowIso;
       slot.status = 'paused';
+      // Shut by hand: resuming the operation must not reopen it.
+      slot.pausedWithOperation = false;
     } else if (next === 'done') {
       if (slot.status === 'paused' && slot.pausedAt) {
         slot.elapsedPausedMs = (slot.elapsedPausedMs || 0)
@@ -648,6 +651,37 @@ const BunkerReports = (() => {
       slot.completedAt = null;
     }
     refreshPlan();
+  }
+
+  /**
+   * Pausing the transfer shuts the valves.
+   *
+   * The overall clock stopping while every tank still reads FILLING said the
+   * pumps had stopped and the tanks were still taking fuel at the same time.
+   * Every tank that was filling is paused with the operation, and each one is
+   * marked so that resuming reopens exactly those — a tank the engineer had
+   * already shut by hand stays shut.
+   */
+  function pauseTanksWithOperation(nowIso) {
+    for (const slot of view.plan.sequence || []) {
+      if (!slot || !slot.tankId || slot.status !== 'filling') continue;
+      slot.pausedAt = nowIso;
+      slot.status = 'paused';
+      slot.pausedWithOperation = true;
+    }
+  }
+
+  function resumeTanksPausedWithOperation(nowIso) {
+    for (const slot of view.plan.sequence || []) {
+      if (!slot || !slot.pausedWithOperation) continue;
+      if (slot.status === 'paused' && slot.pausedAt) {
+        slot.elapsedPausedMs = (slot.elapsedPausedMs || 0)
+          + Math.max(0, Date.now() - Date.parse(slot.pausedAt));
+      }
+      slot.pausedAt = null;
+      slot.status = 'filling';
+      slot.pausedWithOperation = false;
+    }
   }
 
   function bindPlanEvents(wrap) {
@@ -724,8 +758,10 @@ const BunkerReports = (() => {
         view.plan.elapsedPausedMs = (view.plan.elapsedPausedMs || 0)
           + Math.max(0, Date.now() - Date.parse(view.plan.pausedAt));
         view.plan.pausedAt = null;
+        resumeTanksPausedWithOperation(nowIso);
       } else {
         view.plan.pausedAt = nowIso;
+        pauseTanksWithOperation(nowIso);
       }
       refreshPlan();
       startClockTicker();
