@@ -2312,75 +2312,116 @@ function renderVoyage(main) {
 }
 
 /* ---------- Voyage report ---------- */
+
+/**
+ * Report types come from the fuel report, which is the screen that actually
+ * uses them: it reads voyage.reportType and prints it as the sheet's condition.
+ * Keeping a second list here meant this form offered "Weekly Monitoring" while
+ * the fuel report understood "Monitoring", so a value set on one screen was not
+ * in the other's dropdown. A stored value is always included, so saving this
+ * form can never quietly change a type it did not offer.
+ */
+function voyageReportTypes(current) {
+  const Core = window.FuelReportCore;
+  const list = (Core && Core.REPORT_TYPES ? Core.REPORT_TYPES : ['Arrival', 'Departure', 'Monitoring']).slice();
+  const cur = String(current || '').trim();
+  if (cur && !list.includes(cur)) list.unshift(cur);
+  return list;
+}
+
 function renderReport(main) {
   const v = STATE.bundle.voyage || {};
-  main.innerHTML += `<div class="page-head no-print"><div><h1>Voyage Report</h1>
-    <div class="desc">Printable ROB summary</div></div>
-    <div class="btn-row"><button class="btn primary" onclick="window.print()">Print / PDF</button>
-    <button class="btn" id="btn-save-voy">Save voyage details</button></div></div>`;
 
-  const form = document.createElement('div');
-  form.className = 'form-panel no-print';
-  form.innerHTML = `
-    <div class="form-row-2">
-      <div class="form-row"><label>Voyage No.</label><input id="v-voyage" value="${v.voyageNo||''}"></div>
-      <div class="form-row"><label>Port</label><input id="v-port" value="${v.port||''}"></div>
+  let sections = '';
+  let gVol = 0, gWt = 0, gUnknown = 0;
+  for (const c of CATS) {
+    const tanks = (STATE.bundle.tanks[c.id] || []).filter((t) => getReading(t.id));
+    if (!tanks.length) continue;
+    let sVol = 0, sWt = 0, unknown = 0;
+    let rows = '';
+    for (const t of tanks) {
+      const r = getReading(t.id);
+      sVol += r.result.volumeObserved || 0;
+      if (r.result.weightMT == null) unknown += 1;
+      else sWt += r.result.weightMT;
+      rows += `<tr><td>${escapeHtml(t.name)}</td><td>${fmt(t.capacity, 1)}</td><td>${fmt(r.reading, 1)}</td>
+        <td>${fmt(r.tempC, 1)}</td><td>${r.density15 != null ? fmt(r.density15, 4) : '–'}</td>
+        <td>${fmt(r.result.volumeObserved, 2)}</td><td>${r.result.weightMT != null ? fmt(r.result.weightMT, 2) : '–'}</td></tr>`;
+    }
+    gVol += sVol; gWt += sWt; gUnknown += unknown;
+    /* A tank with no density has no weight, and adding it in as zero would
+       understate the subtotal by however much it holds while its own row shows
+       a dash. The tanks it covers are named instead of assumed. */
+    const note = unknown
+      ? `<div class="hint">${unknown} tank${unknown === 1 ? '' : 's'} without a density — no weight for ${unknown === 1 ? 'it' : 'them'}, so ${unknown === 1 ? 'it is' : 'they are'} not in the MT subtotal.</div>`
+      : '';
+    sections += `<div class="section-title"><span class="cat-dot cat-${c.id}"></span>${c.label}</div>
+      <div class="scroll-x"><table class="data-table"><thead><tr><th>Tank</th><th>Cap</th><th>Reading</th><th>Temp</th><th>Dens</th><th>Vol</th><th>MT</th></tr></thead>
+      <tbody>${rows}
+      <tr><td colspan="5"><b>Subtotal${unknown ? ` (${tanks.length - unknown} of ${tanks.length} tanks)` : ''}</b></td>
+        <td><b>${fmt(sVol, 2)}</b></td><td><b>${fmt(sWt, 2)}</b></td></tr></tbody></table></div>${note}`;
+  }
+
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <div class="page-head no-print"><div><h1>Voyage Report</h1>
+      <div class="desc">Printable ROB summary</div></div>
+      <div class="btn-row"><button class="btn primary" id="btn-print-voy">Print / PDF</button>
+      <button class="btn" id="btn-save-voy">Save voyage details</button></div></div>
+
+    <div class="form-panel no-print">
+      <div class="form-row-2">
+        <div class="form-row"><label>Voyage No.</label><input id="v-voyage" value="${escapeHtml(v.voyageNo || '')}"></div>
+        <div class="form-row"><label>Port</label><input id="v-port" value="${escapeHtml(v.port || '')}"></div>
+      </div>
+      <div class="form-row-2">
+        <div class="form-row"><label>Report type</label>
+          <select id="v-type">${voyageReportTypes(v.reportType).map((o) =>
+            `<option ${v.reportType === o ? 'selected' : ''}>${escapeHtml(o)}</option>`).join('')}</select></div>
+        <div class="form-row"><label>Date</label><input id="v-date" type="date" value="${escapeHtml(v.date || '')}"></div>
+      </div>
+      <div class="form-row-2">
+        <div class="form-row"><label>Trim (m)</label><input id="v-trim" type="number" step="any" value="${v.trim ?? 0}"></div>
+        <div class="form-row"><label>Heel (°)</label><input id="v-heel" type="number" step="any" value="${v.heel ?? 0}"></div>
+      </div>
+      <div class="form-row-2">
+        <div class="form-row"><label>Draft Fwd</label><input id="v-dfwd" type="number" step="any" value="${v.draftFwd ?? 0}"></div>
+        <div class="form-row"><label>Draft Aft</label><input id="v-daft" type="number" step="any" value="${v.draftAft ?? 0}"></div>
+      </div>
     </div>
-    <div class="form-row-2">
-      <div class="form-row"><label>Report type</label>
-        <select id="v-type">${['Departure','Arrival','Weekly Monitoring','Pre-Bunkering','Bunker Survey'].map(o=>`<option ${v.reportType===o?'selected':''}>${o}</option>`).join('')}</select></div>
-      <div class="form-row"><label>Date</label><input id="v-date" type="date" value="${v.date||''}"></div>
-    </div>
-    <div class="form-row-2">
-      <div class="form-row"><label>Trim (m)</label><input id="v-trim" type="number" step="any" value="${v.trim??0}"></div>
-      <div class="form-row"><label>Heel (°)</label><input id="v-heel" type="number" step="any" value="${v.heel??0}"></div>
-    </div>
-    <div class="form-row-2">
-      <div class="form-row"><label>Draft Fwd</label><input id="v-dfwd" type="number" step="any" value="${v.draftFwd??0}"></div>
-      <div class="form-row"><label>Draft Aft</label><input id="v-daft" type="number" step="any" value="${v.draftAft??0}"></div>
+
+    <div class="form-panel"><h2 style="margin-top:0">${escapeHtml(vesselName())}</h2>
+      <div style="color:var(--text-dim);margin-bottom:12px">${escapeHtml(v.reportType || '')} · Voy ${escapeHtml(v.voyageNo || '')} · ${escapeHtml(v.port || '')} · ${escapeHtml(v.date || '')}
+        · Trim ${fmt(v.trim, 2)} m · Heel ${fmt(v.heel, 2)}°</div>
+      ${sections}
+      <div class="section-title">All categories: ${fmt(gVol, 2)} m³ · ${fmt(gWt, 2)} MT</div>
+      <div class="hint">Fuel, lube, misc and fresh water added together.${gUnknown
+        ? ` ${gUnknown} tank${gUnknown === 1 ? ' without a density is' : 's without a density are'} outside the MT figure.` : ''}</div>
     </div>`;
-  main.appendChild(form);
 
-  document.getElementById('btn-save-voy').onclick = async () => {
+  // Bound after the markup is in place. This used to be assigned before a
+  // trailing `main.innerHTML +=`, which re-parses everything already in main
+  // and throws away its listeners — the save button did nothing at all.
+  main.appendChild(wrap);
+
+  wrap.querySelector('#btn-print-voy').onclick = () => window.print();
+  wrap.querySelector('#btn-save-voy').onclick = async () => {
     const voyage = {
       ...v,
       vessel: vesselName(),
-      voyageNo: document.getElementById('v-voyage').value,
-      port: document.getElementById('v-port').value,
-      reportType: document.getElementById('v-type').value,
-      date: document.getElementById('v-date').value,
-      trim: parseFloat(document.getElementById('v-trim').value)||0,
-      heel: parseFloat(document.getElementById('v-heel').value)||0,
-      draftFwd: parseFloat(document.getElementById('v-dfwd').value)||0,
-      draftAft: parseFloat(document.getElementById('v-daft').value)||0,
+      voyageNo: wrap.querySelector('#v-voyage').value,
+      port: wrap.querySelector('#v-port').value,
+      reportType: wrap.querySelector('#v-type').value,
+      date: wrap.querySelector('#v-date').value,
+      trim: parseFloat(wrap.querySelector('#v-trim').value) || 0,
+      heel: parseFloat(wrap.querySelector('#v-heel').value) || 0,
+      draftFwd: parseFloat(wrap.querySelector('#v-dfwd').value) || 0,
+      draftAft: parseFloat(wrap.querySelector('#v-daft').value) || 0,
     };
     await persistPart('voyage', voyage);
     showToast('Voyage details saved');
     navigate('report');
   };
-
-  let html = `<div class="form-panel"><h2 style="margin-top:0">${vesselName()}</h2>
-    <div style="color:var(--text-dim);margin-bottom:12px">${v.reportType||''} · Voy ${v.voyageNo||''} · ${v.port||''} · ${v.date||''}
-    · Trim ${fmt(v.trim,2)} m · Heel ${fmt(v.heel,2)}°</div>`;
-  let gVol = 0, gWt = 0;
-  for (const c of CATS) {
-    const tanks = (STATE.bundle.tanks[c.id] || []).filter((t) => getReading(t.id));
-    if (!tanks.length) continue;
-    html += `<div class="section-title"><span class="cat-dot cat-${c.id}"></span>${c.label}</div>
-      <div class="scroll-x"><table class="data-table"><thead><tr><th>Tank</th><th>Cap</th><th>Reading</th><th>Temp</th><th>Dens</th><th>Vol</th><th>MT</th></tr></thead><tbody>`;
-    let sVol = 0, sWt = 0;
-    for (const t of tanks) {
-      const r = getReading(t.id);
-      sVol += r.result.volumeObserved||0; sWt += r.result.weightMT||0;
-      html += `<tr><td>${t.name}</td><td>${fmt(t.capacity,1)}</td><td>${fmt(r.reading,1)}</td>
-        <td>${fmt(r.tempC,1)}</td><td>${r.density15!=null?fmt(r.density15,4):'–'}</td>
-        <td>${fmt(r.result.volumeObserved,2)}</td><td>${r.result.weightMT!=null?fmt(r.result.weightMT,2):'–'}</td></tr>`;
-    }
-    gVol += sVol; gWt += sWt;
-    html += `<tr><td colspan="5"><b>Subtotal</b></td><td><b>${fmt(sVol,2)}</b></td><td><b>${fmt(sWt,2)}</b></td></tr></tbody></table></div>`;
-  }
-  html += `<div class="section-title">Grand total: ${fmt(gVol,2)} m³ · ${fmt(gWt,2)} MT</div></div>`;
-  main.innerHTML += html;
 }
 
 /* ---------- Vessel setup ---------- */

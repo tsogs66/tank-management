@@ -182,6 +182,19 @@ cached under their bare paths, so the worker has to look them up with `ignoreSea
 script misses the cache and the app boots with nothing. And only a navigation may fall back to `index.html`:
 answering a script request with HTML is what turns an offline load into `Unexpected token '<'`.
 
+## Voyage report
+
+A printable ROB summary per category, from the readings as they were last saved. Report types come from the
+fuel report's own list rather than a second copy, because the fuel report reads `voyage.reportType` and prints
+it as the sheet's condition — two lists meant this form offered "Weekly Monitoring" while the fuel report
+understood "Monitoring". A stored value is always included in the dropdown, so saving cannot quietly change a
+type this form did not offer.
+
+A tank with no density has no weight. Those tanks are counted out of the MT subtotal and named underneath
+rather than added in as zero, which would understate the total by whatever the tank holds while its own row
+shows a dash. The bottom line is labelled **All categories**, since it adds fuel, lube, misc and fresh water
+together.
+
 ## Sounding-pipe height
 
 The pipe height is only needed to flip a reading between dip and ullage, and for these workbook tables it is
