@@ -1622,6 +1622,10 @@ app.get('/legacy', (req, res) => {
 });
 
 /* ---------- SPA fallback ---------- */
+/* The server files the device runs when it has no server. Served so a browser
+   can pick them up in development; the phone build has them in its bundle. */
+app.use('/embedded', express.static(path.join(__dirname, '..', 'public', 'embedded')));
+
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api/')) return next();
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));

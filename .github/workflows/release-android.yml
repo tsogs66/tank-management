@@ -1,0 +1,92 @@
+# Build the downloadable Android APK.
+#
+# The app is standalone: it carries its own database and runs the server's own
+# route code on the device, so a phone with no network is a complete
+# installation rather than a viewer for a cached copy. Attaching it to a server
+# stays available under Backup / Sync and is never required.
+#
+# The Android project itself is generated rather than committed — Capacitor
+# produces it from capacitor.config.json, so there is no large generated Gradle
+# tree in the repository to drift out of date.
+name: Android APK
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Attach the APK to a GitHub release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The phone runs these; they are copied from server/ rather than kept as
+      # a second copy in the repository.
+      - name: Stage the embedded server files
+        run: npm run embed
+
+      # Proves the device answers exactly what the server answers before an APK
+      # is built from it. A divergence here would be a different tonnage on the
+      # phone from the one on the ship's computer.
+      - name: Parity check — device against server
+        run: |
+          npx playwright install --with-deps chromium
+          npm start &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3080/api/health >/dev/null && break
+            sleep 2
+          done
+          npm run parity
+
+      - name: Generate the Android project
+        run: npx cap add android
+
+      - name: Sync web assets
+        run: npx cap sync android
+
+      - name: Build the APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      # Unsigned: signing needs a keystore, which belongs to whoever publishes
+      # the app and must not live in the repository. Install with "unknown
+      # sources" allowed, or sign it with your own key before distributing.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: android/app/build/outputs/apk/release/*.apk
+          draft: false
+          generate_release_notes: true

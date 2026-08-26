@@ -10,7 +10,11 @@
     "desktop": "electron .",
     "dist:win": "electron-builder --win --publish never",
     "dist:linux": "electron-builder --linux --publish never",
-    "stage:runtime": "node scripts/stage-runtime.js"
+    "stage:runtime": "node scripts/stage-runtime.js",
+    "embed": "node scripts/copy-embedded.js",
+    "parity": "node scripts/parity-check.js",
+    "android:sync": "npm run embed && npx cap sync android",
+    "android:apk": "npm run android:sync && cd android && ./gradlew assembleRelease"
   },
   "engines": {
     "node": ">=18"
@@ -22,7 +26,11 @@
   },
   "license": "MIT",
   "devDependencies": {
+    "@capacitor/android": "^6.2.1",
+    "@capacitor/cli": "^6.2.1",
+    "@capacitor/core": "^6.2.1",
     "electron": "^33.2.0",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "playwright": "^1.62.1"
   }
 }

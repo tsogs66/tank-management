@@ -55,16 +55,55 @@ installer's size.
 
 ## Android phone and tablet
 
-*Being built. Until the APK is available, the app installs from a browser: open
-the hosted address in Chrome and choose **Install app** / **Add to home
-screen**. It then runs offline from its cache, and writes are queued and sent
-when the server is reachable again.*
+### Getting the APK
+
+Built by GitHub Actions the same way as the Windows installer — push a `v*` tag
+for a release, or run *Android APK* from the Actions tab for a build artifact.
+
+The APK is **unsigned**. Signing needs a keystore, and a keystore belongs to
+whoever publishes the app rather than in a repository. Install it with "install
+from unknown sources" allowed for your browser or file manager, or sign it with
+your own key before handing it out.
+
+### It is standalone
+
+The app carries its own database and runs the server's own routing on the
+device. A phone in a tank room with no signal is a complete installation, not a
+viewer for a cached copy: create vessels, enter soundings, compute a fuel
+report, plan and monitor a bunkering, reconcile against the delivery note.
+
+That claim is checked rather than asserted. `npm run parity` loads the same
+vessel into a real server and into the device, asks both the same questions,
+and diffs the answers field by field — every computed sheet, and saving,
+history and deletion as well. The APK build runs it before packaging, so a
+divergence stops the build rather than reaching a phone. A difference here
+would not announce itself; it would be a tonnage slightly different from the
+ship's computer, on a sheet somebody signs.
+
+### What the phone cannot do
+
+Importing a calibration book from a PDF or a spreadsheet. That work is Python
+and OCR, which cannot run inside a webview. Those four features say so plainly
+instead of failing in a way that could be mistaken for an empty table. Import
+on Windows, then sync.
+
+### Where the data lives
+
+In the app's own storage, private to it. **Backup / Sync → Backup** writes a
+file you can keep or move to another device; **Push** sends the records to a
+server.
 
 ## Working with a server
 
-Both builds are standalone. If you also want a shared copy — a vessel PC that
-several tablets read from, or an office server — set its address under
-**Backup / Sync**:
+Both builds are standalone. Under **Backup / Sync**, *Database* chooses where
+this device keeps its records — on the device, or on the server that served the
+page. It is a setting rather than an automatic fallback, deliberately: the two
+hold separate records, and a request quietly answered by the other one would
+put today's soundings somewhere nobody is looking. Switching asks first and
+reloads.
+
+If you also want a shared copy — a vessel PC that several tablets read from, or
+an office server — set its address in the same place:
 
 - **Pull** brings that server's vessels down to this device.
 - **Push** sends this device's vessels up to it.
@@ -81,6 +120,10 @@ npm run desktop            # the desktop window, against the repo's data folder
 npm run stage:runtime      # fetch Python + packages (Windows only)
 npm run dist:win           # build the installer (Windows only)
 npm run dist:linux         # build an AppImage (works anywhere)
+
+npm run embed              # copy the server files the phone runs into the bundle
+npm run parity             # check the device answers what the server answers
+npm run android:apk        # build the APK (needs the Android SDK)
 ```
 
 `npm run dist:win` on Linux fails at the signing step — that step needs Windows

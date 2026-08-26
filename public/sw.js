@@ -1,11 +1,19 @@
 /* Service worker — cache shell for offline Android / local use */
-const CACHE = 'fuel-tms-v60';
+const CACHE = 'fuel-tms-v61';
 const ASSETS = [
   '/',
   '/index.html',
   '/css/app.css',
   '/js/app.js',
   '/js/api.js',
+  '/js/node-shim.js',
+  '/js/node-require.js',
+  '/js/store-core.js',
+  '/js/local-api.js',
+  // The server files the device runs when there is no server.
+  '/embedded/calc.js',
+  '/embedded/bunker-live.js',
+  '/embedded/index.js',
   '/js/db.js',
   '/js/calc.js',
   '/js/progress.js',

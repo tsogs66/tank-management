@@ -16,7 +16,67 @@ const Api = (() => {
   function onStatus(fn) { listeners.add(fn); return () => listeners.delete(fn); }
   function isOnline() { return online; }
 
+  /* ------------------------------------------------------------ transport --
+   *
+   * Two ways to reach the API, and which one is in use is a setting rather
+   * than a per-request guess.
+   *
+   *   server   the usual thing: HTTP to whatever served the page.
+   *   local    the routes run on this device, over its own database.
+   *
+   * Falling back from one to the other on a failed request would be worse than
+   * useless: the two have separate databases, and a request silently answered
+   * by the other one puts today's soundings in a place the user is not looking
+   * at. So the choice is explicit, it sticks, and moving records between the
+   * two is what Backup / Sync is for.
+   *
+   * The default is local where there is no server to talk to at all — the
+   * phone application, loaded from its own bundle rather than over http.
+   */
+  const TRANSPORT_KEY = 'apiTransport';
+  const servedOverHttp = /^https?:$/.test(location.protocol);
+  let transport = (() => {
+    try {
+      const saved = localStorage.getItem(TRANSPORT_KEY);
+      if (saved === 'local' || saved === 'server') return saved;
+    } catch { /* private mode: fall through to the default */ }
+    return servedOverHttp ? 'server' : 'local';
+  })();
+
+  function getTransport() { return transport; }
+  function canUseLocal() { return typeof LocalApi !== 'undefined'; }
+  function setTransport(mode) {
+    if (mode !== 'local' && mode !== 'server') throw new Error(`Unknown transport: ${mode}`);
+    if (mode === 'local' && !canUseLocal()) throw new Error('This build has no on-device database');
+    transport = mode;
+    try { localStorage.setItem(TRANSPORT_KEY, mode); } catch { /* not fatal */ }
+    setOnline(mode === 'local' ? true : navigator.onLine);
+    return transport;
+  }
+
+  /** Answer from the device, in the shape request() hands back. */
+  async function localRequest(path, opts = {}) {
+    const method = opts.method || 'GET';
+    let body = opts.body;
+    if (typeof body === 'string') { try { body = JSON.parse(body); } catch { /* leave as text */ } }
+    if (body instanceof FormData) {
+      const err = new Error('Uploading a file needs the desktop application');
+      err.status = 501;
+      err.rejected = true;
+      throw err;
+    }
+    const res = await LocalApi.handle(method, path, body);
+    if (res.status >= 400) {
+      const err = new Error((res.body && res.body.error) || 'Request failed');
+      err.status = res.status;
+      err.rejected = res.status >= 400 && res.status < 500;
+      throw err;
+    }
+    return res.body;
+  }
+
   async function request(path, opts = {}) {
+    if (transport === 'local' && canUseLocal()) return localRequest(path, opts);
     const init = {
       method: opts.method || 'GET',
       headers: { ...(opts.body && !(opts.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...(opts.headers || {}) },
@@ -107,6 +167,10 @@ const Api = (() => {
   }
 
   async function mutate(path, opts, offlineApply) {
+    // On the device there is nothing to be offline from: the write has already
+    // landed in the only database there is, so it must not also be queued for
+    // some server to replay later.
+    if (transport === 'local' && canUseLocal()) return request(path, opts);
     if (!navigator.onLine) {
       if (typeof offlineApply === 'function') await offlineApply();
       await OfflineDB.queuePush({ path, opts });
@@ -136,6 +200,7 @@ const Api = (() => {
    * run and is tried again on the next one, still in order.
    */
   async function flushQueue() {
+    if (transport === 'local') return { flushed: 0, pending: 0, dropped: 0 };
     if (flushing) return { flushed: 0, busy: true };
     flushing = true;
     try {
@@ -169,6 +234,7 @@ const Api = (() => {
 
   /** Is the server itself reachable? Being on a network says nothing about it. */
   async function reachable() {
+    if (transport === 'local' && canUseLocal()) { setOnline(true); return true; }
     try {
       const res = await fetch('/api/health', { cache: 'no-store' });
       const ok = res.ok;
@@ -186,7 +252,7 @@ const Api = (() => {
 
   return {
     request, upload, getStatus, getVessel, mutate, flushQueue, onStatus, isOnline,
-    reachable, afterFlush,
+    reachable, afterFlush, getTransport, setTransport, canUseLocal,
     listVessels: () => request('/api/vessels'),
     createVessel: (body) => request('/api/vessels', { method: 'POST', body }),
     setActive: (id) => request('/api/vessels/active', { method: 'POST', body: { id } }),
