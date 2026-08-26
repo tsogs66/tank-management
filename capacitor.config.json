@@ -1,0 +1,11 @@
+{
+  "appId": "cloud.tsogs.tankmanagement",
+  "appName": "Vessel Fuel TMS",
+  "webDir": "public",
+  "android": {
+    "allowMixedContent": true
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

@@ -1622,6 +1622,10 @@ app.get('/legacy', (req, res) => {
 });
 
 /* ---------- SPA fallback ---------- */
+/* The server files the device runs when it has no server. Served so a browser
+   can pick them up in development; the phone build has them in its bundle. */
+app.use('/embedded', express.static(path.join(__dirname, '..', 'public', 'embedded')));
+
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api/')) return next();
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
@@ -1632,7 +1636,28 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message || 'Server error' });
 });
 
-app.listen(PORT, HOST, () => {
-  console.log(`Vessel Fuel TMS listening on http://${HOST}:${PORT}`);
-  console.log(`Data directory: ${store.DATA_DIR}`);
-});
+/**
+ * Start listening, and say where.
+ *
+ * Port 0 asks the operating system for a free one and reports back which it
+ * got. The desktop build uses that: a fixed port is a collision waiting to
+ * happen on a machine that may already be running something on 3080, and
+ * nobody types the address anyway — the window is handed the real one.
+ */
+function start({ port = PORT, host = HOST } = {}) {
+  return new Promise((resolve, reject) => {
+    const server = app.listen(port, host, () => {
+      const actual = server.address().port;
+      console.log(`Vessel Fuel TMS listening on http://${host}:${actual}`);
+      console.log(`Data directory: ${store.DATA_DIR}`);
+      resolve({ server, port: actual, host });
+    });
+    server.on('error', reject);
+  });
+}
+
+module.exports = { app, start };
+
+// Run directly (npm start) and it serves straight away; required by the
+// desktop wrapper, it waits to be told.
+if (require.main === module) start();

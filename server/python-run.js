@@ -33,9 +33,28 @@ function enrichedEnv() {
   return env;
 }
 
+/**
+ * The interpreter shipped inside the desktop installer, if this is one.
+ *
+ * It is tried before anything on the machine. A vessel's computer may have no
+ * Python at all, or an old one, or a Microsoft Store stub with none of the
+ * packages — the bundled one is the interpreter this application was tested
+ * against, so it goes first and the importers work on a fresh install with no
+ * internet connection to fetch anything.
+ */
+function bundledPython() {
+  const home = process.env.TMS_PYTHON_HOME;
+  if (!home) return [];
+  const names = process.platform === 'win32'
+    ? [path.join(home, 'python', 'python.exe')]
+    : [path.join(home, 'python', 'bin', 'python3'), path.join(home, 'python', 'bin', 'python')];
+  return names.filter(existing);
+}
+
 function pythonCandidates() {
+  const bundled = bundledPython();
   if (process.platform !== 'win32') {
-    return ['python3', 'python'];
+    return [...bundled, 'python3', 'python'];
   }
   const abs = [
     'C:\\Program Files\\Python311\\python.exe',
@@ -45,7 +64,7 @@ function pythonCandidates() {
     path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python312', 'python.exe'),
     path.join(process.env.LOCALAPPDATA || '', 'Python', 'bin', 'python.exe'),
   ].filter(existing);
-  return [...abs, 'python', 'py'];
+  return [...bundled, ...abs, 'python', 'py'];
 }
 
 function spawnPython(args, opts = {}) {
@@ -61,7 +80,9 @@ function spawnPython(args, opts = {}) {
       if (idx >= candidates.length) {
         return reject(lastErr || new Error(
           'No working Python found (tried: ' + tried.join(', ') + '). '
-          + 'Install Python 3.11+ and: python -m pip install -r requirements.txt ocrmypdf'
+          + (process.env.TMS_PYTHON_HOME
+            ? 'The interpreter bundled with this installation could not be run.'
+            : 'Install Python 3.11+ and: python -m pip install -r requirements.txt ocrmypdf')
         ));
       }
       const cmd = candidates[idx++];

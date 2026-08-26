@@ -14,3 +14,15 @@ scripts/_tmp_*.py
 templates/ships/**/*.pdf
 templates/ships/**/*.ocr.pdf
 templates/ships/**/_*.json
+
+# Desktop build output and the runtime staged into the installer
+dist/
+desktop/runtime/*
+!desktop/runtime/README.md
+
+# Copied from server/ at build time by scripts/copy-embedded.js
+public/embedded/
+
+# Capacitor generates the Android project; CI builds it
+android/
+ios/

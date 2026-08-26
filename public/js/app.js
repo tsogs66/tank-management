@@ -2820,6 +2820,15 @@ function renderSettings(main) {
       <button class="btn primary" id="btn-import">Import</button>
     </div>
     <div class="form-panel">
+      <div class="section-title" style="margin-top:0">Where this device keeps its records</div>
+      <div class="form-row"><label>Database</label>
+        <select id="api-transport">
+          <option value="local">On this device — works with no network</option>
+          <option value="server">On the server that served this page</option>
+        </select></div>
+      <div class="hint" data-transport-note style="margin-top:8px;color:var(--text-faint);font-size:12px"></div>
+    </div>
+    <div class="form-panel">
       <div class="section-title" style="margin-top:0">Remote sync (Proxmox / office)</div>
       <div class="form-row"><label>Peer sync URL</label>
         <input id="sync-url" value="${s.syncUrl||''}" placeholder="http://192.168.1.50:3080"></div>
@@ -2858,6 +2867,32 @@ function renderSettings(main) {
     showToast('Backup imported');
     navigate('setup');
   };
+  /* Switching database is not a per-request fallback: the two hold separate
+     records, and a sounding saved to one is not in the other. So it asks, and
+     it reloads, rather than leaving the previous database's figures on screen
+     under the new one's name. */
+  const transportBox = document.getElementById('api-transport');
+  const transportNote = document.querySelector('[data-transport-note]');
+  if (transportBox) {
+    transportBox.value = Api.getTransport();
+    transportBox.disabled = !Api.canUseLocal();
+    transportNote.textContent = Api.getTransport() === 'local'
+      ? 'Records are on this device. Nothing is sent anywhere — use Push below to copy them to a server.'
+      : 'Records are on the server. This device shows a cached copy when the server is out of reach.';
+    transportBox.onchange = () => {
+      const mode = transportBox.value;
+      if (mode === Api.getTransport()) return;
+      const ask = mode === 'local'
+        ? 'Use this device\u2019s own records? The server\u2019s records are not copied across — '
+          + 'use Pull first if you want them here.'
+        : 'Use the server\u2019s records? Anything saved on this device stays here — '
+          + 'use Push first if you want it on the server.';
+      if (!confirm(ask)) { transportBox.value = Api.getTransport(); return; }
+      Api.setTransport(mode);
+      location.reload();
+    };
+  }
+
   document.getElementById('btn-save-sync').onclick = async () => {
     STATE.settings = await Api.saveSettings({ syncUrl: document.getElementById('sync-url').value.trim(), syncEnabled: true });
     showToast('Sync settings saved');
