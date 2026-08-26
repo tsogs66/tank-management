@@ -1,0 +1,63 @@
+# Build the downloadable Windows installer.
+#
+# The build has to happen on Windows: the installer embeds a Windows Python
+# interpreter and Tesseract, and NSIS writes a Windows executable. Push a tag
+# and the installer appears on the release; run it by hand from the Actions tab
+# to get one as a plain artifact without cutting a release.
+name: Desktop installer
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Attach the installer to a GitHub release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Tesseract OCR
+        run: choco install tesseract --no-progress -y
+
+      - name: Stage the Python and OCR runtime
+        env:
+          TESSERACT_DIR: C:\Program Files\Tesseract-OCR
+        run: npm run stage:runtime
+
+      - name: Build the installer
+        run: npm run dist:win
+
+      # Kept whether or not a release is cut, so a build can always be
+      # downloaded from the run that produced it.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            dist/*.exe
+            dist/*.blockmap
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.exe
+          draft: false
+          generate_release_notes: true

@@ -1,0 +1,63 @@
+# Desktop packaging.
+#
+# The application is packaged exactly as it runs: the Express server, the
+# public front end, the seed reference tables and the Python importer scripts,
+# with Electron providing the window and the installer.
+appId: cloud.tsogs.tankmanagement
+productName: Vessel Fuel Tank Management
+copyright: Vessel Fuel Tank Management
+
+directories:
+  output: dist
+  buildResources: desktop/build
+
+files:
+  - package.json
+  - desktop/**/*
+  - server/**/*
+  - public/**/*
+  - seed/**/*
+  - scripts/**/*
+  - "!**/*.map"
+  - "!**/__pycache__/**"
+
+# Anything a child process has to open by path cannot live inside the asar
+# archive: the importers spawn Python against these scripts by absolute path,
+# and a virtual path is not a file as far as the interpreter is concerned.
+asarUnpack:
+  - scripts/**/*
+
+# Python and Tesseract, staged into desktop/runtime by the release workflow.
+# Present, the importers work on a machine with no Python of its own and no
+# internet connection; absent, the rest of the application is unaffected and
+# those four features say what is missing.
+extraResources:
+  - from: desktop/runtime
+    to: runtime
+    filter: ["**/*"]
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: public/icons/icon-512.png
+  artifactName: VesselFuelTMS-Setup-${version}-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Vessel Fuel TMS
+  uninstallDisplayName: Vessel Fuel Tank Management
+
+# A portable build for a vessel where installing is not allowed: one folder,
+# copy it to a stick, run it.
+portable:
+  artifactName: VesselFuelTMS-Portable-${version}-${arch}.${ext}
+
+linux:
+  target: [AppImage]
+  category: Office
+  icon: public/icons/icon-512.png

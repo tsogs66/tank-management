@@ -8,7 +8,12 @@ const path = require('path');
 const crypto = require('crypto');
 
 const ROOT = path.join(__dirname, '..');
-const DATA_DIR = path.join(ROOT, 'data');
+/* Where the vessel files live.
+ *
+ * Beside the source when running from a checkout, but an installed desktop
+ * build sits in Program Files, which is read-only to the user who runs it, so
+ * the installer points this at the per-user application data directory. */
+const DATA_DIR = process.env.TMS_DATA_DIR || path.join(ROOT, 'data');
 const VESSELS_DIR = path.join(DATA_DIR, 'vessels');
 const SETTINGS_PATH = path.join(DATA_DIR, 'settings.json');
 const INDEX_PATH = path.join(DATA_DIR, 'vessels-index.json');
