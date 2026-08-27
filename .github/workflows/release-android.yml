@@ -19,6 +19,10 @@ on:
         description: 'Attach the APK to a GitHub release'
         type: boolean
         default: false
+      tag:
+        description: 'Existing tag to build and attach to (e.g. v2.1.0). Leave blank to build the default branch.'
+        type: string
+        default: ''
 
 permissions:
   contents: write
@@ -28,6 +32,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # A re-run against an existing tag builds that tag's code, so a fix
+          # to the workflow can be applied without deleting a published tag.
+          ref: ${{ inputs.tag || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -47,10 +55,11 @@ jobs:
       # Keep the app version in step with the tag, so the APK reports the same
       # version as the release it came from.
       - name: Take the version from the tag
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
         shell: bash
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          TAG="${{ inputs.tag || github.ref_name }}"
+          TAG="${TAG#v}"
           npm version "$TAG" --no-git-tag-version --allow-same-version
 
       # The phone runs these; they are copied from server/ rather than kept as
@@ -137,6 +146,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.apk
+          tag_name: ${{ inputs.tag || github.ref_name }}
           draft: false
           generate_release_notes: true
           # Keep whatever was written on the release by hand.
