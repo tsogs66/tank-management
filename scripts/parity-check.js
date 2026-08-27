@@ -25,6 +25,7 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const ROOT = require('path').join(__dirname, '..');
 const VESSEL = 'mv-giorgis';
@@ -64,9 +65,29 @@ function firstDiff(a, b, at = '') {
   return { at: at || '(root)', server: sa && sa.slice(0, 120), device: sb && sb.slice(0, 120) };
 }
 
+/**
+ * Make sure there is a vessel to compare against.
+ *
+ * data/vessels is not in the repository — it is somebody's records — so on a
+ * fresh clone, and on a build runner, there is nothing to test with. The seed
+ * folder is committed, so build the fixture from that rather than depending on
+ * a vessel that happens to exist on the machine this was written on.
+ */
+function ensureFixture() {
+  const vdir = path.join(ROOT, 'data', 'vessels', VESSEL);
+  if (fs.existsSync(vdir)) return vdir;
+  console.log(`No ${VESSEL} yet — seeding it from seed/.`);
+  execFileSync(process.execPath, [path.join(ROOT, 'scripts', 'seed-vessel.js')],
+    { cwd: ROOT, stdio: 'inherit' });
+  if (fs.existsSync(vdir)) return vdir;
+  throw new Error(
+    `Seeding produced no ${VESSEL}. The parity check needs one vessel to compare; `
+    + 'create one in the application, or check seed/giorgis is present.');
+}
+
 (async () => {
   // Every file of the vessel, keyed the way the device's filesystem wants it.
-  const vdir = path.join(ROOT, 'data', 'vessels', VESSEL);
+  const vdir = ensureFixture();
   const files = {};
   for (const name of fs.readdirSync(vdir)) {
     files[`/app/data/vessels/${VESSEL}/${name}`] = fs.readFileSync(path.join(vdir, name), 'utf8');
