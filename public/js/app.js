@@ -2814,10 +2814,21 @@ function buildPrintIdentityPanel() {
 }
 
 /* ---------- Settings / backup / sync ---------- */
+function setSettingsBusy(busy) {
+  for (const id of [
+    'btn-backup', 'btn-import', 'btn-pull', 'btn-push', 'btn-flush',
+    'btn-export-vessel', 'btn-save-sync', 'api-transport', 'import-file', 'import-merge',
+  ]) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !!busy;
+  }
+}
+
 function renderSettings(main) {
   const s = STATE.settings || {};
   main.innerHTML += `<div class="page-head"><div><h1>Backup, Import & Sync</h1>
-    <div class="desc">Save database offline, import backups, and sync between local and Proxmox LXC when the server is online.</div></div></div>`;
+    <div class="desc">Save database offline, import backups, and sync between local and Proxmox LXC when the server is online.</div></div></div>
+    <div id="settings-progress-host"></div>`;
 
   const cols = document.createElement('div');
   cols.className = 'two-col';
@@ -2865,24 +2876,70 @@ function renderSettings(main) {
     </div>`;
   main.appendChild(cols);
 
+  const progressHost = () => document.getElementById('settings-progress-host');
+
   document.getElementById('btn-backup').onclick = async () => {
-    const backup = await Api.backup();
-    downloadJson('fuel-tms-backup.json', backup);
-    showToast('Backup downloaded');
+    setSettingsBusy(true);
+    Progress.start(progressHost(), 'Downloading backup…', 'Preparing the full database…');
+    try {
+      const backup = await Api.backup((pct, phase) => {
+        if (phase === 'starting' || phase === 'reading') {
+          Progress.set(null, 'Preparing the full database…');
+        } else if (pct == null) {
+          Progress.set(null, 'Downloading backup…');
+        } else {
+          Progress.set(pct, `Downloading backup… ${pct}%`);
+        }
+      });
+      Progress.set(95, 'Saving file…');
+      await Progress.yieldToPaint();
+      downloadJson('fuel-tms-backup.json', backup);
+      const vessels = backup?.vessels ? Object.keys(backup.vessels).length : 0;
+      Progress.done(vessels ? `Backup saved (${vessels} vessel${vessels === 1 ? '' : 's'})` : 'Backup saved');
+      showToast('Backup downloaded');
+    } catch (e) {
+      Progress.done();
+      showToast(e.message || 'Backup failed');
+    } finally {
+      setSettingsBusy(false);
+    }
   };
+
   document.getElementById('btn-import').onclick = async () => {
     const file = document.getElementById('import-file').files[0];
     if (!file) { showToast('Choose a backup file'); return; }
     const merge = document.getElementById('import-merge').checked;
-    await Api.importBackup(file, merge);
-    const st = await Api.getStatus();
-    STATE.vessels = st.vessels;
-    STATE.activeVesselId = st.activeVesselId;
-    STATE.settings = st.settings;
-    if (STATE.activeVesselId) await reloadBundle();
-    showToast('Backup imported');
-    navigate('setup');
+    setSettingsBusy(true);
+    Progress.start(progressHost(), merge ? 'Restoring backup (merge)…' : 'Restoring backup…',
+      `Reading ${file.name}…`);
+    try {
+      await Api.importBackup(file, merge, (pct, phase) => {
+        if (phase === 'uploading') {
+          Progress.set(pct, pct == null ? 'Uploading backup…' : `Uploading backup… ${pct}%`);
+        } else {
+          Progress.set(null, 'Applying vessels, tanks and settings…');
+        }
+      });
+      Progress.set(80, 'Refreshing vessel list…');
+      const st = await Api.getStatus();
+      STATE.vessels = st.vessels;
+      STATE.activeVesselId = st.activeVesselId;
+      STATE.settings = st.settings;
+      if (STATE.activeVesselId) {
+        Progress.set(90, 'Loading active vessel…');
+        await reloadBundle();
+      }
+      Progress.done(merge ? 'Backup merged' : 'Backup restored');
+      showToast('Backup imported');
+      navigate('setup');
+    } catch (e) {
+      Progress.done();
+      showToast(e.message || 'Import failed');
+    } finally {
+      setSettingsBusy(false);
+    }
   };
+
   /* Switching database is not a per-request fallback: the two hold separate
      records, and a sounding saved to one is not in the other. So it asks, and
      it reloads, rather than leaving the previous database's figures on screen
@@ -2913,30 +2970,92 @@ function renderSettings(main) {
     STATE.settings = await Api.saveSettings({ syncUrl: document.getElementById('sync-url').value.trim(), syncEnabled: true });
     showToast('Sync settings saved');
   };
+
   document.getElementById('btn-pull').onclick = async () => {
+    const url = document.getElementById('sync-url').value.trim();
+    if (!url) { showToast('Enter a peer sync URL'); return; }
+    setSettingsBusy(true);
+    Progress.start(progressHost(), 'Pulling from peer…', `Connecting to ${url}…`);
     try {
-      const url = document.getElementById('sync-url').value.trim();
+      Progress.set(15, 'Downloading vessels from peer…');
       const res = await Api.syncPull(url);
+      const count = (res.results || []).length;
+      Progress.set(70, count
+        ? `Applying ${count} vessel${count === 1 ? '' : 's'}…`
+        : 'Applying peer data…');
       const st = await Api.getStatus();
       STATE.vessels = st.vessels;
       STATE.activeVesselId = st.activeVesselId;
-      if (STATE.activeVesselId) await reloadBundle();
-      showToast('Pulled ' + (res.results||[]).length + ' vessel(s)');
-    } catch (e) { showToast(e.message); }
+      if (STATE.activeVesselId) {
+        Progress.set(90, 'Loading active vessel…');
+        await reloadBundle();
+      }
+      Progress.done(count ? `Pulled ${count} vessel${count === 1 ? '' : 's'}` : 'Pull complete');
+      showToast('Pulled ' + count + ' vessel(s)');
+    } catch (e) {
+      Progress.done();
+      showToast(e.message);
+    } finally {
+      setSettingsBusy(false);
+    }
   };
+
   document.getElementById('btn-push').onclick = async () => {
+    const url = document.getElementById('sync-url').value.trim();
+    if (!url) { showToast('Enter a peer sync URL'); return; }
+    setSettingsBusy(true);
+    Progress.start(progressHost(), 'Pushing to peer…', 'Preparing local vessels…');
     try {
-      const url = document.getElementById('sync-url').value.trim();
-      await Api.syncPush(url);
+      Progress.set(20, `Uploading to ${url}…`);
+      const res = await Api.syncPush(url);
+      const remoteCount = (res.remote && res.remote.results) ? res.remote.results.length : null;
+      Progress.set(90, 'Confirming on peer…');
+      await Progress.yieldToPaint();
+      Progress.done(remoteCount != null
+        ? `Pushed ${remoteCount} vessel${remoteCount === 1 ? '' : 's'}`
+        : 'Pushed to peer');
       showToast('Pushed to peer');
-    } catch (e) { showToast(e.message); }
+    } catch (e) {
+      Progress.done();
+      showToast(e.message);
+    } finally {
+      setSettingsBusy(false);
+    }
   };
+
   document.getElementById('btn-flush').onclick = async () => {
-    const r = await Api.flushQueue();
-    showToast('Flushed ' + r.flushed + ' queued change(s)');
-    if (STATE.activeVesselId) await reloadBundle();
-    render();
+    setSettingsBusy(true);
+    Progress.start(progressHost(), 'Syncing offline changes…', 'Checking the queue…');
+    try {
+      const r = await Api.flushQueue((step) => {
+        Progress.set(step.pct, step.message || `Sending ${step.index} of ${step.total}…`);
+      });
+      if (r.busy) {
+        Progress.done();
+        showToast('A sync is already running');
+        return;
+      }
+      if (STATE.activeVesselId) {
+        Progress.set(95, 'Refreshing vessel…');
+        await reloadBundle();
+      }
+      const bits = [];
+      if (r.flushed) bits.push(`${r.flushed} sent`);
+      if (r.dropped) bits.push(`${r.dropped} dropped`);
+      if (r.pending) bits.push(`${r.pending} still waiting`);
+      Progress.done(bits.length ? bits.join(' · ') : 'Nothing queued');
+      showToast(r.flushed
+        ? `Flushed ${r.flushed} queued change(s)`
+        : (r.pending ? `${r.pending} change(s) still waiting` : 'Nothing queued'));
+      render();
+    } catch (e) {
+      Progress.done();
+      showToast(e.message || 'Sync failed');
+    } finally {
+      setSettingsBusy(false);
+    }
   };
+
   document.getElementById('btn-export-vessel').onclick = () => {
     if (!STATE.bundle) { showToast('No active vessel'); return; }
     downloadJson((STATE.activeVesselId || 'vessel') + '.json', STATE.bundle);

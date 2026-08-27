@@ -1,10 +1,10 @@
 /**
  * Progress bar for work that takes long enough to look stalled: uploading a
- * capacity book or workbook, and lifting the background off a photographed
- * signature (a few hundred thousand pixels, several seconds on a tablet).
+ * capacity book or workbook, lifting the background off a photographed
+ * signature, and backup / restore / peer sync / flushing the offline queue.
  *
- * Determinate where a percentage is genuinely known — bytes sent for an upload,
- * phase for image work — and indeterminate only while waiting on the server,
+ * Determinate where a percentage is genuinely known — bytes sent or received,
+ * queued changes sent — and indeterminate only while waiting on the server,
  * so the bar never claims progress it cannot measure.
  */
 const Progress = (() => {

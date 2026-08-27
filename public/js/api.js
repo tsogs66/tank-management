@@ -166,6 +166,48 @@ const Api = (() => {
     });
   }
 
+  /**
+   * Download a JSON API response with byte progress when the server sends a
+   * Content-Length (backups can be large once every vessel is included).
+   * onProgress(pct|null, phase).
+   */
+  function download(path, onProgress) {
+    if (transport === 'local' && canUseLocal()) {
+      if (onProgress) onProgress(null, 'reading');
+      return localRequest(path, { method: 'GET' });
+    }
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', path);
+      xhr.responseType = 'text';
+      xhr.onprogress = (e) => {
+        if (!onProgress) return;
+        if (e.lengthComputable && e.total > 0) {
+          onProgress(Math.round((e.loaded / e.total) * 100), 'downloading');
+        } else {
+          onProgress(null, 'downloading');
+        }
+      };
+      xhr.onload = () => {
+        let data = null;
+        try { data = xhr.responseText ? JSON.parse(xhr.responseText) : null; } catch { data = xhr.responseText; }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          setOnline(true);
+          resolve(data);
+        } else {
+          reject(new Error((data && data.error) || xhr.statusText || 'Download failed'));
+        }
+      };
+      xhr.onerror = () => {
+        if (!navigator.onLine) setOnline(false);
+        reject(new Error('Network error during download'));
+      };
+      xhr.onabort = () => reject(new Error('Download cancelled'));
+      if (onProgress) onProgress(null, 'starting');
+      xhr.send();
+    });
+  }
+
   async function mutate(path, opts, offlineApply) {
     // On the device there is nothing to be offline from: the write has already
     // landed in the only database there is, so it must not also be queued for
@@ -199,16 +241,27 @@ const Api = (() => {
    * Anything that merely could not be delivered — no server, a 5xx — stops the
    * run and is tried again on the next one, still in order.
    */
-  async function flushQueue() {
+  async function flushQueue(onProgress) {
     if (transport === 'local') return { flushed: 0, pending: 0, dropped: 0 };
     if (flushing) return { flushed: 0, busy: true };
     flushing = true;
     try {
       const items = await OfflineDB.queueAll();
       if (!items.length) return { flushed: 0, dropped: 0, pending: 0 };
+      const total = items.length;
       let flushed = 0;
       let dropped = 0;
-      for (const item of items) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (typeof onProgress === 'function') {
+          onProgress({
+            index: i + 1,
+            total,
+            path: item.path,
+            pct: Math.round((i / total) * 100),
+            message: `Sending change ${i + 1} of ${total}…`,
+          });
+        }
         try {
           await request(item.path, item.opts || {});
           await OfflineDB.queueDelete(item.id);
@@ -251,7 +304,7 @@ const Api = (() => {
   function afterFlush(fn) { onFlushed = fn; }
 
   return {
-    request, upload, getStatus, getVessel, mutate, flushQueue, onStatus, isOnline,
+    request, upload, download, getStatus, getVessel, mutate, flushQueue, onStatus, isOnline,
     reachable, afterFlush, getTransport, setTransport, canUseLocal,
     listVessels: () => request('/api/vessels'),
     createVessel: (body) => request('/api/vessels', { method: 'POST', body }),
@@ -286,7 +339,7 @@ const Api = (() => {
     iso8217: () => request('/api/reference/iso8217'),
     getSettings: () => request('/api/settings'),
     saveSettings: (body) => request('/api/settings', { method: 'PUT', body }),
-    backup: () => request('/api/backup'),
+    backup: (onProgress) => download('/api/backup', onProgress),
     syncPull: (syncUrl) => request('/api/sync/pull', { method: 'POST', body: { syncUrl } }),
     syncPush: (syncUrl) => request('/api/sync/push', { method: 'POST', body: { syncUrl } }),
     importCsv: async (vesselId, file) => {
@@ -294,10 +347,13 @@ const Api = (() => {
       fd.append('file', file);
       return request(`/api/vessels/${vesselId}/tanks/import-csv`, { method: 'POST', body: fd });
     },
-    importBackup: async (file, merge = true) => {
+    importBackup: async (file, merge = true, onProgress) => {
       const fd = new FormData();
       fd.append('file', file);
       fd.append('merge', String(merge));
+      if (typeof onProgress === 'function') {
+        return upload('/api/backup/import', fd, onProgress);
+      }
       return request('/api/backup/import', { method: 'POST', body: fd });
     },
   };
