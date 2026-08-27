@@ -1,5 +1,5 @@
 /**
- * Desktop wrapper.
+ * Tank Chief — desktop wrapper.
  *
  * The whole application already runs as a small Express server with a browser
  * front end, and it stays that way here: this process starts that same server
@@ -21,8 +21,31 @@ const { app, BrowserWindow, shell, dialog, Menu } = require('electron');
    lives under Program Files, which the user who runs it cannot write to, so the
    data directory is set before the server module is loaded and reads it. */
 const DATA_DIR = path.join(app.getPath('userData'), 'data');
-process.env.TMS_DATA_DIR = DATA_DIR;
+
+/* The application was called something else once, and this folder is named
+   after the application. Renaming it would leave an existing installation's
+   vessels behind in the old folder, looking to the user as though the records
+   had been lost. If the new folder is empty and the old one is not, carry them
+   across — once, and only in that direction, so this can never overwrite a
+   database somebody is already using. */
+function carryOverOldData() {
+  const previous = path.join(path.dirname(app.getPath('userData')),
+    'vessel-fuel-tank-management', 'data');
+  try {
+    if (!fs.existsSync(previous)) return;
+    if (fs.existsSync(DATA_DIR) && fs.readdirSync(DATA_DIR).length) return;
+    fs.cpSync(previous, DATA_DIR, { recursive: true });
+    console.log(`Carried previous vessel records over from ${previous}`);
+  } catch (err) {
+    // Not fatal: the application still starts, and the old folder is untouched
+    // and can be copied across by hand.
+    console.warn(`Could not carry over the previous data folder: ${err.message}`);
+  }
+}
+
 fs.mkdirSync(DATA_DIR, { recursive: true });
+carryOverOldData();
+process.env.TMS_DATA_DIR = DATA_DIR;
 
 /* Python and Tesseract ship inside the installer for the PDF and spreadsheet
    importers. Point the resolver at them before anything tries to spawn one, so
@@ -58,7 +81,7 @@ function createWindow(url) {
     minHeight: 600,
     backgroundColor: '#0b1220',
     show: false,
-    title: 'Vessel Fuel Tank Management',
+    title: 'Tank Chief',
     icon: path.join(__dirname, 'build', 'icon.png'),
     webPreferences: {
       // The page is our own, served from loopback, and needs no privileged
@@ -114,9 +137,10 @@ function buildMenu(url) {
           label: 'About',
           click: () => dialog.showMessageBox(win, {
             type: 'info',
-            title: 'Vessel Fuel Tank Management',
-            message: `Version ${app.getVersion()}`,
-            detail: `Runs entirely on this computer. Nothing is sent anywhere unless a sync `
+            title: 'Tank Chief',
+            message: `Tank Chief ${app.getVersion()}`,
+            detail: 'ts0gs \u2014 Marvin C. Endozo\n\n'
+              + 'Runs entirely on this computer. Nothing is sent anywhere unless a sync '
               + `server is set in Settings.\n\nData folder:\n${DATA_DIR}\n\nServing on ${url}`,
           }),
         },

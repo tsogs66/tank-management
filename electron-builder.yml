@@ -4,8 +4,8 @@
 # public front end, the seed reference tables and the Python importer scripts,
 # with Electron providing the window and the installer.
 appId: cloud.tsogs.tankmanagement
-productName: Vessel Fuel Tank Management
-copyright: Vessel Fuel Tank Management
+productName: Tank Chief
+copyright: ts0gs (Marvin C. Endozo)
 
 directories:
   output: dist
@@ -41,7 +41,7 @@ win:
     - target: nsis
       arch: [x64]
   icon: public/icons/icon-512.png
-  artifactName: VesselFuelTMS-Setup-${version}-${arch}.${ext}
+  artifactName: TankChief-Setup-${version}-${arch}.${ext}
 
 nsis:
   oneClick: false
@@ -49,13 +49,13 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: Vessel Fuel TMS
-  uninstallDisplayName: Vessel Fuel Tank Management
+  shortcutName: Tank Chief
+  uninstallDisplayName: Tank Chief
 
 # A portable build for a vessel where installing is not allowed: one folder,
 # copy it to a stick, run it.
 portable:
-  artifactName: VesselFuelTMS-Portable-${version}-${arch}.${ext}
+  artifactName: TankChief-Portable-${version}-${arch}.${ext}
 
 linux:
   target: [AppImage]

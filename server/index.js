@@ -1,5 +1,5 @@
 /**
- * Vessel Fuel Tank Management — local / Proxmox LXC web server
+ * Tank Chief — local / Proxmox LXC web server
  * Serves SPA + REST API. Works offline; syncs when a remote peer is configured.
  */
 const path = require('path');
@@ -1648,7 +1648,7 @@ function start({ port = PORT, host = HOST } = {}) {
   return new Promise((resolve, reject) => {
     const server = app.listen(port, host, () => {
       const actual = server.address().port;
-      console.log(`Vessel Fuel TMS listening on http://${host}:${actual}`);
+      console.log(`Tank Chief listening on http://${host}:${actual}`);
       console.log(`Data directory: ${store.DATA_DIR}`);
       resolve({ server, port: actual, host });
     });

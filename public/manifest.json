@@ -1,7 +1,7 @@
 {
-  "name": "Vessel Fuel Tank Management",
-  "short_name": "FuelTMS",
-  "description": "Sound tanks, print tank-condition reports, and manage bunkering on desktop, phone, or tablet",
+  "name": "Tank Chief",
+  "short_name": "Tank Chief",
+  "description": "Vessel fuel tank soundings, bunkering and reports — by ts0gs (Marvin C. Endozo)",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f172a",

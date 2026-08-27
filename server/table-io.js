@@ -93,7 +93,7 @@ function detectInc(axis) {
 
 function tankToCsv(tank) {
   const lines = [];
-  lines.push('# Vessel Fuel TMS — tank calibration table');
+  lines.push('# Tank Chief — tank calibration table');
   lines.push(`# tankId: ${tank.id || ''}`);
   lines.push(`# name: ${(tank.name || '').replace(/\n/g, ' ')}`);
   lines.push('# Edit META / TRIM / VOLUME / LIST rows, then Import CSV on Calibration DB.');

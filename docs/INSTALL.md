@@ -1,4 +1,6 @@
-# Installing on Windows and Android
+# Tank Chief — installing on Windows and Android
+
+By **ts0gs** — Marvin C. Endozo
 
 The program runs entirely on your own machine. It needs no internet connection
 to work — going online is a deliberate act, described under *Working with a
@@ -14,7 +16,7 @@ interpreter and Tesseract, and the final executable has to be signed by Windows
 tooling.
 
 - **From a release** — push a tag beginning with `v` (`git tag v2.1.0 && git
-  push origin v2.1.0`). The workflow builds `VesselFuelTMS-Setup-<version>-x64.exe`
+  push origin v2.1.0`). The workflow builds `TankChief-Setup-<version>-x64.exe`
   and attaches it to the release page, where anyone can download it.
 - **Without cutting a release** — run *Desktop installer* from the repository's
   Actions tab. The installer is kept as a build artifact on that run.
@@ -23,7 +25,7 @@ tooling.
 
 Run the `.exe`. It installs per-user by default, so no administrator rights are
 needed, and it offers to change the folder. It creates a desktop and Start menu
-shortcut called **Vessel Fuel TMS**.
+shortcut called **Tank Chief**.
 
 There is also a portable build: one folder, copy it to a memory stick, run it
 without installing. Useful on a vessel where installing software is not
@@ -35,7 +37,7 @@ Vessel files are written to your own application data, not into the program
 folder:
 
 ```
-%APPDATA%\vessel-fuel-tank-management\data\
+%APPDATA%\tank-chief\data\
 ```
 
 **File → Open data folder** opens it. Everything is plain JSON, one folder per

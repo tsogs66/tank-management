@@ -1582,3 +1582,53 @@ tr.bp-est-over th.fr-tank-name { box-shadow: inset 3px 0 0 var(--bad); }
 .bp-fin-good > b { color: var(--good); }
 .bp-fin-bad { border-color: var(--bad); border-style: solid; }
 .bp-fin-bad > b { color: var(--bad); }
+
+/* ---------- Name and authorship ---------- */
+
+/* At the foot of the navigation, so it is on every page. Quiet: it is a
+   credit, not a control. */
+.nav-credit {
+  margin-top: 18px; padding: 12px 12px 16px;
+  border-top: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 2px;
+  font-size: 10.5px; line-height: 1.5;
+}
+.nav-credit span {
+  text-transform: uppercase; letter-spacing: .06em;
+  color: var(--text-faint); font-weight: 700; font-size: 9.5px;
+}
+.nav-credit b { color: var(--text-dim); font-weight: 600; }
+
+/* The printed credit. Never on screen; on paper it sits under the sheet. */
+.app-credit-print { display: none; }
+
+@media print {
+  /* Sits in the sheet's bottom margin rather than in the flow of it.
+     Appended to the end of a document it took up real height, and the fuel
+     report — which is tuned to fill one A4 sheet exactly — went to two pages
+     for the sake of a credit line. Out of the flow it costs nothing. */
+  .app-credit-print {
+    display: flex; gap: 10px; align-items: baseline;
+    position: fixed; left: 0; right: 0; bottom: 0;
+    padding-top: 1mm;
+    border-top: .4pt solid #999;
+    color: #444; font-size: 7pt; line-height: 1.4;
+  }
+  .app-credit-name { font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+  .app-credit-authors { flex: 1; }
+  .app-credit-when { color: #777; white-space: nowrap; }
+
+  /* A built print document carries its own credit, so the page-level one must
+     stand down or the sheet is signed twice. */
+  body.printing-fuel-report #app-credit-page { display: none !important; }
+}
+.about-authors {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px;
+  margin: 0 0 14px; padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.about-authors span {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--text-faint); font-weight: 700;
+}
+.about-authors b { color: var(--text); font-size: 14px; }
