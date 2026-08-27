@@ -40,6 +40,11 @@ win:
   target:
     - target: nsis
       arch: [x64]
+    # A vessel where installing software is not permitted still needs to run
+    # it. Drop this line to halve the release size — each build carries its own
+    # Python and Tesseract, so the portable one is as large as the installer.
+    - target: portable
+      arch: [x64]
   icon: public/icons/icon-512.png
   artifactName: TankChief-Setup-${version}-${arch}.${ext}
 

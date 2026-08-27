@@ -27,9 +27,10 @@ Run the `.exe`. It installs per-user by default, so no administrator rights are
 needed, and it offers to change the folder. It creates a desktop and Start menu
 shortcut called **Tank Chief**.
 
-There is also a portable build: one folder, copy it to a memory stick, run it
-without installing. Useful on a vessel where installing software is not
-permitted.
+There is also a portable build — `TankChief-Portable-<version>-x64.exe`. It
+installs nothing: copy it to a memory stick and run it. Useful on a vessel
+where installing software is not permitted. It is as large as the installer,
+because it carries the same Python and Tesseract.
 
 ### Where the data lives
 
