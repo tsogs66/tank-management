@@ -33,6 +33,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # electron-builder names the installer from package.json, so without this
+      # a v2.1.0 tag produces a file called 2.0.0. Take the version from the
+      # tag; on a manual run the manifest's own version stands.
+      - name: Take the version from the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          npm version "$TAG" --no-git-tag-version --allow-same-version
+
       - name: Install Tesseract OCR
         run: choco install tesseract --no-progress -y
 
@@ -61,3 +71,6 @@ jobs:
           files: dist/*.exe
           draft: false
           generate_release_notes: true
+          # Keep whatever was written on the release by hand; the generated
+          # list of changes goes underneath it rather than over it.
+          append_body: true
