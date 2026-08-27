@@ -15,7 +15,8 @@
     "embed": "node scripts/copy-embedded.js",
     "parity": "node scripts/parity-check.js",
     "android:sync": "npm run embed && npx cap sync android",
-    "android:apk": "npm run android:sync && cd android && ./gradlew assembleRelease"
+    "android:apk": "npm run android:sync && cd android && ./gradlew assembleRelease",
+    "icons": "node scripts/render-icons.js"
   },
   "engines": {
     "node": ">=18"
@@ -28,6 +29,7 @@
   "license": "MIT",
   "devDependencies": {
     "@capacitor/android": "^6.2.1",
+    "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^6.2.1",
     "@capacitor/core": "^6.2.1",
     "electron": "^33.2.0",

@@ -92,6 +92,13 @@ jobs:
           sed -i "s/versionName \"1.0\"/versionName \"$VERSION\"/" android/app/build.gradle
           grep -n 'versionCode\|versionName' android/app/build.gradle
 
+      # Launcher icons for every screen density, and the two adaptive layers a
+      # launcher masks into a circle or a squircle. Generated from the SVG
+      # masters so the mark on the home screen is the same one in the browser
+      # tab and on the installer.
+      - name: Generate the launcher icons
+        run: npx capacitor-assets generate --android
+
       - name: Sync web assets
         run: npx cap sync android
 
