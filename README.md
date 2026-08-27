@@ -1,4 +1,8 @@
-# Vessel Fuel Tank Management System
+# Tank Chief
+
+By **ts0gs** — Marvin C. Endozo
+
+Vessel fuel tank management system.
 
 Multi-vessel web app for fuel tank sounding (double interpolation + ASTM 54B), editable calibration tables, voyage fuel planning, bunkering distribution, and offline-capable sync between a local machine and a Proxmox LXC (Debian).
 

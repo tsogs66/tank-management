@@ -74,6 +74,31 @@ jobs:
       - name: Generate the Android project
         run: npx cap add android
 
+      # Capacitor's template hardcodes versionName "1.0" and versionCode 1.
+      # Left alone, every build reports 1.0 in Android's app info however it was
+      # tagged — and, worse, Android refuses to install an update whose
+      # versionCode has not increased, so the second release would simply not
+      # go on over the first.
+      - name: Take the app version from the manifest
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          # A monotonic integer from major.minor.patch: 2.1.0 -> 20100.
+          CODE=$(node -p "
+            const [a,b,c] = require('./package.json').version.split('.').map(Number);
+            (a * 10000) + (b * 100) + (c || 0);
+          ")
+          sed -i "s/versionCode 1$/versionCode $CODE/" android/app/build.gradle
+          sed -i "s/versionName \"1.0\"/versionName \"$VERSION\"/" android/app/build.gradle
+          grep -n 'versionCode\|versionName' android/app/build.gradle
+
+      # Launcher icons for every screen density, and the two adaptive layers a
+      # launcher masks into a circle or a squircle. Generated from the SVG
+      # masters so the mark on the home screen is the same one in the browser
+      # tab and on the installer.
+      - name: Generate the launcher icons
+        run: npx capacitor-assets generate --android
+
       - name: Sync web assets
         run: npx cap sync android
 
@@ -83,20 +108,35 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
 
+      # Gradle calls it app-release-unsigned.apk, which says nothing about what
+      # it is or which version it came from. On a release page beside
+      # TankChief-Setup-2.1.0-x64.exe that is the one file nobody can identify
+      # six months later.
+      - name: Name the APK
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          mkdir -p dist
+          for f in android/app/build/outputs/apk/release/*.apk; do
+            cp "$f" "dist/TankChief-$VERSION.apk"
+            break
+          done
+          ls -lh dist/
+
       # Unsigned: signing needs a keystore, which belongs to whoever publishes
       # the app and must not live in the repository. Install with "unknown
       # sources" allowed, or sign it with your own key before distributing.
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: android/app/build/outputs/apk/release/*.apk
+          path: dist/*.apk
           if-no-files-found: error
 
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/v') || inputs.release
         uses: softprops/action-gh-release@v2
         with:
-          files: android/app/build/outputs/apk/release/*.apk
+          files: dist/*.apk
           draft: false
           generate_release_notes: true
           # Keep whatever was written on the release by hand.

@@ -1,4 +1,4 @@
-/* Vessel Fuel Tank Management — SPA */
+/* Tank Chief — SPA */
 const CATS = [
   { id: 'fuel', label: 'Fuel Oil', icon: '⛽', color: 'var(--fuel)' },
   { id: 'lube', label: 'Lube Oil', icon: '🛢', color: 'var(--lube)' },
@@ -341,7 +341,7 @@ function renderNav() {
   brand.innerHTML = `
     <div class="ship">${vesselName()}</div>
     <div class="sub"><span class="status-dot ${STATE.online ? 'online' : 'offline'}"></span>
-      ${STATE.online ? 'Online' : 'Offline'} · Fuel Tank TMS</div>
+      ${STATE.online ? 'Online' : 'Offline'} · ${Branding.APP_NAME}</div>
     <select class="vessel-select" id="vessel-switcher">
       <option value="">— Select vessel —</option>
       ${STATE.vessels.map((v) => `<option value="${v.id}" ${v.id === STATE.activeVesselId ? 'selected' : ''}>${v.name}</option>`).join('')}
@@ -387,6 +387,22 @@ function renderNav() {
   nav.appendChild(mk('setup', 'Vessel Setup', '⚙'));
   nav.appendChild(mk('settings', 'Backup / Sync', '⇅'));
   nav.appendChild(mk('about', 'About', 'ℹ'));
+
+  /* The credit that prints from pages which print themselves — the voyage
+     report calls window.print() on the live page rather than building a
+     document. Rebuilt on each render so its timestamp is the print's, not the
+     one from whenever the app was opened. */
+  const pageCredit = document.getElementById('app-credit-page');
+  if (pageCredit) pageCredit.outerHTML = Branding.printCredit().replace(
+    'class="app-credit-print"', 'class="app-credit-print" id="app-credit-page"');
+
+  /* Who wrote it, at the foot of the navigation, so it is on every page rather
+     than only on the About page nobody opens. */
+  const credit = document.createElement('div');
+  credit.className = 'nav-credit no-print';
+  credit.innerHTML = `<span>${Branding.APP_NAME}</span>`
+    + Branding.AUTHORS.map((a) => `<b>${a}</b>`).join('');
+  nav.appendChild(credit);
 
   document.getElementById('vessel-switcher').onchange = async (e) => {
     const id = e.target.value;
@@ -3183,10 +3199,14 @@ function renderIso8217(main) {
 function renderAbout(main) {
   main.innerHTML += `<div class="page-head"><div>
     <h1>About</h1>
-    <div class="desc">Vessel Fuel Tank Management</div>
+    <div class="desc">${Branding.APP_NAME}</div>
   </div></div>
   <div class="form-panel about-copy">
-    <p style="color:var(--text)"><b>Vessel Fuel Tank Management</b> is a multi-vessel app for sounding tanks,
+    <div class="about-authors">
+      <span>Written by</span>
+      ${Branding.AUTHORS.map((a) => `<b>${a}</b>`).join('')}
+    </div>
+    <p style="color:var(--text)"><b>${Branding.APP_NAME}</b> is a multi-vessel app for sounding tanks,
       printing tank-condition reports, planning and monitoring bunkering, and keeping each ship’s calibration
       tables in one place. It runs in the browser on a ship or office server and can be installed on a phone
       or tablet.</p>

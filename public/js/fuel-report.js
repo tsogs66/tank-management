@@ -766,7 +766,7 @@ const FuelReport = (() => {
     </div>` : '';
     return `<header class="fr-tc-masthead">
       <div class="fr-tc-brand-row">
-        <div class="fr-tc-app">Vessel Fuel Tank Management</div>
+        <div class="fr-tc-app">${Branding.APP_NAME}</div>
       </div>
       <div class="fr-tc-title-row">
         <div class="fr-tc-ident-left">
@@ -1141,7 +1141,9 @@ const FuelReport = (() => {
       document.body.appendChild(root);
     }
     root.className = 'fuel-report-print-doc';
-    root.innerHTML = html;
+    // Every printout goes through here, so the credit is added in one place
+    // rather than in each of the five sheet builders.
+    root.innerHTML = html + Branding.printCredit();
     document.body.classList.add('printing-fuel-report');
     const previousTitle = document.title;
     document.title = '\u00A0';
