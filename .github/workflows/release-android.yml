@@ -148,6 +148,11 @@ jobs:
           files: dist/*.apk
           tag_name: ${{ inputs.tag || github.ref_name }}
           draft: false
+          # The standing description of what a release contains and how to
+          # install it, kept in the repository so every release carries it
+          # without anyone remembering to paste it in. GitHub's generated list
+          # of changes is appended below it.
+          body_path: docs/RELEASE_NOTES.md
           generate_release_notes: true
           # Keep whatever was written on the release by hand.
           append_body: true
