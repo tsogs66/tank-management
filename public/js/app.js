@@ -2977,7 +2977,7 @@ function renderSettings(main) {
     setSettingsBusy(true);
     Progress.start(progressHost(), 'Pulling from peer…', `Connecting to ${url}…`);
     try {
-      Progress.set(15, 'Downloading vessels from peer…');
+      Progress.set(null, 'Downloading vessels from peer…');
       const res = await Api.syncPull(url);
       const count = (res.results || []).length;
       Progress.set(70, count
@@ -3006,7 +3006,7 @@ function renderSettings(main) {
     setSettingsBusy(true);
     Progress.start(progressHost(), 'Pushing to peer…', 'Preparing local vessels…');
     try {
-      Progress.set(20, `Uploading to ${url}…`);
+      Progress.set(null, `Uploading to ${url}…`);
       const res = await Api.syncPush(url);
       const remoteCount = (res.remote && res.remote.results) ? res.remote.results.length : null;
       Progress.set(90, 'Confirming on peer…');
