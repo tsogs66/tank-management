@@ -245,7 +245,13 @@ function writeJson(file, data) {
 }
 
 function vesselDir(id) {
-  return path.join(getVesselsDir(), id);
+  const safe = String(id || '');
+  if (!/^[a-z0-9][a-z0-9._-]{0,63}$/i.test(safe) || safe.includes('..')) {
+    const err = new Error('Invalid vessel id');
+    err.status = 400;
+    throw err;
+  }
+  return path.join(getVesselsDir(), safe);
 }
 
 function vesselPath(id, file) {
@@ -350,7 +356,10 @@ function emptyBunkering() {
 function createVessel(details = {}) {
   ensureDirs();
   const base = slugify(details.name || details.id || 'new-vessel');
-  let id = details.id || base;
+  let id = slugify(details.id || base);
+  if (details.id && slugify(details.id) !== details.id) {
+    id = base;
+  }
   let n = 1;
   while (fs.existsSync(vesselDir(id))) {
     id = `${base}-${++n}`;

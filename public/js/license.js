@@ -106,6 +106,11 @@
     const email = licenseEmail(e);
     if (email) headers['X-License-Email'] = email;
     if (isMaster(e)) headers['X-License-Master'] = '1';
+    if (e && e.sig) {
+      try {
+        headers['X-License-Entitlement'] = btoa(unescape(encodeURIComponent(JSON.stringify(e))));
+      } catch { /* ignore */ }
+    }
     return headers;
   }
 
@@ -153,24 +158,24 @@
   function modulesForSku(sku, addons) {
     const ads = resolveProgramAddons(sku, addons);
     if (sku === 'cheng-admin' || ads.includes('master')) {
-      return ['home', 'voyage', 'tanks', 'performance', 'eorb', 'vessel', 'license'];
+      return ['home', 'voyage', 'tanks', 'performance', 'eorb', 'vessel', 'license', 'about'];
     }
     if (sku === 'cheng-aio') {
-      const mods = ['home', 'performance', 'vessel', 'license'];
+      const mods = ['home', 'performance', 'vessel', 'license', 'about'];
       if (ads.includes('voyage-chief')) mods.push('voyage');
       if (ads.includes('tank-chief')) mods.push('tanks');
       if (ads.includes('eorb')) mods.push('eorb');
       return mods;
     }
     if (sku === 'voyage-chief') {
-      const mods = ['home', 'voyage', 'performance', 'vessel', 'license'];
+      const mods = ['home', 'voyage', 'performance', 'vessel', 'license', 'about'];
       if (ads.includes('eorb')) mods.push('eorb');
       return mods;
     }
     if (sku === 'tank-chief') {
-      return ['home', 'tanks', 'vessel', 'license'];
+      return ['home', 'tanks', 'vessel', 'license', 'about'];
     }
-    return ['home', 'license'];
+    return ['home', 'license', 'about'];
   }
 
   function modulesAllowed(ent) {
@@ -180,8 +185,7 @@
   }
 
   function moduleAllowed(moduleId, ent) {
-    if (moduleId === 'license') return true;
-    if (moduleId === 'home') return true;
+    if (moduleId === 'license' || moduleId === 'home' || moduleId === 'about') return true;
     return modulesAllowed(ent).includes(moduleId);
   }
 
