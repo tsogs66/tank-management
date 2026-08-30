@@ -30,20 +30,27 @@ shortcut called **Tank Chief**.
 There is also a portable build — `TankChief-Portable-<version>-x64.exe`. It
 installs nothing: copy it to a memory stick and run it. Useful on a vessel
 where installing software is not permitted. It is as large as the installer,
-because it carries the same Python and Tesseract.
+because it carries the same Python and Tesseract. Portable mode stores all
+data beside the EXE under `TankChief-data\` (USB travels whole).
 
 ### Where the data lives
 
-Vessel files are written to your own application data, not into the program
-folder:
+**Installer build** — vessel files go to your application data:
 
 ```
 %APPDATA%\tank-chief\data\
 ```
 
-**File → Open data folder** opens it. Everything is plain JSON, one folder per
-vessel, so it can be copied, backed up or handed to somebody else as it stands.
-Uninstalling does not remove it.
+**Portable / USB build** — beside the EXE:
+
+```
+TankChief-data\server\              vessel JSON + settings
+TankChief-data\electron-profile\    Electron profile
+```
+
+**File → Open data folder** opens the active location. Everything is plain JSON,
+one folder per vessel, so it can be copied, backed up or handed to somebody else
+as it stands. Uninstalling the installed build does not remove AppData.
 
 ### What is inside the installer
 

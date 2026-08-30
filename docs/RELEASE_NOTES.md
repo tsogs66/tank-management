@@ -19,10 +19,11 @@ Windows will show a blue *"Windows protected your PC"* box, because the
 installer is not signed with a commercial certificate. Click **More info**,
 then **Run anyway**.
 
-Vessel records are written to `%APPDATA%\tank-chief\data\`, not into the
-program folder. **File → Open data folder** opens it. Everything is plain JSON,
-one folder per vessel, so it can be copied or backed up as it stands, and
-uninstalling does not remove it.
+Vessel records for the **installer** go to `%APPDATA%\tank-chief\data\`.
+The **portable** EXE keeps them beside the program under `TankChief-data\` so a
+USB stick travels whole. **File → Open data folder** opens the active location.
+Everything is plain JSON, one folder per vessel, so it can be copied or backed
+up as it stands; uninstalling the installed build does not remove AppData.
 
 The portable build installs nothing — copy it to a memory stick and run it.
 Useful on a vessel where installing software is not permitted.

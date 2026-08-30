@@ -12,23 +12,62 @@
  * collide with anything already running. Going online is a deliberate act by
  * the user — the sync URL in Settings — and never a condition of the program
  * working.
+ *
+ * Portable EXE (USB): databases live beside the .exe under TankChief-data/
+ * so the stick is fully standalone across PCs.
  */
 const path = require('path');
 const fs = require('fs');
 const { app, BrowserWindow, shell, dialog, Menu } = require('electron');
 
+function portableBaseDir() {
+  if (process.env.PORTABLE_EXECUTABLE_DIR) {
+    return process.env.PORTABLE_EXECUTABLE_DIR;
+  }
+  if (process.env.PORTABLE_EXECUTABLE_FILE) {
+    return path.dirname(process.env.PORTABLE_EXECUTABLE_FILE);
+  }
+  if (process.env.TANK_CHIEF_PORTABLE === '1') {
+    return path.dirname(process.execPath);
+  }
+  try {
+    if (/portable/i.test(path.basename(process.execPath))) {
+      return path.dirname(process.execPath);
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return '';
+}
+
+const portableBase = portableBaseDir();
+const isPortable = Boolean(portableBase);
+
 /* Vessel files belong to the user, not to the installation. An installed build
-   lives under Program Files, which the user who runs it cannot write to, so the
-   data directory is set before the server module is loaded and reads it. */
-const DATA_DIR = path.join(app.getPath('userData'), 'data');
+   lives under Program Files, which the user who runs it cannot write to.
+   Portable builds keep everything beside the EXE on the USB stick. */
+let DATA_DIR;
+if (isPortable) {
+  const root = path.join(portableBase, 'TankChief-data');
+  const profile = path.join(root, 'electron-profile');
+  DATA_DIR = path.join(root, 'server');
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.mkdirSync(profile, { recursive: true });
+  /* Must run before ready — keeps any Chromium/Electron state on the stick. */
+  app.setPath('userData', profile);
+  console.log(`Tank Chief portable data (USB): ${root}`);
+} else {
+  DATA_DIR = path.join(app.getPath('userData'), 'data');
+}
 
 /* The application was called something else once, and this folder is named
    after the application. Renaming it would leave an existing installation's
    vessels behind in the old folder, looking to the user as though the records
    had been lost. If the new folder is empty and the old one is not, carry them
    across — once, and only in that direction, so this can never overwrite a
-   database somebody is already using. */
+   database somebody is already using. (Installer builds only.) */
 function carryOverOldData() {
+  if (isPortable) return;
   const previous = path.join(path.dirname(app.getPath('userData')),
     'vessel-fuel-tank-management', 'data');
   try {
