@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0a1420">
   <meta name="author" content="Marvin C. Endozo (ts0gs)">
   <meta name="license-api" content="">
@@ -20,7 +20,27 @@
         document.documentElement.classList.add('bright');
       }
     } catch (_e) {}
-  </script>
+  
+    /* Keep phone/tablet browsers on the mobile layout (block “Desktop site”). */
+    (function lockMobileViewport() {
+      const WANT = 'width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover';
+      function apply() {
+        let meta = document.querySelector('meta[name="viewport"]');
+        if (!meta) {
+          meta = document.createElement('meta');
+          meta.setAttribute('name', 'viewport');
+          document.head.appendChild(meta);
+        }
+        if (meta.getAttribute('content') !== WANT) meta.setAttribute('content', WANT);
+      }
+      apply();
+      try {
+        const mo = new MutationObserver(apply);
+        mo.observe(document.documentElement, { attributes: true, subtree: true, attributeFilter: ['content', 'name'] });
+      } catch (_e) {}
+      setInterval(apply, 1500);
+    })();
+</script>
 </head>
 <body>
   <button class="menu-toggle" id="menu-toggle" aria-label="Menu">☰ Menu</button>

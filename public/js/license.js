@@ -124,20 +124,53 @@
     return ent.sku === want;
   }
 
+  /** Program add-ons resolved for an entitlement (AIO selects voyage/tank/eorb). */
+  function resolveProgramAddons(sku, addons) {
+    const ads = Array.isArray(addons) ? addons.map((a) => String(a).toLowerCase()) : [];
+    if (sku === 'cheng-admin' || ads.includes('master')) {
+      return ['voyage-chief', 'tank-chief', 'eorb', 'master'];
+    }
+    if (sku === 'cheng-aio') {
+      /* Empty + not yet migrated client-side: treat as full suite for old keys. */
+      if (ads.length === 0) return ['voyage-chief', 'tank-chief', 'eorb'];
+      return ads;
+    }
+    if (sku === 'voyage-chief') {
+      const out = ['voyage-chief'];
+      if (ads.includes('eorb')) out.push('eorb');
+      if (ads.includes('master')) out.push('master');
+      return out;
+    }
+    if (sku === 'tank-chief') {
+      const out = ['tank-chief'];
+      if (ads.includes('master')) out.push('master');
+      return out;
+    }
+    return ads;
+  }
+
   /** Modules unlocked for an entitlement (AIO nav + home buttons). */
   function modulesForSku(sku, addons) {
-    const ads = Array.isArray(addons) ? addons : [];
-    const base = {
-      'cheng-aio': ['home', 'voyage', 'tanks', 'performance', 'eorb', 'vessel', 'license'],
-      'cheng-admin': ['home', 'voyage', 'tanks', 'performance', 'eorb', 'vessel', 'license'],
-      'voyage-chief': ['home', 'voyage', 'performance', 'vessel', 'license'],
-      'tank-chief': ['home', 'tanks', 'vessel', 'license'],
-    };
-    let mods = (base[sku] || ['home', 'license']).slice();
-    if (sku === 'cheng-aio' || sku === 'cheng-admin' || ads.includes('eorb') || ads.includes('master') || sku === 'eorb') {
-      if (!mods.includes('eorb')) mods.push('eorb');
+    const ads = resolveProgramAddons(sku, addons);
+    if (sku === 'cheng-admin' || ads.includes('master')) {
+      return ['home', 'voyage', 'tanks', 'performance', 'eorb', 'vessel', 'license'];
     }
-    return mods;
+    if (sku === 'cheng-aio') {
+      const mods = ['home', 'performance', 'vessel', 'license'];
+      if (ads.includes('voyage-chief')) mods.push('voyage');
+      if (ads.includes('tank-chief')) mods.push('tanks');
+      if (ads.includes('eorb')) mods.push('eorb');
+      return mods;
+    }
+    if (sku === 'voyage-chief') {
+      const mods = ['home', 'voyage', 'performance', 'vessel', 'license'];
+      if (ads.includes('eorb')) mods.push('eorb');
+      return mods;
+    }
+    if (sku === 'tank-chief') {
+      return ['home', 'tanks', 'vessel', 'license'];
+    }
+    return ['home', 'license'];
   }
 
   function modulesAllowed(ent) {
@@ -148,25 +181,22 @@
 
   function moduleAllowed(moduleId, ent) {
     if (moduleId === 'license') return true;
+    if (moduleId === 'home') return true;
     return modulesAllowed(ent).includes(moduleId);
-  }
-
-  /** e-ORB: ChEng AIO / master, or add-on `eorb` on a Voyage/Tank key. */
-  function eorbLicensed(ent) {
-    const e = ent || loadEntitlement();
-    if (!isValid(e)) return false;
-    if (isMaster(e)) return true;
-    if (e.sku === 'cheng-aio') return true;
-    if (e.sku === 'eorb') return true;
-    return Array.isArray(e.addons) && e.addons.includes('eorb');
   }
 
   function hasAddon(name, ent) {
     const e = ent || loadEntitlement();
-    if (!e) return false;
-    if (isMaster(e)) return true;
-    if (e.sku === 'cheng-aio') return true;
-    return Array.isArray(e.addons) && e.addons.includes(name);
+    if (!e || !isValid(e)) return false;
+    return resolveProgramAddons(e.sku, e.addons).includes(String(name || '').toLowerCase());
+  }
+
+  /** e-ORB: master, AIO with eorb add-on, or Voyage key with eorb add-on. */
+  function eorbLicensed(ent) {
+    const e = ent || loadEntitlement();
+    if (!isValid(e)) return false;
+    if (e.sku === 'eorb') return true;
+    return hasAddon('eorb', e);
   }
 
   function isValid(ent) {
@@ -391,6 +421,7 @@
     hideLock,
     skuAllowed,
     modulesForSku,
+    resolveProgramAddons,
     modulesAllowed,
     moduleAllowed,
     eorbLicensed,
