@@ -3426,6 +3426,12 @@ function renderAbout(main) {
 
 /* ---------- Boot ---------- */
 async function boot() {
+  try {
+    if (window.ChengLicense) await ChengLicense.ensureLicensed();
+  } catch (e) {
+    console.warn('License gate', e);
+  }
+
   Api.onStatus((online) => {
     STATE.online = online;
     const dot = document.querySelector('.status-dot');

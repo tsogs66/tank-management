@@ -38,6 +38,19 @@ store.ensureDirs();
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+
+/* Points standalone EXE / portable builds at the production license host. */
+app.get('/js/license-config.js', (req, res) => {
+  const raw = (process.env.LICENSE_SERVER_URL || process.env.CHENG_LICENSE_API || '').replace(/\/$/, '');
+  let api = '';
+  if (raw) {
+    api = /\/api\/license$/i.test(raw) ? raw : `${raw}/api/license`;
+  }
+  res.type('application/javascript');
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(`window.CHENG_LICENSE_API=${JSON.stringify(api)};\n`);
+});
+
 app.use(express.static(path.join(__dirname, '..', 'public'), {
   etag: false,
   maxAge: 0,
