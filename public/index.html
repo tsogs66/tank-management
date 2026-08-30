@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0a1420">
   <meta name="author" content="Marvin C. Endozo (ts0gs)">
+  <meta name="license-api" content="">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -12,7 +13,7 @@
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/css/app.css?v=65">
+  <link rel="stylesheet" href="/css/app.css?v=66">
   <script>
     try {
       if (localStorage.getItem('marine_bright') === '1' || localStorage.getItem('vm_bright') === '1') {
@@ -34,23 +35,35 @@
   <div class="toast" id="toast"></div>
   <div class="app-credit-print" id="app-credit-page"></div>
 
-  <script src="/js/theme.js?v=65"></script>
-  <script src="/js/branding.js?v=65"></script>
-  <script src="/js/node-shim.js?v=65"></script>
-  <script src="/js/node-require.js?v=65"></script>
-  <script src="/js/store-core.js?v=65"></script>
-  <script src="/js/local-api.js?v=65"></script>
-  <script src="/js/calc.js?v=65"></script>
-  <script src="/js/db.js?v=65"></script>
-  <script src="/js/api.js?v=65"></script>
-  <script src="/js/progress.js?v=65"></script>
-  <script src="/js/tank-graphics.js?v=65"></script>
-  <script src="/js/image-cutout.js?v=65"></script>
-  <script src="/js/signature-pad.js?v=65"></script>
-  <script src="/js/fuel-report-core.js?v=65"></script>
-  <script src="/js/fuel-report.js?v=65"></script>
-  <script src="/js/bunkering-core.js?v=65"></script>
-  <script src="/js/bunkering-report.js?v=65"></script>
-  <script src="/js/app.js?v=65"></script>
+  <script src="/js/license-config.js"></script>
+  <script>
+    window.CHENG_LICENSE_SKU = 'tank-chief';
+    window.CHENG_LICENSE_PRODUCT = 'Tank Chief';
+    try {
+      var licMeta = document.querySelector('meta[name="license-api"]');
+      if (!window.CHENG_LICENSE_API && licMeta && licMeta.content) {
+        window.CHENG_LICENSE_API = licMeta.content;
+      }
+    } catch (_e) {}
+  </script>
+  <script src="/js/theme.js?v=66"></script>
+  <script src="/js/license.js?v=66"></script>
+  <script src="/js/branding.js?v=66"></script>
+  <script src="/js/node-shim.js?v=66"></script>
+  <script src="/js/node-require.js?v=66"></script>
+  <script src="/js/store-core.js?v=66"></script>
+  <script src="/js/local-api.js?v=66"></script>
+  <script src="/js/calc.js?v=66"></script>
+  <script src="/js/db.js?v=66"></script>
+  <script src="/js/api.js?v=66"></script>
+  <script src="/js/progress.js?v=66"></script>
+  <script src="/js/tank-graphics.js?v=66"></script>
+  <script src="/js/image-cutout.js?v=66"></script>
+  <script src="/js/signature-pad.js?v=66"></script>
+  <script src="/js/fuel-report-core.js?v=66"></script>
+  <script src="/js/fuel-report.js?v=66"></script>
+  <script src="/js/bunkering-core.js?v=66"></script>
+  <script src="/js/bunkering-report.js?v=66"></script>
+  <script src="/js/app.js?v=66"></script>
 </body>
 </html>
