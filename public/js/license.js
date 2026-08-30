@@ -1,9 +1,9 @@
 /**
- * Shared license client — ChEng AIO / Voyage Chief / Tank Chief.
+ * Shared license client — ChEng AIO / Voyage Chief / Tank Chief / Master Admin.
  *
  * Config (optional globals, set before this script):
  *   CHENG_LICENSE_API   — default '/api/license' or LICENSE_SERVER_URL
- *   CHENG_LICENSE_SKU   — 'cheng-aio' | 'voyage-chief' | 'tank-chief'
+ *   CHENG_LICENSE_SKU   — 'cheng-aio' | 'voyage-chief' | 'tank-chief' | 'cheng-admin'
  *   CHENG_LICENSE_PRODUCT — display name
  *
  * Embedded in AIO (parent.ChengPro / ?chengaio=1): gate is skipped; AIO owns the seat.
@@ -13,13 +13,24 @@
   const DEVICE_KEY = 'chengAioLicenseDeviceId';
   const ENFORCE_CACHE_KEY = 'chengAioLicenseEnforce';
 
+  const KEY_PLACEHOLDER_BY_SKU = {
+    'cheng-aio': 'CA-XXXXXXXX-XXXXXXXX',
+    'voyage-chief': 'VC-XXXXXXXX-XXXXXXXX',
+    'tank-chief': 'TC-XXXXXXXX-XXXXXXXX',
+    'cheng-admin': 'MA-XXXXXXXX-XXXXXXXX',
+  };
+
   function productSku() {
     return global.CHENG_LICENSE_SKU || 'cheng-aio';
   }
 
   function productName() {
     return global.CHENG_LICENSE_PRODUCT
-      || ({ 'voyage-chief': 'Voyage Chief', 'tank-chief': 'Tank Chief' }[productSku()] || 'ChEng AIO');
+      || ({
+        'voyage-chief': 'Voyage Chief',
+        'tank-chief': 'Tank Chief',
+        'cheng-admin': 'ChEng Admin',
+      }[productSku()] || 'ChEng AIO');
   }
 
   function apiBase() {
@@ -76,8 +87,32 @@
     } catch { /* ignore */ }
   }
 
+  function isMaster(ent) {
+    const e = ent || loadEntitlement();
+    if (!e) return false;
+    if (e.master === true) return true;
+    if (e.sku === 'cheng-admin') return true;
+    return Array.isArray(e.addons) && e.addons.includes('master');
+  }
+
+  function licenseEmail(ent) {
+    const e = ent || loadEntitlement();
+    return (e && e.email) ? String(e.email).trim().toLowerCase() : '';
+  }
+
+  function authHeaders(ent) {
+    const e = ent || loadEntitlement();
+    const headers = {};
+    const email = licenseEmail(e);
+    if (email) headers['X-License-Email'] = email;
+    if (isMaster(e)) headers['X-License-Master'] = '1';
+    return headers;
+  }
+
   function skuAllowed(ent) {
     if (!ent || !ent.sku) return true;
+    /* Master admin unlocks every product. */
+    if (isMaster(ent)) return true;
     const want = productSku();
     /* ChEng AIO key unlocks every product. */
     if (ent.sku === 'cheng-aio') return true;
@@ -85,7 +120,7 @@
     if (want === 'cheng-aio') {
       return ent.sku === 'voyage-chief' || ent.sku === 'tank-chief';
     }
-    /* Standalone app: own SKU only (AIO key already accepted above). */
+    /* Standalone app: own SKU only (AIO / master already accepted above). */
     return ent.sku === want;
   }
 
@@ -94,11 +129,12 @@
     const ads = Array.isArray(addons) ? addons : [];
     const base = {
       'cheng-aio': ['home', 'voyage', 'tanks', 'performance', 'eorb', 'vessel', 'license'],
+      'cheng-admin': ['home', 'voyage', 'tanks', 'performance', 'eorb', 'vessel', 'license'],
       'voyage-chief': ['home', 'voyage', 'performance', 'vessel', 'license'],
       'tank-chief': ['home', 'tanks', 'vessel', 'license'],
     };
     let mods = (base[sku] || ['home', 'license']).slice();
-    if (sku === 'cheng-aio' || ads.includes('eorb') || sku === 'eorb') {
+    if (sku === 'cheng-aio' || sku === 'cheng-admin' || ads.includes('eorb') || ads.includes('master') || sku === 'eorb') {
       if (!mods.includes('eorb')) mods.push('eorb');
     }
     return mods;
@@ -115,10 +151,11 @@
     return modulesAllowed(ent).includes(moduleId);
   }
 
-  /** e-ORB: ChEng AIO key, or add-on `eorb` on a Voyage/Tank key. */
+  /** e-ORB: ChEng AIO / master, or add-on `eorb` on a Voyage/Tank key. */
   function eorbLicensed(ent) {
     const e = ent || loadEntitlement();
     if (!isValid(e)) return false;
+    if (isMaster(e)) return true;
     if (e.sku === 'cheng-aio') return true;
     if (e.sku === 'eorb') return true;
     return Array.isArray(e.addons) && e.addons.includes('eorb');
@@ -127,6 +164,7 @@
   function hasAddon(name, ent) {
     const e = ent || loadEntitlement();
     if (!e) return false;
+    if (isMaster(e)) return true;
     if (e.sku === 'cheng-aio') return true;
     return Array.isArray(e.addons) && e.addons.includes(name);
   }
@@ -248,6 +286,7 @@
 
   function showLock(reason) {
     hideLock();
+    const placeholder = KEY_PLACEHOLDER_BY_SKU[productSku()] || 'CA-XXXXXXXX-XXXXXXXX';
     const el = document.createElement('div');
     el.id = 'chengLicenseLock';
     el.setAttribute('role', 'dialog');
@@ -271,7 +310,7 @@
           border:1px solid rgba(233,228,214,.28);background:#0a1420;color:#e9e4d6">
         <label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#a9a292;margin-bottom:4px">License key</label>
         <input id="licLockKey" style="width:100%;margin-bottom:12px;padding:9px 10px;border-radius:8px;text-transform:uppercase;
-          border:1px solid rgba(233,228,214,.28);background:#0a1420;color:#e9e4d6" placeholder="CK-XXXXXXXX-XXXXXXXX">
+          border:1px solid rgba(233,228,214,.28);background:#0a1420;color:#e9e4d6" placeholder="${escapeHtml(placeholder)}">
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button type="button" id="licLockActivate" style="flex:1;padding:10px 14px;border-radius:8px;border:0;background:#c99a53;color:#0a1420;font-weight:700;cursor:pointer">Activate</button>
         </div>
@@ -356,5 +395,8 @@
     moduleAllowed,
     eorbLicensed,
     hasAddon,
+    isMaster,
+    licenseEmail,
+    authHeaders,
   };
 })(typeof window !== 'undefined' ? window : globalThis);
