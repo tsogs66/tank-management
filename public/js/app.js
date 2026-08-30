@@ -2451,8 +2451,23 @@ function renderReport(main) {
 
 /* ---------- Vessel setup ---------- */
 function renderSetup(main) {
+  const embedded = !!(window.parent && window.parent !== window && window.parent.ChengPro)
+    || !!window.ChengPro
+    || (typeof localStorage !== 'undefined' && localStorage.getItem('chengAioEmbedded') === '1');
+
   main.innerHTML += `<div class="page-head"><div><h1>Vessel Setup</h1>
-    <div class="desc">Create multiple vessel records. Each vessel is stored in its own database folder and can be selected anytime.</div></div></div>`;
+    <div class="desc">${embedded
+      ? 'Ship identity is managed in <strong>ChEng AIO → Vessel Setup</strong>. Use this page to switch the active tank database folder and edit Chief Engineer / notes for tank printouts. Tank tables stay here.'
+      : 'Create multiple vessel records. Each vessel is stored in its own database folder and can be selected anytime.'}</div></div></div>`;
+
+  if (embedded) {
+    const banner = document.createElement('div');
+    banner.className = 'form-panel';
+    banner.innerHTML = `<div class="section-title" style="margin-top:0">ChEng AIO vessel hub</div>
+      <p class="hint" style="margin:0">Name, IMO, call sign, flag, company, type and DWT are edited in the ChEng AIO shell.
+      Changes there update this tank database. Standalone Tank Chief backups can still be imported into AIO.</p>`;
+    main.appendChild(banner);
+  }
 
   const list = document.createElement('div');
   list.className = 'form-panel';
@@ -2496,31 +2511,58 @@ function renderSetup(main) {
   form.className = 'form-panel';
   form.style.marginTop = '16px';
   const cur = STATE.bundle?.vessel || {};
+  const ro = embedded ? ' readonly' : '';
+  const dis = embedded ? ' disabled' : '';
   form.innerHTML = `<div class="section-title" style="margin-top:0">${cur.id ? 'Edit active vessel' : 'Create new vessel'}</div>
     <div class="form-row-2">
-      <div class="form-row"><label>Vessel name</label><input id="s-name" value="${cur.name||''}"></div>
-      <div class="form-row"><label>IMO</label><input id="s-imo" value="${cur.imo||''}"></div>
+      <div class="form-row"><label>Vessel name</label><input id="s-name" value="${cur.name||''}"${ro}></div>
+      <div class="form-row"><label>IMO</label><input id="s-imo" value="${cur.imo||''}"${ro}></div>
     </div>
     <div class="form-row-2">
-      <div class="form-row"><label>Call sign</label><input id="s-call" value="${cur.callSign||''}"></div>
-      <div class="form-row"><label>Flag</label><input id="s-flag" value="${cur.flag||''}"></div>
+      <div class="form-row"><label>Call sign</label><input id="s-call" value="${cur.callSign||''}"${ro}></div>
+      <div class="form-row"><label>Flag</label><input id="s-flag" value="${cur.flag||''}"${ro}></div>
     </div>
     <div class="form-row-2">
-      <div class="form-row"><label>Type</label><input id="s-type" value="${cur.type||''}"></div>
-      <div class="form-row"><label>Owner / manager</label><input id="s-owner" value="${cur.owner||''}"></div>
+      <div class="form-row"><label>Type</label><input id="s-type" value="${cur.type||''}"${ro}></div>
+      <div class="form-row"><label>Owner / manager</label><input id="s-owner" value="${cur.owner||''}"${ro}></div>
     </div>
-    <div class="form-row"><label>Chief Engineer</label><input id="s-cheng" value="${cur.chiefEngineer||''}">
-      <div class="hint">Signs the printed documents. Signatures are filed under this name, so after a crew
-        change each officer keeps their own and earlier reports still print theirs.</div></div>
+    <div class="form-row-2">
+      <div class="form-row"><label>DWT</label><input id="s-dwt" value="${cur.dwt||''}"${ro}></div>
+      <div class="form-row"><label>Chief Engineer</label><input id="s-cheng" value="${cur.chiefEngineer||''}">
+        <div class="hint">Signs the printed documents. Signatures are filed under this name.</div></div>
+    </div>
     <div class="form-row"><label>Notes</label><textarea id="s-notes" class="textarea-json" style="min-height:80px">${cur.notes||''}</textarea></div>
     <div class="btn-row">
-      <button class="btn primary" id="btn-save-vessel">${cur.id?'Save vessel details':'Create vessel'}</button>
-      <button class="btn" id="btn-new-vessel">Create blank vessel</button>
-      <button class="btn" id="btn-clone-vessel">Clone active as new</button>
+      <button class="btn primary" id="btn-save-vessel">${cur.id ? (embedded ? 'Save Chief Engineer / notes' : 'Save vessel details') : 'Create vessel'}</button>
+      <button class="btn" id="btn-new-vessel"${dis}>Create blank vessel</button>
+      <button class="btn" id="btn-clone-vessel"${dis}>Clone active as new</button>
     </div>`;
   main.appendChild(form);
 
   document.getElementById('btn-save-vessel').onclick = async () => {
+    if (embedded) {
+      /* Identity fields are hub-owned; still allow CE + notes updates. */
+      const details = {
+        name: document.getElementById('s-name').value.trim(),
+        imo: document.getElementById('s-imo').value.trim(),
+        callSign: document.getElementById('s-call').value.trim(),
+        flag: document.getElementById('s-flag').value.trim(),
+        type: document.getElementById('s-type').value.trim(),
+        owner: document.getElementById('s-owner').value.trim(),
+        dwt: document.getElementById('s-dwt').value.trim(),
+        chiefEngineer: document.getElementById('s-cheng').value.trim(),
+        notes: document.getElementById('s-notes').value.trim(),
+      };
+      if (!STATE.activeVesselId) { showToast('No active vessel'); return; }
+      await Api.updateVessel(STATE.activeVesselId, {
+        chiefEngineer: details.chiefEngineer,
+        notes: details.notes,
+      });
+      await reloadBundle();
+      showToast('Chief Engineer / notes saved (identity is in ChEng AIO)');
+      navigate('setup');
+      return;
+    }
     const details = {
       name: document.getElementById('s-name').value.trim(),
       imo: document.getElementById('s-imo').value.trim(),
@@ -2528,6 +2570,7 @@ function renderSetup(main) {
       flag: document.getElementById('s-flag').value.trim(),
       type: document.getElementById('s-type').value.trim(),
       owner: document.getElementById('s-owner').value.trim(),
+      dwt: document.getElementById('s-dwt').value.trim(),
       chiefEngineer: document.getElementById('s-cheng').value.trim(),
       notes: document.getElementById('s-notes').value.trim(),
     };
@@ -2548,6 +2591,7 @@ function renderSetup(main) {
   };
 
   document.getElementById('btn-new-vessel').onclick = async () => {
+    if (embedded) { showToast('Create vessels in ChEng AIO → Vessel Setup'); return; }
     const name = prompt('New vessel name?');
     if (!name) return;
     const v = await Api.createVessel({ name });
@@ -2561,6 +2605,7 @@ function renderSetup(main) {
   };
 
   document.getElementById('btn-clone-vessel').onclick = async () => {
+    if (embedded) { showToast('Clone vessels in ChEng AIO → Vessel Setup'); return; }
     if (!STATE.bundle) { showToast('No active vessel'); return; }
     const name = prompt('Name for cloned vessel?', vesselName() + ' (copy)');
     if (!name) return;
