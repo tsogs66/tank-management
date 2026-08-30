@@ -79,9 +79,56 @@
   function skuAllowed(ent) {
     if (!ent || !ent.sku) return true;
     const want = productSku();
-    if (want === 'cheng-aio') return ent.sku === 'cheng-aio';
-    /* Standalone Voyage/Tank accept their own SKU or a future bundle; not AIO-only. */
+    /* ChEng AIO key unlocks every product. */
+    if (ent.sku === 'cheng-aio') return true;
+    /* AIO shell also accepts standalone Voyage/Tank keys (modules limited). */
+    if (want === 'cheng-aio') {
+      return ent.sku === 'voyage-chief' || ent.sku === 'tank-chief';
+    }
+    /* Standalone app: own SKU only (AIO key already accepted above). */
     return ent.sku === want;
+  }
+
+  /** Modules unlocked for an entitlement (AIO nav + home buttons). */
+  function modulesForSku(sku, addons) {
+    const ads = Array.isArray(addons) ? addons : [];
+    const base = {
+      'cheng-aio': ['home', 'voyage', 'tanks', 'performance', 'eorb', 'vessel', 'license'],
+      'voyage-chief': ['home', 'voyage', 'performance', 'vessel', 'license'],
+      'tank-chief': ['home', 'tanks', 'vessel', 'license'],
+    };
+    let mods = (base[sku] || ['home', 'license']).slice();
+    if (sku === 'cheng-aio' || ads.includes('eorb') || sku === 'eorb') {
+      if (!mods.includes('eorb')) mods.push('eorb');
+    }
+    return mods;
+  }
+
+  function modulesAllowed(ent) {
+    const e = ent || loadEntitlement();
+    if (!isValid(e)) return ['license'];
+    return modulesForSku(e.sku, e.addons);
+  }
+
+  function moduleAllowed(moduleId, ent) {
+    if (moduleId === 'license') return true;
+    return modulesAllowed(ent).includes(moduleId);
+  }
+
+  /** e-ORB: ChEng AIO key, or add-on `eorb` on a Voyage/Tank key. */
+  function eorbLicensed(ent) {
+    const e = ent || loadEntitlement();
+    if (!isValid(e)) return false;
+    if (e.sku === 'cheng-aio') return true;
+    if (e.sku === 'eorb') return true;
+    return Array.isArray(e.addons) && e.addons.includes('eorb');
+  }
+
+  function hasAddon(name, ent) {
+    const e = ent || loadEntitlement();
+    if (!e) return false;
+    if (e.sku === 'cheng-aio') return true;
+    return Array.isArray(e.addons) && e.addons.includes(name);
   }
 
   function isValid(ent) {
@@ -303,5 +350,11 @@
     apiBase,
     showLock,
     hideLock,
+    skuAllowed,
+    modulesForSku,
+    modulesAllowed,
+    moduleAllowed,
+    eorbLicensed,
+    hasAddon,
   };
 })(typeof window !== 'undefined' ? window : globalThis);
