@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0f172a">
+  <meta name="theme-color" content="#0a1420">
+  <meta name="author" content="Marvin C. Endozo (ts0gs)">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -11,10 +12,18 @@
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/css/app.css?v=63">
+  <link rel="stylesheet" href="/css/app.css?v=65">
+  <script>
+    try {
+      if (localStorage.getItem('marine_bright') === '1' || localStorage.getItem('vm_bright') === '1') {
+        document.documentElement.classList.add('bright');
+      }
+    } catch (_e) {}
+  </script>
 </head>
 <body>
   <button class="menu-toggle" id="menu-toggle" aria-label="Menu">☰ Menu</button>
+  <button type="button" class="theme-toggle theme-fab no-print" data-theme-toggle aria-pressed="false" title="Day / bright mode for sunlight">Bright</button>
   <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
   <div class="app-shell">
     <aside class="sidebar" id="sidebar">
@@ -25,24 +34,23 @@
   <div class="toast" id="toast"></div>
   <div class="app-credit-print" id="app-credit-page"></div>
 
-  <!-- The device's own database and the loader that lets it run the server's
-       route code. These come first: store-core.js reads the shim at load. -->
-  <script src="/js/branding.js?v=63"></script>
-  <script src="/js/node-shim.js?v=63"></script>
-  <script src="/js/node-require.js?v=63"></script>
-  <script src="/js/store-core.js?v=63"></script>
-  <script src="/js/local-api.js?v=63"></script>
-  <script src="/js/calc.js?v=63"></script>
-  <script src="/js/db.js?v=63"></script>
-  <script src="/js/api.js?v=63"></script>
-  <script src="/js/progress.js?v=63"></script>
-  <script src="/js/tank-graphics.js?v=63"></script>
-  <script src="/js/image-cutout.js?v=63"></script>
-  <script src="/js/signature-pad.js?v=63"></script>
-  <script src="/js/fuel-report-core.js?v=63"></script>
-  <script src="/js/fuel-report.js?v=63"></script>
-  <script src="/js/bunkering-core.js?v=63"></script>
-  <script src="/js/bunkering-report.js?v=63"></script>
-  <script src="/js/app.js?v=63"></script>
+  <script src="/js/theme.js?v=65"></script>
+  <script src="/js/branding.js?v=65"></script>
+  <script src="/js/node-shim.js?v=65"></script>
+  <script src="/js/node-require.js?v=65"></script>
+  <script src="/js/store-core.js?v=65"></script>
+  <script src="/js/local-api.js?v=65"></script>
+  <script src="/js/calc.js?v=65"></script>
+  <script src="/js/db.js?v=65"></script>
+  <script src="/js/api.js?v=65"></script>
+  <script src="/js/progress.js?v=65"></script>
+  <script src="/js/tank-graphics.js?v=65"></script>
+  <script src="/js/image-cutout.js?v=65"></script>
+  <script src="/js/signature-pad.js?v=65"></script>
+  <script src="/js/fuel-report-core.js?v=65"></script>
+  <script src="/js/fuel-report.js?v=65"></script>
+  <script src="/js/bunkering-core.js?v=65"></script>
+  <script src="/js/bunkering-report.js?v=65"></script>
+  <script src="/js/app.js?v=65"></script>
 </body>
 </html>
