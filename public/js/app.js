@@ -404,6 +404,15 @@ function renderNav() {
     + Branding.AUTHORS.map((a) => `<b>${a}</b>`).join('');
   nav.appendChild(credit);
 
+  const themeBtn = document.createElement('button');
+  themeBtn.type = 'button';
+  themeBtn.className = 'theme-toggle no-print';
+  themeBtn.setAttribute('data-theme-toggle', '');
+  themeBtn.textContent = document.documentElement.classList.contains('bright') ? 'Night' : 'Bright';
+  themeBtn.title = 'Day / bright mode for sunlight';
+  nav.appendChild(themeBtn);
+  if (window.MarineTheme) MarineTheme.bind(nav);
+
   document.getElementById('vessel-switcher').onchange = async (e) => {
     const id = e.target.value;
     if (!id) return;

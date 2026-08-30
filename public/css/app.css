@@ -1,37 +1,67 @@
 :root {
-  --bg: #0f172a;
-  --bg-panel: #16213a;
-  --bg-panel-2: #1c2942;
-  --bg-card: #1a2540;
-  --border: #2c3b5c;
-  --border-soft: #24314c;
-  --text: #e7ecf5;
-  --text-dim: #9fb0cc;
-  --text-faint: #6b7fa3;
-  --accent: #3aa0ff;
-  --accent-2: #5ecbe6;
-  --good: #2fbf71;
-  --warn: #e6b34d;
-  --bad: #e6584d;
-  --fuel: #e6b34d;
-  --lube: #b98af5;
-  --misc: #8aa0c4;
-  --water: #5ecbe6;
+  /* Match Voyage Chief dark theme */
+  --bg: #0a1420;
+  --bg-panel: #122238;
+  --bg-panel-2: #0e1c30;
+  --bg-card: #16283f;
+  --border: rgba(233, 228, 214, 0.16);
+  --border-soft: rgba(233, 228, 214, 0.10);
+  --text: #e9e4d6;
+  --text-dim: #a9a292;
+  --text-faint: #8a8376;
+  --accent: #c99a53;
+  --accent-2: #57b3ab;
+  --good: #5f9e6e;
+  --warn: #c99a53;
+  --bad: #e06a4c;
+  --fuel: #c99a53;
+  --lube: #57b3ab;
+  --misc: #a9a292;
+  --water: #57b3ab;
   --radius: 10px;
   --shadow: 0 2px 10px rgba(0,0,0,0.35);
   --sidebar-w: 240px;
+  --brass: #c99a53;
   font-size: 15px;
+  color-scheme: dark;
+}
+
+html.bright {
+  --bg: #efebe3;
+  --bg-panel: #ffffff;
+  --bg-panel-2: #f7f5ef;
+  --bg-card: #f7f5ef;
+  --border: rgba(18, 34, 56, 0.14);
+  --border-soft: rgba(18, 34, 56, 0.08);
+  --text: #122238;
+  --text-dim: #4a5568;
+  --text-faint: #6b7280;
+  --accent: #8a5a1a;
+  --accent-2: #1f7a72;
+  --good: #2f7a45;
+  --warn: #8a5a1a;
+  --bad: #b33a22;
+  --fuel: #8a5a1a;
+  --lube: #1f7a72;
+  --misc: #4a5568;
+  --water: #1f7a72;
+  --brass: #8a5a1a;
+  --shadow: 0 2px 10px rgba(18,34,56,0.12);
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
 html, body {
   margin: 0; padding: 0;
-  background: var(--bg);
+  background: radial-gradient(1200px 600px at 15% -10%, #16283f 0%, transparent 60%), var(--bg);
   color: var(--text);
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
   min-height: 100%;
   -webkit-text-size-adjust: 100%;
   overflow-x: hidden;
+}
+html.bright body {
+  background: linear-gradient(180deg, #efebe3 0%, #f7f5ef 40%, #ffffff 100%);
 }
 button, input, select, textarea { font: inherit; color: inherit; }
 a { color: var(--accent); }
@@ -77,7 +107,8 @@ body.nav-open {
   font-size: 13.5px; font-weight: 500;
 }
 .nav-btn:hover { background: var(--bg-card); color: var(--text); }
-.nav-btn.active { background: var(--accent); color: #051323; font-weight: 700; }
+.nav-btn.active { background: var(--accent); color: #0a1420; font-weight: 700; }
+html.bright .nav-btn.active { color: #fff8ee; }
 .nav-btn .ic { width: 18px; text-align: center; opacity: .85; }
 .nav-group-label {
   font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
@@ -225,6 +256,7 @@ label.btn { margin: 0; }
   width: 100%; background: var(--bg-panel); border: 1px solid var(--border);
   border-radius: 7px; padding: 9px 10px; min-width: 0;
 }
+::placeholder { color: var(--text-dim); opacity: 0.85; }
 .form-row input:focus, .form-row select:focus, .form-row textarea:focus {
   outline: none; border-color: var(--accent);
 }
@@ -1598,6 +1630,41 @@ tr.bp-est-over th.fr-tank-name { box-shadow: inset 3px 0 0 var(--bad); }
   color: var(--text-faint); font-weight: 700; font-size: 9.5px;
 }
 .nav-credit b { color: var(--text-dim); font-weight: 600; }
+
+.theme-toggle {
+  border: 1px solid var(--border);
+  background: rgba(0,0,0,0.18);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  width: calc(100% - 8px);
+  margin: 8px 4px 4px;
+}
+html.bright .theme-toggle { background: rgba(18,34,56,0.06); }
+.theme-toggle:hover { border-color: var(--accent); color: var(--text); }
+
+/* Fixed corner control — bottom-left so it never fights Menu (top-left) or
+   ChEng AIO chrome (top-right when embedded). */
+.theme-fab {
+  position: fixed;
+  left: calc(12px + env(safe-area-inset-left, 0px));
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  z-index: 45;
+  width: auto;
+  margin: 0;
+  box-shadow: var(--shadow);
+}
+@media (min-width: 901px) {
+  .theme-fab { display: none; }
+}
+@media (max-width: 900px) {
+  .sidebar .theme-toggle { display: none; }
+}
 
 /* The printed credit. Never on screen; on paper it sits under the sheet. */
 .app-credit-print { display: none; }
