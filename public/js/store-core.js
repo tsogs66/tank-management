@@ -30,11 +30,115 @@
  *
  * Beside the source when running from a checkout, but an installed desktop
  * build sits in Program Files, which is read-only to the user who runs it, so
- * the installer points this at the per-user application data directory. */
-const DATA_DIR = env.TMS_DATA_DIR || path.join(ROOT, 'data');
-const VESSELS_DIR = path.join(DATA_DIR, 'vessels');
-const SETTINGS_PATH = path.join(DATA_DIR, 'settings.json');
-const INDEX_PATH = path.join(DATA_DIR, 'vessels-index.json');
+ * the installer points this at the per-user application data directory.
+ *
+ * With a license-email scope active, vessel data is isolated under
+ * data/users/<email-slug>/. Without a scope, the legacy root data/ paths are
+ * used so existing installs keep working. */
+const ROOT_DATA_DIR = env.CHENG_PRO_DATA_DIR || env.TMS_DATA_DIR || path.join(ROOT, 'data');
+
+let asyncLocalStorage = null;
+if (typeof require === 'function') {
+  try {
+    const { AsyncLocalStorage } = require('async_hooks');
+    asyncLocalStorage = new AsyncLocalStorage();
+  } catch (_) {
+    /* browser / environments without async_hooks */
+  }
+}
+const browserScope = { email: null, master: false, actAs: null };
+
+function emailSlug(email) {
+  return String(email || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 128) || 'user';
+}
+
+function normalizeScope(scope) {
+  const s = scope && typeof scope === 'object' ? scope : {};
+  return {
+    email: s.email ? String(s.email).trim() : null,
+    master: !!s.master,
+    actAs: s.actAs ? String(s.actAs).trim() : null,
+  };
+}
+
+function setUserScope(scope) {
+  const next = normalizeScope(scope);
+  if (asyncLocalStorage) {
+    const store = asyncLocalStorage.getStore();
+    if (store) {
+      Object.assign(store, next);
+      return getUserScope();
+    }
+  }
+  Object.assign(browserScope, next);
+  return getUserScope();
+}
+
+function getUserScope() {
+  const store = asyncLocalStorage ? asyncLocalStorage.getStore() : null;
+  const s = store || browserScope;
+  return {
+    email: s.email || null,
+    master: !!s.master,
+    actAs: s.actAs || null,
+  };
+}
+
+function runWithUserScope(scope, fn) {
+  const next = normalizeScope(scope);
+  if (asyncLocalStorage) {
+    return asyncLocalStorage.run(next, fn);
+  }
+  const prev = { email: browserScope.email, master: browserScope.master, actAs: browserScope.actAs };
+  Object.assign(browserScope, next);
+  try {
+    return fn();
+  } finally {
+    Object.assign(browserScope, prev);
+  }
+}
+
+function isMasterScope() {
+  return !!getUserScope().master;
+}
+
+/** Effective email for path isolation (master may act-as another user). */
+function scopedEmail() {
+  const scope = getUserScope();
+  if (scope.master && scope.actAs) return scope.actAs;
+  return scope.email || null;
+}
+
+function rootDataDir() {
+  return ROOT_DATA_DIR;
+}
+
+function activeDataDir() {
+  const email = scopedEmail();
+  if (!email) return rootDataDir();
+  return path.join(rootDataDir(), 'users', emailSlug(email));
+}
+
+function getDataDir() {
+  return activeDataDir();
+}
+
+function getVesselsDir() {
+  return path.join(activeDataDir(), 'vessels');
+}
+
+function settingsPath() {
+  return path.join(activeDataDir(), 'settings.json');
+}
+
+function indexPath() {
+  return path.join(activeDataDir(), 'vessels-index.json');
+}
 
 const VESSEL_FILES = [
   'vessel.json',
@@ -55,13 +159,48 @@ const VESSEL_FILES = [
 ];
 
 function ensureDirs() {
-  fs.mkdirSync(VESSELS_DIR, { recursive: true });
-  if (!fs.existsSync(SETTINGS_PATH)) {
-    writeJson(SETTINGS_PATH, defaultSettings());
+  fs.mkdirSync(getVesselsDir(), { recursive: true });
+  if (!fs.existsSync(settingsPath())) {
+    writeJson(settingsPath(), defaultSettings());
   }
-  if (!fs.existsSync(INDEX_PATH)) {
-    writeJson(INDEX_PATH, { vessels: [], activeVesselId: null, updatedAt: now() });
+  if (!fs.existsSync(indexPath())) {
+    writeJson(indexPath(), { vessels: [], activeVesselId: null, updatedAt: now() });
   }
+}
+
+/**
+ * Master helper: scan data/users/* folders that look like license databases.
+ * Returns [{ emailSlug, path, vesselCount }].
+ */
+function listUserDatabases() {
+  const usersDir = path.join(rootDataDir(), 'users');
+  if (!fs.existsSync(usersDir)) return [];
+  const out = [];
+  let names;
+  try {
+    names = fs.readdirSync(usersDir);
+  } catch (_) {
+    return [];
+  }
+  for (const name of names) {
+    const userPath = path.join(usersDir, name);
+    let st;
+    try {
+      st = fs.statSync(userPath);
+    } catch (_) {
+      continue;
+    }
+    if (!st.isDirectory()) continue;
+    const idxFile = path.join(userPath, 'vessels-index.json');
+    if (!fs.existsSync(idxFile)) continue;
+    const index = readJson(idxFile, { vessels: [] });
+    out.push({
+      emailSlug: name,
+      path: userPath,
+      vesselCount: Array.isArray(index.vessels) ? index.vessels.length : 0,
+    });
+  }
+  return out;
 }
 
 function now() {
@@ -106,7 +245,7 @@ function writeJson(file, data) {
 }
 
 function vesselDir(id) {
-  return path.join(VESSELS_DIR, id);
+  return path.join(getVesselsDir(), id);
 }
 
 function vesselPath(id, file) {
@@ -115,23 +254,23 @@ function vesselPath(id, file) {
 
 function loadIndex() {
   ensureDirs();
-  return readJson(INDEX_PATH, { vessels: [], activeVesselId: null, updatedAt: now() });
+  return readJson(indexPath(), { vessels: [], activeVesselId: null, updatedAt: now() });
 }
 
 function saveIndex(index) {
   index.updatedAt = now();
-  writeJson(INDEX_PATH, index);
+  writeJson(indexPath(), index);
 }
 
 function getSettings() {
   ensureDirs();
-  return readJson(SETTINGS_PATH, defaultSettings());
+  return readJson(settingsPath(), defaultSettings());
 }
 
 function saveSettings(patch) {
   const current = getSettings();
   const next = { ...current, ...patch, updatedAt: now() };
-  writeJson(SETTINGS_PATH, next);
+  writeJson(settingsPath(), next);
   return next;
 }
 
@@ -529,7 +668,7 @@ function importBackup(backup, { merge = true } = {}) {
     throw new Error('Invalid backup format');
   }
   ensureDirs();
-  if (backup.settings) writeJson(SETTINGS_PATH, { ...defaultSettings(), ...backup.settings });
+  if (backup.settings) writeJson(settingsPath(), { ...defaultSettings(), ...backup.settings });
 
   const index = merge ? loadIndex() : { vessels: [], activeVesselId: null, updatedAt: now() };
   const byId = new Map(index.vessels.map((v) => [v.id, v]));
@@ -647,10 +786,18 @@ function syncPushBundle() {
   };
 }
 
-return {
+const api = {
   ensureDirs,
-  DATA_DIR,
-  VESSELS_DIR,
+  getDataDir,
+  getVesselsDir,
+  rootDataDir,
+  activeDataDir,
+  emailSlug,
+  setUserScope,
+  getUserScope,
+  runWithUserScope,
+  isMasterScope,
+  listUserDatabases,
   getSettings,
   saveSettings,
   listVessels,
@@ -676,4 +823,17 @@ return {
   findTankInBundle,
   now,
 };
+
+Object.defineProperty(api, 'DATA_DIR', {
+  enumerable: true,
+  configurable: true,
+  get: () => activeDataDir(),
+});
+Object.defineProperty(api, 'VESSELS_DIR', {
+  enumerable: true,
+  configurable: true,
+  get: () => getVesselsDir(),
+});
+
+return api;
 }));

@@ -36,8 +36,31 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 
 
 store.ensureDirs();
 
-app.use(cors());
+app.use(cors({
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'x-license-email',
+    'x-license-master',
+    'x-act-as-user',
+  ],
+}));
 app.use(express.json({ limit: '50mb' }));
+
+/* Per-request license email scope → data/users/<slug>/ isolation. */
+app.use((req, res, next) => {
+  const email = req.get('x-license-email') || null;
+  const master = req.get('x-license-master') === '1';
+  const actAs = master ? (req.get('x-act-as-user') || null) : null;
+  store.runWithUserScope({ email, master, actAs }, () => next());
+});
+
+app.get('/api/admin/users', (req, res) => {
+  if (!store.isMasterScope()) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  res.json({ users: store.listUserDatabases() });
+});
 
 /* Points standalone EXE / portable builds at the production license host. */
 app.get('/js/license-config.js', (req, res) => {
