@@ -3431,6 +3431,16 @@ async function boot() {
   } catch (e) {
     console.warn('License gate', e);
   }
+  try {
+    if (window.StoreCore && typeof StoreCore.setUserScope === 'function' && window.ChengLicense) {
+      StoreCore.setUserScope({
+        email: ChengLicense.licenseEmail() || null,
+        master: !!ChengLicense.isMaster(),
+      });
+    }
+  } catch (e) {
+    console.warn('User scope', e);
+  }
 
   Api.onStatus((online) => {
     STATE.online = online;

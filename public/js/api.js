@@ -79,7 +79,11 @@ const Api = (() => {
     if (transport === 'local' && canUseLocal()) return localRequest(path, opts);
     const init = {
       method: opts.method || 'GET',
-      headers: { ...(opts.body && !(opts.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...(opts.headers || {}) },
+      headers: {
+        ...(opts.body && !(opts.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
+        ...(typeof ChengLicense !== 'undefined' && ChengLicense.authHeaders ? ChengLicense.authHeaders() : {}),
+        ...(opts.headers || {}),
+      },
       body: opts.body instanceof FormData || typeof opts.body === 'string'
         ? opts.body
         : opts.body != null ? JSON.stringify(opts.body) : undefined,

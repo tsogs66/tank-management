@@ -1666,6 +1666,18 @@ html.bright .theme-toggle { background: rgba(18,34,56,0.06); }
   .sidebar .theme-toggle { display: none; }
 }
 
+/* Tablet landscape: keep two-column forms readable */
+@media (min-width: 901px) and (max-width: 1180px) and (orientation: landscape) {
+  .detail-grid, .two-col { grid-template-columns: 1fr 1fr; }
+  .sidebar { width: 210px; }
+}
+
+/* Phone landscape: compact chrome */
+@media (orientation: landscape) and (max-height: 480px) {
+  .topbar, .app-header { padding-top: 6px; padding-bottom: 6px; }
+  .tg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 /* The printed credit. Never on screen; on paper it sits under the sheet. */
 .app-credit-print { display: none; }
 
@@ -1699,3 +1711,15 @@ html.bright .theme-toggle { background: rgba(18,34,56,0.06); }
   color: var(--text-faint); font-weight: 700;
 }
 .about-authors b { color: var(--text); font-size: 14px; }
+
+/* Tablet landscape: keep two-column forms readable */
+@media (min-width: 901px) and (max-width: 1180px) and (orientation: landscape) {
+  .detail-grid, .two-col { grid-template-columns: 1fr 1fr; }
+  .sidebar { width: 210px; }
+}
+
+/* Phone landscape: compact chrome */
+@media (orientation: landscape) and (max-height: 480px) {
+  .topbar, .app-header { padding-top: 6px; padding-bottom: 6px; }
+  .tg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
