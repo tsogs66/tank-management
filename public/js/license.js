@@ -10,8 +10,45 @@
  */
 (function (global) {
   const STORAGE_KEY = 'chengAioLicenseEntitlement';
+  const STORAGE_FALLBACK_KEY = 'chengAioLicenseEntitlementFb';
   const DEVICE_KEY = 'chengAioLicenseDeviceId';
   const ENFORCE_CACHE_KEY = 'chengAioLicenseEnforce';
+  const LICENSE_API_KEY = 'chengLicenseApi';
+  const SERVER_BASE_KEY = 'apiServerBase';
+
+  function readStorage(key) {
+    try {
+      const v = localStorage.getItem(key);
+      if (v != null) return v;
+    } catch { /* ignore */ }
+    try {
+      return sessionStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+
+  function writeStorage(key, value) {
+    let ok = false;
+    try {
+      if (value == null) {
+        localStorage.removeItem(key);
+        sessionStorage.removeItem(key);
+      } else {
+        localStorage.setItem(key, value);
+        sessionStorage.setItem(key, value);
+      }
+      ok = true;
+    } catch { /* ignore */ }
+    if (!ok) {
+      try {
+        if (value == null) sessionStorage.removeItem(key);
+        else sessionStorage.setItem(key, value);
+        ok = true;
+      } catch { /* ignore */ }
+    }
+    return ok;
+  }
 
   const KEY_PLACEHOLDER_BY_SKU = {
     'cheng-aio': 'CA-XXXXXXXX-XXXXXXXX',
@@ -36,10 +73,89 @@
   function apiBase() {
     if (global.CHENG_LICENSE_API) return String(global.CHENG_LICENSE_API).replace(/\/$/, '');
     try {
-      const meta = document.querySelector('meta[name="license-api"]');
-      if (meta && meta.content) return String(meta.content).replace(/\/$/, '');
+      const lic = readStorage(LICENSE_API_KEY);
+      if (lic && lic.trim()) return lic.trim().replace(/\/$/, '');
     } catch { /* ignore */ }
-    return '/api/license';
+    try {
+      const base = readStorage(SERVER_BASE_KEY);
+      if (base && base.trim()) {
+        const b = base.trim().replace(/\/$/, '');
+        return /\/api\/license$/i.test(b) ? b : `${b}/api/license`;
+      }
+    } catch { /* ignore */ }
+    try {
+      const meta = document.querySelector('meta[name="license-api"]');
+      if (meta && meta.content && meta.content.trim()) {
+        return String(meta.content).trim().replace(/\/$/, '');
+      }
+    } catch { /* ignore */ }
+    /* Same-origin /api/license only on ChEng AIO (license routes live there).
+       Voyage/Tank hosts proxy /api to sync — forcing a license server URL. */
+    try {
+      if (productSku() === 'cheng-aio'
+          && typeof location !== 'undefined' && /^https?:$/i.test(location.protocol || '')) {
+        const host = location.hostname || '';
+        if (host && host !== 'localhost' && host !== '127.0.0.1') {
+          return '/api/license';
+        }
+      }
+    } catch { /* ignore */ }
+    return '';
+  }
+
+  function isBundledClient() {
+    try {
+      if (global.ChengProBundled && ChengProBundled.isBundledClient()) return true;
+    } catch { /* ignore */ }
+    try {
+      if (!/^https?:$/i.test(location.protocol || '')) return true;
+      const host = location.hostname || '';
+      return host === 'localhost' || host === '127.0.0.1';
+    } catch {
+      return false;
+    }
+  }
+
+  function setLicenseServerUrl(url) {
+    const raw = String(url || '').trim();
+    if (!raw) {
+      writeStorage(LICENSE_API_KEY, null);
+      writeStorage(SERVER_BASE_KEY, null);
+      try { delete global.CHENG_LICENSE_API; } catch { /* ignore */ }
+      return '';
+    }
+    let base = raw.replace(/\/$/, '');
+    if (/\/api\/license$/i.test(base)) {
+      base = base.replace(/\/api\/license$/i, '');
+    }
+    if (!/^https?:\/\//i.test(base)) {
+      throw new Error('Server URL must start with http:// or https://');
+    }
+    writeStorage(SERVER_BASE_KEY, base);
+    writeStorage(LICENSE_API_KEY, null);
+    const api = `${base}/api/license`;
+    try { global.CHENG_LICENSE_API = api; } catch { /* ignore */ }
+    return api;
+  }
+
+  function getLicenseServerUrl() {
+    try {
+      const base = readStorage(SERVER_BASE_KEY);
+      if (base && base.trim()) return base.trim().replace(/\/$/, '');
+    } catch { /* ignore */ }
+    const api = apiBase();
+    if (api && /^https?:\/\//i.test(api)) {
+      return api.replace(/\/api\/license\/?$/i, '');
+    }
+    return '';
+  }
+
+  function requireApiBase() {
+    const base = apiBase();
+    if (base) return base;
+    throw new Error(
+      'License server URL is not set. Enter your ChEng AIO / license host (e.g. http://192.168.x.x:8080 or https://your-domain), then Activate.'
+    );
   }
 
   function isEmbeddedInAio() {
@@ -55,10 +171,10 @@
 
   function deviceId() {
     try {
-      let id = localStorage.getItem(DEVICE_KEY);
+      let id = readStorage(DEVICE_KEY);
       if (id) return id;
       id = 'dev-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
-      localStorage.setItem(DEVICE_KEY, id);
+      writeStorage(DEVICE_KEY, id);
       return id;
     } catch {
       return 'dev-ephemeral';
@@ -73,7 +189,7 @@
 
   function loadEntitlement() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = readStorage(STORAGE_KEY) || readStorage(STORAGE_FALLBACK_KEY);
       return raw ? JSON.parse(raw) : null;
     } catch {
       return null;
@@ -82,8 +198,26 @@
 
   function saveEntitlement(ent) {
     try {
-      if (ent) localStorage.setItem(STORAGE_KEY, JSON.stringify(ent));
-      else localStorage.removeItem(STORAGE_KEY);
+      if (ent) {
+        const payload = JSON.stringify(ent);
+        if (!writeStorage(STORAGE_KEY, payload)) {
+          throw new Error('Could not save license on this device — allow site storage (not private/incognito).');
+        }
+        writeStorage(STORAGE_FALLBACK_KEY, payload);
+        return true;
+      }
+      writeStorage(STORAGE_KEY, null);
+      writeStorage(STORAGE_FALLBACK_KEY, null);
+      return true;
+    } catch (e) {
+      if (e && e.message && e.message.includes('Could not save')) throw e;
+      throw new Error('Could not save license on this device — allow site storage (not private/incognito).');
+    }
+  }
+
+  function notifyLicenseChanged() {
+    try {
+      global.dispatchEvent(new CustomEvent('chengpro:license-changed'));
     } catch { /* ignore */ }
   }
 
@@ -217,24 +351,34 @@
   }
 
   async function post(path, body) {
-    const res = await fetch(apiBase() + path, {
+    const base = requireApiBase();
+    const res = await fetch(base + path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    const data = await res.json().catch(() => ({}));
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = null; }
     if (!res.ok) {
-      const err = new Error(data.error || res.statusText);
+      const err = new Error((data && data.error) || res.statusText || 'License request failed');
       err.status = res.status;
-      err.code = data.code;
+      err.code = data && data.code;
       throw err;
+    }
+    if (!data || typeof data !== 'object') {
+      throw new Error(
+        'License server returned a non-JSON response. Check the Server URL (should be your ChEng AIO host, e.g. http://192.168.x.x:8080).'
+      );
     }
     return data;
   }
 
   async function fetchStatus() {
+    const base = apiBase();
+    if (!base) return null;
     try {
-      const res = await fetch(apiBase() + '/status');
+      const res = await fetch(base + '/status');
       const data = await res.json().catch(() => ({}));
       if (typeof data.enforce === 'boolean') {
         try { localStorage.setItem(ENFORCE_CACHE_KEY, data.enforce ? '1' : '0'); } catch { /* ignore */ }
@@ -263,13 +407,21 @@
       deviceId: deviceId(),
       deviceLabel: (navigator.userAgent || '').slice(0, 120),
     });
-    if (data.entitlement && !skuAllowed(data.entitlement)) {
-      saveEntitlement(null);
-      throw new Error('This key is for ' + data.entitlement.sku + ', not ' + productSku());
+    const ent = data && data.entitlement;
+    if (!ent || !ent.graceUntil) {
+      throw new Error('Activation succeeded but the server did not return a valid license — retry or update ChEng AIO.');
     }
-    saveEntitlement(data.entitlement);
+    if (!skuAllowed(ent)) {
+      saveEntitlement(null);
+      throw new Error('This key is for ' + ent.sku + ', not ' + productSku());
+    }
+    saveEntitlement(ent);
+    if (!isValid(loadEntitlement())) {
+      throw new Error('License could not be stored on this device — allow site storage and try again.');
+    }
     hideLock();
-    return data.entitlement;
+    notifyLicenseChanged();
+    return loadEntitlement();
   }
 
   async function heartbeat() {
@@ -282,7 +434,8 @@
       entitlement: ent,
     });
     saveEntitlement(data.entitlement);
-    return data.entitlement;
+    notifyLicenseChanged();
+    return loadEntitlement();
   }
 
   async function pairStart({ licenseKey, email }) {
@@ -299,9 +452,14 @@
       deviceId: deviceId(),
       deviceLabel: (navigator.userAgent || '').slice(0, 120),
     });
-    saveEntitlement(data.entitlement);
+    const ent = data && data.entitlement;
+    if (!ent || !ent.graceUntil) {
+      throw new Error('Pairing succeeded but no license was returned — try again.');
+    }
+    saveEntitlement(ent);
     hideLock();
-    return data.entitlement;
+    notifyLicenseChanged();
+    return loadEntitlement();
   }
 
   async function requestTransfer({ licenseKey, email, seat, reason }) {
@@ -321,6 +479,7 @@
   function showLock(reason) {
     hideLock();
     const placeholder = KEY_PLACEHOLDER_BY_SKU[productSku()] || 'CA-XXXXXXXX-XXXXXXXX';
+    const savedServer = getLicenseServerUrl();
     const el = document.createElement('div');
     el.id = 'chengLicenseLock';
     el.setAttribute('role', 'dialog');
@@ -329,16 +488,22 @@
       'position:fixed', 'inset:0', 'z-index:100000',
       'display:flex', 'align-items:center', 'justify-content:center',
       'padding:16px', 'background:rgba(8,14,24,.92)', 'backdrop-filter:blur(3px)',
+      'overflow:auto',
     ].join(';');
     el.innerHTML = `
       <div style="width:min(440px,100%);background:#122238;color:#e9e4d6;border:1px solid rgba(233,228,214,.24);
-        border-radius:14px;padding:22px;box-shadow:0 18px 60px rgba(0,0,0,.55);font-family:Segoe UI,Helvetica Neue,sans-serif">
+        border-radius:14px;padding:22px;box-shadow:0 18px 60px rgba(0,0,0,.55);font-family:Segoe UI,Helvetica Neue,sans-serif;margin:auto">
         <h2 style="margin:0 0 6px;font-size:1.15rem">${escapeHtml(productName())} — activation required</h2>
         <p style="margin:0 0 14px;color:#a9a292;font-size:.9rem;line-height:1.45">
           ${reason === 'grace_expired'
             ? 'Offline grace ended. Connect once to refresh, or enter your license key.'
-            : 'Enter the license key emailed after purchase. Local data stays on this device.'}
+            : 'Enter the license server URL (ChEng AIO host), then the email and key from your office. Local data stays on this device.'}
         </p>
+        <label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#a9a292;margin-bottom:4px">License server URL</label>
+        <input id="licLockServer" type="url" style="width:100%;margin-bottom:10px;padding:9px 10px;border-radius:8px;
+          border:1px solid rgba(233,228,214,.28);background:#0a1420;color:#e9e4d6"
+          placeholder="http://192.168.x.x:8080 or https://your-aio-host"
+          value="${escapeHtml(savedServer)}">
         <label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#a9a292;margin-bottom:4px">Email</label>
         <input id="licLockEmail" type="email" style="width:100%;margin-bottom:10px;padding:9px 10px;border-radius:8px;
           border:1px solid rgba(233,228,214,.28);background:#0a1420;color:#e9e4d6">
@@ -346,21 +511,49 @@
         <input id="licLockKey" style="width:100%;margin-bottom:12px;padding:9px 10px;border-radius:8px;text-transform:uppercase;
           border:1px solid rgba(233,228,214,.28);background:#0a1420;color:#e9e4d6" placeholder="${escapeHtml(placeholder)}">
         <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" id="licLockTest" style="padding:10px 14px;border-radius:8px;border:1px solid rgba(233,228,214,.28);background:transparent;color:#e9e4d6;cursor:pointer">Test server</button>
           <button type="button" id="licLockActivate" style="flex:1;padding:10px 14px;border-radius:8px;border:0;background:#c99a53;color:#0a1420;font-weight:700;cursor:pointer">Activate</button>
         </div>
         <p id="licLockStatus" style="min-height:1.2em;margin:10px 0 0;font-size:.85rem;color:#a9a292"></p>
       </div>`;
     document.body.appendChild(el);
+
+    async function applyServerFromForm() {
+      const url = el.querySelector('#licLockServer').value.trim();
+      if (!url) {
+        throw new Error('Enter the license server URL first (your ChEng AIO host).');
+      }
+      setLicenseServerUrl(url);
+    }
+
+    el.querySelector('#licLockTest').onclick = async () => {
+      const st = el.querySelector('#licLockStatus');
+      try {
+        st.textContent = 'Testing…';
+        await applyServerFromForm();
+        const data = await fetchStatus();
+        if (!data || !data.ok) throw new Error('No response from license server — check URL and network.');
+        st.textContent = 'Connected — ready to activate.';
+      } catch (e) {
+        st.textContent = e.message || 'Connection failed';
+      }
+    };
+
     el.querySelector('#licLockActivate').onclick = async () => {
       const st = el.querySelector('#licLockStatus');
       try {
         st.textContent = 'Activating…';
+        await applyServerFromForm();
         await activate({
           email: el.querySelector('#licLockEmail').value.trim(),
           licenseKey: el.querySelector('#licLockKey').value.trim(),
         });
         st.textContent = 'Activated.';
-        location.reload();
+        try {
+          global.dispatchEvent(new CustomEvent('chengpro:toast', { detail: 'License activated' }));
+          global.dispatchEvent(new CustomEvent('chengpro:navigate', { detail: 'license' }));
+        } catch { /* ignore */ }
+        setTimeout(() => { try { location.reload(); } catch { /* ignore */ } }, 400);
       } catch (e) {
         st.textContent = e.message || 'Activation failed';
       }
@@ -403,6 +596,11 @@
   }
 
   global.ChengLicense = {
+    apiBase,
+    requireApiBase,
+    isBundledClient,
+    setLicenseServerUrl,
+    getLicenseServerUrl,
     deviceId,
     detectSeat,
     loadEntitlement,
