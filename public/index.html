@@ -10,17 +10,43 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Tank Chief</title>
-  <link rel="manifest" href="/manifest.json">
-  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/css/app.css?v=66">
   <script>
+    /* ChEng AIO serves this app under /tanks/ — set prefix + base before assets load. */
+    (function mountUnderTanks() {
+      try {
+        var path = location.pathname || '';
+        var under = path === '/tanks' || path.indexOf('/tanks/') === 0;
+        if (typeof window.CHENG_PRO_TANKS_PREFIX !== 'string') {
+          window.CHENG_PRO_TANKS_PREFIX = under ? '/tanks' : '';
+        }
+        if (under && !document.querySelector('base')) {
+          var b = document.createElement('base');
+          b.href = '/tanks/';
+          document.head.insertBefore(b, document.head.firstChild);
+        }
+      } catch (_e) {}
+    })();
     try {
       if (localStorage.getItem('marine_bright') === '1' || localStorage.getItem('vm_bright') === '1') {
         document.documentElement.classList.add('bright');
       }
     } catch (_e) {}
-  
+
+    /* Bottom nav only on phone-width — never force it on desktop (even touch laptops). */
+    (function preferBottomNav() {
+      function apply() {
+        try {
+          var w = window.innerWidth || document.documentElement.clientWidth || 0;
+          var phone = w > 0 && w <= 900;
+          document.documentElement.classList.toggle('use-bottom-nav', phone);
+          if (!phone) document.documentElement.classList.remove('nav-open');
+        } catch (_e) {}
+      }
+      apply();
+      window.addEventListener('resize', apply);
+      window.addEventListener('orientationchange', function () { setTimeout(apply, 120); });
+    })();
+
     /* Keep phone/tablet browsers on the mobile layout (block “Desktop site”). */
     (function lockMobileViewport() {
       const WANT = 'width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover';
@@ -40,7 +66,11 @@
       } catch (_e) {}
       setInterval(apply, 1500);
     })();
-</script>
+  </script>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/app.css?v=67">
 </head>
 <body>
   <button class="menu-toggle" id="menu-toggle" aria-label="Menu">☰ Menu</button>
@@ -52,10 +82,34 @@
     </aside>
     <main class="main" id="main"></main>
   </div>
+  <nav class="bottom-nav no-print" id="bottomNav" aria-label="Primary">
+    <button type="button" class="bn-item active" data-page="dashboard" aria-label="Dashboard">
+      <span class="bn-ic" aria-hidden="true">▦</span><span>Dash</span>
+    </button>
+    <button type="button" class="bn-item" data-page="fuel" aria-label="Fuel Oil">
+      <span class="bn-ic" aria-hidden="true">⛽</span><span>Fuel</span>
+    </button>
+    <button type="button" class="bn-item" data-page="fuel-report" aria-label="Fuel Report">
+      <span class="bn-ic" aria-hidden="true">🧾</span><span>Report</span>
+    </button>
+    <button type="button" class="bn-item" data-page="bunker-plan" aria-label="Bunker Plan">
+      <span class="bn-ic" aria-hidden="true">📈</span><span>Bunker</span>
+    </button>
+    <button type="button" class="bn-item" data-page="more" aria-label="More">
+      <span class="bn-ic" aria-hidden="true">⋯</span><span>More</span>
+    </button>
+  </nav>
+  <div class="bn-more-sheet no-print" id="bnMoreSheet" aria-hidden="true">
+    <div class="bn-more-panel" role="dialog" aria-label="More pages">
+      <div class="bn-more-handle" aria-hidden="true"></div>
+      <div class="bn-more-title">More</div>
+      <div id="bn-more-nav"></div>
+    </div>
+  </div>
   <div class="toast" id="toast"></div>
   <div class="app-credit-print" id="app-credit-page"></div>
 
-  <script src="/js/license-config.js"></script>
+  <script src="js/license-config.js"></script>
   <script>
     window.CHENG_LICENSE_SKU = 'tank-chief';
     window.CHENG_LICENSE_PRODUCT = 'Tank Chief';
@@ -66,24 +120,24 @@
       }
     } catch (_e) {}
   </script>
-  <script src="/js/theme.js?v=66"></script>
-  <script src="/js/license.js?v=66"></script>
-  <script src="/js/branding.js?v=66"></script>
-  <script src="/js/node-shim.js?v=66"></script>
-  <script src="/js/node-require.js?v=66"></script>
-  <script src="/js/store-core.js?v=66"></script>
-  <script src="/js/local-api.js?v=66"></script>
-  <script src="/js/calc.js?v=66"></script>
-  <script src="/js/db.js?v=66"></script>
-  <script src="/js/api.js?v=66"></script>
-  <script src="/js/progress.js?v=66"></script>
-  <script src="/js/tank-graphics.js?v=66"></script>
-  <script src="/js/image-cutout.js?v=66"></script>
-  <script src="/js/signature-pad.js?v=66"></script>
-  <script src="/js/fuel-report-core.js?v=66"></script>
-  <script src="/js/fuel-report.js?v=66"></script>
-  <script src="/js/bunkering-core.js?v=66"></script>
-  <script src="/js/bunkering-report.js?v=66"></script>
-  <script src="/js/app.js?v=66"></script>
+  <script src="js/theme.js?v=67"></script>
+  <script src="js/license.js?v=67"></script>
+  <script src="js/branding.js?v=67"></script>
+  <script src="js/node-shim.js?v=67"></script>
+  <script src="js/node-require.js?v=67"></script>
+  <script src="js/store-core.js?v=67"></script>
+  <script src="js/local-api.js?v=67"></script>
+  <script src="js/calc.js?v=67"></script>
+  <script src="js/db.js?v=67"></script>
+  <script src="js/api.js?v=67"></script>
+  <script src="js/progress.js?v=67"></script>
+  <script src="js/tank-graphics.js?v=67"></script>
+  <script src="js/image-cutout.js?v=67"></script>
+  <script src="js/signature-pad.js?v=67"></script>
+  <script src="js/fuel-report-core.js?v=67"></script>
+  <script src="js/fuel-report.js?v=67"></script>
+  <script src="js/bunkering-core.js?v=67"></script>
+  <script src="js/bunkering-report.js?v=67"></script>
+  <script src="js/app.js?v=67"></script>
 </body>
 </html>

@@ -305,12 +305,127 @@ function closeMobileNav() {
   setMobileNavOpen(false);
 }
 
+function closeMoreSheet() {
+  const sheet = document.getElementById('bnMoreSheet');
+  if (!sheet) return;
+  sheet.classList.remove('open');
+  sheet.setAttribute('aria-hidden', 'true');
+}
+
+function openMoreSheet() {
+  const sheet = document.getElementById('bnMoreSheet');
+  if (!sheet) return;
+  sheet.classList.add('open');
+  sheet.setAttribute('aria-hidden', 'false');
+  renderMoreNav();
+}
+
+function apiHref(path) {
+  return (typeof Api !== 'undefined' && Api.withPrefix) ? Api.withPrefix(path) : path;
+}
+
+const BOTTOM_PRIMARY = new Set(['dashboard', 'fuel', 'fuel-report', 'bunker-plan']);
+
+function syncBottomNav() {
+  const page = STATE.route.page;
+  document.querySelectorAll('#bottomNav .bn-item').forEach((btn) => {
+    const p = btn.dataset.page;
+    if (p === 'more') {
+      btn.classList.toggle('active', !BOTTOM_PRIMARY.has(page));
+    } else {
+      btn.classList.toggle('active', p === page);
+    }
+  });
+}
+
+function renderMoreNav() {
+  const host = document.getElementById('bn-more-nav');
+  if (!host) return;
+  host.innerHTML = '';
+
+  const brand = document.createElement('div');
+  brand.className = 'brand';
+  brand.innerHTML = `
+    <div class="ship">${vesselName()}</div>
+    <div class="sub"><span class="status-dot ${STATE.online ? 'online' : 'offline'}"></span>
+      ${STATE.online ? 'Online' : 'Offline'} · ${Branding.APP_NAME}</div>
+    <select class="vessel-select" id="bn-vessel-switcher">
+      <option value="">— Select vessel —</option>
+      ${STATE.vessels.map((v) => `<option value="${v.id}" ${v.id === STATE.activeVesselId ? 'selected' : ''}>${v.name}</option>`).join('')}
+    </select>`;
+  host.appendChild(brand);
+
+  const mk = (page, label, icon) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'nav-btn' + (STATE.route.page === page ? ' active' : '');
+    b.innerHTML = `<span class="ic">${icon}</span><span>${label}</span>`;
+    b.onclick = () => { closeMoreSheet(); navigate(page); };
+    return b;
+  };
+
+  let g = document.createElement('div');
+  g.className = 'nav-group-label'; g.textContent = 'Tanks';
+  host.appendChild(g);
+  for (const c of CATS) {
+    if (c.id === 'fuel') continue;
+    host.appendChild(mk(c.id, c.label, c.icon));
+  }
+  host.appendChild(mk('add-tank', 'Add Tank', '+'));
+  host.appendChild(mk('calibration', 'Calibration DB', '☰'));
+
+  g = document.createElement('div');
+  g.className = 'nav-group-label'; g.textContent = 'Fuel Management';
+  host.appendChild(g);
+  host.appendChild(mk('voyage', 'Voyage Fuel Calc', '🧭'));
+  host.appendChild(mk('bunker-after', 'After Bunkering', '📥'));
+  host.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
+  host.appendChild(mk('report', 'Voyage Report', '📋'));
+
+  g = document.createElement('div');
+  g.className = 'nav-group-label'; g.textContent = 'Reference';
+  host.appendChild(g);
+  host.appendChild(mk('vcf-wcf', 'VCF / WCF Calc', 'Σ'));
+  host.appendChild(mk('iso8217', 'ISO 8217 Specs', '▤'));
+
+  g = document.createElement('div');
+  g.className = 'nav-group-label'; g.textContent = 'System';
+  host.appendChild(g);
+  host.appendChild(mk('setup', 'Vessel Setup', '⚙'));
+  host.appendChild(mk('settings', 'Backup / Sync', '⇅'));
+  host.appendChild(mk('about', 'About', 'ℹ'));
+
+  const themeBtn = document.createElement('button');
+  themeBtn.type = 'button';
+  themeBtn.className = 'theme-toggle no-print';
+  themeBtn.setAttribute('data-theme-toggle', '');
+  themeBtn.textContent = document.documentElement.classList.contains('bright') ? 'Night' : 'Bright';
+  themeBtn.title = 'Day / bright mode for sunlight';
+  host.appendChild(themeBtn);
+  if (window.MarineTheme) MarineTheme.bind(host);
+
+  const sw = document.getElementById('bn-vessel-switcher');
+  if (sw) {
+    sw.onchange = async (e) => {
+      const id = e.target.value;
+      if (!id) return;
+      await Api.setActive(id);
+      STATE.activeVesselId = id;
+      await reloadBundle();
+      closeMoreSheet();
+      navigate('dashboard');
+      showToast('Loaded vessel');
+    };
+  }
+}
+
 /** Pages that were folded into another screen; old links still land somewhere sensible. */
 const PAGE_ALIASES = { bunkering: 'bunker-plan' };
 
 function navigate(page, tankId = null) {
   STATE.route = { page: PAGE_ALIASES[page] || page, tankId };
   closeMobileNav();
+  closeMoreSheet();
   render();
   window.scrollTo(0, 0);
 }
@@ -426,6 +541,7 @@ function renderNav() {
 
 function render() {
   renderNav();
+  syncBottomNav();
   const main = document.getElementById('main');
   main.innerHTML = '';
 
@@ -1018,7 +1134,7 @@ function renderAddTank(main) {
     </div>
     <div class="btn-row">
       <button class="btn primary" id="btn-add-tank">Add tank</button>
-      <a class="btn" href="/api/templates/tanks.csv">Download CSV template</a>
+      <a class="btn" href="${apiHref('/api/templates/tanks.csv')}">Download CSV template</a>
       <a class="btn" id="btn-export-tanks-csv" href="#">Export tanks CSV</a>
     </div>
     <div class="section-title">Import tanks from sounding PDF</div>
@@ -1077,7 +1193,7 @@ function renderAddTank(main) {
 
   const exportTanks = document.getElementById('btn-export-tanks-csv');
   if (exportTanks && STATE.activeVesselId) {
-    exportTanks.href = `/api/vessels/${STATE.activeVesselId}/tanks.csv`;
+    exportTanks.href = apiHref(`/api/vessels/${STATE.activeVesselId}/tanks.csv`);
   }
 
   document.getElementById('btn-add-tank').onclick = async () => {
@@ -1302,7 +1418,7 @@ function renderCalibrationList(main) {
       <button class="btn primary" id="btn-print-fuel-book">Print all fuel calibration</button>
       <label class="btn">Import workbook<input type="file" id="excel-import" accept=".xlsm,.xlsx" hidden></label>
       <button class="btn" id="btn-import-repo-excel">Import repo workbook</button>
-      <a class="btn" href="/api/templates/calibration.csv">Calibration CSV template</a>
+      <a class="btn" href="${apiHref('/api/templates/calibration.csv')}">Calibration CSV template</a>
     </div>`;
   main.appendChild(head);
 
@@ -1391,8 +1507,8 @@ function renderCalibrationEditor(main, tankId) {
     <div class="btn-row">
       <button class="btn small" id="btn-back-tank">Back to tank</button>
       <button class="btn small primary" id="btn-print-tank-calib">Print / PDF</button>
-      <a class="btn small" id="btn-export-csv" href="/api/vessels/${STATE.activeVesselId}/tanks/${tankId}/calibration.csv">Export CSV</a>
-      <a class="btn small" id="btn-export-xlsx" href="/api/vessels/${STATE.activeVesselId}/tanks/${tankId}/calibration.xlsx">Export Excel</a>
+      <a class="btn small" id="btn-export-csv" href="${apiHref(`/api/vessels/${STATE.activeVesselId}/tanks/${tankId}/calibration.csv`)}">Export CSV</a>
+      <a class="btn small" id="btn-export-xlsx" href="${apiHref(`/api/vessels/${STATE.activeVesselId}/tanks/${tankId}/calibration.xlsx`)}">Export Excel</a>
       <label class="btn small">Import CSV/Excel<input type="file" id="table-import" accept=".csv,.xlsx,.xlsm,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label>
       <label class="btn small">Import PDF<input type="file" id="pdf-import" accept=".pdf,application/pdf" hidden></label>
       <label class="hint" style="display:flex;align-items:center;gap:4px;margin:0;font-size:12px">
@@ -3461,8 +3577,24 @@ async function boot() {
     });
   }
   document.getElementById('sidebar-backdrop')?.addEventListener('click', closeMobileNav);
+  document.getElementById('bnMoreSheet')?.addEventListener('click', (e) => {
+    if (e.target.id === 'bnMoreSheet') closeMoreSheet();
+  });
+  document.getElementById('bottomNav')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.bn-item');
+    if (!btn) return;
+    const page = btn.dataset.page;
+    if (page === 'more') {
+      const sheet = document.getElementById('bnMoreSheet');
+      if (sheet?.classList.contains('open')) closeMoreSheet();
+      else openMoreSheet();
+      return;
+    }
+    closeMoreSheet();
+    navigate(page);
+  });
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeMobileNav();
+    if (e.key === 'Escape') { closeMobileNav(); closeMoreSheet(); }
   });
   window.addEventListener('orientationchange', () => {
     window.setTimeout(closeMobileNav, 150);
