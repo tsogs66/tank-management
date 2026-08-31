@@ -392,10 +392,18 @@
   function enforceEnabled() {
     try {
       const cached = localStorage.getItem(ENFORCE_CACHE_KEY);
-      if (cached === '0') return false;
       if (cached === '1') return true;
+      if (cached === '0') {
+        /* Standalone Voyage/Tank must always activate — soft cache is ignored. */
+        const sku = productSku();
+        if (sku === 'voyage-chief' || sku === 'tank-chief') return true;
+        return false;
+      }
     } catch { /* ignore */ }
-    /* Soft until the license host answers once (then cache). Production host defaults enforce on. */
+    /* Standalone Voyage/Tank: hard gate even before a license host answers. */
+    const sku = productSku();
+    if (sku === 'voyage-chief' || sku === 'tank-chief') return true;
+    /* ChEng AIO: soft until /status answers once (then cache). */
     return false;
   }
 
@@ -578,9 +586,14 @@
       return { ok: true, skipped: true, reason: 'embedded_aio' };
     }
     await fetchStatus();
-    const enforce = options.enforce != null ? !!options.enforce : enforceEnabled();
+    let enforce = options.enforce != null ? !!options.enforce : enforceEnabled();
+    /* Always require activation for standalone Voyage / Tank. */
+    if (options.enforce == null) {
+      const sku = productSku();
+      if (sku === 'voyage-chief' || sku === 'tank-chief') enforce = true;
+    }
     const ent = loadEntitlement();
-    if (isValid(ent)) {
+    if (isValid(ent) && skuAllowed(ent)) {
       if (daysLeft(ent) <= 7 && navigator.onLine) {
         try { await heartbeat(); } catch { /* keep cached grace */ }
       }
