@@ -32,7 +32,7 @@
       }
     } catch (_e) {}
 
-    /* Bottom nav only on phone-width — never force it on desktop (even touch laptops). */
+    /* Prefer bottom nav on phone-width — never force it on desktop (even touch laptops). */
     (function preferBottomNav() {
       function apply() {
         try {
@@ -46,6 +46,11 @@
       window.addEventListener('resize', apply);
       window.addEventListener('orientationchange', function () { setTimeout(apply, 120); });
     })();
+    try {
+      if (/[?&]chengaio=1\b/.test(location.search || '') || localStorage.getItem('chengAioEmbedded') === '1') {
+        document.documentElement.classList.add('chengaio-embed');
+      }
+    } catch (_e) {}
 
     /* Keep phone/tablet browsers on the mobile layout (block “Desktop site”). */
     (function lockMobileViewport() {
@@ -70,7 +75,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="css/app.css?v=67">
+  <link rel="stylesheet" href="css/app.css?v=68">
 </head>
 <body>
   <button class="menu-toggle" id="menu-toggle" aria-label="Menu">☰ Menu</button>
@@ -120,24 +125,24 @@
       }
     } catch (_e) {}
   </script>
-  <script src="js/theme.js?v=67"></script>
-  <script src="js/license.js?v=67"></script>
-  <script src="js/branding.js?v=67"></script>
-  <script src="js/node-shim.js?v=67"></script>
-  <script src="js/node-require.js?v=67"></script>
-  <script src="js/store-core.js?v=67"></script>
-  <script src="js/local-api.js?v=67"></script>
-  <script src="js/calc.js?v=67"></script>
-  <script src="js/db.js?v=67"></script>
-  <script src="js/api.js?v=67"></script>
-  <script src="js/progress.js?v=67"></script>
-  <script src="js/tank-graphics.js?v=67"></script>
-  <script src="js/image-cutout.js?v=67"></script>
-  <script src="js/signature-pad.js?v=67"></script>
-  <script src="js/fuel-report-core.js?v=67"></script>
-  <script src="js/fuel-report.js?v=67"></script>
-  <script src="js/bunkering-core.js?v=67"></script>
-  <script src="js/bunkering-report.js?v=67"></script>
-  <script src="js/app.js?v=67"></script>
+  <script src="js/theme.js?v=68"></script>
+  <script src="js/license.js?v=68"></script>
+  <script src="js/branding.js?v=68"></script>
+  <script src="js/node-shim.js?v=68"></script>
+  <script src="js/node-require.js?v=68"></script>
+  <script src="js/store-core.js?v=68"></script>
+  <script src="js/local-api.js?v=68"></script>
+  <script src="js/calc.js?v=68"></script>
+  <script src="js/db.js?v=68"></script>
+  <script src="js/api.js?v=68"></script>
+  <script src="js/progress.js?v=68"></script>
+  <script src="js/tank-graphics.js?v=68"></script>
+  <script src="js/image-cutout.js?v=68"></script>
+  <script src="js/signature-pad.js?v=68"></script>
+  <script src="js/fuel-report-core.js?v=68"></script>
+  <script src="js/fuel-report.js?v=68"></script>
+  <script src="js/bunkering-core.js?v=68"></script>
+  <script src="js/bunkering-report.js?v=68"></script>
+  <script src="js/app.js?v=68"></script>
 </body>
 </html>

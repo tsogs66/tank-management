@@ -199,8 +199,12 @@ html.use-bottom-nav .sidebar-backdrop { display: none !important; }
 html.use-bottom-nav .main {
   padding: calc(12px + env(safe-area-inset-top, 0px)) 10px calc(64px + env(safe-area-inset-bottom, 0px));
 }
-html.use-bottom-nav .theme-fab {
-  bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+/* Room for ChEng AIO Home FAB (top-right) when embedded */
+html.chengaio-embed .main {
+  padding-top: calc(52px + env(safe-area-inset-top, 0px));
+}
+html.use-bottom-nav.chengaio-embed .main {
+  padding-top: calc(52px + env(safe-area-inset-top, 0px));
 }
 
 /* Wide desktop: always sidebar, never hamburger or phone bottom bar */
@@ -1776,19 +1780,10 @@ tr.bp-est-over th.fr-tank-name { box-shadow: inset 3px 0 0 var(--bad); }
 html.bright .theme-toggle { background: rgba(18,34,56,0.06); }
 .theme-toggle:hover { border-color: var(--accent); color: var(--text); }
 
-/* Fixed corner control — bottom-left so it never fights Menu (top-left) or
-   ChEng AIO chrome (top-right when embedded). */
+/* Theme stays in the sidebar / More sheet — no bottom-left FAB on phone
+   (it sat under the fold and fought the bottom nav). */
 .theme-fab {
-  position: fixed;
-  left: calc(12px + env(safe-area-inset-left, 0px));
-  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
-  z-index: 45;
-  width: auto;
-  margin: 0;
-  box-shadow: var(--shadow);
-}
-@media (min-width: 1025px) {
-  .theme-fab { display: none !important; }
+  display: none !important;
 }
 @media (max-width: 900px) {
   .sidebar .theme-toggle { display: none; }

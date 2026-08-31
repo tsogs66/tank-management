@@ -3486,9 +3486,13 @@ function renderIso8217(main) {
 }
 
 function renderAbout(main) {
+  const ver = (typeof Branding !== 'undefined' && Branding.APP_VERSION)
+    ? Branding.APP_VERSION
+    : (document.querySelector('meta[name="app-version"]')?.content || '');
+  const pkgVer = ver || '2.1.8';
   main.innerHTML += `<div class="page-head"><div>
     <h1>About</h1>
-    <div class="desc">${Branding.APP_NAME}</div>
+    <div class="desc">${Branding.APP_NAME} · v${pkgVer}</div>
   </div></div>
   <div class="form-panel about-copy">
     <div class="about-authors">
@@ -3502,8 +3506,11 @@ function renderAbout(main) {
 
     <div class="about-install">
       <button type="button" class="btn primary" id="btn-install-app">Install on phone or tablet</button>
+      <button type="button" class="btn" id="btn-check-update">Check for latest release</button>
       <p class="about-install-hint" id="about-install-hint"></p>
     </div>
+    <p class="hint" id="about-update-status" role="status" aria-live="polite"></p>
+    <p><a id="about-update-link" href="https://github.com/tsogs66/tank-management/releases/latest" target="_blank" rel="noopener" style="display:none;">Open latest release</a></p>
 
     <h2>Tank sounding</h2>
     <p>Enter ullage or dip with trim and heel. <b>Correction tanks</b> interpolate trim, then list, then read
@@ -3537,7 +3544,59 @@ function renderAbout(main) {
       database between machines.</p>
   </div>`;
   document.getElementById('btn-install-app')?.addEventListener('click', promptAppInstall);
+  document.getElementById('btn-check-update')?.addEventListener('click', checkTankAppUpdate);
   paintInstallButton();
+}
+
+function parseSemverParts(v) {
+  const m = String(v || '').trim().replace(/^v/i, '').match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+function isNewerVersion(latest, current) {
+  const a = parseSemverParts(latest);
+  const b = parseSemverParts(current);
+  if (!a || !b) return String(latest) !== String(current);
+  for (let i = 0; i < 3; i++) {
+    if (a[i] > b[i]) return true;
+    if (a[i] < b[i]) return false;
+  }
+  return false;
+}
+async function checkTankAppUpdate() {
+  const status = document.getElementById('about-update-status');
+  const link = document.getElementById('about-update-link');
+  const current = '2.1.8';
+  if (status) status.textContent = 'Checking GitHub for the latest Tank Chief release…';
+  if (link) link.style.display = 'none';
+  try {
+    const res = await fetch('https://api.github.com/repos/tsogs66/tank-management/releases/latest', {
+      headers: { Accept: 'application/vnd.github+json' },
+      cache: 'no-store',
+    });
+    if (!res.ok) throw new Error('GitHub returned HTTP ' + res.status);
+    const data = await res.json();
+    const tag = String(data.tag_name || '').replace(/^v/i, '');
+    const url = data.html_url || 'https://github.com/tsogs66/tank-management/releases/latest';
+    if (link) {
+      link.href = url;
+      link.style.display = 'inline';
+    }
+    if (!tag) {
+      if (status) status.textContent = 'Could not read the latest release tag.';
+      return;
+    }
+    if (isNewerVersion(tag, current)) {
+      if (status) status.textContent = `Update available: v${tag} (this device: v${current}). Open the release page to download.`;
+    } else {
+      if (status) status.textContent = `You are on the latest release (v${current}).`;
+    }
+  } catch (err) {
+    if (status) {
+      status.textContent = 'Could not check for updates (' + (err && err.message ? err.message : 'offline') + ').';
+    }
+    if (link) link.style.display = 'inline';
+  }
 }
 
 /* ---------- Boot ---------- */
