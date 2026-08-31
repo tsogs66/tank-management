@@ -6,6 +6,24 @@ const Api = (() => {
   let flushing = false;
   const listeners = new Set();
 
+  /* ChEng AIO mounts Tank Chief under /tanks (API at /tanks/api/*).
+   * Standalone Tank Chief serves from /. Prefer an explicit prefix; otherwise
+   * detect from the page path so the AIO iframe does not hit the shell /api. */
+  function detectApiPrefix() {
+    if (typeof window.CHENG_PRO_TANKS_PREFIX === 'string') {
+      return String(window.CHENG_PRO_TANKS_PREFIX).replace(/\/$/, '');
+    }
+    const path = location.pathname || '';
+    if (path === '/tanks' || path.startsWith('/tanks/')) return '/tanks';
+    return '';
+  }
+  const API_PREFIX = detectApiPrefix();
+  function withPrefix(path) {
+    if (!path) return path;
+    if (API_PREFIX && path.startsWith('/api')) return API_PREFIX + path;
+    return path;
+  }
+
   function setOnline(v) {
     online = v;
     listeners.forEach((fn) => fn(online));
@@ -89,7 +107,7 @@ const Api = (() => {
         : opts.body != null ? JSON.stringify(opts.body) : undefined,
     };
     try {
-      const res = await fetch(path, init);
+      const res = await fetch(withPrefix(path), init);
       const text = await res.text();
       let data = null;
       try { data = text ? JSON.parse(text) : null; } catch { data = text; }
@@ -144,7 +162,7 @@ const Api = (() => {
   function upload(path, formData, onProgress) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', path);
+      xhr.open('POST', withPrefix(path));
       xhr.upload.onprogress = (e) => {
         if (!onProgress) return;
         if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100), 'uploading');
@@ -182,7 +200,7 @@ const Api = (() => {
     }
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open('GET', path);
+      xhr.open('GET', withPrefix(path));
       xhr.responseType = 'text';
       xhr.onprogress = (e) => {
         if (!onProgress) return;
@@ -293,7 +311,7 @@ const Api = (() => {
   async function reachable() {
     if (transport === 'local' && canUseLocal()) { setOnline(true); return true; }
     try {
-      const res = await fetch('/api/health', { cache: 'no-store' });
+      const res = await fetch(withPrefix('/api/health'), { cache: 'no-store' });
       const ok = res.ok;
       setOnline(ok);
       return ok;
@@ -309,7 +327,7 @@ const Api = (() => {
 
   return {
     request, upload, download, getStatus, getVessel, mutate, flushQueue, onStatus, isOnline,
-    reachable, afterFlush, getTransport, setTransport, canUseLocal,
+    reachable, afterFlush, getTransport, setTransport, canUseLocal, withPrefix, apiPrefix: API_PREFIX,
     listVessels: () => request('/api/vessels'),
     createVessel: (body) => request('/api/vessels', { method: 'POST', body }),
     setActive: (id) => request('/api/vessels/active', { method: 'POST', body: { id } }),
