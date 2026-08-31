@@ -52,6 +52,13 @@ const NodeRequire = (() => {
     './store': () => window.StoreCore,
     '../public/js/fuel-report-core': () => window.FuelReportCore,
     '../public/js/bunkering-core': () => window.BunkeringCore,
+    /* License scope middleware — on-device LocalApi has no signed headers to
+     * verify; pass through unscoped so Vessel Setup / import keep working. */
+    './license-scope': () => ({
+      parseScopedEntitlement: () => ({ email: null, master: false, actAs: null }),
+      requireSyncAuth: (req, res, next) => (next ? next() : undefined),
+      verifyEntitlement: () => false,
+    }),
     './excel-import': () => unavailable('Excel import'),
     './pdf-import': () => unavailable('PDF calibration import'),
     './tank-table-io': () => unavailable('Spreadsheet export'),

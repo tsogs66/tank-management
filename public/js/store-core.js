@@ -169,6 +169,64 @@ function ensureDirs() {
 }
 
 /**
+ * License-email scope isolates data under data/users/<slug>/. Existing installs
+ * still have vessels at the legacy root — when a scoped folder is empty, copy
+ * those root vessels once so Vessel Setup / Tank Chief keep showing the fleet.
+ */
+function seedScopedFromRootIfEmpty() {
+  const email = scopedEmail();
+  if (!email) return false;
+  ensureDirs();
+  const userIndex = readJson(indexPath(), { vessels: [], activeVesselId: null });
+  if ((userIndex.vessels || []).length) return false;
+
+  const rootIndex = readJson(path.join(rootDataDir(), 'vessels-index.json'), {
+    vessels: [],
+    activeVesselId: null,
+  });
+  if (!(rootIndex.vessels || []).length) return false;
+
+  const rootVesselsDir = path.join(rootDataDir(), 'vessels');
+  let copied = 0;
+  for (const entry of rootIndex.vessels) {
+    if (!entry || !entry.id) continue;
+    const srcDir = path.join(rootVesselsDir, String(entry.id));
+    if (!fs.existsSync(srcDir)) continue;
+    const destDir = path.join(getVesselsDir(), String(entry.id));
+    fs.mkdirSync(destDir, { recursive: true });
+    for (const file of VESSEL_FILES) {
+      const src = path.join(srcDir, file);
+      if (!fs.existsSync(src)) continue;
+      const dest = path.join(destDir, file);
+      try {
+        if (typeof fs.copyFileSync === 'function') {
+          fs.copyFileSync(src, dest);
+        } else {
+          const raw = fs.readFileSync(src, 'utf8');
+          fs.mkdirSync(path.dirname(dest), { recursive: true });
+          fs.writeFileSync(dest, raw);
+        }
+        copied += 1;
+      } catch { /* skip unreadable file */ }
+    }
+  }
+  if (!copied) return false;
+  writeJson(indexPath(), {
+    vessels: rootIndex.vessels.slice(),
+    activeVesselId: rootIndex.activeVesselId || rootIndex.vessels[0]?.id || null,
+    updatedAt: now(),
+  });
+  const rootSettingsFile = path.join(rootDataDir(), 'settings.json');
+  if (fs.existsSync(rootSettingsFile)) {
+    const userSettings = readJson(settingsPath(), null);
+    if (!userSettings || !Object.keys(userSettings).length) {
+      writeJson(settingsPath(), readJson(rootSettingsFile, defaultSettings()));
+    }
+  }
+  return true;
+}
+
+/**
  * Master helper: scan data/users/* folders that look like license databases.
  * Returns [{ emailSlug, path, vesselCount }].
  */
@@ -281,10 +339,12 @@ function saveSettings(patch) {
 }
 
 function listVessels() {
+  seedScopedFromRootIfEmpty();
   return loadIndex().vessels;
 }
 
 function getActiveVesselId() {
+  seedScopedFromRootIfEmpty();
   return loadIndex().activeVesselId;
 }
 
@@ -807,6 +867,7 @@ const api = {
   runWithUserScope,
   isMasterScope,
   listUserDatabases,
+  seedScopedFromRootIfEmpty,
   getSettings,
   saveSettings,
   listVessels,
