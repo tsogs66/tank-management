@@ -855,6 +855,16 @@ app.post('/api/backup/import', upload.single('file'), (req, res) => {
   }
 });
 
+app.get('/api/vessels/:id/backup', (req, res) => {
+  try {
+    const backup = store.exportVesselBackup(req.params.id);
+    res.setHeader('Content-Disposition', `attachment; filename="fuel-tms-vessel-${req.params.id}-${Date.now()}.json"`);
+    res.json(backup);
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
 /* ---------- Sync (local <-> Proxmox / remote peer) ---------- */
 
 /** Cheng-Pro serves Tank Chief at /tanks; standalone Tank Chief uses the root.
@@ -903,10 +913,31 @@ function describePeerFetchError(err, url) {
   return msg + ' (' + target + ')';
 }
 
+function peerScopeFromRequest(req) {
+  if (!req || !req.get) return {};
+  const out = {};
+  const email = (req.get('x-license-email') || '').trim();
+  const master = req.get('x-license-master') === '1';
+  const actAs = (req.get('x-act-as-user') || '').trim();
+  const ent = req.get('x-license-entitlement');
+  if (email) out.licenseEmail = email;
+  if (master) out.licenseMaster = true;
+  if (actAs) out.actAsUser = actAs;
+  if (ent) out.licenseEntitlement = ent;
+  return out;
+}
+
 function peerAuthHeadersFromBody(body) {
   const headers = {};
   const token = String(body?.syncApiToken || body?.apiToken || '').trim();
   if (token) headers.Authorization = 'Bearer ' + token;
+  const email = String(body?.licenseEmail || '').trim();
+  if (email) headers['X-License-Email'] = email;
+  if (body?.licenseMaster) headers['X-License-Master'] = '1';
+  const actAs = String(body?.actAsUser || '').trim();
+  if (actAs) headers['X-Act-As-User'] = actAs;
+  const ent = String(body?.licenseEntitlement || '').trim();
+  if (ent) headers['X-License-Entitlement'] = ent;
   return headers;
 }
 
@@ -982,6 +1013,7 @@ app.post('/api/sync/probe', asyncHandler(async (req, res) => {
           cache: 'no-store',
           headers: peerAuthHeadersFromBody({
             syncApiToken: req.body?.syncApiToken || settings.syncApiToken || '',
+            ...peerScopeFromRequest(req),
           }),
         });
         let product = null;
@@ -1036,6 +1068,7 @@ app.post('/api/sync/pull', asyncHandler(async (req, res) => {
   if (!url) return res.status(400).json({ error: 'No sync URL configured' });
   const authBody = {
     syncApiToken: req.body?.syncApiToken || settings.syncApiToken || '',
+    ...peerScopeFromRequest(req),
   };
   const resp = await fetchPeerSync(url, '/api/sync/export', { authBody });
   if (!resp.ok) throw new Error('Remote sync failed: HTTP ' + resp.status + ' from ' + url);
@@ -1067,6 +1100,7 @@ app.post('/api/sync/push', asyncHandler(async (req, res) => {
   const payload = store.syncPushBundle();
   const authBody = {
     syncApiToken: req.body?.syncApiToken || settings.syncApiToken || '',
+    ...peerScopeFromRequest(req),
   };
   const resp = await fetchPeerSync(url, '/api/sync/import', {
     method: 'POST',

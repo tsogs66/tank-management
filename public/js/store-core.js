@@ -495,6 +495,7 @@ function createVessel(details = {}) {
     id: vessel.id,
     name: vessel.name,
     imo: vessel.imo,
+    flag: vessel.flag || '',
     updatedAt: vessel.updatedAt,
   });
   if (!index.activeVesselId) index.activeVesselId = id;
@@ -531,6 +532,7 @@ function touchVessel(id) {
   if (entry) {
     entry.name = vessel.name;
     entry.imo = vessel.imo;
+    entry.flag = vessel.flag || '';
     entry.updatedAt = vessel.updatedAt;
     saveIndex(index);
   }
@@ -744,19 +746,39 @@ function updateCalibration(vesselId, tankId, calibration) {
 
 function exportBackup() {
   ensureDirs();
-  const index = loadIndex();
+  const sync = syncPushBundle();
   const settings = getSettings();
-  const vessels = {};
-  for (const v of index.vessels) {
-    vessels[v.id] = getVesselBundle(v.id);
-  }
+  const { syncUrl, syncApiToken, ...safeSettings } = settings;
   return {
     format: 'vessel-fuel-tms-backup',
     version: 1,
     exportedAt: now(),
-    settings,
-    index,
-    vessels,
+    settings: isMasterScope() && !getUserScope().actAs ? safeSettings : settings,
+    index: sync.index,
+    vessels: sync.vessels,
+  };
+}
+
+/** Single-vessel JSON backup — works offline via LocalApi and on server. */
+function exportVesselBackup(vesselId) {
+  const id = String(vesselId || '').trim();
+  if (!id) throw new Error('Vessel id required');
+  const bundle = getVesselBundle(id);
+  const index = loadIndex();
+  const entry = index.vessels.find((v) => v.id === id) || {
+    id,
+    name: bundle.vessel?.name || id,
+    imo: bundle.vessel?.imo || '',
+    flag: bundle.vessel?.flag || '',
+    updatedAt: now(),
+  };
+  return {
+    format: 'vessel-fuel-tms-backup',
+    version: 1,
+    exportedAt: now(),
+    singleVessel: true,
+    index: { vessels: [entry], activeVesselId: id, updatedAt: now() },
+    vessels: { [id]: bundle },
   };
 }
 
@@ -840,6 +862,7 @@ function importBackup(backup, { merge = true } = {}) {
       id,
       name: vesselDoc.name || id,
       imo: vesselDoc.imo || '',
+      flag: vesselDoc.flag || '',
       updatedAt: now(),
     });
   }
@@ -1002,7 +1025,13 @@ function syncPushBundleAggregate() {
 }
 
 function syncPushBundle() {
-  if (scopedEmail()) {
+  const scope = getUserScope();
+  /* Master without act-as: all tenants (matches Voyage Chief sync scope). */
+  if (scope.master && !scope.actAs) {
+    return syncPushBundleAggregate();
+  }
+  const email = scopedEmail();
+  if (email) {
     const index = loadIndex();
     const vessels = {};
     for (const v of index.vessels) {
@@ -1048,6 +1077,7 @@ const api = {
   deleteTank,
   updateCalibration,
   exportBackup,
+  exportVesselBackup,
   importBackup,
   applySyncPayload,
   syncPushBundle,
