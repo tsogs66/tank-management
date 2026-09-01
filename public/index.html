@@ -19,6 +19,9 @@
         if (typeof window.CHENG_PRO_TANKS_PREFIX !== 'string') {
           window.CHENG_PRO_TANKS_PREFIX = under ? '/tanks' : '';
         }
+        if (under && typeof window.CHENG_PRO_EMBEDDED_BASE !== 'string') {
+          window.CHENG_PRO_EMBEDDED_BASE = '/tanks/embedded/';
+        }
         if (under && !document.querySelector('base')) {
           var b = document.createElement('base');
           b.href = '/tanks/';
