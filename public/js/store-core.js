@@ -273,6 +273,25 @@ function slugify(name) {
     .slice(0, 64) || 'vessel';
 }
 
+/** Shared ship identity + engine basis stored on vessel.json (AIO Vessel Setup). */
+const VESSEL_PROFILE_FIELDS = [
+  'callSign', 'flag', 'company', 'owner', 'type', 'dwt', 'notes',
+  'mcrRpm', 'mcrKw', 'csrRpm', 'csrKw', 'pitch',
+  'sfoc100', 'sfoc85', 'slocRef', 'mechEff',
+  'fuelDensity', 'lubeDensity', 'lcvRef', 'lcvActual', 'propLawExp',
+  'voyageRegistryId', 'voyageSlug',
+];
+
+function applyVesselProfileFields(target, source) {
+  const src = source && typeof source === 'object' ? source : {};
+  for (const key of VESSEL_PROFILE_FIELDS) {
+    if (src[key] != null && src[key] !== '') target[key] = src[key];
+  }
+  if (!target.company && target.owner) target.company = target.owner;
+  if (!target.owner && target.company) target.owner = target.company;
+  return target;
+}
+
 function defaultSettings() {
   return {
     syncUrl: '',
@@ -434,13 +453,15 @@ function createVessel(details = {}) {
     imo: details.imo || '',
     callSign: details.callSign || '',
     flag: details.flag || '',
+    company: details.company || details.owner || '',
+    owner: details.owner || details.company || '',
     type: details.type || '',
-    owner: details.owner || '',
-    dwt: details.dwt || '',
+    dwt: details.dwt != null && details.dwt !== '' ? String(details.dwt) : '',
     notes: details.notes || '',
     createdAt: now(),
     updatedAt: now(),
   };
+  applyVesselProfileFields(vessel, details);
 
   const dir = vesselDir(id);
   fs.mkdirSync(dir, { recursive: true });
@@ -619,10 +640,13 @@ function unionById(currentList, incomingList, stampKey) {
 function updateVesselDetails(id, patch) {
   const vessel = readJson(vesselPath(id, 'vessel.json'));
   if (!vessel) throw new Error('Vessel not found');
-  Object.assign(vessel, patch, { id: vessel.id, updatedAt: now() });
-  writeJson(vesselPath(id, 'vessel.json'), vessel);
+  const next = applyVesselProfileFields(
+    { ...vessel, ...patch, id: vessel.id, updatedAt: now() },
+    patch
+  );
+  writeJson(vesselPath(id, 'vessel.json'), next);
   touchVessel(id);
-  return vessel;
+  return next;
 }
 
 function findTankInBundle(tanks, tankId) {
@@ -786,8 +810,12 @@ function importBackup(backup, { merge = true } = {}) {
     const id = safeVesselId(rawId, bundle.vessel?.name || bundle.name);
     const dir = vesselDir(id);
     fs.mkdirSync(dir, { recursive: true });
-    const vesselDoc = bundle.vessel || { id, name: bundle.name || id };
-    if (!vesselDoc.id) vesselDoc.id = id;
+    const vesselDoc = applyVesselProfileFields({
+      ...(bundle.vessel || {}),
+      id,
+      name: bundle.vessel?.name || bundle.name || id,
+      imo: bundle.vessel?.imo || bundle.imo || '',
+    }, bundle.vessel || bundle);
     writeJson(vesselPath(id, 'vessel.json'), vesselDoc);
     writeJson(vesselPath(id, 'tanks.json'), bundle.tanks || emptyTanks());
     writeJson(vesselPath(id, 'readings.json'), bundle.readings || {});
