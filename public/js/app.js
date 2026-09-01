@@ -3091,7 +3091,7 @@ function renderSettings(main) {
     Progress.start(progressHost(), merge ? 'Restoring backup (merge)…' : 'Restoring backup…',
       `Reading ${file.name}…`);
     try {
-      await Api.importBackup(file, merge, (pct, phase) => {
+      const result = await Api.importBackup(file, merge, (pct, phase) => {
         if (phase === 'uploading') {
           Progress.set(pct, pct == null ? 'Uploading backup…' : `Uploading backup… ${pct}%`);
         } else {
@@ -3100,15 +3100,16 @@ function renderSettings(main) {
       });
       Progress.set(80, 'Refreshing vessel list…');
       const st = await Api.getStatus();
-      STATE.vessels = st.vessels;
+      STATE.vessels = st.vessels || [];
       STATE.activeVesselId = st.activeVesselId;
-      STATE.settings = st.settings;
+      STATE.settings = st.settings || STATE.settings;
       if (STATE.activeVesselId) {
         Progress.set(90, 'Loading active vessel…');
         await reloadBundle();
       }
-      Progress.done(merge ? 'Backup merged' : 'Backup restored');
-      showToast('Backup imported');
+      const n = result?.imported != null ? result.imported : (result?.vesselCount || 0);
+      Progress.done(merge ? `Backup merged (${n} vessel${n === 1 ? '' : 's'})` : `Backup restored (${n} vessel${n === 1 ? '' : 's'})`);
+      showToast(n ? `Imported ${n} vessel${n === 1 ? '' : 's'}` : 'Backup imported (no new vessels in file)');
       navigate('setup');
     } catch (e) {
       Progress.done();
@@ -3304,7 +3305,7 @@ function renderSettings(main) {
     setSettingsBusy(true);
     Progress.start(progressHost(), 'Importing vessel…', `Reading ${file.name}…`);
     try {
-      await Api.importBackup(file, true, (pct, phase) => {
+      const result = await Api.importBackup(file, true, (pct, phase) => {
         if (phase === 'uploading') {
           Progress.set(pct, pct == null ? 'Uploading…' : `Uploading… ${pct}%`);
         } else {
@@ -3313,14 +3314,22 @@ function renderSettings(main) {
       });
       Progress.set(80, 'Refreshing vessel list…');
       const st = await Api.getStatus();
-      STATE.vessels = st.vessels;
+      STATE.vessels = st.vessels || [];
       STATE.activeVesselId = st.activeVesselId;
+      STATE.settings = st.settings || STATE.settings;
       if (STATE.activeVesselId) {
         Progress.set(90, 'Loading active vessel…');
         await reloadBundle();
       }
-      Progress.done('Vessel imported');
-      showToast('Vessel backup imported');
+      const n = result?.imported != null ? result.imported : (result?.vesselCount || 0);
+      if (!n) {
+        Progress.done('No vessel data found in file');
+        showToast('No vessel data found in file — try a full backup export');
+        return;
+      }
+      Progress.done(`Imported ${n} vessel${n === 1 ? '' : 's'}`);
+      showToast(`Imported ${n} vessel${n === 1 ? '' : 's'} with tanks and readings`);
+      navigate('setup');
     } catch (e) {
       Progress.done();
       showToast(e.message || 'Import failed');
@@ -3587,7 +3596,7 @@ function renderAbout(main) {
   const ver = (typeof Branding !== 'undefined' && Branding.APP_VERSION)
     ? Branding.APP_VERSION
     : (document.querySelector('meta[name="app-version"]')?.content || '');
-  const pkgVer = ver || '2.1.13';
+  const pkgVer = ver || '2.1.14';
   main.innerHTML += `<div class="page-head"><div>
     <h1>About</h1>
     <div class="desc">${Branding.APP_NAME} · v${pkgVer}</div>
@@ -3664,7 +3673,7 @@ function isNewerVersion(latest, current) {
 async function checkTankAppUpdate() {
   const status = document.getElementById('about-update-status');
   const link = document.getElementById('about-update-link');
-  const current = '2.1.13';
+  const current = '2.1.14';
   if (status) status.textContent = 'Checking GitHub for the latest Tank Chief release…';
   if (link) link.style.display = 'none';
   try {
