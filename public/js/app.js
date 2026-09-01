@@ -2987,7 +2987,7 @@ function buildPrintIdentityPanel() {
 function setSettingsBusy(busy) {
   for (const id of [
     'btn-backup', 'btn-import', 'btn-pull', 'btn-push', 'btn-flush',
-    'btn-export-vessel', 'btn-save-sync', 'api-transport', 'import-file', 'import-merge',
+    'btn-export-vessel', 'btn-import-vessel', 'btn-save-sync', 'api-transport', 'import-file', 'import-merge',
   ]) {
     const el = document.getElementById(id);
     if (el) el.disabled = !!busy;
@@ -3044,9 +3044,13 @@ function renderSettings(main) {
       </div>
     </div>
     <div class="form-panel">
-      <div class="section-title" style="margin-top:0">Export active vessel</div>
-      <p style="color:var(--text-dim);font-size:13px">Save only the currently selected vessel folder as JSON.</p>
-      <button class="btn" id="btn-export-vessel">Export active vessel</button>
+      <div class="section-title" style="margin-top:0">Single vessel backup</div>
+      <p style="color:var(--text-dim);font-size:13px">Export or import one vessel as JSON — works offline on this device or via the server.</p>
+      <div class="btn-row">
+        <button class="btn" id="btn-export-vessel">Export active vessel</button>
+        <button class="btn" id="btn-import-vessel">Import vessel JSON…</button>
+        <input type="file" id="import-vessel-file" accept="application/json,.json" hidden>
+      </div>
     </div>`;
   main.appendChild(cols);
 
@@ -3270,9 +3274,59 @@ function renderSettings(main) {
     }
   };
 
-  document.getElementById('btn-export-vessel').onclick = () => {
-    if (!STATE.bundle) { showToast('No active vessel'); return; }
-    downloadJson((STATE.activeVesselId || 'vessel') + '.json', STATE.bundle);
+  document.getElementById('btn-export-vessel').onclick = async () => {
+    if (!STATE.activeVesselId) { showToast('No active vessel'); return; }
+    setSettingsBusy(true);
+    try {
+      let backup;
+      if (Api.getTransport() === 'local' && Api.canUseLocal() && window.StoreCore && StoreCore.exportVesselBackup) {
+        backup = StoreCore.exportVesselBackup(STATE.activeVesselId);
+      } else {
+        backup = await Api.request(`/api/vessels/${encodeURIComponent(STATE.activeVesselId)}/backup`);
+      }
+      downloadJson(`fuel-tms-vessel-${STATE.activeVesselId}.json`, backup);
+      showToast('Vessel backup saved');
+    } catch (e) {
+      showToast(e.message || 'Export failed');
+    } finally {
+      setSettingsBusy(false);
+    }
+  };
+
+  document.getElementById('btn-import-vessel').onclick = () => {
+    document.getElementById('import-vessel-file').click();
+  };
+
+  document.getElementById('import-vessel-file').onchange = async (ev) => {
+    const file = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
+    if (!file) return;
+    setSettingsBusy(true);
+    Progress.start(progressHost(), 'Importing vessel…', `Reading ${file.name}…`);
+    try {
+      await Api.importBackup(file, true, (pct, phase) => {
+        if (phase === 'uploading') {
+          Progress.set(pct, pct == null ? 'Uploading…' : `Uploading… ${pct}%`);
+        } else {
+          Progress.set(null, 'Applying vessel data…');
+        }
+      });
+      Progress.set(80, 'Refreshing vessel list…');
+      const st = await Api.getStatus();
+      STATE.vessels = st.vessels;
+      STATE.activeVesselId = st.activeVesselId;
+      if (STATE.activeVesselId) {
+        Progress.set(90, 'Loading active vessel…');
+        await reloadBundle();
+      }
+      Progress.done('Vessel imported');
+      showToast('Vessel backup imported');
+    } catch (e) {
+      Progress.done();
+      showToast(e.message || 'Import failed');
+    } finally {
+      setSettingsBusy(false);
+    }
   };
 }
 
@@ -3533,7 +3587,7 @@ function renderAbout(main) {
   const ver = (typeof Branding !== 'undefined' && Branding.APP_VERSION)
     ? Branding.APP_VERSION
     : (document.querySelector('meta[name="app-version"]')?.content || '');
-  const pkgVer = ver || '2.1.12';
+  const pkgVer = ver || '2.1.13';
   main.innerHTML += `<div class="page-head"><div>
     <h1>About</h1>
     <div class="desc">${Branding.APP_NAME} · v${pkgVer}</div>
@@ -3610,7 +3664,7 @@ function isNewerVersion(latest, current) {
 async function checkTankAppUpdate() {
   const status = document.getElementById('about-update-status');
   const link = document.getElementById('about-update-link');
-  const current = '2.1.12';
+  const current = '2.1.13';
   if (status) status.textContent = 'Checking GitHub for the latest Tank Chief release…';
   if (link) link.style.display = 'none';
   try {
