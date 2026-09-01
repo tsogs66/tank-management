@@ -129,10 +129,15 @@ const Api = (() => {
 
   async function getStatus() {
     try {
-      return await request('/api/status');
-    } catch {
+      const st = await request('/api/status');
+      try { await OfflineDB.idbSet('status', st); } catch { /* private mode */ }
+      return st;
+    } catch (err) {
       const cached = await OfflineDB.idbGet('status');
       if (cached) { setOnline(false); return cached; }
+      if (transport === 'local' && canUseLocal()) {
+        throw new Error(err.message || 'Could not read the on-device database');
+      }
       throw new Error('Offline and no cached status');
     }
   }
@@ -152,6 +157,33 @@ const Api = (() => {
   }
 
   /**
+   * Import a backup JSON file on the device (LocalApi has no multipart upload).
+   */
+  async function importBackupLocal(file, merge, onProgress) {
+    if (onProgress) onProgress(null, 'reading');
+    const text = await file.text();
+    let backup;
+    try {
+      backup = JSON.parse(text);
+    } catch {
+      throw new Error('Backup file is not valid JSON');
+    }
+    if (onProgress) {
+      onProgress(100, 'uploading');
+      onProgress(null, 'processing');
+    }
+    const result = await localRequest('/api/backup/import', {
+      method: 'POST',
+      body: { backup, merge: String(merge) },
+    });
+    try {
+      const st = await localRequest('/api/status', { method: 'GET' });
+      await OfflineDB.idbSet('status', st);
+    } catch { /* import succeeded; UI will retry status */ }
+    return result;
+  }
+
+  /**
    * Upload a FormData with real progress. fetch() cannot report how much of a
    * body has gone out, so this one call uses XMLHttpRequest: a capacity book is
    * tens of megabytes over a ship's link and the bar has to mean something.
@@ -160,9 +192,21 @@ const Api = (() => {
    * waiting on the server, which is not measurable from here.
    */
   function upload(path, formData, onProgress) {
+    if (transport === 'local' && canUseLocal() && path === '/api/backup/import') {
+      const file = formData.get('file');
+      const merge = formData.get('merge') !== 'false';
+      if (!file) return Promise.reject(new Error('Choose a backup file'));
+      return importBackupLocal(file, merge, onProgress);
+    }
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', withPrefix(path));
+      try {
+        if (typeof ChengLicense !== 'undefined' && ChengLicense.authHeaders) {
+          const headers = ChengLicense.authHeaders();
+          Object.keys(headers).forEach((k) => xhr.setRequestHeader(k, headers[k]));
+        }
+      } catch { /* ignore */ }
       xhr.upload.onprogress = (e) => {
         if (!onProgress) return;
         if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100), 'uploading');
@@ -370,6 +414,9 @@ const Api = (() => {
       return request(`/api/vessels/${vesselId}/tanks/import-csv`, { method: 'POST', body: fd });
     },
     importBackup: async (file, merge = true, onProgress) => {
+      if (transport === 'local' && canUseLocal()) {
+        return importBackupLocal(file, merge, onProgress);
+      }
       const fd = new FormData();
       fd.append('file', file);
       fd.append('merge', String(merge));

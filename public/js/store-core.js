@@ -318,7 +318,10 @@ function vesselPath(id, file) {
 
 function loadIndex() {
   ensureDirs();
-  return readJson(indexPath(), { vessels: [], activeVesselId: null, updatedAt: now() });
+  const index = readJson(indexPath(), { vessels: [], activeVesselId: null, updatedAt: now() }) || {};
+  /* Older / partial indexes sometimes omit vessels — never let callers .map crash. */
+  if (!Array.isArray(index.vessels)) index.vessels = [];
+  return index;
 }
 
 function saveIndex(index) {
@@ -732,20 +735,60 @@ function exportBackup() {
   };
 }
 
+/** Accept classic backup, peer sync bundles, and vessels map/array without format. */
+function isBackupPayload(backup) {
+  if (!backup || typeof backup !== 'object') return false;
+  if (backup.format === 'vessel-fuel-tms-backup') return true;
+  if (backup.format === 'vessel-fuel-tms-sync' && backup.vessels) return true;
+  if (!backup.format && backup.vessels) return true;
+  return false;
+}
+
+/** Normalize backup.vessels to an id → bundle map (old exports used an array). */
+function vesselsMapFromBackup(backup) {
+  const raw = backup && backup.vessels;
+  if (!raw) return {};
+  if (Array.isArray(raw)) {
+    const out = {};
+    for (const item of raw) {
+      if (!item || typeof item !== 'object') continue;
+      const bundle = item.vessel ? item : { vessel: item };
+      const id = bundle.vessel?.id || item.id;
+      if (!id) continue;
+      out[String(id)] = bundle;
+    }
+    return out;
+  }
+  if (typeof raw === 'object') return raw;
+  return {};
+}
+
+function safeVesselId(id, fallbackName) {
+  const raw = String(id || '').trim();
+  if (/^[a-z0-9][a-z0-9._-]{0,63}$/i.test(raw) && !raw.includes('..')) return raw;
+  return slugify(fallbackName || raw || 'vessel').slice(0, 64) || 'vessel';
+}
+
 function importBackup(backup, { merge = true } = {}) {
-  if (!backup || backup.format !== 'vessel-fuel-tms-backup') {
-    throw new Error('Invalid backup format');
+  if (!isBackupPayload(backup)) {
+    throw new Error('Invalid backup format — expected a Tank Chief / fuel-tms backup JSON');
   }
   ensureDirs();
   if (backup.settings) writeJson(settingsPath(), { ...defaultSettings(), ...backup.settings });
 
   const index = merge ? loadIndex() : { vessels: [], activeVesselId: null, updatedAt: now() };
+  if (!Array.isArray(index.vessels)) index.vessels = [];
   const byId = new Map(index.vessels.map((v) => [v.id, v]));
+  const vessels = vesselsMapFromBackup(backup);
 
-  for (const [id, bundle] of Object.entries(backup.vessels || {})) {
+  for (const [rawId, bundle] of Object.entries(vessels)) {
+    if (!bundle || typeof bundle !== 'object') continue;
+    const id = safeVesselId(rawId, bundle.vessel?.name || bundle.name);
     const dir = vesselDir(id);
     fs.mkdirSync(dir, { recursive: true });
-    writeJson(vesselPath(id, 'vessel.json'), bundle.vessel);
+    const vesselDoc = bundle.vessel || { id, name: bundle.name || id };
+    if (!vesselDoc.id) vesselDoc.id = id;
+    writeJson(vesselPath(id, 'vessel.json'), vesselDoc);
     writeJson(vesselPath(id, 'tanks.json'), bundle.tanks || emptyTanks());
     writeJson(vesselPath(id, 'readings.json'), bundle.readings || {});
     writeJson(vesselPath(id, 'voyage.json'), bundle.voyage || emptyVoyage());
@@ -766,16 +809,21 @@ function importBackup(backup, { merge = true } = {}) {
     });
     byId.set(id, {
       id,
-      name: bundle.vessel?.name || id,
-      imo: bundle.vessel?.imo || '',
+      name: vesselDoc.name || id,
+      imo: vesselDoc.imo || '',
       updatedAt: now(),
     });
   }
 
   index.vessels = Array.from(byId.values());
-  if (backup.index?.activeVesselId && byId.has(backup.index.activeVesselId)) {
-    index.activeVesselId = backup.index.activeVesselId;
-  } else if (!index.activeVesselId && index.vessels.length) {
+  const preferredActive = backup.index?.activeVesselId;
+  if (preferredActive && byId.has(preferredActive)) {
+    index.activeVesselId = preferredActive;
+  } else if (preferredActive) {
+    const safeActive = safeVesselId(preferredActive);
+    if (byId.has(safeActive)) index.activeVesselId = safeActive;
+  }
+  if (!index.activeVesselId && index.vessels.length) {
     index.activeVesselId = index.vessels[0].id;
   }
   saveIndex(index);
