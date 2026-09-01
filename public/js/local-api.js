@@ -20,10 +20,69 @@ const LocalApi = (() => {
      the same place the server keeps them, so the routes find them unchanged. */
   const SEED = ['conversion.json', 'iso8217.json'];
 
+  /**
+   * Resolve where /embedded lives.
+   * fetch('/embedded/…') ignores <base href>, so under ChEng AIO (/tanks/) a
+   * root-absolute path 404s. Prefer CHENG_PRO_EMBEDDED_BASE (Android shell sets
+   * "tanks/embedded/"), then /tanks when mounted there, then /embedded.
+   */
+  function embeddedBaseCandidates() {
+    const out = [];
+    const push = (b) => {
+      if (!b) return;
+      const n = String(b).replace(/\/?$/, '/');
+      if (!out.includes(n)) out.push(n);
+    };
+    try {
+      if (typeof window.CHENG_PRO_EMBEDDED_BASE === 'string' && window.CHENG_PRO_EMBEDDED_BASE.trim()) {
+        push(window.CHENG_PRO_EMBEDDED_BASE.trim());
+      }
+    } catch { /* ignore */ }
+    try {
+      if (typeof window.CHENG_PRO_TANKS_PREFIX === 'string' && window.CHENG_PRO_TANKS_PREFIX) {
+        push(String(window.CHENG_PRO_TANKS_PREFIX).replace(/\/$/, '') + '/embedded/');
+      }
+    } catch { /* ignore */ }
+    try {
+      const pathName = location.pathname || '';
+      if (pathName === '/tanks' || pathName.startsWith('/tanks/')) push('/tanks/embedded/');
+      /* Bundled AIO shell at / or /index.html — embedded assets live under tanks/. */
+      if (window.CHENG_PRO_BUNDLED
+          || (window.ChengProBundled && ChengProBundled.isBundledClient
+            && ChengProBundled.isBundledClient())) {
+        push('tanks/embedded/');
+        push('/tanks/embedded/');
+      }
+    } catch { /* ignore */ }
+    push('/embedded/');
+    push('embedded/');
+    push('tanks/embedded/');
+    return out;
+  }
+
   async function fetchText(url) {
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) throw new Error(`${res.status} fetching ${url}`);
     return res.text();
+  }
+
+  async function fetchEmbedded(relPath) {
+    const rel = String(relPath || '').replace(/^\//, '');
+    const tried = [];
+    let lastErr = null;
+    for (const base of embeddedBaseCandidates()) {
+      const url = base + rel;
+      tried.push(url);
+      try {
+        return await fetchText(url);
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw new Error(
+      (lastErr && lastErr.message ? lastErr.message : 'Failed to fetch')
+      + ' (tried ' + tried.join(', ') + ')'
+    );
   }
 
   async function boot() {
@@ -34,11 +93,11 @@ const LocalApi = (() => {
     NodeShim.fs.mkdirSync('/app/data/vessels', { recursive: true });
 
     for (const file of SEED) {
-      NodeShim.fs.writeFileSync(`/app/seed/${file}`, await fetchText(`/embedded/seed/${file}`));
+      NodeShim.fs.writeFileSync(`/app/seed/${file}`, await fetchEmbedded(`seed/${file}`));
     }
 
     for (const file of EMBEDDED) {
-      const text = await fetchText(`/embedded/${file}`);
+      const text = await fetchEmbedded(file);
       const id = `./${file.replace(/\.js$/, '')}`;
       NodeRequire.provide(id, text);
       NodeRequire.provide(file === 'index.js' ? './index' : id, text);
