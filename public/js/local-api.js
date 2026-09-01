@@ -66,7 +66,7 @@ const LocalApi = (() => {
       if (!m) continue;
       const params = {};
       route.names.forEach((name, i) => { params[name] = decodeURIComponent(m[i + 1]); });
-      return runRoute(route, { params, query, body });
+      return runRoute(route, { params, query, body, get: () => undefined });
     }
     return { status: 404, body: { error: `No such endpoint: ${method} ${pathname}` } };
   }

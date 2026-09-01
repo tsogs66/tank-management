@@ -788,7 +788,149 @@ function isBackupPayload(backup) {
   if (backup.format === 'vessel-fuel-tms-backup') return true;
   if (backup.format === 'vessel-fuel-tms-sync' && backup.vessels) return true;
   if (!backup.format && backup.vessels) return true;
+  /* Legacy single-vessel export: raw bundle with vessel + tanks at top level. */
+  if (backup.vessel && typeof backup.vessel === 'object'
+      && (backup.tanks || backup.readings || backup.voyage)) return true;
   return false;
+}
+
+const BUNDLE_PART_KEYS = [
+  'tanks', 'readings', 'voyage', 'bunkering', 'transfers', 'bunkerOps',
+  'fuelReport', 'reportHistory', 'bunkerPlan', 'bunkerAfter', 'bunkerSummary',
+  'bunkerHistory', 'assets', 'meta',
+];
+
+/** Old exports sometimes put tanks/readings on the vessel row instead of under vessel. */
+function bundleFromBackupEntry(item) {
+  if (!item || typeof item !== 'object') return null;
+  if (item.vessel && typeof item.vessel === 'object' && !Array.isArray(item.vessel)) {
+    const bundle = { ...item };
+    if (!bundle.vessel.id && item.id) bundle.vessel = { ...bundle.vessel, id: item.id };
+    return bundle;
+  }
+  const hasParts = BUNDLE_PART_KEYS.some((k) => item[k] != null);
+  if (hasParts) {
+    const vessel = {};
+    for (const key of VESSEL_PROFILE_FIELDS) {
+      if (item[key] != null && item[key] !== '') vessel[key] = item[key];
+    }
+    if (item.id) vessel.id = item.id;
+    if (item.name) vessel.name = item.name;
+    if (item.imo) vessel.imo = item.imo;
+    const bundle = { vessel };
+    for (const key of BUNDLE_PART_KEYS) {
+      if (item[key] !== undefined) bundle[key] = item[key];
+    }
+    return bundle;
+  }
+  return { vessel: item };
+}
+
+/** Coerce legacy tank shapes (array, hfo/mdo keys) into fuel/lube/misc/water. */
+function normalizeTanksShape(raw) {
+  if (!raw) return emptyTanks();
+  if (Array.isArray(raw)) {
+    const out = emptyTanks();
+    for (const t of raw) {
+      if (!t || typeof t !== 'object') continue;
+      const cat = t.category || 'fuel';
+      if (!out[cat]) out[cat] = [];
+      out[cat].push(t);
+    }
+    return out;
+  }
+  if (typeof raw !== 'object') return emptyTanks();
+  const out = emptyTanks();
+  for (const cat of Object.keys(emptyTanks())) {
+    if (Array.isArray(raw[cat])) out[cat] = raw[cat].slice();
+  }
+  for (const k of ['hfo', 'lsfo', 'mdo', 'mgo', 'lsmgo']) {
+    if (!Array.isArray(raw[k])) continue;
+    for (const t of raw[k]) {
+      if (!t || typeof t !== 'object') continue;
+      out.fuel.push({
+        ...t,
+        category: t.category || 'fuel',
+        fuelGrade: t.fuelGrade || k,
+      });
+    }
+  }
+  return out;
+}
+
+function normalizeImportedBundle(bundle) {
+  const src = bundle && typeof bundle === 'object' ? bundle : {};
+  const base = bundleFromBackupEntry(src) || { vessel: {} };
+  const vessel = applyVesselProfileFields(
+    { ...(base.vessel || {}), id: base.vessel?.id || src.id },
+    base.vessel || src
+  );
+  return {
+    vessel,
+    tanks: normalizeTanksShape(base.tanks),
+    readings: base.readings && typeof base.readings === 'object' ? base.readings : {},
+    voyage: base.voyage || emptyVoyage(),
+    bunkering: base.bunkering || emptyBunkering(),
+    transfers: Array.isArray(base.transfers) ? base.transfers : [],
+    bunkerOps: Array.isArray(base.bunkerOps) ? base.bunkerOps : [],
+    fuelReport: base.fuelReport != null ? base.fuelReport : null,
+    reportHistory: Array.isArray(base.reportHistory) ? base.reportHistory : [],
+    bunkerPlan: base.bunkerPlan != null ? base.bunkerPlan : null,
+    bunkerAfter: base.bunkerAfter != null ? base.bunkerAfter : null,
+    bunkerSummary: base.bunkerSummary != null ? base.bunkerSummary : null,
+    bunkerHistory: base.bunkerHistory || emptyBunkerHistory(),
+    assets: base.assets || emptyAssets(),
+    meta: base.meta && typeof base.meta === 'object' ? base.meta : {},
+  };
+}
+
+/** Wrap legacy raw vessel JSON and normalize index.vessels when missing. */
+function normalizeBackupPayload(backup) {
+  if (!backup || typeof backup !== 'object') return null;
+
+  /* Legacy Export active vessel — raw bundle without vessels wrapper. */
+  if (backup.vessel && typeof backup.vessel === 'object'
+      && (backup.tanks || backup.readings || backup.voyage) && !backup.vessels) {
+    const id = safeVesselId(backup.vessel.id, backup.vessel.name);
+    return {
+      format: 'vessel-fuel-tms-backup',
+      version: 1,
+      singleVessel: true,
+      index: {
+        vessels: [{
+          id,
+          name: backup.vessel.name || id,
+          imo: backup.vessel.imo || '',
+          updatedAt: now(),
+        }],
+        activeVesselId: id,
+        updatedAt: now(),
+      },
+      vessels: { [id]: backup },
+    };
+  }
+
+  if (isBackupPayload(backup)) {
+    const out = { ...backup };
+    if (!out.vessels && out.index && Array.isArray(out.index.vessels)) {
+      /* Index-only backups cannot import — leave for importBackup to reject clearly. */
+    } else if (out.vessels && !Array.isArray(out.index?.vessels)) {
+      const map = vesselsMapFromBackup(out);
+      out.index = {
+        ...(out.index || {}),
+        vessels: Object.entries(map).map(([id, b]) => ({
+          id: safeVesselId(id, b.vessel?.name),
+          name: b.vessel?.name || id,
+          imo: b.vessel?.imo || '',
+          updatedAt: now(),
+        })),
+        updatedAt: now(),
+      };
+    }
+    if (out.index && !Array.isArray(out.index.vessels)) out.index.vessels = [];
+    return out;
+  }
+  return null;
 }
 
 /** Normalize backup.vessels to an id → bundle map (old exports used an array). */
@@ -798,15 +940,22 @@ function vesselsMapFromBackup(backup) {
   if (Array.isArray(raw)) {
     const out = {};
     for (const item of raw) {
-      if (!item || typeof item !== 'object') continue;
-      const bundle = item.vessel ? item : { vessel: item };
+      const bundle = bundleFromBackupEntry(item);
+      if (!bundle) continue;
       const id = bundle.vessel?.id || item.id;
       if (!id) continue;
       out[String(id)] = bundle;
     }
     return out;
   }
-  if (typeof raw === 'object') return raw;
+  if (typeof raw === 'object') {
+    const out = {};
+    for (const [id, item] of Object.entries(raw)) {
+      const bundle = bundleFromBackupEntry(item) || item;
+      out[String(id)] = bundle;
+    }
+    return out;
+  }
   return {};
 }
 
@@ -817,44 +966,60 @@ function safeVesselId(id, fallbackName) {
 }
 
 function importBackup(backup, { merge = true } = {}) {
-  if (!isBackupPayload(backup)) {
-    throw new Error('Invalid backup format — expected a Tank Chief / fuel-tms backup JSON');
+  const normalized = normalizeBackupPayload(backup);
+  if (!normalized) {
+    throw new Error('Invalid backup format — use a Tank Chief backup JSON or a single-vessel export');
   }
   ensureDirs();
-  if (backup.settings) writeJson(settingsPath(), { ...defaultSettings(), ...backup.settings });
+  if (normalized.settings) {
+    writeJson(settingsPath(), { ...defaultSettings(), ...normalized.settings });
+  }
 
   const index = merge ? loadIndex() : { vessels: [], activeVesselId: null, updatedAt: now() };
   if (!Array.isArray(index.vessels)) index.vessels = [];
   const byId = new Map(index.vessels.map((v) => [v.id, v]));
-  const vessels = vesselsMapFromBackup(backup);
+  const vessels = vesselsMapFromBackup(normalized);
+  const vesselIds = Object.keys(vessels);
 
+  if (!vesselIds.length) {
+    const indexOnly = (normalized.index && normalized.index.vessels || []).length;
+    if (indexOnly) {
+      throw new Error(
+        `Backup lists ${indexOnly} vessel(s) but contains no tank data — re-export from the source Tank Chief`
+      );
+    }
+    throw new Error('Backup contains no vessels to import');
+  }
+
+  let imported = 0;
   for (const [rawId, bundle] of Object.entries(vessels)) {
     if (!bundle || typeof bundle !== 'object') continue;
-    const id = safeVesselId(rawId, bundle.vessel?.name || bundle.name);
+    const norm = normalizeImportedBundle(bundle);
+    const id = safeVesselId(rawId, norm.vessel?.name || bundle.name);
     const dir = vesselDir(id);
     fs.mkdirSync(dir, { recursive: true });
     const vesselDoc = applyVesselProfileFields({
-      ...(bundle.vessel || {}),
+      ...norm.vessel,
       id,
-      name: bundle.vessel?.name || bundle.name || id,
-      imo: bundle.vessel?.imo || bundle.imo || '',
-    }, bundle.vessel || bundle);
+      name: norm.vessel?.name || bundle.name || id,
+      imo: norm.vessel?.imo || '',
+    }, norm.vessel || bundle);
     writeJson(vesselPath(id, 'vessel.json'), vesselDoc);
-    writeJson(vesselPath(id, 'tanks.json'), bundle.tanks || emptyTanks());
-    writeJson(vesselPath(id, 'readings.json'), bundle.readings || {});
-    writeJson(vesselPath(id, 'voyage.json'), bundle.voyage || emptyVoyage());
-    writeJson(vesselPath(id, 'bunkering.json'), bundle.bunkering || emptyBunkering());
-    writeJson(vesselPath(id, 'transfers.json'), bundle.transfers || []);
-    writeJson(vesselPath(id, 'bunker-ops.json'), bundle.bunkerOps || []);
-    writeJson(vesselPath(id, 'fuel-report.json'), bundle.fuelReport || null);
-    writeJson(vesselPath(id, 'report-history.json'), bundle.reportHistory || []);
-    writeJson(vesselPath(id, 'bunker-plan.json'), bundle.bunkerPlan || null);
-    writeJson(vesselPath(id, 'bunker-after.json'), bundle.bunkerAfter || null);
-    writeJson(vesselPath(id, 'bunker-summary.json'), bundle.bunkerSummary || null);
-    writeJson(vesselPath(id, 'bunker-history.json'), bundle.bunkerHistory || emptyBunkerHistory());
-    writeJson(vesselPath(id, 'assets.json'), bundle.assets || emptyAssets());
+    writeJson(vesselPath(id, 'tanks.json'), norm.tanks);
+    writeJson(vesselPath(id, 'readings.json'), norm.readings);
+    writeJson(vesselPath(id, 'voyage.json'), norm.voyage);
+    writeJson(vesselPath(id, 'bunkering.json'), norm.bunkering);
+    writeJson(vesselPath(id, 'transfers.json'), norm.transfers);
+    writeJson(vesselPath(id, 'bunker-ops.json'), norm.bunkerOps);
+    writeJson(vesselPath(id, 'fuel-report.json'), norm.fuelReport);
+    writeJson(vesselPath(id, 'report-history.json'), norm.reportHistory);
+    writeJson(vesselPath(id, 'bunker-plan.json'), norm.bunkerPlan);
+    writeJson(vesselPath(id, 'bunker-after.json'), norm.bunkerAfter);
+    writeJson(vesselPath(id, 'bunker-summary.json'), norm.bunkerSummary);
+    writeJson(vesselPath(id, 'bunker-history.json'), norm.bunkerHistory);
+    writeJson(vesselPath(id, 'assets.json'), norm.assets);
     writeJson(vesselPath(id, 'meta.json'), {
-      ...(bundle.meta || {}),
+      ...norm.meta,
       updatedAt: now(),
       lastImportedAt: now(),
     });
@@ -865,10 +1030,11 @@ function importBackup(backup, { merge = true } = {}) {
       flag: vesselDoc.flag || '',
       updatedAt: now(),
     });
+    imported += 1;
   }
 
   index.vessels = Array.from(byId.values());
-  const preferredActive = backup.index?.activeVesselId;
+  const preferredActive = normalized.index?.activeVesselId;
   if (preferredActive && byId.has(preferredActive)) {
     index.activeVesselId = preferredActive;
   } else if (preferredActive) {
@@ -879,7 +1045,7 @@ function importBackup(backup, { merge = true } = {}) {
     index.activeVesselId = index.vessels[0].id;
   }
   saveIndex(index);
-  return { ok: true, vesselCount: index.vessels.length };
+  return { ok: true, vesselCount: index.vessels.length, imported };
 }
 
 function applySyncPayload(payload) {
