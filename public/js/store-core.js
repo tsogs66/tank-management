@@ -788,6 +788,13 @@ function isBackupPayload(backup) {
   if (backup.format === 'vessel-fuel-tms-backup') return true;
   if (backup.format === 'vessel-fuel-tms-sync' && backup.vessels) return true;
   if (!backup.format && backup.vessels) return true;
+  /* Fleet dump with vessels-index alias (data folder export). */
+  if (backup['vessels-index'] || backup.vesselsIndex || backup['vessels-index.json']) return true;
+  /* Nested data/ folder dump. */
+  if (backup.data && typeof backup.data === 'object'
+      && (backup.data.vessels || backup.data['vessels-index'] || backup.data['vessels-index.json'])) {
+    return true;
+  }
   /* Legacy single-vessel export: raw bundle with vessel + tanks at top level. */
   if (backup.vessel && typeof backup.vessel === 'object'
       && (backup.tanks || backup.readings || backup.voyage)) return true;
@@ -800,9 +807,61 @@ const BUNDLE_PART_KEYS = [
   'bunkerHistory', 'assets', 'meta',
 ];
 
+/** Map on-disk file names (vessel.json) and kebab keys to camelCase bundle fields. */
+const FILE_KEY_TO_PART = {
+  'vessel.json': 'vessel',
+  vessel: 'vessel',
+  'tanks.json': 'tanks',
+  tanks: 'tanks',
+  'readings.json': 'readings',
+  readings: 'readings',
+  'voyage.json': 'voyage',
+  voyage: 'voyage',
+  'bunkering.json': 'bunkering',
+  bunkering: 'bunkering',
+  'transfers.json': 'transfers',
+  transfers: 'transfers',
+  'bunker-ops.json': 'bunkerOps',
+  'bunkerOps': 'bunkerOps',
+  bunkerOps: 'bunkerOps',
+  'fuel-report.json': 'fuelReport',
+  fuelReport: 'fuelReport',
+  'report-history.json': 'reportHistory',
+  reportHistory: 'reportHistory',
+  'bunker-plan.json': 'bunkerPlan',
+  bunkerPlan: 'bunkerPlan',
+  'bunker-after.json': 'bunkerAfter',
+  bunkerAfter: 'bunkerAfter',
+  'bunker-summary.json': 'bunkerSummary',
+  bunkerSummary: 'bunkerSummary',
+  'bunker-history.json': 'bunkerHistory',
+  bunkerHistory: 'bunkerHistory',
+  'assets.json': 'assets',
+  assets: 'assets',
+  'meta.json': 'meta',
+  meta: 'meta',
+};
+
+/** If a vessel folder was dumped with *.json keys, unwrap to a normal bundle. */
+function unwrapFileKeyedBundle(item) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+  const keys = Object.keys(item);
+  const looksLikeFiles = keys.some((k) => /\.json$/i.test(k) || k === 'vessel.json' || k === 'tanks.json');
+  if (!looksLikeFiles) return null;
+  const out = {};
+  for (const [k, v] of Object.entries(item)) {
+    const part = FILE_KEY_TO_PART[k] || FILE_KEY_TO_PART[k.replace(/\.json$/i, '')];
+    if (part) out[part] = v;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 /** Old exports sometimes put tanks/readings on the vessel row instead of under vessel. */
 function bundleFromBackupEntry(item) {
   if (!item || typeof item !== 'object') return null;
+  const unwrapped = unwrapFileKeyedBundle(item);
+  if (unwrapped) return bundleFromBackupEntry(unwrapped);
+
   if (item.vessel && typeof item.vessel === 'object' && !Array.isArray(item.vessel)) {
     const bundle = { ...item };
     if (!bundle.vessel.id && item.id) bundle.vessel = { ...bundle.vessel, id: item.id };
@@ -888,10 +947,29 @@ function normalizeImportedBundle(bundle) {
 function normalizeBackupPayload(backup) {
   if (!backup || typeof backup !== 'object') return null;
 
+  /* Unwrap { data: { vessels, settings, vessels-index } } folder dumps. */
+  let src = backup;
+  if (backup.data && typeof backup.data === 'object'
+      && (backup.data.vessels || backup.data['vessels-index'] || backup.data['vessels-index.json'])
+      && !backup.vessels) {
+    src = { ...backup.data };
+  }
+
+  /* Alias vessels-index → index. */
+  if (!src.index) {
+    const idx = src['vessels-index'] || src.vesselsIndex || src['vessels-index.json'];
+    if (idx && typeof idx === 'object') {
+      src = { ...src, index: idx };
+    }
+  }
+  if (src.settings == null && src['settings.json'] != null) {
+    src = { ...src, settings: src['settings.json'] };
+  }
+
   /* Legacy Export active vessel — raw bundle without vessels wrapper. */
-  if (backup.vessel && typeof backup.vessel === 'object'
-      && (backup.tanks || backup.readings || backup.voyage) && !backup.vessels) {
-    const id = safeVesselId(backup.vessel.id, backup.vessel.name);
+  if (src.vessel && typeof src.vessel === 'object'
+      && (src.tanks || src.readings || src.voyage) && !src.vessels) {
+    const id = safeVesselId(src.vessel.id, src.vessel.name);
     return {
       format: 'vessel-fuel-tms-backup',
       version: 1,
@@ -899,21 +977,21 @@ function normalizeBackupPayload(backup) {
       index: {
         vessels: [{
           id,
-          name: backup.vessel.name || id,
-          imo: backup.vessel.imo || '',
+          name: src.vessel.name || id,
+          imo: src.vessel.imo || '',
           updatedAt: now(),
         }],
         activeVesselId: id,
         updatedAt: now(),
       },
-      vessels: { [id]: backup },
+      vessels: { [id]: src },
     };
   }
 
-  if (isBackupPayload(backup)) {
-    const out = { ...backup };
+  if (isBackupPayload(src) || src.vessels || src.format === 'vessel-fuel-tms-backup') {
+    const out = { ...src, format: src.format || 'vessel-fuel-tms-backup' };
     if (!out.vessels && out.index && Array.isArray(out.index.vessels)) {
-      /* Index-only backups cannot import — leave for importBackup to reject clearly. */
+      /* Index-only — importBackup will reject clearly. */
     } else if (out.vessels && !Array.isArray(out.index?.vessels)) {
       const map = vesselsMapFromBackup(out);
       out.index = {
@@ -965,10 +1043,23 @@ function safeVesselId(id, fallbackName) {
   return slugify(fallbackName || raw || 'vessel').slice(0, 64) || 'vessel';
 }
 
+function countTanksInBundle(tanks) {
+  if (!tanks || typeof tanks !== 'object') return 0;
+  let n = 0;
+  for (const arr of Object.values(tanks)) {
+    if (Array.isArray(arr)) n += arr.length;
+  }
+  return n;
+}
+
 function importBackup(backup, { merge = true } = {}) {
   const normalized = normalizeBackupPayload(backup);
   if (!normalized) {
-    throw new Error('Invalid backup format — use a Tank Chief backup JSON or a single-vessel export');
+    const keys = backup && typeof backup === 'object' ? Object.keys(backup).slice(0, 12).join(', ') : '';
+    throw new Error(
+      'Invalid fleet backup — expected format vessel-fuel-tms-backup with a vessels map. '
+      + (keys ? `Top-level keys: ${keys}` : 'File is not a Tank Chief JSON backup.')
+    );
   }
   ensureDirs();
   if (normalized.settings) {
@@ -977,21 +1068,26 @@ function importBackup(backup, { merge = true } = {}) {
 
   const index = merge ? loadIndex() : { vessels: [], activeVesselId: null, updatedAt: now() };
   if (!Array.isArray(index.vessels)) index.vessels = [];
-  const byId = new Map(index.vessels.map((v) => [v.id, v]));
+  const byId = new Map(
+    index.vessels.filter((v) => v && v.id).map((v) => [v.id, v])
+  );
   const vessels = vesselsMapFromBackup(normalized);
   const vesselIds = Object.keys(vessels);
 
   if (!vesselIds.length) {
-    const indexOnly = (normalized.index && normalized.index.vessels || []).length;
+    const indexOnly = (normalized.index && Array.isArray(normalized.index.vessels)
+      ? normalized.index.vessels : []).length;
     if (indexOnly) {
       throw new Error(
-        `Backup lists ${indexOnly} vessel(s) but contains no tank data — re-export from the source Tank Chief`
+        `Fleet backup lists ${indexOnly} vessel(s) in the index but the vessels data block is empty — `
+        + 're-export a full backup from the source Tank Chief (Download backup), not only the index.'
       );
     }
-    throw new Error('Backup contains no vessels to import');
+    throw new Error('Fleet backup contains no vessels to import');
   }
 
   let imported = 0;
+  let tankCount = 0;
   for (const [rawId, bundle] of Object.entries(vessels)) {
     if (!bundle || typeof bundle !== 'object') continue;
     const norm = normalizeImportedBundle(bundle);
@@ -1031,6 +1127,7 @@ function importBackup(backup, { merge = true } = {}) {
       updatedAt: now(),
     });
     imported += 1;
+    tankCount += countTanksInBundle(norm.tanks);
   }
 
   index.vessels = Array.from(byId.values());
@@ -1045,7 +1142,13 @@ function importBackup(backup, { merge = true } = {}) {
     index.activeVesselId = index.vessels[0].id;
   }
   saveIndex(index);
-  return { ok: true, vesselCount: index.vessels.length, imported };
+  return {
+    ok: true,
+    vesselCount: index.vessels.length,
+    imported,
+    tankCount,
+    fleet: imported > 1 || !normalized.singleVessel,
+  };
 }
 
 function applySyncPayload(payload) {

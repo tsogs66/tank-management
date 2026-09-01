@@ -3108,8 +3108,13 @@ function renderSettings(main) {
         await reloadBundle();
       }
       const n = result?.imported != null ? result.imported : (result?.vesselCount || 0);
-      Progress.done(merge ? `Backup merged (${n} vessel${n === 1 ? '' : 's'})` : `Backup restored (${n} vessel${n === 1 ? '' : 's'})`);
-      showToast(n ? `Imported ${n} vessel${n === 1 ? '' : 's'}` : 'Backup imported (no new vessels in file)');
+      const tanks = result?.tankCount || 0;
+      Progress.done(merge
+        ? `Fleet backup merged (${n} vessel${n === 1 ? '' : 's'}, ${tanks} tank${tanks === 1 ? '' : 's'})`
+        : `Fleet backup restored (${n} vessel${n === 1 ? '' : 's'}, ${tanks} tank${tanks === 1 ? '' : 's'})`);
+      showToast(n
+        ? `Imported ${n} vessel${n === 1 ? '' : 's'}${tanks ? ` · ${tanks} tanks` : ''}`
+        : 'Backup imported (no new vessels in file)');
       navigate('setup');
     } catch (e) {
       Progress.done();
@@ -3322,13 +3327,14 @@ function renderSettings(main) {
         await reloadBundle();
       }
       const n = result?.imported != null ? result.imported : (result?.vesselCount || 0);
+      const tanks = result?.tankCount || 0;
       if (!n) {
         Progress.done('No vessel data found in file');
-        showToast('No vessel data found in file — try a full backup export');
+        showToast('No vessel data found in file — try a full Download backup export');
         return;
       }
-      Progress.done(`Imported ${n} vessel${n === 1 ? '' : 's'}`);
-      showToast(`Imported ${n} vessel${n === 1 ? '' : 's'} with tanks and readings`);
+      Progress.done(`Imported ${n} vessel${n === 1 ? '' : 's'}${tanks ? ` · ${tanks} tanks` : ''}`);
+      showToast(`Imported ${n} vessel${n === 1 ? '' : 's'}${tanks ? ` with ${tanks} tanks` : ' with tanks and readings'}`);
       navigate('setup');
     } catch (e) {
       Progress.done();
@@ -3596,7 +3602,7 @@ function renderAbout(main) {
   const ver = (typeof Branding !== 'undefined' && Branding.APP_VERSION)
     ? Branding.APP_VERSION
     : (document.querySelector('meta[name="app-version"]')?.content || '');
-  const pkgVer = ver || '2.1.14';
+  const pkgVer = ver || '2.1.15';
   main.innerHTML += `<div class="page-head"><div>
     <h1>About</h1>
     <div class="desc">${Branding.APP_NAME} · v${pkgVer}</div>
@@ -3673,7 +3679,7 @@ function isNewerVersion(latest, current) {
 async function checkTankAppUpdate() {
   const status = document.getElementById('about-update-status');
   const link = document.getElementById('about-update-link');
-  const current = '2.1.14';
+  const current = '2.1.15';
   if (status) status.textContent = 'Checking GitHub for the latest Tank Chief release…';
   if (link) link.style.display = 'none';
   try {
