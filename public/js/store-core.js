@@ -295,6 +295,7 @@ function applyVesselProfileFields(target, source) {
 function defaultSettings() {
   return {
     syncUrl: '',
+    syncApiToken: '',
     syncEnabled: false,
     autoSave: true,
     units: { volume: 'm3', weight: 'MT', density: 'kg/L' },
@@ -914,21 +915,110 @@ function applySyncPayload(payload) {
   return results;
 }
 
-function syncPushBundle() {
-  const index = loadIndex();
-  const vessels = {};
-  for (const v of index.vessels) {
-    vessels[v.id] = getVesselBundle(v.id);
+function vesselsDirAt(dataDir) {
+  return path.join(dataDir, 'vessels');
+}
+
+function vesselDirAt(dataDir, id) {
+  const safe = String(id || '');
+  if (!/^[a-z0-9][a-z0-9._-]{0,63}$/i.test(safe) || safe.includes('..')) {
+    const err = new Error('Invalid vessel id');
+    err.status = 400;
+    throw err;
   }
+  return path.join(vesselsDirAt(dataDir), safe);
+}
+
+function vesselFileAt(dataDir, id, file) {
+  return path.join(vesselDirAt(dataDir, id), file);
+}
+
+function readVesselBundleAt(dataDir, id) {
+  const dir = vesselDirAt(dataDir, id);
+  if (!fs.existsSync(dir)) return null;
+  return {
+    vessel: readJson(vesselFileAt(dataDir, id, 'vessel.json')),
+    tanks: readJson(vesselFileAt(dataDir, id, 'tanks.json'), emptyTanks()),
+    readings: readJson(vesselFileAt(dataDir, id, 'readings.json'), {}),
+    voyage: readJson(vesselFileAt(dataDir, id, 'voyage.json'), emptyVoyage()),
+    bunkering: readJson(vesselFileAt(dataDir, id, 'bunkering.json'), emptyBunkering()),
+    transfers: readJson(vesselFileAt(dataDir, id, 'transfers.json'), []),
+    bunkerOps: readJson(vesselFileAt(dataDir, id, 'bunker-ops.json'), []),
+    fuelReport: readJson(vesselFileAt(dataDir, id, 'fuel-report.json'), null),
+    reportHistory: readJson(vesselFileAt(dataDir, id, 'report-history.json'), []),
+    bunkerPlan: readJson(vesselFileAt(dataDir, id, 'bunker-plan.json'), null),
+    bunkerAfter: readJson(vesselFileAt(dataDir, id, 'bunker-after.json'), null),
+    bunkerSummary: readJson(vesselFileAt(dataDir, id, 'bunker-summary.json'), null),
+    bunkerHistory: readJson(vesselFileAt(dataDir, id, 'bunker-history.json'), emptyBunkerHistory()),
+    assets: readJson(vesselFileAt(dataDir, id, 'assets.json'), emptyAssets()),
+    meta: readJson(vesselFileAt(dataDir, id, 'meta.json'), {}),
+  };
+}
+
+/** Peer export without license scope must include all user databases, not empty root. */
+function syncPushBundleAggregate() {
+  const mergedVessels = {};
+  const mergedIndexById = new Map();
+
+  function absorbDataDir(dataDir) {
+    const idxFile = path.join(dataDir, 'vessels-index.json');
+    if (!fs.existsSync(idxFile)) return;
+    const index = readJson(idxFile, { vessels: [] });
+    for (const v of (index.vessels || [])) {
+      if (!v || !v.id) continue;
+      const bundle = readVesselBundleAt(dataDir, v.id);
+      if (!bundle) continue;
+      const remoteRev = bundle.meta?.revision || 0;
+      const existing = mergedVessels[v.id];
+      const existingRev = existing?.meta?.revision || 0;
+      if (!existing || remoteRev >= existingRev) {
+        mergedVessels[v.id] = bundle;
+        mergedIndexById.set(v.id, v);
+      }
+    }
+  }
+
+  absorbDataDir(rootDataDir());
+  for (const u of listUserDatabases()) {
+    absorbDataDir(u.path);
+  }
+
+  const rootSettings = readJson(path.join(rootDataDir(), 'settings.json'), defaultSettings());
+  const { syncUrl, syncApiToken, ...safeSettings } = rootSettings;
+
   return {
     format: 'vessel-fuel-tms-sync',
     version: 1,
     pushedAt: now(),
-    clientId: getSettings().clientId || (saveSettings({ clientId: crypto.randomUUID() }).clientId),
-    settings: getSettings(),
-    index,
-    vessels,
+    clientId: rootSettings.clientId || crypto.randomUUID(),
+    settings: safeSettings,
+    index: {
+      vessels: Array.from(mergedIndexById.values()),
+      activeVesselId: null,
+      updatedAt: now(),
+    },
+    vessels: mergedVessels,
   };
+}
+
+function syncPushBundle() {
+  if (scopedEmail()) {
+    const index = loadIndex();
+    const vessels = {};
+    for (const v of index.vessels) {
+      vessels[v.id] = getVesselBundle(v.id);
+    }
+    return {
+      format: 'vessel-fuel-tms-sync',
+      version: 1,
+      pushedAt: now(),
+      clientId: getSettings().clientId || (saveSettings({ clientId: crypto.randomUUID() }).clientId),
+      settings: getSettings(),
+      index,
+      vessels,
+    };
+  }
+  return syncPushBundleAggregate();
 }
 
 const api = {

@@ -856,6 +856,104 @@ app.post('/api/backup/import', upload.single('file'), (req, res) => {
 });
 
 /* ---------- Sync (local <-> Proxmox / remote peer) ---------- */
+
+/** Cheng-Pro serves Tank Chief at /tanks; standalone Tank Chief uses the root.
+ *  Prefer root first for dedicated Tank hosts; otherwise /tanks first on HTTPS.
+ *  Callers must skip HTML 200 responses and try the next base. */
+function peerSyncBases(url) {
+  const base = normalizePeerUrl(url);
+  if (!base) return [];
+  const root = base.replace(/\/tanks$/i, '');
+  const withTanks = /\/tanks$/i.test(base) ? base : `${root}/tanks`;
+  let host = '';
+  try { host = new URL(root).hostname || ''; } catch { /* ignore */ }
+  const tankHost = /tank/i.test(host);
+  const https = /^https:/i.test(root);
+  if (tankHost) return [...new Set([root, withTanks])];
+  return https ? [...new Set([withTanks, root])] : [...new Set([root, withTanks])];
+}
+
+function peerResponseLooksLikeHtml(resp, text) {
+  const ct = String(resp.headers.get('content-type') || '').toLowerCase();
+  if (ct.includes('text/html')) return true;
+  const trimmed = String(text || '').trim();
+  return /^<!doctype|<html/i.test(trimmed);
+}
+
+/** Trim, strip trailing slash, and add http:// when the scheme is missing. */
+function normalizePeerUrl(url) {
+  let s = String(url || '').trim();
+  if (!s) return '';
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(s)) s = 'http://' + s;
+  return s.replace(/\/$/, '');
+}
+
+function describePeerFetchError(err, url) {
+  const msg = (err && err.message) ? String(err.message) : String(err || 'unknown error');
+  const target = String(url || '').trim() || '(no URL)';
+  if (/Failed to fetch|fetch failed|NetworkError|Load failed|getaddrinfo|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|certificate|SSL|TLS/i.test(msg)) {
+    return (
+      'Could not reach peer at ' + target + '. ' +
+      'Use your ChEng AIO LAN address (e.g. http://192.168.0.132:8080) while on ship Wi‑Fi, ' +
+      'or a public hostname that actually resolves and serves ChEng AIO. ' +
+      'HTTPS needs a valid certificate. Standalone Tank Chief uses port 3080. ' +
+      '(' + msg + ')'
+    );
+  }
+  return msg + ' (' + target + ')';
+}
+
+function peerAuthHeadersFromBody(body) {
+  const headers = {};
+  const token = String(body?.syncApiToken || body?.apiToken || '').trim();
+  if (token) headers.Authorization = 'Bearer ' + token;
+  return headers;
+}
+
+async function fetchPeerSync(url, apiPath, init) {
+  const bases = peerSyncBases(url);
+  if (!bases.length) throw new Error('No sync URL configured');
+  const auth = peerAuthHeadersFromBody(init && init.authBody);
+  const reqInit = { ...(init || {}) };
+  delete reqInit.authBody;
+  reqInit.headers = { ...(reqInit.headers || {}), ...auth };
+  let lastErr = null;
+  let lastResp = null;
+  for (const base of bases) {
+    try {
+      const resp = await fetch(`${base}${apiPath}`, reqInit);
+      if (resp.status === 404) {
+        lastResp = resp;
+        continue;
+      }
+      const ct = String(resp.headers.get('content-type') || '').toLowerCase();
+      /* Wrong mount (SPA HTML 200) — try the other base before giving up. */
+      if (resp.ok && ct.includes('text/html')) {
+        lastResp = resp;
+        continue;
+      }
+      if (resp.ok || resp.status !== 404) return resp;
+      lastResp = resp;
+    } catch (err) {
+      lastErr = err;
+      lastErr.peerUrl = base;
+    }
+  }
+  if (lastResp) return lastResp;
+  throw new Error(describePeerFetchError(lastErr, bases[0]));
+}
+
+app.get('/api/sync/ping', (req, res) => {
+  const bundle = store.syncPushBundle();
+  res.json({
+    ok: true,
+    format: 'vessel-fuel-tms-sync',
+    product: 'tank-chief',
+    vesselCount: (bundle.index && bundle.index.vessels) ? bundle.index.vessels.length : store.listVessels().length,
+    time: new Date().toISOString(),
+  });
+});
+
 app.get('/api/sync/export', requireSyncAuth, (req, res) => {
   res.json(store.syncPushBundle());
 });
@@ -869,33 +967,114 @@ app.post('/api/sync/import', requireSyncAuth, (req, res) => {
   }
 });
 
+app.post('/api/sync/probe', asyncHandler(async (req, res) => {
+  const settings = store.getSettings();
+  const url = normalizePeerUrl(req.body?.syncUrl || settings.syncUrl || '');
+  if (!url) return res.status(400).json({ error: 'No sync URL configured' });
+  const bases = peerSyncBases(url);
+  const tried = [];
+  for (const base of bases) {
+    for (const apiPath of ['/api/sync/ping', '/api/health', '/api/sync/export']) {
+      const full = base + apiPath;
+      try {
+        const resp = await fetch(full, {
+          method: 'GET',
+          cache: 'no-store',
+          headers: peerAuthHeadersFromBody({
+            syncApiToken: req.body?.syncApiToken || settings.syncApiToken || '',
+          }),
+        });
+        let product = null;
+        let format = null;
+        let bodyText = '';
+        try {
+          bodyText = await resp.clone().text();
+        } catch { /* ignore */ }
+        if (peerResponseLooksLikeHtml(resp, bodyText)) {
+          tried.push({ url: full, status: resp.status, ok: false, error: 'HTML page (wrong mount or SPA)' });
+          continue;
+        }
+        try {
+          const body = bodyText ? JSON.parse(bodyText) : null;
+          product = body && (body.product || (body.ok ? 'tank-chief' : null));
+          format = (body && body.format) || null;
+        } catch { /* ignore non-JSON */ }
+        tried.push({ url: full, status: resp.status, ok: resp.ok, product, format });
+        if (resp.ok && (
+          format === 'vessel-fuel-tms-sync'
+          || apiPath === '/api/sync/ping'
+          || (apiPath === '/api/health' && product === 'tank-chief')
+        )) {
+          return res.json({
+            ok: true,
+            base,
+            path: apiPath,
+            product: product || 'reachable',
+            format,
+            tried,
+            hint: 'Peer Tank sync is reachable. Keep this phone on “On this device” and use Pull/Push.',
+          });
+        }
+      } catch (err) {
+        tried.push({ url: full, ok: false, error: err.message || String(err) });
+      }
+    }
+  }
+  res.status(502).json({
+    ok: false,
+    tried,
+    error: describePeerFetchError(
+      new Error((tried.find((t) => t.error) || {}).error || 'Failed to fetch'),
+      url
+    ),
+  });
+}));
+
 app.post('/api/sync/pull', asyncHandler(async (req, res) => {
   const settings = store.getSettings();
-  const url = (req.body?.syncUrl || settings.syncUrl || '').replace(/\/$/, '');
+  const url = normalizePeerUrl(req.body?.syncUrl || settings.syncUrl || '');
   if (!url) return res.status(400).json({ error: 'No sync URL configured' });
-  const resp = await fetch(`${url}/api/sync/export`);
-  if (!resp.ok) throw new Error('Remote sync failed: HTTP ' + resp.status);
+  const authBody = {
+    syncApiToken: req.body?.syncApiToken || settings.syncApiToken || '',
+  };
+  const resp = await fetchPeerSync(url, '/api/sync/export', { authBody });
+  if (!resp.ok) throw new Error('Remote sync failed: HTTP ' + resp.status + ' from ' + url);
   const payload = await resp.json();
+  if (!payload || payload.format !== 'vessel-fuel-tms-sync') {
+    throw new Error('Peer did not return a Tank sync bundle — check URL (AIO :8080, Tank :3080) and token');
+  }
+  const remoteCount = Object.keys(payload.vessels || {}).length;
+  if (!remoteCount) {
+    return res.json({
+      ok: true,
+      results: [],
+      from: url,
+      warning: 'Peer returned 0 vessels — add vessels on the peer or check its data folder',
+    });
+  }
   const results = store.applySyncPayload(payload);
   if (payload.settings) {
-    // keep local syncUrl
-    const { syncUrl, ...rest } = payload.settings;
+    const { syncUrl, syncApiToken, ...rest } = payload.settings;
     store.saveSettings(rest);
   }
-  res.json({ ok: true, results, from: url });
+  res.json({ ok: true, results, from: url, remoteCount });
 }));
 
 app.post('/api/sync/push', asyncHandler(async (req, res) => {
   const settings = store.getSettings();
-  const url = (req.body?.syncUrl || settings.syncUrl || '').replace(/\/$/, '');
+  const url = normalizePeerUrl(req.body?.syncUrl || settings.syncUrl || '');
   if (!url) return res.status(400).json({ error: 'No sync URL configured' });
   const payload = store.syncPushBundle();
-  const resp = await fetch(`${url}/api/sync/import`, {
+  const authBody = {
+    syncApiToken: req.body?.syncApiToken || settings.syncApiToken || '',
+  };
+  const resp = await fetchPeerSync(url, '/api/sync/import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+    authBody,
   });
-  if (!resp.ok) throw new Error('Remote sync push failed: HTTP ' + resp.status);
+  if (!resp.ok) throw new Error('Remote sync push failed: HTTP ' + resp.status + ' from ' + url);
   const result = await resp.json();
   res.json({ ok: true, remote: result, to: url });
 }));
