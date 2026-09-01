@@ -406,8 +406,18 @@ const Api = (() => {
     getSettings: () => request('/api/settings'),
     saveSettings: (body) => request('/api/settings', { method: 'PUT', body }),
     backup: (onProgress) => download('/api/backup', onProgress),
-    syncPull: (syncUrl) => request('/api/sync/pull', { method: 'POST', body: { syncUrl } }),
-    syncPush: (syncUrl) => request('/api/sync/push', { method: 'POST', body: { syncUrl } }),
+    syncPull: (syncUrl, syncApiToken) => request('/api/sync/pull', {
+      method: 'POST',
+      body: { syncUrl, syncApiToken },
+    }),
+    syncPush: (syncUrl, syncApiToken) => request('/api/sync/push', {
+      method: 'POST',
+      body: { syncUrl, syncApiToken },
+    }),
+    syncProbe: (syncUrl, syncApiToken) => request('/api/sync/probe', {
+      method: 'POST',
+      body: { syncUrl, syncApiToken },
+    }),
     importCsv: async (vesselId, file) => {
       const fd = new FormData();
       fd.append('file', file);

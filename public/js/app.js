@@ -3028,14 +3028,18 @@ function renderSettings(main) {
     <div class="form-panel">
       <div class="section-title" style="margin-top:0">Remote sync (Proxmox / office)</div>
       <div class="form-row"><label>Peer sync URL</label>
-        <input id="sync-url" value="${s.syncUrl||''}" placeholder="http://192.168.1.50:3080"></div>
+        <input id="sync-url" value="${s.syncUrl||''}" placeholder="http://192.168.1.50:8080 or :3080"></div>
+      <div class="form-row"><label>Sync API token</label>
+        <input id="sync-token" type="password" value="${s.syncApiToken||''}" placeholder="Optional — required when peer uses SYNC_API_TOKEN"></div>
       <div class="btn-row">
         <button class="btn" id="btn-save-sync">Save settings</button>
+        <button class="btn" id="btn-probe-sync">Test connection</button>
         <button class="btn" id="btn-pull">Pull from peer</button>
         <button class="btn primary" id="btn-push">Push to peer</button>
         <button class="btn" id="btn-flush">Flush offline queue</button>
       </div>
       <div class="hint" style="margin-top:8px;color:var(--text-faint);font-size:12px">
+        ChEng AIO peer: <code>http://host:8080</code>. Standalone Tank Chief: <code>http://host:3080</code>.
         Local and LXC instances can sync when either becomes reachable. Offline edits stay in IndexedDB until flushed.
       </div>
     </div>
@@ -3137,21 +3141,52 @@ function renderSettings(main) {
   }
 
   document.getElementById('btn-save-sync').onclick = async () => {
-    STATE.settings = await Api.saveSettings({ syncUrl: document.getElementById('sync-url').value.trim(), syncEnabled: true });
+    STATE.settings = await Api.saveSettings({
+      syncUrl: document.getElementById('sync-url').value.trim(),
+      syncApiToken: document.getElementById('sync-token').value.trim(),
+      syncEnabled: true,
+    });
     showToast('Sync settings saved');
+  };
+
+  document.getElementById('btn-probe-sync').onclick = async () => {
+    const url = document.getElementById('sync-url').value.trim();
+    const token = document.getElementById('sync-token').value.trim();
+    if (!url) { showToast('Enter a peer sync URL'); return; }
+    setSettingsBusy(true);
+    Progress.start(progressHost(), 'Testing peer…', `Connecting to ${url}…`);
+    try {
+      const res = await Api.syncProbe(url, token);
+      Progress.done(res.hint || 'Peer reachable');
+      showToast(res.hint || 'Peer connection OK');
+    } catch (e) {
+      Progress.done();
+      showToast(e.message || 'Peer test failed');
+    } finally {
+      setSettingsBusy(false);
+    }
   };
 
   document.getElementById('btn-pull').onclick = async () => {
     const url = document.getElementById('sync-url').value.trim();
+    const token = document.getElementById('sync-token').value.trim();
     if (!url) { showToast('Enter a peer sync URL'); return; }
     setSettingsBusy(true);
     Progress.start(progressHost(), 'Pulling from peer…', `Connecting to ${url}…`);
     try {
       Progress.set(null, 'Downloading vessels from peer…');
-      const res = await Api.syncPull(url);
-      const count = (res.results || []).length;
-      Progress.set(70, count
-        ? `Applying ${count} vessel${count === 1 ? '' : 's'}…`
+      const res = await Api.syncPull(url, token);
+      if (res.warning) {
+        Progress.done(res.warning);
+        showToast(res.warning);
+        return;
+      }
+      const results = res.results || [];
+      const pulled = results.filter((r) => r.action === 'pulled').length;
+      const kept = results.filter((r) => r.action === 'kept-local').length;
+      const remoteCount = res.remoteCount != null ? res.remoteCount : results.length;
+      Progress.set(70, pulled
+        ? `Applying ${pulled} vessel${pulled === 1 ? '' : 's'}…`
         : 'Applying peer data…');
       const st = await Api.getStatus();
       STATE.vessels = st.vessels;
@@ -3160,8 +3195,16 @@ function renderSettings(main) {
         Progress.set(90, 'Loading active vessel…');
         await reloadBundle();
       }
-      Progress.done(count ? `Pulled ${count} vessel${count === 1 ? '' : 's'}` : 'Pull complete');
-      showToast('Pulled ' + count + ' vessel(s)');
+      if (remoteCount === 0) {
+        Progress.done('Peer returned 0 vessels');
+        showToast('Peer returned 0 vessels — check URL/token or add vessels on the peer');
+      } else if (pulled === 0) {
+        Progress.done(`Peer has ${remoteCount} vessel(s); all up to date locally`);
+        showToast(`Peer has ${remoteCount} vessel(s); ${kept} already up to date locally`);
+      } else {
+        Progress.done(`Pulled ${pulled} vessel${pulled === 1 ? '' : 's'}`);
+        showToast(`Pulled ${pulled} vessel${pulled === 1 ? '' : 's'}${kept ? ` (${kept} kept local)` : ''}`);
+      }
     } catch (e) {
       Progress.done();
       showToast(e.message);
@@ -3172,12 +3215,13 @@ function renderSettings(main) {
 
   document.getElementById('btn-push').onclick = async () => {
     const url = document.getElementById('sync-url').value.trim();
+    const token = document.getElementById('sync-token').value.trim();
     if (!url) { showToast('Enter a peer sync URL'); return; }
     setSettingsBusy(true);
     Progress.start(progressHost(), 'Pushing to peer…', 'Preparing local vessels…');
     try {
       Progress.set(null, `Uploading to ${url}…`);
-      const res = await Api.syncPush(url);
+      const res = await Api.syncPush(url, token);
       const remoteCount = (res.remote && res.remote.results) ? res.remote.results.length : null;
       Progress.set(90, 'Confirming on peer…');
       await Progress.yieldToPaint();
@@ -3489,7 +3533,7 @@ function renderAbout(main) {
   const ver = (typeof Branding !== 'undefined' && Branding.APP_VERSION)
     ? Branding.APP_VERSION
     : (document.querySelector('meta[name="app-version"]')?.content || '');
-  const pkgVer = ver || '2.1.11';
+  const pkgVer = ver || '2.1.12';
   main.innerHTML += `<div class="page-head"><div>
     <h1>About</h1>
     <div class="desc">${Branding.APP_NAME} · v${pkgVer}</div>
@@ -3566,7 +3610,7 @@ function isNewerVersion(latest, current) {
 async function checkTankAppUpdate() {
   const status = document.getElementById('about-update-status');
   const link = document.getElementById('about-update-link');
-  const current = '2.1.11';
+  const current = '2.1.12';
   if (status) status.textContent = 'Checking GitHub for the latest Tank Chief release…';
   if (link) link.style.display = 'none';
   try {
