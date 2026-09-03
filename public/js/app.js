@@ -378,6 +378,7 @@ function renderMoreNav() {
   g.className = 'nav-group-label'; g.textContent = 'Fuel Management';
   host.appendChild(g);
   host.appendChild(mk('voyage', 'Voyage Fuel Calc', '🧭'));
+  host.appendChild(mk('bunker-consumption', 'Consumption Calc', '📊'));
   host.appendChild(mk('bunker-after', 'After Bunkering', '📥'));
   host.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
   host.appendChild(mk('report', 'Voyage Report', '📋'));
@@ -486,6 +487,7 @@ function renderNav() {
   nav.appendChild(mk('voyage', 'Voyage Fuel Calc', '🧭'));
   nav.appendChild(mk('fuel-report', 'Fuel Report', '🧾'));
   nav.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
+  nav.appendChild(mk('bunker-consumption', 'Consumption Calc', '📊'));
   nav.appendChild(mk('bunker-after', 'After Bunkering', '📥'));
   nav.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
   nav.appendChild(mk('report', 'Voyage Report', '📋'));
@@ -568,6 +570,7 @@ function render() {
   else if (page === 'voyage') renderVoyage(main);
   else if (page === 'fuel-report') FuelReport.render(main);
   else if (page === 'bunker-plan') BunkerReports.renderPlan(main);
+  else if (page === 'bunker-consumption') BunkerConsumption.render(main);
   else if (page === 'bunker-after') BunkerReports.renderAfter(main);
   else if (page === 'bunker-summary') BunkerReports.renderSummary(main);
   else if (page === 'report') renderReport(main);

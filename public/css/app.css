@@ -1847,3 +1847,33 @@ html.bright .theme-toggle { background: rgba(18,34,56,0.06); }
   .topbar, .app-header { padding-top: 6px; padding-bottom: 6px; }
   .tg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* --- Bunker Consumption Calculation --- */
+.bc-side { margin-bottom: 18px; }
+.bc-side h3 { margin: 0 0 8px; font-size: 15px; }
+.bc-grade { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.bc-grade label { font-size: 12px; }
+.bc-grade select { padding: 4px 8px; }
+.bc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.bc-table th, .bc-table td { border: 1px solid var(--border, #ccc); padding: 3px 4px; }
+.bc-table th { background: var(--bg-dim, #f5f5f5); font-size: 11px; text-align: center; }
+.bc-table input { width: 100%; border: none; background: transparent; font-size: 12px; padding: 2px; box-sizing: border-box; color: inherit; }
+.bc-table input[type="checkbox"] { width: auto; }
+.bc-totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 12px; margin-top: 10px; }
+.bc-calc-row { display: flex; justify-content: space-between; font-size: 12px; padding: 2px 0; border-bottom: 1px dotted var(--border, #ddd); }
+.bc-calc-row strong { font-variant-numeric: tabular-nums; }
+.bc-formula { margin-top: 8px; font-size: 10px; color: var(--text-dim, #999); }
+@media (max-width: 600px) {
+  .bc-totals { grid-template-columns: 1fr 1fr; }
+}
+@media print {
+  .bc-printing .no-print, .bc-printing .sidebar, .bc-printing .bottom-nav,
+  .bc-printing .topbar, .bc-printing .menu-toggle, .bc-printing .toast,
+  .bc-printing .theme-fab { display: none !important; }
+  .bc-printing #bc-print-root { display: block !important; }
+  .print-doc { font-family: serif; color: #000; }
+  .print-doc h2 { margin: 0 0 4px; }
+  .print-doc table.print-table { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 4px; }
+  .print-doc table.print-table th, .print-doc table.print-table td { border: 0.5pt solid #333; padding: 2px 4px; }
+  .print-doc table.print-table th { background: #eee; }
+}
