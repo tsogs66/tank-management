@@ -1,6 +1,6 @@
 {
   "name": "tank-chief",
-  "version": "2.1.16",
+  "version": "2.1.17",
   "description": "Tank Chief — multi-vessel fuel tank management with sounding calibration, bunkering distribution, voyage fuel planning, and offline sync",
   "author": "ts0gs (Marvin C. Endozo)",
   "main": "desktop/main.js",
