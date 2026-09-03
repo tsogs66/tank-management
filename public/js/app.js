@@ -258,12 +258,66 @@ const PdfProgress = (() => {
   return { show, update, hide, runJob };
 })();
 
-function downloadJson(filename, obj) {
-  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+/**
+ * Save a JSON backup where the user can find it.
+ *
+ * Order: File System Access picker (desktop) → system Share sheet (Android) →
+ * classic <a download>. Never revoke the blob URL immediately — WebView needs
+ * a beat to start the download.
+ *
+ * @returns {Promise<{method:string, filename:string}>}
+ */
+async function downloadJson(filename, obj) {
+  const text = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+  const blob = new Blob([text], { type: 'application/json' });
+  const safeName = filename || `tank-chief-backup-${Date.now()}.json`;
+
+  /* Chromium desktop / many Electron builds: user picks the folder. */
+  try {
+    if (typeof window.showSaveFilePicker === 'function') {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: safeName,
+        types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return { method: 'picker', filename: safeName };
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') throw new Error('Save cancelled');
+    /* Fall through — picker unavailable or failed. */
+  }
+
+  /* Android / iOS: Share → Save to Files / Drive / USB. */
+  try {
+    const file = new File([blob], safeName, { type: 'application/json' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({
+        files: [file],
+        title: safeName,
+        text: 'Tank Chief backup — use Save to Files / Drive / USB so you can find it later.',
+      });
+      return { method: 'share', filename: safeName };
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') throw new Error('Share cancelled — backup was not saved');
+    /* Fall through to anchor download. */
+  }
+
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
+  a.href = url;
+  a.download = safeName;
+  a.rel = 'noopener';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    try { a.remove(); } catch (_) { /* ignore */ }
+    try { URL.revokeObjectURL(url); } catch (_) { /* ignore */ }
+  }, 4000);
+  return { method: 'anchor', filename: safeName };
 }
 
 function allTanks() {
@@ -1883,8 +1937,17 @@ function renderCalibrationEditor(main, tankId) {
   document.getElementById('btn-print-tank-calib-2').onclick = () => {
     printCalibrationDocuments([findTank(tankId) || tank], { bookTitle: 'TANK CALIBRATION TABLES' });
   };
-  document.getElementById('btn-export-tank').onclick = () => {
-    downloadJson(tank.id + '-calibration.json', findTank(tankId));
+  document.getElementById('btn-export-tank').onclick = async () => {
+    try {
+      const saved = await downloadJson(tank.id + '-calibration.json', findTank(tankId));
+      showToast(saved.method === 'anchor'
+        ? `Export started — check Downloads for ${saved.filename}`
+        : saved.method === 'share'
+          ? 'Shared — Save to Files / Drive / USB'
+          : 'Calibration saved to the folder you chose');
+    } catch (e) {
+      showToast(e.message || 'Export failed');
+    }
   };
 
   // Keep focused spreadsheet cells visible above the Android keyboard
@@ -3093,7 +3156,7 @@ function renderSettings(main) {
   cols.innerHTML = `
     <div class="form-panel">
       <div class="section-title" style="margin-top:0">Backup</div>
-      <p style="color:var(--text-dim);font-size:13px">Download a full JSON backup of all vessels, tanks, calibrations, readings, and settings.</p>
+      <p style="color:var(--text-dim);font-size:13px">Download a full JSON backup of all vessels, tanks, calibrations, readings, and settings. On desktop you choose the save folder; on Android use Share → <strong>Save to Files / Drive / USB</strong> (dismissing the sheet saves nothing).</p>
       <button class="btn primary" id="btn-backup">Download backup</button>
     </div>
     <div class="form-panel">
@@ -3159,10 +3222,19 @@ function renderSettings(main) {
       });
       Progress.set(95, 'Saving file…');
       await Progress.yieldToPaint();
-      downloadJson('fuel-tms-backup.json', backup);
+      const saved = await downloadJson(`tank-chief-backup-${Date.now()}.json`, backup);
       const vessels = backup?.vessels ? Object.keys(backup.vessels).length : 0;
-      Progress.done(vessels ? `Backup saved (${vessels} vessel${vessels === 1 ? '' : 's'})` : 'Backup saved');
-      showToast('Backup downloaded');
+      const where = saved.method === 'picker'
+        ? 'saved to the folder you chose'
+        : saved.method === 'share'
+          ? 'shared — use Save to Files / Drive / USB'
+          : 'check your Downloads folder';
+      Progress.done(vessels
+        ? `Backup ${where} (${vessels} vessel${vessels === 1 ? '' : 's'})`
+        : `Backup ${where}`);
+      showToast(saved.method === 'anchor'
+        ? `Backup started — check Downloads for ${saved.filename}`
+        : `Backup ${where}`);
     } catch (e) {
       Progress.done();
       showToast(e.message || 'Backup failed');
@@ -3378,8 +3450,12 @@ function renderSettings(main) {
       } else {
         backup = await Api.request(`/api/vessels/${encodeURIComponent(STATE.activeVesselId)}/backup`);
       }
-      downloadJson(`fuel-tms-vessel-${STATE.activeVesselId}.json`, backup);
-      showToast('Vessel backup saved');
+      const saved = await downloadJson(`tank-chief-vessel-${STATE.activeVesselId}-${Date.now()}.json`, backup);
+      showToast(saved.method === 'anchor'
+        ? `Vessel backup started — check Downloads for ${saved.filename}`
+        : saved.method === 'share'
+          ? 'Shared — Save to Files / Drive / USB'
+          : 'Vessel backup saved to the folder you chose');
     } catch (e) {
       showToast(e.message || 'Export failed');
     } finally {
