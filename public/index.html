@@ -68,6 +68,12 @@
         document.documentElement.classList.add('chengaio-embed');
       }
     } catch (_e) {}
+    try {
+      var qs = location.search || '';
+      if (/[?&]bunkerEmbed=1\b/.test(qs) || /[?&]page=bunker-plan\b/.test(qs)) {
+        document.documentElement.classList.add('bunker-ops-embed');
+      }
+    } catch (_e) {}
 
     /* Keep phone/tablet browsers on the mobile layout (block “Desktop site”). */
     (function lockMobileViewport() {

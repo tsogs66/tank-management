@@ -207,6 +207,24 @@ html.use-bottom-nav.chengaio-embed .main {
   padding-top: calc(52px + env(safe-area-inset-top, 0px));
 }
 
+/* ChEng AIO → Bunkering Plan: iframe shows only bunker-plan — no Tank nav chrome. */
+html.bunker-ops-embed .sidebar,
+html.bunker-ops-embed .menu-toggle,
+html.bunker-ops-embed .sidebar-backdrop,
+html.bunker-ops-embed .bottom-nav,
+html.bunker-ops-embed .bn-more-sheet,
+html.bunker-ops-embed .theme-fab,
+html.bunker-ops-embed #app-credit-page {
+  display: none !important;
+}
+html.bunker-ops-embed .main {
+  padding: 10px !important;
+  padding-top: calc(8px + env(safe-area-inset-top, 0px)) !important;
+}
+html.bunker-ops-embed.chengaio-embed .main {
+  padding-top: calc(52px + env(safe-area-inset-top, 0px)) !important;
+}
+
 /* Wide Windows desktop: sidebar. Android/mobile (.is-mobile-chrome) keeps bottom nav
    even in landscape when the viewport is wider than a phone. */
 @media (min-width: 1025px) {

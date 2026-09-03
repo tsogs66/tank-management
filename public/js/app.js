@@ -326,6 +326,55 @@ function apiHref(path) {
 
 const BOTTOM_PRIMARY = new Set(['dashboard', 'fuel', 'fuel-report', 'bunker-plan']);
 
+function isAioEmbedded() {
+  try {
+    if (document.documentElement.classList.contains('chengaio-embed')) return true;
+    if (window.ChengLicense && typeof ChengLicense.isEmbeddedInAio === 'function') {
+      return !!ChengLicense.isEmbeddedInAio();
+    }
+  } catch (_) { /* ignore */ }
+  return false;
+}
+
+function isBunkerOpsEmbed() {
+  return document.documentElement.classList.contains('bunker-ops-embed');
+}
+
+/**
+ * Bunker Plan (ops) nav: hidden inside ChEng AIO (AIO has its own Bunkering Plan menu).
+ * Standalone: only when the Tank Chief license permits tanks / bunkering.
+ */
+function bunkerPlanNavAllowed() {
+  if (isBunkerOpsEmbed()) return false;
+  if (isAioEmbedded()) return false;
+  if (!window.ChengLicense) return true;
+  try {
+    const ent = ChengLicense.loadEntitlement();
+    if (!ChengLicense.isValid(ent)) return false;
+    if (typeof ChengLicense.moduleAllowed === 'function' && ChengLicense.moduleAllowed('tanks', ent)) {
+      return true;
+    }
+    return String(ent.sku || '') === 'tank-chief';
+  } catch (_) {
+    return true;
+  }
+}
+
+function applyBunkerPlanNavVisibility() {
+  const show = bunkerPlanNavAllowed();
+  document.querySelectorAll('[data-page="bunker-plan"]').forEach((el) => {
+    el.hidden = !show;
+    el.style.display = show ? '' : 'none';
+  });
+  document.querySelectorAll('#sidebar-nav .nav-btn').forEach((el) => {
+    const label = (el.textContent || '').trim();
+    if (label === 'Bunker Plan' || (el.querySelector('span:last-child')?.textContent || '').trim() === 'Bunker Plan') {
+      el.hidden = !show;
+      el.style.display = show ? '' : 'none';
+    }
+  });
+}
+
 function syncBottomNav() {
   const page = STATE.route.page;
   document.querySelectorAll('#bottomNav .bn-item').forEach((btn) => {
@@ -336,6 +385,7 @@ function syncBottomNav() {
       btn.classList.toggle('active', p === page);
     }
   });
+  applyBunkerPlanNavVisibility();
 }
 
 function renderMoreNav() {
@@ -377,7 +427,7 @@ function renderMoreNav() {
   g = document.createElement('div');
   g.className = 'nav-group-label'; g.textContent = 'Fuel Management';
   host.appendChild(g);
-  host.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
+  if (bunkerPlanNavAllowed()) host.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
   host.appendChild(mk('bunker-after', 'After Bunkering', '📥'));
   host.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
   host.appendChild(mk('bunker-consumption', 'Bunker Consumption', '📊'));
@@ -424,7 +474,12 @@ function renderMoreNav() {
 const PAGE_ALIASES = { bunkering: 'bunker-plan' };
 
 function navigate(page, tankId = null) {
-  STATE.route = { page: PAGE_ALIASES[page] || page, tankId };
+  let next = PAGE_ALIASES[page] || page;
+  if (next === 'bunker-plan' && !isBunkerOpsEmbed() && !bunkerPlanNavAllowed()) {
+    showToast('Bunker Plan is not available on this license');
+    next = 'dashboard';
+  }
+  STATE.route = { page: next, tankId };
   closeMobileNav();
   closeMoreSheet();
   render();
@@ -485,7 +540,7 @@ function renderNav() {
   g.className = 'nav-group-label'; g.textContent = 'Fuel Management';
   nav.appendChild(g);
   nav.appendChild(mk('fuel-report', 'Fuel Report', '🧾'));
-  nav.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
+  if (bunkerPlanNavAllowed()) nav.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
   nav.appendChild(mk('bunker-consumption', 'Bunker Consumption', '📊'));
   nav.appendChild(mk('bunker-after', 'After Bunkering', '📥'));
   nav.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
@@ -3834,6 +3889,9 @@ async function boot() {
   }
 
   render();
+  if (isBunkerOpsEmbed()) {
+    navigate('bunker-plan');
+  }
   startSyncLoop();
 }
 
