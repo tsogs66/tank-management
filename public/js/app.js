@@ -3616,7 +3616,7 @@ function renderAbout(main) {
   const ver = (typeof Branding !== 'undefined' && Branding.APP_VERSION)
     ? Branding.APP_VERSION
     : (document.querySelector('meta[name="app-version"]')?.content || '');
-  const pkgVer = ver || '2.1.21';
+  const pkgVer = ver || '2.1.22';
   main.innerHTML += `<div class="page-head"><div>
     <h1>About</h1>
     <div class="desc">${Branding.APP_NAME} · v${pkgVer}</div>
@@ -3661,7 +3661,7 @@ function renderAbout(main) {
       Sample vessels ship with the app so a new install is ready to try.</p>
 
     <h2>Voyage and reference</h2>
-    <p><b>Voyage Fuel Calc</b> plans legs by distance, speed and daily burn to arrival ROB.
+    <p><b>Bunker Consumption Calculation</b> plans legs by distance, speed and daily burn to arrival ROB.
       <b>VCF / WCF Calc</b> is a standalone ASTM 54B / 56 calculator with tables.
       <b>ISO 8217 Specs</b> lists 2017 distillate and residual marine-fuel limits.</p>
 
@@ -3693,7 +3693,7 @@ function isNewerVersion(latest, current) {
 async function checkTankAppUpdate() {
   const status = document.getElementById('about-update-status');
   const link = document.getElementById('about-update-link');
-  const current = '2.1.21';
+  const current = '2.1.22';
   if (status) status.textContent = 'Checking GitHub for the latest Tank Chief release…';
   if (link) link.style.display = 'none';
   try {
