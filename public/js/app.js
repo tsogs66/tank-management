@@ -324,7 +324,7 @@ function apiHref(path) {
   return (typeof Api !== 'undefined' && Api.withPrefix) ? Api.withPrefix(path) : path;
 }
 
-const BOTTOM_PRIMARY = new Set(['dashboard', 'fuel', 'fuel-report', 'bunker-consumption']);
+const BOTTOM_PRIMARY = new Set(['dashboard', 'fuel', 'fuel-report', 'bunker-plan']);
 
 function syncBottomNav() {
   const page = STATE.route.page;
@@ -377,9 +377,10 @@ function renderMoreNav() {
   g = document.createElement('div');
   g.className = 'nav-group-label'; g.textContent = 'Fuel Management';
   host.appendChild(g);
-  host.appendChild(mk('bunker-consumption', 'Consumption Calc', '📊'));
+  host.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
   host.appendChild(mk('bunker-after', 'After Bunkering', '📥'));
   host.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
+  host.appendChild(mk('bunker-consumption', 'Consumption Calc', '📊'));
   host.appendChild(mk('report', 'Voyage Report', '📋'));
 
   g = document.createElement('div');
@@ -3616,7 +3617,7 @@ function renderAbout(main) {
   const ver = (typeof Branding !== 'undefined' && Branding.APP_VERSION)
     ? Branding.APP_VERSION
     : (document.querySelector('meta[name="app-version"]')?.content || '');
-  const pkgVer = ver || '2.1.22';
+  const pkgVer = ver || '2.1.23';
   main.innerHTML += `<div class="page-head"><div>
     <h1>About</h1>
     <div class="desc">${Branding.APP_NAME} · v${pkgVer}</div>
@@ -3693,7 +3694,7 @@ function isNewerVersion(latest, current) {
 async function checkTankAppUpdate() {
   const status = document.getElementById('about-update-status');
   const link = document.getElementById('about-update-link');
-  const current = '2.1.22';
+  const current = '2.1.23';
   if (status) status.textContent = 'Checking GitHub for the latest Tank Chief release…';
   if (link) link.style.display = 'none';
   try {
