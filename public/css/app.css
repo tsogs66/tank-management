@@ -857,16 +857,16 @@ table.fr-sheet tfoot th { text-align: left; }
   text-transform: uppercase; color: var(--text-faint);
 }
 .fr-preview .calib-print-page { padding-bottom: 12px; }
-.fr-preview .calib-print-masthead { border-bottom: 1.5px solid #111; margin-bottom: 10px; }
+.fr-preview .calib-print-masthead { border-bottom: 1.5px solid #c5cdd8; margin-bottom: 10px; }
 .fr-preview .calib-print-masthead h1 { margin: 0; font-size: 16px; }
-.fr-preview .calib-print-badge { border: 1px solid #111; padding: 3px 6px; font-size: 10px; }
+.fr-preview .calib-print-badge { border: none; background: #eef2f8; padding: 3px 6px; font-size: 10px; }
 .fr-preview .calib-print-footer {
   display: flex; justify-content: space-between; border-top: 1px solid #666;
   margin-top: 8px; padding-top: 4px; font-size: 10px; color: #444;
 }
 .fr-preview table.fr-print-table { width: 100%; border-collapse: collapse; font-size: 10px; }
 .fr-preview table.fr-print-table th, .fr-preview table.fr-print-table td {
-  border: 1px solid #333; padding: 2px 4px; text-align: right; color: #111;
+  border: 1px solid #c5cdd8; padding: 2px 4px; text-align: right; color: #111;
 }
 .fr-preview table.fr-print-table th { background: #eee; text-align: center; }
 .fr-preview .fr-print-name { text-align: left; }
@@ -886,7 +886,7 @@ table.fr-sheet tfoot th { text-align: left; }
 .fr-preview .fr-print-used { background: #e8eef6; }
 .fr-preview .fr-print-sign { margin-top: 12px; font-size: 11px; width: 60mm; }
 .fr-preview .fr-print-sign-line {
-  border-bottom: 1px solid #111; min-height: 20px; font-weight: 700; padding-top: 14px;
+  border-bottom: 1px solid #8a96a8; min-height: 20px; font-weight: 700; padding-top: 14px;
 }
 .fr-preview .fr-tc-masthead { margin-top: 0; margin-bottom: 6px; color: #111; }
 .fr-preview .fr-tc-brand-row { display: flex; justify-content: flex-end; }
@@ -905,7 +905,7 @@ table.fr-sheet tfoot th { text-align: left; }
 .fr-preview .fr-tc-ident-right b { font-size: 14px; font-weight: 800; }
 .fr-preview .fr-tc-facts {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px 16px;
-  margin: 4px 0; padding: 4px 0; border-top: 1px solid #111; border-bottom: 2px solid #111; color: #111;
+  margin: 4px 0; padding: 4px 0; border-top: 1px solid #c5cdd8; border-bottom: 2px solid #9aa8b8; color: #111;
 }
 .fr-preview .fr-tc-fact span {
   display: block; font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: #555;
@@ -933,7 +933,7 @@ table.fr-sheet tfoot th { text-align: left; }
 .fr-preview .fr-tc-capline b { font-size: 14px; }
 .fr-preview table.fr-tc-table th, .fr-preview table.fr-tc-table td,
 .fr-preview table.fr-tc-mini th, .fr-preview table.fr-tc-mini td {
-  border: 1px solid #333; padding: 2px 4px; text-align: right; color: #111;
+  border: 1px solid #c5cdd8; padding: 2px 4px; text-align: right; color: #111;
 }
 .fr-preview .fr-tc-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .fr-preview .fr-tc-annex { display: grid; grid-template-columns: 1.3fr 1fr; gap: 10px; }
@@ -1133,7 +1133,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     justify-content: space-between;
     align-items: flex-start;
     gap: 16px;
-    border-bottom: 1.5pt solid #111;
+    border-bottom: 1.5pt solid #c5cdd8;
     margin-top: 0;
     padding-top: 0;
     padding-bottom: 2px;
@@ -1151,7 +1151,10 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   }
   .calib-print-badge {
     flex: 0 0 auto;
-    border: 0.8pt solid #111;
+    border: none;
+    background: #eef2f8 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
     padding: 4px 8px;
     font-size: 8pt;
     font-weight: 700;
@@ -1203,7 +1206,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   }
   table.calib-print-table th,
   table.calib-print-table td {
-    border: 0.4pt solid #222;
+    border: 0.4pt solid #c5cdd8;
     padding: 2px 3px;
     text-align: right;
     vertical-align: middle;
@@ -1240,7 +1243,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   }
   .calib-print-index th,
   .calib-print-index td {
-    border: 0.4pt solid #333;
+    border: 0.4pt solid #c5cdd8;
     padding: 4px 6px;
     text-align: left;
   }
@@ -1265,7 +1268,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   .report-print-doc .data-table th,
   .report-print-doc .data-table td {
     color: #111 !important;
-    border-color: #333 !important;
+    border-color: #c5cdd8 !important;
   }
 
   /* ---------- Fuel oil report printout ---------- */
@@ -1282,7 +1285,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     font-variant-numeric: tabular-nums; margin-bottom: 4px;
   }
   table.fr-print-table th, table.fr-print-table td {
-    border: 0.4pt solid #222; padding: 2px 3px;
+    border: 0.4pt solid #c5cdd8; padding: 2px 3px;
     text-align: right; vertical-align: middle;
   }
   table.fr-print-table th {
@@ -1326,7 +1329,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   .fr-tc-masthead { margin-top: 0; margin-bottom: 5px; }
   .fr-tc-brand-row {
     display: flex; justify-content: flex-end;
-    padding-top: 0; padding-bottom: 0; border-bottom: 0.4pt solid #111;
+    padding-top: 0; padding-bottom: 0; border-bottom: 0.4pt solid #c5cdd8;
   }
   .fr-tc-app {
     font-size: 8pt; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
@@ -1357,8 +1360,8 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   }
   .fr-tc-facts {
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 0 12px;
-    padding: 1px 0 2px; border-top: 0.5pt solid #111;
-    border-bottom: 1.4pt solid #111; margin-bottom: 3px;
+    padding: 1px 0 2px; border-top: 0.5pt solid #c5cdd8;
+    border-bottom: 1.4pt solid #9aa8b8; margin-bottom: 3px;
   }
   .fr-tc-fact span {
     display: block; font-size: 6.5pt; font-weight: 700; text-transform: uppercase;
@@ -1380,7 +1383,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     font-size: 6.6pt; font-variant-numeric: tabular-nums;
   }
   table.fr-tc-table th, table.fr-tc-table td {
-    border: 0.35pt solid #333; padding: 1px 3px;
+    border: 0.35pt solid #c5cdd8; padding: 1px 3px;
     /* Figures are read down a column, so they keep their right edge; the cells
        that carry words are centred both ways just below. Everything sits on the
        middle of its row, which is what shows once a row is taller than one
@@ -1410,7 +1413,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
        clears its column by 1.6px. Side padding stays at 1px — the row rule
        above only sets the vertical padding, so this is not overridden. */
     font-size: 7pt; padding-left: 1px; padding-right: 1px;
-    border-top: 1.2pt solid #111; border-bottom: 1.2pt solid #111;
+    border-top: 1.2pt solid #9aa8b8; border-bottom: 1.2pt solid #9aa8b8;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
   /* No font-size here: the tfoot rule above outranks it, so the 9.5pt this
@@ -1428,7 +1431,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 4px;
   }
   .fr-tc-card {
-    border: 0.5pt solid #333; padding: 2px 6px;
+    border: 0.5pt solid #c5cdd8; padding: 2px 6px;
   }
   .fr-tc-card h4 {
     margin: 0 0 3px; font-size: 7.5pt; letter-spacing: .05em; text-transform: uppercase;
@@ -1452,7 +1455,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   }
   table.fr-tc-mini tfoot th, table.fr-tc-mini tfoot td {
     background: #d9e2ee !important; color: #000 !important; font-weight: 800;
-    font-size: 8pt; border-top: 1pt solid #111;
+    font-size: 8pt; border-top: 1pt solid #9aa8b8;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
   .fr-tc-diff { color: #8a1f1f; font-weight: 800; }
@@ -1475,7 +1478,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     max-height: var(--fr-sign-space); max-width: var(--fr-sign-line); object-fit: contain;
   }
   .fr-print-sign-line {
-    border-bottom: 0.6pt solid #111; width: var(--fr-sign-line); margin-bottom: 1.5mm;
+    border-bottom: 0.6pt solid #8a96a8; width: var(--fr-sign-line); margin-bottom: 1.5mm;
   }
   .fr-print-sign-name { font-weight: 700; font-size: 9pt; }
   .fr-print-sign-role {
@@ -2045,12 +2048,14 @@ html.bright .bunker-side { background: rgba(18,34,56,0.04); }
   body.printing-bc #app-credit-page { display: none !important; }
   body.printing-bc #bc-print-root { display: block !important; }
   .bc-pr-sheet { color: #111; font-family: Georgia, "Times New Roman", serif; font-size: 10pt; }
-  .bc-pr-header { margin-bottom: 8px; border-bottom: 1.5pt solid #333; padding-bottom: 4px; position: relative; }
+  .bc-pr-header { margin-bottom: 8px; border-bottom: 1.5pt solid #c5cdd8; padding-bottom: 4px; position: relative; }
   .bc-pr-title { font-size: 14pt; font-weight: 700; margin: 0; }
   .bc-pr-sub { font-size: 9pt; color: #444; margin-top: 2px; }
   .bc-pr-badge {
     position: absolute; right: 0; top: 0;
-    border: 0.6pt solid #333; padding: 2px 8px; font-size: 9pt; font-weight: 700;
+    border: none; background: #eef2f8 !important;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    padding: 2px 8px; font-size: 9pt; font-weight: 700;
   }
   .bc-pr-meta {
     display: grid;
@@ -2068,7 +2073,7 @@ html.bright .bunker-side { background: rgba(18,34,56,0.04); }
   .bc-pr-section-title {
     margin: 0 0 4px;
     font-size: 11pt;
-    border-bottom: 0.6pt solid #333;
+    border-bottom: 0.6pt solid #c5cdd8;
     padding-bottom: 2px;
   }
   .bc-pr-table {
@@ -2079,7 +2084,7 @@ html.bright .bunker-side { background: rgba(18,34,56,0.04); }
   }
   .bc-pr-table th,
   .bc-pr-table td {
-    border: 0.4pt solid #333;
+    border: 0.4pt solid #c5cdd8;
     padding: 2px 3px;
     text-align: right;
   }
