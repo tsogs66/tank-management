@@ -1,5 +1,5 @@
 /* Service worker — cache shell for offline Android / local use */
-const CACHE = 'tank-chief-v74';
+const CACHE = 'tank-chief-v75';
 const ASSETS = [
   '/',
   '/index.html',
