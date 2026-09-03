@@ -3872,4 +3872,24 @@ function startSyncLoop() {
   timer = window.setTimeout(tick, PENDING_MS);
 }
 
+/* Tank ROB bridge: respond to parent/AIO requests for current fuel ROB by grade. */
+window.addEventListener('message', (ev) => {
+  const msg = ev.data || {};
+  if (msg.type !== 'request-tank-rob') return;
+  const rob = {};
+  try {
+    const fuelTanks = STATE.bundle?.tanks?.fuel || [];
+    for (const t of fuelTanks) {
+      const r = getReading(t.id);
+      const wt = r?.result?.weightMT;
+      if (wt != null && wt > 0) {
+        const grade = t.fuelGrade || 'Unknown';
+        rob[grade] = (rob[grade] || 0) + wt;
+      }
+    }
+  } catch (_) { /* bundle not ready */ }
+  const target = ev.source || window.parent;
+  try { target.postMessage({ type: 'tank-rob-response', rob }, '*'); } catch (_) {}
+});
+
 document.addEventListener('DOMContentLoaded', boot);
