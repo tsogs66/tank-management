@@ -1130,18 +1130,35 @@ const FuelReport = (() => {
     return `<div class="fuel-report-print-doc fr-preview">${printAnnexPage(c)}</div>`;
   }
 
-  /** System printer dialog via hidden iframe (works in AIO embed / Android). */
+  /** System printer picker on the live page (Save as PDF included). Keep the
+   *  print document until afterprint — tearing it down mid-preview freezes the UI. */
   function printHtml(html) {
-    // Every printout goes through here, so the credit is added in one place
-    // rather than in each of the five sheet builders.
-    const body = `<div class="fuel-report-print-doc">${html}${Branding.printCredit()}</div>`;
+    let root = document.getElementById('fuel-report-print-root');
+    if (!root) {
+      root = document.createElement('div');
+      root.id = 'fuel-report-print-root';
+      document.body.appendChild(root);
+    }
+    const previousTitle = document.title;
     try {
-      Branding.printViaIframe(body, {
-        bodyClass: 'printing-fuel-report',
-        title: 'Tank Chief — Print',
-      });
+      Branding.printLiveDocument(
+        () => {
+          root.className = 'fuel-report-print-doc';
+          // Every printout goes through here, so the credit is added in one place
+          // rather than in each of the five sheet builders.
+          root.innerHTML = html + Branding.printCredit();
+          document.body.classList.add('printing-fuel-report');
+          document.title = '\u00A0';
+        },
+        () => {
+          document.title = previousTitle;
+          document.body.classList.remove('printing-fuel-report');
+        },
+      );
     } catch (err) {
       console.warn(err);
+      document.title = previousTitle;
+      document.body.classList.remove('printing-fuel-report');
       showToast('Print failed');
     }
   }
