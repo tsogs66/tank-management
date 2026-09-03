@@ -324,7 +324,7 @@ function apiHref(path) {
   return (typeof Api !== 'undefined' && Api.withPrefix) ? Api.withPrefix(path) : path;
 }
 
-const BOTTOM_PRIMARY = new Set(['dashboard', 'fuel', 'fuel-report', 'bunker-plan']);
+const BOTTOM_PRIMARY = new Set(['dashboard', 'voyage', 'fuel-report', 'bunker-consumption']);
 
 function syncBottomNav() {
   const page = STATE.route.page;
