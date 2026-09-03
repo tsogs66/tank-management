@@ -33,6 +33,41 @@ const Branding = (() => {
     </div>`;
   }
 
+  /* Hold server upload / queue flush while the printer dialog is open.
+     PRINT & SAVE used to PUT to the API before print(), which looked like a
+     sync pull/upload and blocked the system printer picker. */
+  let printHold = 0;
+  const holdListeners = new Set();
+
+  function beginPrintHold() {
+    printHold += 1;
+  }
+
+  function endPrintHold() {
+    printHold = Math.max(0, printHold - 1);
+    if (printHold > 0) return;
+    holdListeners.forEach((fn) => {
+      try { fn(); } catch (_) { /* ignore */ }
+    });
+    holdListeners.clear();
+    try {
+      window.dispatchEvent(new CustomEvent('tank:print-hold-end'));
+    } catch (_) { /* ignore */ }
+  }
+
+  function isPrintHold() {
+    return printHold > 0;
+  }
+
+  /** Run fn after the print dialog closes (or immediately if not printing). */
+  function afterPrintHold(fn) {
+    if (!isPrintHold()) {
+      try { fn(); } catch (_) { /* ignore */ }
+      return;
+    }
+    holdListeners.add(fn);
+  }
+
   /**
    * Open the browser's system printer dialog on the live page.
    *
@@ -42,11 +77,14 @@ const Branding = (() => {
    */
   function printLiveDocument(prepare, cleanup) {
     let finished = false;
+    const heldHere = !isPrintHold();
+    if (heldHere) beginPrintHold();
     const finish = () => {
       if (finished) return;
       finished = true;
       window.removeEventListener('afterprint', finish);
       try { cleanup && cleanup(); } catch (_) { /* ignore */ }
+      endPrintHold();
     };
     try { prepare && prepare(); } catch (err) {
       finish();
@@ -67,7 +105,18 @@ const Branding = (() => {
     }, 50);
   }
 
-  return { APP_NAME, AUTHORS, authorLine, creditLine, printCredit, printLiveDocument };
+  return {
+    APP_NAME,
+    AUTHORS,
+    authorLine,
+    creditLine,
+    printCredit,
+    printLiveDocument,
+    beginPrintHold,
+    endPrintHold,
+    isPrintHold,
+    afterPrintHold,
+  };
 })();
 
 window.Branding = Branding;

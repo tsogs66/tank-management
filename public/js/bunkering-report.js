@@ -51,27 +51,36 @@ const BunkerReports = (() => {
   }
 
   /** Save a form part, keeping the offline cache and queue in step. */
-  async function saveChainPart(path, part, form, { snapshot = false, extra = {} } = {}) {
+  async function saveChainPart(path, part, form, { snapshot = false, extra = {}, deferServer = false } = {}) {
     const b = bundle();
     const body = { form, snapshot, ...extra };
     b[part] = form;
     await OfflineDB.idbSet('vessel:' + STATE.activeVesselId, b);
-    try {
-      const res = await Api.request(`/api/vessels/${STATE.activeVesselId}/${path}`, { method: 'PUT', body });
-      if (res.form) b[part] = res.form;
-      if (res.history) {
-        const h = bunkerHistory();
-        h[path === 'bunker-plan' ? 'plans' : path === 'bunker-after' ? 'after' : 'summaries'] = res.history;
-        b.bunkerHistory = h;
+
+    const pushServer = async () => {
+      try {
+        const res = await Api.request(`/api/vessels/${STATE.activeVesselId}/${path}`, { method: 'PUT', body });
+        if (res.form) b[part] = res.form;
+        if (res.history) {
+          const h = bunkerHistory();
+          h[path === 'bunker-plan' ? 'plans' : path === 'bunker-after' ? 'after' : 'summaries'] = res.history;
+          b.bunkerHistory = h;
+        }
+        await OfflineDB.idbSet('vessel:' + STATE.activeVesselId, b);
+        showToast(snapshot ? 'Saved' : 'Draft saved');
+        return res;
+      } catch {
+        await Api.mutate(`/api/vessels/${STATE.activeVesselId}/${path}`, { method: 'PUT', body });
+        showToast('Saved offline — will sync when online');
+        return null;
       }
-      await OfflineDB.idbSet('vessel:' + STATE.activeVesselId, b);
-      showToast(snapshot ? 'Saved' : 'Draft saved');
-      return res;
-    } catch {
-      await Api.mutate(`/api/vessels/${STATE.activeVesselId}/${path}`, { method: 'PUT', body });
-      showToast('Saved offline — will sync when online');
+    };
+
+    if (deferServer) {
+      Branding.afterPrintHold(() => { pushServer(); });
       return null;
     }
+    return pushServer();
   }
 
   function historyRows(list, kind) {
@@ -1000,9 +1009,15 @@ const BunkerReports = (() => {
     });
 
     document.getElementById('bp-print-save').onclick = async () => {
-      await saveChainPart('bunker-plan', 'bunkerPlan',
-        { ...view.plan, updatedAt: new Date().toISOString() }, { snapshot: true });
-      UI.printHtml(planPrintPages(recomputePlan()));
+      Branding.beginPrintHold();
+      try {
+        await saveChainPart('bunker-plan', 'bunkerPlan',
+          { ...view.plan, updatedAt: new Date().toISOString() }, { snapshot: true, deferServer: true });
+        UI.printHtml(planPrintPages(recomputePlan()));
+      } catch (err) {
+        Branding.endPrintHold();
+        throw err;
+      }
     };
     document.getElementById('bp-save').onclick = () => saveChainPart('bunker-plan', 'bunkerPlan',
       { ...view.plan, updatedAt: new Date().toISOString() });
@@ -1518,9 +1533,15 @@ const BunkerReports = (() => {
       showToast('Data pulled from the fuel report');
     };
     document.getElementById('ba-print-save').onclick = async () => {
-      await saveChainPart('bunker-after', 'bunkerAfter',
-        { ...view.after, updatedAt: new Date().toISOString() }, { snapshot: true });
-      UI.printHtml(afterPrintPages(recomputeAfter()));
+      Branding.beginPrintHold();
+      try {
+        await saveChainPart('bunker-after', 'bunkerAfter',
+          { ...view.after, updatedAt: new Date().toISOString() }, { snapshot: true, deferServer: true });
+        UI.printHtml(afterPrintPages(recomputeAfter()));
+      } catch (err) {
+        Branding.endPrintHold();
+        throw err;
+      }
     };
     document.getElementById('ba-save').onclick = () => saveChainPart('bunker-after', 'bunkerAfter',
       { ...view.after, updatedAt: new Date().toISOString() });
@@ -1778,9 +1799,15 @@ const BunkerReports = (() => {
     wrap.addEventListener('change', (e) => { if (apply(e.target)) refreshSummary(); });
 
     document.getElementById('bs-print-save').onclick = async () => {
-      await saveChainPart('bunker-summary', 'bunkerSummary',
-        { ...view.summary, updatedAt: new Date().toISOString() }, { snapshot: true });
-      UI.printHtml(summaryPrintPages(recomputeSummary()));
+      Branding.beginPrintHold();
+      try {
+        await saveChainPart('bunker-summary', 'bunkerSummary',
+          { ...view.summary, updatedAt: new Date().toISOString() }, { snapshot: true, deferServer: true });
+        UI.printHtml(summaryPrintPages(recomputeSummary()));
+      } catch (err) {
+        Branding.endPrintHold();
+        throw err;
+      }
     };
     document.getElementById('bs-save').onclick = () => saveChainPart('bunker-summary', 'bunkerSummary',
       { ...view.summary, updatedAt: new Date().toISOString() });
