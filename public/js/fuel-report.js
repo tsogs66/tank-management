@@ -1130,39 +1130,20 @@ const FuelReport = (() => {
     return `<div class="fuel-report-print-doc fr-preview">${printAnnexPage(c)}</div>`;
   }
 
-  /** Keep the print document in the DOM until the dialog closes — a 2s timeout
-   *  was deleting it while Chrome's preview was still open, so the printer
-   *  received the on-screen entry grid instead. */
+  /** System printer dialog via hidden iframe (works in AIO embed / Android). */
   function printHtml(html) {
-    let root = document.getElementById('fuel-report-print-root');
-    if (!root) {
-      root = document.createElement('div');
-      root.id = 'fuel-report-print-root';
-      document.body.appendChild(root);
-    }
-    root.className = 'fuel-report-print-doc';
     // Every printout goes through here, so the credit is added in one place
     // rather than in each of the five sheet builders.
-    root.innerHTML = html + Branding.printCredit();
-    document.body.classList.add('printing-fuel-report');
-    const previousTitle = document.title;
-    document.title = '\u00A0';
-    const finish = () => {
-      document.title = previousTitle;
-      document.body.classList.remove('printing-fuel-report');
-      window.removeEventListener('afterprint', finish);
-    };
-    window.removeEventListener('afterprint', finish);
-    window.addEventListener('afterprint', finish);
-    window.setTimeout(() => {
-      try {
-        window.print();
-      } catch (err) {
-        console.warn(err);
-        finish();
-        showToast('Print failed');
-      }
-    }, 100);
+    const body = `<div class="fuel-report-print-doc">${html}${Branding.printCredit()}</div>`;
+    try {
+      Branding.printViaIframe(body, {
+        bodyClass: 'printing-fuel-report',
+        title: 'Tank Chief — Print',
+      });
+    } catch (err) {
+      console.warn(err);
+      showToast('Print failed');
+    }
   }
 
   function printReport(computed) {

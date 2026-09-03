@@ -503,10 +503,8 @@ function renderNav() {
   nav.appendChild(mk('settings', 'Backup / Sync', '⇅'));
   nav.appendChild(mk('about', 'About', 'ℹ'));
 
-  /* The credit that prints from pages which print themselves — the voyage
-     report calls window.print() on the live page rather than building a
-     document. Rebuilt on each render so its timestamp is the print's, not the
-     one from whenever the app was opened. */
+  /* Printed pages use Branding.printViaIframe (hidden iframe + system dialog).
+     The page-level credit remains for any leftover live-page print callers. */
   const pageCredit = document.getElementById('app-credit-page');
   if (pageCredit) pageCredit.outerHTML = Branding.printCredit().replace(
     'class="app-credit-print"', 'class="app-credit-print" id="app-credit-page"');
@@ -2285,48 +2283,28 @@ function renderCalibPrintCover(tanks, bookTitle) {
   </section>`;
 }
 
-function cleanupCalibPrint() {
-  document.body.classList.remove('printing-calib');
-  document.getElementById('calib-print-root')?.remove();
-}
-
 function printCalibrationDocuments(tanks, opts = {}) {
   const list = (tanks || []).filter(Boolean);
   if (!list.length) {
     showToast('No tanks to print');
     return;
   }
-  cleanupCalibPrint();
   const bookTitle = opts.bookTitle || 'Fuel Tank Calibration Tables';
   const includeCover = list.length > 1;
   const html = [
     includeCover ? renderCalibPrintCover(list, bookTitle) : '',
     ...list.map((t, i) => renderCalibPrintTankBlock(t, includeCover ? `${i + 1}. ` : '')),
   ].join('');
-  const root = document.createElement('div');
-  root.id = 'calib-print-root';
-  root.className = 'calib-print-doc';
-  root.innerHTML = html;
-  document.body.appendChild(root);
-  document.body.classList.add('printing-calib');
-  const finish = () => {
-    cleanupCalibPrint();
-    window.removeEventListener('afterprint', finish);
-  };
-  window.addEventListener('afterprint', finish);
-  window.setTimeout(() => {
-    try {
-      window.print();
-    } catch (err) {
-      console.warn(err);
-      finish();
-      showToast('Print failed');
-      return;
-    }
-    window.setTimeout(() => {
-      if (document.body.classList.contains('printing-calib')) finish();
-    }, 2000);
-  }, 50);
+  const body = `<div class="calib-print-doc">${html}${Branding.printCredit()}</div>`;
+  try {
+    Branding.printViaIframe(body, {
+      bodyClass: 'printing-calib',
+      title: bookTitle,
+    });
+  } catch (err) {
+    console.warn(err);
+    showToast('Print failed');
+  }
 }
 
 function escapeHtml(s) {
@@ -2545,7 +2523,20 @@ function renderReport(main) {
   // and throws away its listeners — the save button did nothing at all.
   main.appendChild(wrap);
 
-  wrap.querySelector('#btn-print-voy').onclick = () => window.print();
+  wrap.querySelector('#btn-print-voy').onclick = () => {
+    const parts = [...wrap.querySelectorAll('.form-panel:not(.no-print)')]
+      .map((el) => el.outerHTML)
+      .join('');
+    try {
+      Branding.printViaIframe(
+        `<div class="report-print-doc">${parts}</div>${Branding.printCredit()}`,
+        { title: 'Voyage Report' },
+      );
+    } catch (err) {
+      console.warn(err);
+      showToast('Print failed');
+    }
+  };
   wrap.querySelector('#btn-save-voy').onclick = async () => {
     const voyage = {
       ...v,
@@ -3602,7 +3593,7 @@ function renderAbout(main) {
   const ver = (typeof Branding !== 'undefined' && Branding.APP_VERSION)
     ? Branding.APP_VERSION
     : (document.querySelector('meta[name="app-version"]')?.content || '');
-  const pkgVer = ver || '2.1.17';
+  const pkgVer = ver || '2.1.18';
   main.innerHTML += `<div class="page-head"><div>
     <h1>About</h1>
     <div class="desc">${Branding.APP_NAME} · v${pkgVer}</div>
@@ -3679,7 +3670,7 @@ function isNewerVersion(latest, current) {
 async function checkTankAppUpdate() {
   const status = document.getElementById('about-update-status');
   const link = document.getElementById('about-update-link');
-  const current = '2.1.17';
+  const current = '2.1.18';
   if (status) status.textContent = 'Checking GitHub for the latest Tank Chief release…';
   if (link) link.style.display = 'none';
   try {
