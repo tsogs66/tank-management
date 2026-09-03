@@ -380,7 +380,7 @@ function renderMoreNav() {
   host.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
   host.appendChild(mk('bunker-after', 'After Bunkering', '📥'));
   host.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
-  host.appendChild(mk('bunker-consumption', 'Consumption Calc', '📊'));
+  host.appendChild(mk('bunker-consumption', 'Bunker Consumption', '📊'));
   host.appendChild(mk('report', 'Voyage Report', '📋'));
 
   g = document.createElement('div');
@@ -486,7 +486,7 @@ function renderNav() {
   nav.appendChild(g);
   nav.appendChild(mk('fuel-report', 'Fuel Report', '🧾'));
   nav.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
-  nav.appendChild(mk('bunker-consumption', 'Consumption Calc', '📊'));
+  nav.appendChild(mk('bunker-consumption', 'Bunker Consumption', '📊'));
   nav.appendChild(mk('bunker-after', 'After Bunkering', '📥'));
   nav.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
   nav.appendChild(mk('report', 'Voyage Report', '📋'));
@@ -3617,7 +3617,7 @@ function renderAbout(main) {
   const ver = (typeof Branding !== 'undefined' && Branding.APP_VERSION)
     ? Branding.APP_VERSION
     : (document.querySelector('meta[name="app-version"]')?.content || '');
-  const pkgVer = ver || '2.1.23';
+  const pkgVer = ver || '2.1.24';
   main.innerHTML += `<div class="page-head"><div>
     <h1>About</h1>
     <div class="desc">${Branding.APP_NAME} · v${pkgVer}</div>
@@ -3694,7 +3694,7 @@ function isNewerVersion(latest, current) {
 async function checkTankAppUpdate() {
   const status = document.getElementById('about-update-status');
   const link = document.getElementById('about-update-link');
-  const current = '2.1.23';
+  const current = '2.1.24';
   if (status) status.textContent = 'Checking GitHub for the latest Tank Chief release…';
   if (link) link.style.display = 'none';
   try {

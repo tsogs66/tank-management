@@ -1848,32 +1848,248 @@ html.bright .theme-toggle { background: rgba(18,34,56,0.06); }
   .tg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-/* --- Bunker Consumption Calculation --- */
-.bc-side { margin-bottom: 18px; }
-.bc-side h3 { margin: 0 0 8px; font-size: 15px; }
-.bc-grade { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.bc-grade label { font-size: 12px; }
-.bc-grade select { padding: 4px 8px; }
-.bc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.bc-table th, .bc-table td { border: 1px solid var(--border, #ccc); padding: 3px 4px; }
-.bc-table th { background: var(--bg-dim, #f5f5f5); font-size: 11px; text-align: center; }
-.bc-table input { width: 100%; border: none; background: transparent; font-size: 12px; padding: 2px; box-sizing: border-box; color: inherit; }
-.bc-table input[type="checkbox"] { width: auto; }
-.bc-totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 12px; margin-top: 10px; }
-.bc-calc-row { display: flex; justify-content: space-between; font-size: 12px; padding: 2px 0; border-bottom: 1px dotted var(--border, #ddd); }
-.bc-calc-row strong { font-variant-numeric: tabular-nums; }
-.bc-formula { margin-top: 8px; font-size: 10px; color: var(--text-dim, #999); }
-@media (max-width: 600px) {
-  .bc-totals { grid-template-columns: 1fr 1fr; }
+/* --- Bunker Consumption Calculation (Voyage / AIO matched layout) --- */
+.bc-page-title {
+  margin: 0 0 10px;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
 }
+.bunker-plan-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  align-items: end;
+  margin: 12px 0 14px;
+}
+.bunker-plan-head .field {
+  min-width: 140px;
+  flex: 1 1 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bunker-plan-head .field label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+.bunker-plan-head .field input {
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+}
+.bunker-plan-head .btn-row {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.bunker-plan-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.bunker-side {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 12px 12px;
+  background: rgba(0,0,0,0.12);
+  min-width: 0;
+}
+html.bright .bunker-side { background: rgba(18,34,56,0.04); }
+.bunker-side h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.bunker-side .bunker-grade { margin-bottom: 10px; max-width: 280px; }
+.bunker-side .bunker-grade label {
+  display: block;
+  font-size: 11px;
+  margin-bottom: 4px;
+  color: var(--text-dim);
+}
+.bunker-side .bunker-grade select {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+}
+.bunker-side .table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -4px;
+  padding: 0 4px 4px;
+}
+.bunker-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  font-size: 11px;
+  table-layout: fixed;
+}
+.bunker-table th {
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  font-weight: 600;
+  padding: 4px 3px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.bunker-table td { padding: 3px 2px; vertical-align: middle; }
+.bunker-table input[type="text"],
+.bunker-table input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--text);
+  font-family: ui-monospace, "IBM Plex Mono", monospace;
+  font-size: 11px;
+  padding: 4px 5px;
+  box-sizing: border-box;
+}
+.bunker-table input[readonly] {
+  color: var(--accent);
+  border-color: transparent;
+  background: transparent;
+  padding-left: 2px;
+}
+.bunker-table input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+.bunker-table .col-port { width: 40px; text-align: center; }
+.bunker-table .col-from,
+.bunker-table .col-to { width: 18%; }
+.bunker-table .col-num { width: 70px; }
+.bunker-table .col-qty { width: 78px; }
+.bunker-totals {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  margin-top: 12px;
+}
+.bunker-totals .field { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.bunker-totals .field label { font-size: 11px; color: var(--text-dim); }
+.bunker-totals .field input {
+  font-weight: 600;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  box-sizing: border-box;
+}
+.bunker-totals .field.calc input {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.bunker-totals .field.full { grid-column: 1 / -1; }
+.bunker-formula {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 8px;
+  line-height: 1.45;
+}
+.bc-hist-actions { white-space: nowrap; }
+.bc-hist-actions .btn { margin: 2px; }
+@media (max-width: 1200px) {
+  .bunker-plan-grid { grid-template-columns: 1fr; gap: 18px; }
+  .bunker-table { min-width: 0; width: 100%; }
+}
+@media (max-width: 720px) {
+  .bunker-plan-head .field { min-width: 100%; flex: 1 1 100%; }
+  .bunker-plan-head .btn-row button { flex: 1 1 auto; min-height: 44px; }
+  .bunker-side .bunker-grade { max-width: none; }
+  .bunker-side .bunker-grade select { font-size: 16px; min-height: 44px; }
+  .bunker-table { min-width: 560px; font-size: 12px; }
+  .bunker-table input[type="text"],
+  .bunker-table input[type="number"] {
+    font-size: 16px;
+    min-height: 40px;
+    padding: 8px;
+  }
+  .bunker-totals { grid-template-columns: 1fr; gap: 10px; }
+  .bunker-totals .field.full { grid-column: auto; }
+  .bunker-totals .field input { font-size: 16px; min-height: 44px; }
+}
+
+#bc-print-root { display: none; }
 @media print {
-  .bc-printing .no-print, .bc-printing .sidebar, .bc-printing .bottom-nav,
-  .bc-printing .topbar, .bc-printing .menu-toggle, .bc-printing .toast,
-  .bc-printing .theme-fab { display: none !important; }
-  .bc-printing #bc-print-root { display: block !important; }
-  .print-doc { font-family: serif; color: #000; }
-  .print-doc h2 { margin: 0 0 4px; }
-  .print-doc table.print-table { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 4px; }
-  .print-doc table.print-table th, .print-doc table.print-table td { border: 0.5pt solid #333; padding: 2px 4px; }
-  .print-doc table.print-table th { background: #eee; }
+  body.printing-bc .app-shell,
+  body.printing-bc .sidebar,
+  body.printing-bc .bottom-nav,
+  body.printing-bc .menu-toggle,
+  body.printing-bc .toast,
+  body.printing-bc .theme-fab,
+  body.printing-bc .bn-more-sheet,
+  body.printing-bc #app-credit-page { display: none !important; }
+  body.printing-bc #bc-print-root { display: block !important; }
+  .bc-pr-sheet { color: #111; font-family: Georgia, "Times New Roman", serif; font-size: 10pt; }
+  .bc-pr-header { margin-bottom: 8px; border-bottom: 1.5pt solid #333; padding-bottom: 4px; position: relative; }
+  .bc-pr-title { font-size: 14pt; font-weight: 700; margin: 0; }
+  .bc-pr-sub { font-size: 9pt; color: #444; margin-top: 2px; }
+  .bc-pr-badge {
+    position: absolute; right: 0; top: 0;
+    border: 0.6pt solid #333; padding: 2px 8px; font-size: 9pt; font-weight: 700;
+  }
+  .bc-pr-meta {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px 8px;
+    margin: 6px 0 10px;
+  }
+  .bc-pr-meta-cell {
+    border: 0.4pt solid #999;
+    padding: 3px 5px;
+  }
+  .bc-pr-meta-lbl { display: block; font-size: 7.5pt; color: #555; text-transform: uppercase; }
+  .bc-pr-meta-val { display: block; font-size: 9.5pt; font-weight: 600; }
+  .bc-pr-section { margin-top: 10px; page-break-inside: avoid; }
+  .bc-pr-section-title {
+    margin: 0 0 4px;
+    font-size: 11pt;
+    border-bottom: 0.6pt solid #333;
+    padding-bottom: 2px;
+  }
+  .bc-pr-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8.5pt;
+    margin-top: 4px;
+  }
+  .bc-pr-table th,
+  .bc-pr-table td {
+    border: 0.4pt solid #333;
+    padding: 2px 3px;
+    text-align: right;
+  }
+  .bc-pr-table th { background: #eee; text-align: center; }
+  .bc-pr-table td.row-lbl { text-align: left; }
+  .bc-pr-remarks {
+    margin-top: 10px;
+    border: 0.4pt solid #999;
+    padding: 4px 6px;
+  }
+  .bc-pr-remarks-title { font-size: 8pt; font-weight: 700; text-transform: uppercase; }
+  .bc-pr-remarks-body { font-size: 8pt; color: #333; margin-top: 2px; }
 }
