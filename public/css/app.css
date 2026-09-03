@@ -109,7 +109,7 @@ body.nav-open {
 .nav-btn:hover { background: var(--bg-card); color: var(--text); }
 .nav-btn.active { background: var(--accent); color: #0a1420; font-weight: 700; }
 html.bright .nav-btn.active { color: #fff8ee; }
-.nav-btn .ic { width: 18px; text-align: center; opacity: .85; }
+.nav-btn .ic { width: 22px; font-size: 18px; text-align: center; opacity: .85; }
 .nav-group-label {
   font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
   color: var(--text-faint); padding: 12px 10px 2px;
@@ -161,7 +161,7 @@ html.bright .bottom-nav { background: rgba(255,255,255,0.97); }
   text-transform: uppercase; cursor: pointer; border-radius: 6px;
   min-height: 46px; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
 }
-.bn-item .bn-ic { font-size: 15px; line-height: 1; }
+.bn-item .bn-ic { font-size: 20px; line-height: 1; }
 .bn-item.active { color: var(--accent); background: rgba(201,154,83,0.12); }
 html.bright .bn-item.active { background: rgba(138,90,26,0.12); }
 .bn-more-sheet {
@@ -1846,4 +1846,34 @@ html.bright .theme-toggle { background: rgba(18,34,56,0.06); }
 @media (orientation: landscape) and (max-height: 480px) {
   .topbar, .app-header { padding-top: 6px; padding-bottom: 6px; }
   .tg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* --- Bunker Consumption Calculation --- */
+.bc-side { margin-bottom: 18px; }
+.bc-side h3 { margin: 0 0 8px; font-size: 15px; }
+.bc-grade { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.bc-grade label { font-size: 12px; }
+.bc-grade select { padding: 4px 8px; }
+.bc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.bc-table th, .bc-table td { border: 1px solid var(--border, #ccc); padding: 3px 4px; }
+.bc-table th { background: var(--bg-dim, #f5f5f5); font-size: 11px; text-align: center; }
+.bc-table input { width: 100%; border: none; background: transparent; font-size: 12px; padding: 2px; box-sizing: border-box; color: inherit; }
+.bc-table input[type="checkbox"] { width: auto; }
+.bc-totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 12px; margin-top: 10px; }
+.bc-calc-row { display: flex; justify-content: space-between; font-size: 12px; padding: 2px 0; border-bottom: 1px dotted var(--border, #ddd); }
+.bc-calc-row strong { font-variant-numeric: tabular-nums; }
+.bc-formula { margin-top: 8px; font-size: 10px; color: var(--text-dim, #999); }
+@media (max-width: 600px) {
+  .bc-totals { grid-template-columns: 1fr 1fr; }
+}
+@media print {
+  .bc-printing .no-print, .bc-printing .sidebar, .bc-printing .bottom-nav,
+  .bc-printing .topbar, .bc-printing .menu-toggle, .bc-printing .toast,
+  .bc-printing .theme-fab { display: none !important; }
+  .bc-printing #bc-print-root { display: block !important; }
+  .print-doc { font-family: serif; color: #000; }
+  .print-doc h2 { margin: 0 0 4px; }
+  .print-doc table.print-table { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 4px; }
+  .print-doc table.print-table th, .print-doc table.print-table td { border: 0.5pt solid #333; padding: 2px 4px; }
+  .print-doc table.print-table th { background: #eee; }
 }

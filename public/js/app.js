@@ -324,7 +324,7 @@ function apiHref(path) {
   return (typeof Api !== 'undefined' && Api.withPrefix) ? Api.withPrefix(path) : path;
 }
 
-const BOTTOM_PRIMARY = new Set(['dashboard', 'fuel', 'fuel-report', 'bunker-plan']);
+const BOTTOM_PRIMARY = new Set(['dashboard', 'fuel', 'fuel-report', 'bunker-consumption']);
 
 function syncBottomNav() {
   const page = STATE.route.page;
@@ -377,7 +377,7 @@ function renderMoreNav() {
   g = document.createElement('div');
   g.className = 'nav-group-label'; g.textContent = 'Fuel Management';
   host.appendChild(g);
-  host.appendChild(mk('voyage', 'Voyage Fuel Calc', '🧭'));
+  host.appendChild(mk('bunker-consumption', 'Consumption Calc', '📊'));
   host.appendChild(mk('bunker-after', 'After Bunkering', '📥'));
   host.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
   host.appendChild(mk('report', 'Voyage Report', '📋'));
@@ -483,9 +483,9 @@ function renderNav() {
   g = document.createElement('div');
   g.className = 'nav-group-label'; g.textContent = 'Fuel Management';
   nav.appendChild(g);
-  nav.appendChild(mk('voyage', 'Voyage Fuel Calc', '🧭'));
   nav.appendChild(mk('fuel-report', 'Fuel Report', '🧾'));
   nav.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
+  nav.appendChild(mk('bunker-consumption', 'Consumption Calc', '📊'));
   nav.appendChild(mk('bunker-after', 'After Bunkering', '📥'));
   nav.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
   nav.appendChild(mk('report', 'Voyage Report', '📋'));
@@ -565,9 +565,10 @@ function render() {
   if (page === 'dashboard') renderDashboard(main);
   else if (page === 'calibration') renderCalibrationList(main);
   else if (page === 'add-tank') renderAddTank(main);
-  else if (page === 'voyage') renderVoyage(main);
+  else if (page === 'voyage') BunkerConsumption.render(main);
   else if (page === 'fuel-report') FuelReport.render(main);
   else if (page === 'bunker-plan') BunkerReports.renderPlan(main);
+  else if (page === 'bunker-consumption') BunkerConsumption.render(main);
   else if (page === 'bunker-after') BunkerReports.renderAfter(main);
   else if (page === 'bunker-summary') BunkerReports.renderSummary(main);
   else if (page === 'report') renderReport(main);
@@ -3615,7 +3616,7 @@ function renderAbout(main) {
   const ver = (typeof Branding !== 'undefined' && Branding.APP_VERSION)
     ? Branding.APP_VERSION
     : (document.querySelector('meta[name="app-version"]')?.content || '');
-  const pkgVer = ver || '2.1.21';
+  const pkgVer = ver || '2.1.22';
   main.innerHTML += `<div class="page-head"><div>
     <h1>About</h1>
     <div class="desc">${Branding.APP_NAME} · v${pkgVer}</div>
@@ -3660,7 +3661,7 @@ function renderAbout(main) {
       Sample vessels ship with the app so a new install is ready to try.</p>
 
     <h2>Voyage and reference</h2>
-    <p><b>Voyage Fuel Calc</b> plans legs by distance, speed and daily burn to arrival ROB.
+    <p><b>Bunker Consumption Calculation</b> plans legs by distance, speed and daily burn to arrival ROB.
       <b>VCF / WCF Calc</b> is a standalone ASTM 54B / 56 calculator with tables.
       <b>ISO 8217 Specs</b> lists 2017 distillate and residual marine-fuel limits.</p>
 
@@ -3692,7 +3693,7 @@ function isNewerVersion(latest, current) {
 async function checkTankAppUpdate() {
   const status = document.getElementById('about-update-status');
   const link = document.getElementById('about-update-link');
-  const current = '2.1.21';
+  const current = '2.1.22';
   if (status) status.textContent = 'Checking GitHub for the latest Tank Chief release…';
   if (link) link.style.display = 'none';
   try {
@@ -3871,5 +3872,25 @@ function startSyncLoop() {
   });
   timer = window.setTimeout(tick, PENDING_MS);
 }
+
+/* Tank ROB bridge: respond to parent/AIO requests for current fuel ROB by grade. */
+window.addEventListener('message', (ev) => {
+  const msg = ev.data || {};
+  if (msg.type !== 'request-tank-rob') return;
+  const rob = {};
+  try {
+    const fuelTanks = STATE.bundle?.tanks?.fuel || [];
+    for (const t of fuelTanks) {
+      const r = getReading(t.id);
+      const wt = r?.result?.weightMT;
+      if (wt != null && wt > 0) {
+        const grade = t.fuelGrade || 'Unknown';
+        rob[grade] = (rob[grade] || 0) + wt;
+      }
+    }
+  } catch (_) { /* bundle not ready */ }
+  const target = ev.source || window.parent;
+  try { target.postMessage({ type: 'tank-rob-response', rob }, '*'); } catch (_) {}
+});
 
 document.addEventListener('DOMContentLoaded', boot);
