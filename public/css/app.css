@@ -1072,8 +1072,8 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
 
   html, body {
     background: #fff !important;
-    color: #111 !important;
-    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif !important;
+    color: #0a1420 !important;
+    font-family: 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif !important;
   }
 
   .sidebar, .menu-toggle, .sidebar-backdrop, .no-print, .toast,
@@ -2047,54 +2047,4 @@ html.bright .bunker-side { background: rgba(18,34,56,0.04); }
   body.printing-bc .bn-more-sheet,
   body.printing-bc #app-credit-page { display: none !important; }
   body.printing-bc #bc-print-root { display: block !important; }
-  .bc-pr-sheet { color: #111; font-family: Georgia, "Times New Roman", serif; font-size: 10pt; }
-  .bc-pr-header { margin-bottom: 8px; border-bottom: 1.5pt solid #c5cdd8; padding-bottom: 4px; position: relative; }
-  .bc-pr-title { font-size: 14pt; font-weight: 700; margin: 0; }
-  .bc-pr-sub { font-size: 9pt; color: #444; margin-top: 2px; }
-  .bc-pr-badge {
-    position: absolute; right: 0; top: 0;
-    border: none; background: #eef2f8 !important;
-    -webkit-print-color-adjust: exact; print-color-adjust: exact;
-    padding: 2px 8px; font-size: 9pt; font-weight: 700;
-  }
-  .bc-pr-meta {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 4px 8px;
-    margin: 6px 0 10px;
-  }
-  .bc-pr-meta-cell {
-    border: 0.4pt solid #999;
-    padding: 3px 5px;
-  }
-  .bc-pr-meta-lbl { display: block; font-size: 7.5pt; color: #555; text-transform: uppercase; }
-  .bc-pr-meta-val { display: block; font-size: 9.5pt; font-weight: 600; }
-  .bc-pr-section { margin-top: 10px; page-break-inside: avoid; }
-  .bc-pr-section-title {
-    margin: 0 0 4px;
-    font-size: 11pt;
-    border-bottom: 0.6pt solid #c5cdd8;
-    padding-bottom: 2px;
-  }
-  .bc-pr-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 8.5pt;
-    margin-top: 4px;
-  }
-  .bc-pr-table th,
-  .bc-pr-table td {
-    border: 0.4pt solid #c5cdd8;
-    padding: 2px 3px;
-    text-align: right;
-  }
-  .bc-pr-table th { background: #eee; text-align: center; }
-  .bc-pr-table td.row-lbl { text-align: left; }
-  .bc-pr-remarks {
-    margin-top: 10px;
-    border: 0.4pt solid #999;
-    padding: 4px 6px;
-  }
-  .bc-pr-remarks-title { font-size: 8pt; font-weight: 700; text-transform: uppercase; }
-  .bc-pr-remarks-body { font-size: 8pt; color: #333; margin-top: 2px; }
 }

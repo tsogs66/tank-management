@@ -639,7 +639,19 @@ const FuelReport = (() => {
 
   /* ---------- printed document ---------- */
 
-  function masthead(title, subtitle) {
+  function masthead(title, subtitle, opts) {
+    const vessel = ((currentBundle() && currentBundle().vessel) || {}).name || 'Vessel';
+    const o = opts || {};
+    if (typeof Branding !== 'undefined' && Branding.printDocHeader) {
+      return Branding.printDocHeader({
+        vessel,
+        title: title || '',
+        subtitle: subtitle || '',
+        badge: o.badge || 'A4',
+        rightLabel: o.rightLabel || 'Report',
+        rightValue: o.rightValue || 'Official',
+      });
+    }
     return `<header class="calib-print-masthead">
       <div><h1>${esc(title)}</h1><div class="sub">${esc(subtitle)}</div></div>
       <div class="calib-print-badge">OFFICIAL · A4</div>
@@ -699,6 +711,12 @@ const FuelReport = (() => {
   }
 
   function metaGrid(entries) {
+    if (typeof Branding !== 'undefined' && Branding.printMetaGrid) {
+      return Branding.printMetaGrid(
+        entries.map(([k, v]) => ({ label: k, value: esc(v ?? '—') })),
+        Math.min(4, Math.max(3, entries.length >= 6 ? 3 : 4)),
+      );
+    }
     return `<div class="calib-print-meta">${entries.map(([k, v]) =>
       `<div><span class="k">${esc(k)}</span><span class="v">${esc(v ?? '—')}</span></div>`).join('')}</div>`;
   }
@@ -721,7 +739,9 @@ const FuelReport = (() => {
       <td class="fr-print-weight">${n(r.weightAirMT, 3)}</td>
     </tr>`).join('');
     const t = section.totals;
-    return `<h3 class="fr-print-h3">${esc(section.title)}</h3>
+    return `<section class="pr-section">
+      <h3 class="pr-section-title">${esc(section.title)}</h3>
+      <div class="pr-section-body">
       <table class="fr-print-table">
         <thead><tr>
           <th>Tank</th><th>Fuel</th><th>Actual (mm)</th><th>Method</th><th>Temp °C</th>
@@ -746,7 +766,9 @@ const FuelReport = (() => {
         carrying ${esc(moved.map((r) => r.fuelTypeLabel).join(' / '))} this voyage.</p>` : ''}
       ${section.rows.some((r) => r.pinned) ? `<p class="calib-print-note">Pinned:
         ${section.rows.filter((r) => r.pinned).map((r) => esc(r.name)).join(', ')} — held in this table
-        against the fuel type entered.</p>` : ''}`;
+        against the fuel type entered.</p>` : ''}
+      </div>
+    </section>`;
   }
 
   function prettyDate(iso) {
@@ -767,22 +789,16 @@ const FuelReport = (() => {
     const reportType = c.header.reportType || '—';
     const imo = c.vessel.imo ? `IMO ${c.vessel.imo}` : 'IMO —';
     const dateTime = c.header.dateTime || prettyDate(c.header.date);
-    const facts = showFacts ? `<div class="fr-tc-facts">
-      ${fact('Date', esc(dateTime || '—'))}
-      ${fact('Port', esc(c.header.port || '—'))}
-      ${fact('Voyage No.', esc(c.header.voyageNo || '—'))}
-      ${fact('Heel', esc(c.header.heelLabel || '—'))}
-      ${fact('FW Draft', `${n(c.header.draftFwd, 2)} m`)}
-      ${fact('Aft Draft', `${n(c.header.draftAft, 2)} m`)}
-      ${fact('Mean Draft', `${n(c.header.meanDraft, 2)} m`)}
-      ${fact('Trim', `${n(c.header.trim, 2)} (${esc(c.header.trimLabel)})`)}
-      ${fact('S/W Temp', `${n(c.header.seaTemp, 0, '—')} °C`)}
-      ${fact('E/R Temp', `${n(c.header.engineRoomTemp, 0, '—')} °C`)}
-    </div>` : '';
-    return `<header class="fr-tc-masthead">
-      <div class="fr-tc-brand-row">
-        <div class="fr-tc-app">${Branding.APP_NAME}</div>
-      </div>
+    const header = (typeof Branding !== 'undefined' && Branding.printDocHeader)
+      ? Branding.printDocHeader({
+        vessel: c.vessel.name || 'Vessel',
+        title,
+        subtitle: imo,
+        badge: reportType !== '—' ? reportType : 'ROB',
+        rightLabel: 'Voyage No.',
+        rightValue: c.header.voyageNo || '—',
+      })
+      : `<header class="fr-tc-masthead">
       <div class="fr-tc-title-row">
         <div class="fr-tc-ident-left">
           <div class="fr-tc-ident-name">${esc(c.vessel.name || '—')}</div>
@@ -794,8 +810,35 @@ const FuelReport = (() => {
           <b>${esc(reportType)}</b>
         </div>
       </div>
-      ${facts}
     </header>`;
+    const facts = showFacts
+      ? (typeof Branding !== 'undefined' && Branding.printMetaGrid
+        ? Branding.printMetaGrid([
+          { label: 'Date', value: esc(dateTime || '—') },
+          { label: 'Port', value: esc(c.header.port || '—') },
+          { label: 'Voyage No.', value: esc(c.header.voyageNo || '—') },
+          { label: 'Heel', value: esc(c.header.heelLabel || '—') },
+          { label: 'FW Draft', value: `${n(c.header.draftFwd, 2)} m` },
+          { label: 'Aft Draft', value: `${n(c.header.draftAft, 2)} m` },
+          { label: 'Mean Draft', value: `${n(c.header.meanDraft, 2)} m` },
+          { label: 'Trim', value: `${n(c.header.trim, 2)} (${esc(c.header.trimLabel)})` },
+          { label: 'S/W Temp', value: `${n(c.header.seaTemp, 0, '—')} °C` },
+          { label: 'E/R Temp', value: `${n(c.header.engineRoomTemp, 0, '—')} °C` },
+        ], 5)
+        : `<div class="fr-tc-facts">
+      ${fact('Date', esc(dateTime || '—'))}
+      ${fact('Port', esc(c.header.port || '—'))}
+      ${fact('Voyage No.', esc(c.header.voyageNo || '—'))}
+      ${fact('Heel', esc(c.header.heelLabel || '—'))}
+      ${fact('FW Draft', `${n(c.header.draftFwd, 2)} m`)}
+      ${fact('Aft Draft', `${n(c.header.draftAft, 2)} m`)}
+      ${fact('Mean Draft', `${n(c.header.meanDraft, 2)} m`)}
+      ${fact('Trim', `${n(c.header.trim, 2)} (${esc(c.header.trimLabel)})`)}
+      ${fact('S/W Temp', `${n(c.header.seaTemp, 0, '—')} °C`)}
+      ${fact('E/R Temp', `${n(c.header.engineRoomTemp, 0, '—')} °C`)}
+    </div>`)
+      : '';
+    return `${header}${facts}`;
   }
 
   function printConditionSection(section, options) {

@@ -33,6 +33,61 @@ const Branding = (() => {
     </div>`;
   }
 
+  function escPrint(s) {
+    return String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  /**
+   * Voyage-style document header used on every Tank print sheet:
+   * vessel + dept | badge + title + subtitle | right label/value.
+   */
+  function printDocHeader(opts = {}) {
+    const vessel = opts.vessel || 'Vessel';
+    const title = opts.title || '';
+    const subtitle = opts.subtitle || '';
+    const badge = opts.badge || '';
+    const rightLabel = opts.rightLabel || 'Voyage No.';
+    const rightValue = opts.rightValue != null && opts.rightValue !== '' ? opts.rightValue : '—';
+    return `<header class="pr-doc-header">
+      <div>
+        <div class="pr-doc-vessel">${escPrint(vessel)}</div>
+        <div class="pr-doc-dept">Engine Department — ${escPrint(APP_NAME)}</div>
+      </div>
+      <div class="pr-doc-title-wrap">
+        ${badge ? `<div class="pr-doc-badge">${escPrint(badge)}</div>` : ''}
+        <h1 class="pr-doc-title">${escPrint(title)}</h1>
+        ${subtitle ? `<div class="pr-doc-subtitle">${escPrint(subtitle)}</div>` : ''}
+      </div>
+      <div class="pr-doc-voyage">
+        <span class="pr-doc-voy-label">${escPrint(rightLabel)}</span>
+        <span class="pr-doc-voy-num">${escPrint(rightValue)}</span>
+      </div>
+    </header>`;
+  }
+
+  /** Voyage-style meta grid: [{label, value}, …] */
+  function printMetaGrid(cells, cols) {
+    const list = Array.isArray(cells) ? cells : [];
+    const cls = cols ? ` cols${cols}` : ' cols4';
+    return `<div class="pr-meta${cls}">${list.map((c) => `
+      <div class="pr-meta-cell"><span class="pr-meta-lbl">${escPrint(c.label || c[0] || '')}</span><span class="pr-meta-val">${c.value != null ? c.value : escPrint(c[1] ?? '—')}</span></div>
+    `).join('')}</div>`;
+  }
+
+  function fontStylesheetHref() {
+    try {
+      const base = document.querySelector('base')?.href;
+      if (base) return new URL('fonts/fonts.css', base).href;
+      return new URL('fonts/fonts.css', location.href).href;
+    } catch (_) {
+      return 'fonts/fonts.css';
+    }
+  }
+
   /* Hold server upload / queue flush while the printer dialog is open. */
   let printHold = 0;
   const holdListeners = new Set();
@@ -107,18 +162,21 @@ const Branding = (() => {
 
   function buildPrintableHtml(bodyHtml, bodyClass, title) {
     const css = collectStylesCss();
+    const fontsHref = fontStylesheetHref();
     return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title || APP_NAME}</title>
+<link rel="stylesheet" href="${fontsHref}">
 <style>
 ${css}
-html, body { margin: 0; background: #fff !important; color: #111 !important; }
-.calib-print-doc, .fuel-report-print-doc, .report-print-doc { display: block !important; }
+html, body { margin: 0; background: #fff !important; color: #0a1420 !important;
+  font-family: 'Inter', sans-serif !important; }
+.calib-print-doc, .fuel-report-print-doc, .report-print-doc, #bc-print-root { display: block !important; }
 .app-shell, .sidebar, .bottom-nav, .bn-more-sheet, .theme-fab, .theme-toggle,
 .menu-toggle, .sidebar-backdrop, .no-print, .toast, .calib-sticky-actions,
 .pdf-import-panel, .pdf-progress { display: none !important; }
 .app-credit-print {
   display: flex !important; gap: 10px; align-items: baseline;
-  margin-top: 8px; padding-top: 1mm; border-top: .4pt solid #999;
-  color: #444; font-size: 7pt; line-height: 1.4;
+  margin-top: 8px; padding-top: 1mm; border-top: 1px solid #d4dce8;
+  color: #8a95a8; font-size: 8px; line-height: 1.4;
 }
 </style></head><body class="${bodyClass || ''}">${bodyHtml || ''}</body></html>`;
   }
@@ -222,6 +280,9 @@ html, body { margin: 0; background: #fff !important; color: #111 !important; }
     authorLine,
     creditLine,
     printCredit,
+    printDocHeader,
+    printMetaGrid,
+    escPrint,
     printLiveDocument,
     beginPrintHold,
     endPrintHold,

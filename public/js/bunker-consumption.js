@@ -276,6 +276,9 @@ const BunkerConsumption = (function () {
   }
 
   function printMetaGrid(items, cols) {
+    if (typeof Branding !== 'undefined' && Branding.printMetaGrid) {
+      return Branding.printMetaGrid(items, cols || 4);
+    }
     const cells = items.map((it) =>
       `<div class="bc-pr-meta-cell"><span class="bc-pr-meta-lbl">${esc(it.label)}</span><span class="bc-pr-meta-val">${it.value}</span></div>`
     ).join('');
@@ -302,10 +305,10 @@ const BunkerConsumption = (function () {
           <td>${qty != null ? fmtFuel(qty) : ''}</td>
         </tr>`;
       }).join('');
-      return `<section class="bc-pr-section">
-        <h3 class="bc-pr-section-title">${esc(meta.title)} — ${esc(side.grade)}</h3>
-        <div class="bc-pr-section-body">
-          <table class="bc-pr-table">
+      return `<section class="pr-section bc-pr-section">
+        <h3 class="pr-section-title bc-pr-section-title">${esc(meta.title)} — ${esc(side.grade)}</h3>
+        <div class="pr-section-body bc-pr-section-body">
+          <table class="pr-table bc-pr-table">
             <thead><tr>
               <th style="width:7%">P/A</th>
               <th style="width:18%">From</th>
@@ -336,12 +339,23 @@ const BunkerConsumption = (function () {
       </section>`;
     }).join('');
 
-    return `<div class="bc-pr-sheet">
-      <div class="bc-pr-header">
+    const header = (typeof Branding !== 'undefined' && Branding.printDocHeader)
+      ? Branding.printDocHeader({
+        vessel,
+        title: 'Bunker Consumption Calculation',
+        subtitle: 'Voyage fuel plan — sea / port legs with margin',
+        badge: 'PLAN',
+        rightLabel: 'Voyage No.',
+        rightValue: voyageNo,
+      })
+      : `<div class="bc-pr-header">
         <div class="bc-pr-title">Bunker Consumption Calculation</div>
         <div class="bc-pr-sub">Voyage fuel plan — sea / port legs with margin</div>
         <div class="bc-pr-badge">${esc(voyageNo)}</div>
-      </div>
+      </div>`;
+
+    return `<div class="bc-pr-sheet pr-sheet">
+      ${header}
       ${printMetaGrid([
         { label: 'Voyage No.', value: esc(voyageNo) },
         { label: 'Date', value: esc(plan.date || '—') },
@@ -349,9 +363,9 @@ const BunkerConsumption = (function () {
         { label: 'Source', value: 'Tank Chief' },
       ], 4)}
       ${sidesHtml}
-      <div class="bc-pr-remarks">
-        <div class="bc-pr-remarks-title">Calculation basis</div>
-        <div class="bc-pr-remarks-body">Sea days = Dist ÷ (Speed × 24). Quantity = Daily Cons × Days. Margin = Consumption × Margin%. Required = Consumption + Margin. Arrival ROB = Current ROB − Required. Next Departure ROB = Arrival ROB + Quantity to Receive.</div>
+      <div class="pr-remarks bc-pr-remarks">
+        <div class="pr-remarks-title bc-pr-remarks-title">Calculation basis</div>
+        <div class="pr-remarks-body bc-pr-remarks-body">Sea days = Dist ÷ (Speed × 24). Quantity = Daily Cons × Days. Margin = Consumption × Margin%. Required = Consumption + Margin. Arrival ROB = Current ROB − Required. Next Departure ROB = Arrival ROB + Quantity to Receive.</div>
       </div>
       ${typeof Branding !== 'undefined' ? Branding.printCredit() : ''}
     </div>`;
