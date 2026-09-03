@@ -33,9 +33,7 @@ const Branding = (() => {
     </div>`;
   }
 
-  /* Hold server upload / queue flush while the printer dialog is open.
-     PRINT & SAVE used to PUT to the API before print(), which looked like a
-     sync pull/upload and blocked the system printer picker. */
+  /* Hold server upload / queue flush while the printer dialog is open. */
   let printHold = 0;
   const holdListeners = new Set();
 
@@ -68,14 +66,103 @@ const Branding = (() => {
     holdListeners.add(fn);
   }
 
+  function shouldBridgePrint() {
+    try {
+      if (window.__CHENG_ANDROID_PRINT__
+        || (window.ChengAndroidPrint && typeof ChengAndroidPrint.printHtml === 'function')) {
+        return true;
+      }
+      if (window.Capacitor && typeof Capacitor.isNativePlatform === 'function'
+        && Capacitor.isNativePlatform()) {
+        return true;
+      }
+      if (window.parent && window.parent !== window) {
+        try {
+          if (window.parent.ChengAioPrint || window.parent.ChengAndroidPrint
+            || window.parent.__CHENG_ANDROID_PRINT__
+            || window.parent.ChengPro || window.parent.ChengProShell) {
+            return true;
+          }
+        } catch (_) {
+          return true;
+        }
+      }
+    } catch (_) { /* ignore */ }
+    return false;
+  }
+
+  function collectStylesCss() {
+    const chunks = [];
+    for (const sheet of document.styleSheets) {
+      try {
+        const rules = sheet.cssRules || sheet.rules;
+        if (!rules) continue;
+        for (const rule of rules) chunks.push(rule.cssText);
+      } catch (_) {
+        if (sheet.href) chunks.push(`@import url("${sheet.href}");`);
+      }
+    }
+    return chunks.join('\n');
+  }
+
+  function buildPrintableHtml(bodyHtml, bodyClass, title) {
+    const css = collectStylesCss();
+    return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title || APP_NAME}</title>
+<style>
+${css}
+html, body { margin: 0; background: #fff !important; color: #111 !important; }
+.calib-print-doc, .fuel-report-print-doc, .report-print-doc { display: block !important; }
+.app-shell, .sidebar, .bottom-nav, .bn-more-sheet, .theme-fab, .theme-toggle,
+.menu-toggle, .sidebar-backdrop, .no-print, .toast, .calib-sticky-actions,
+.pdf-import-panel, .pdf-progress { display: none !important; }
+.app-credit-print {
+  display: flex !important; gap: 10px; align-items: baseline;
+  margin-top: 8px; padding-top: 1mm; border-top: .4pt solid #999;
+  color: #444; font-size: 7pt; line-height: 1.4;
+}
+</style></head><body class="${bodyClass || ''}">${bodyHtml || ''}</body></html>`;
+  }
+
+  function deliverBridgedHtml(html, title, finish) {
+    const onDone = (ev) => {
+      if (ev && ev.data && ev.data.type === 'chengaio-print-done') finish();
+    };
+    try { window.addEventListener('message', onDone); } catch (_) { /* ignore */ }
+    const clearDone = () => {
+      try { window.removeEventListener('message', onDone); } catch (_) { /* ignore */ }
+    };
+    const wrappedFinish = () => {
+      clearDone();
+      finish();
+    };
+    try {
+      const payload = { type: 'chengaio-print', html: String(html || ''), title: title || APP_NAME };
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage(payload, '*');
+      } else if (window.ChengAioPrint && typeof ChengAioPrint.printHtmlDocument === 'function') {
+        ChengAioPrint.printHtmlDocument(payload.html, payload.title);
+      } else if (window.ChengAndroidPrint && typeof ChengAndroidPrint.printHtml === 'function') {
+        ChengAndroidPrint.printHtml(payload.html, payload.title);
+        setTimeout(wrappedFinish, 1500);
+        return;
+      } else {
+        throw new Error('No print bridge');
+      }
+      setTimeout(wrappedFinish, 180000);
+    } catch (err) {
+      clearDone();
+      throw err;
+    }
+  }
+
   /**
-   * Open the browser's system printer dialog on the live page.
+   * Open the system printer dialog.
    *
-   * Uses window.print() so the user gets the normal printer picker (including
-   * Save as PDF). Do not tear the print document down until afterprint — removing
-   * it while Chrome/Android print UI is open freezes the app on a dead preview.
+   * Live-page window.print() works in desktop browsers. Inside ChEng AIO embeds
+   * and on Android WebView it is a no-op, so we hand a self-contained HTML
+   * document to the AIO shell / PrintManager bridge instead.
    */
-  function printLiveDocument(prepare, cleanup) {
+  function printLiveDocument(prepare, cleanup, opts = {}) {
     let finished = false;
     const heldHere = !isPrintHold();
     if (heldHere) beginPrintHold();
@@ -86,10 +173,36 @@ const Branding = (() => {
       try { cleanup && cleanup(); } catch (_) { /* ignore */ }
       endPrintHold();
     };
-    try { prepare && prepare(); } catch (err) {
+
+    let bodyHtml = '';
+    let bodyClass = opts.bodyClass || '';
+    try {
+      prepare && prepare();
+      if (opts.bodyHtml) {
+        bodyHtml = opts.bodyHtml;
+        bodyClass = opts.bodyClass || bodyClass;
+      } else {
+        const root = document.getElementById(opts.rootId || '')
+          || document.getElementById('fuel-report-print-root')
+          || document.getElementById('calib-print-root');
+        if (root) bodyHtml = root.outerHTML;
+        bodyClass = document.body.className || bodyClass;
+      }
+    } catch (err) {
       finish();
       throw err;
     }
+
+    if (shouldBridgePrint() && bodyHtml) {
+      try {
+        const html = buildPrintableHtml(bodyHtml, bodyClass, opts.title || APP_NAME);
+        deliverBridgedHtml(html, opts.title || APP_NAME, finish);
+        return;
+      } catch (err) {
+        console.warn('Tank print bridge failed, falling back to window.print', err);
+      }
+    }
+
     window.removeEventListener('afterprint', finish);
     window.addEventListener('afterprint', finish);
     window.setTimeout(() => {
@@ -99,8 +212,6 @@ const Branding = (() => {
         finish();
         throw err;
       }
-      /* Some WebViews never fire afterprint — only then clear, and never while
-         the dialog is typically still open. */
       window.setTimeout(finish, 120000);
     }, 50);
   }
@@ -116,6 +227,7 @@ const Branding = (() => {
     endPrintHold,
     isPrintHold,
     afterPrintHold,
+    buildPrintableHtml,
   };
 })();
 

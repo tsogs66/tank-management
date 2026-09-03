@@ -2539,9 +2539,22 @@ function renderReport(main) {
   main.appendChild(wrap);
 
   wrap.querySelector('#btn-print-voy').onclick = () => {
+    const parts = [...wrap.querySelectorAll('.form-panel:not(.no-print)')]
+      .map((el) => el.outerHTML)
+      .join('');
     try {
-      Branding.printLiveDocument(null, null);
+      Branding.beginPrintHold();
+      Branding.printLiveDocument(
+        null,
+        null,
+        {
+          title: 'Voyage Report',
+          bodyClass: '',
+          bodyHtml: `<div class="report-print-doc">${parts}</div>${Branding.printCredit()}`,
+        },
+      );
     } catch (err) {
+      Branding.endPrintHold();
       console.warn(err);
       showToast('Print failed');
     }
@@ -3602,7 +3615,7 @@ function renderAbout(main) {
   const ver = (typeof Branding !== 'undefined' && Branding.APP_VERSION)
     ? Branding.APP_VERSION
     : (document.querySelector('meta[name="app-version"]')?.content || '');
-  const pkgVer = ver || '2.1.20';
+  const pkgVer = ver || '2.1.21';
   main.innerHTML += `<div class="page-head"><div>
     <h1>About</h1>
     <div class="desc">${Branding.APP_NAME} · v${pkgVer}</div>
@@ -3679,7 +3692,7 @@ function isNewerVersion(latest, current) {
 async function checkTankAppUpdate() {
   const status = document.getElementById('about-update-status');
   const link = document.getElementById('about-update-link');
-  const current = '2.1.20';
+  const current = '2.1.21';
   if (status) status.textContent = 'Checking GitHub for the latest Tank Chief release…';
   if (link) link.style.display = 'none';
   try {
