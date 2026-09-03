@@ -207,42 +207,43 @@ html.use-bottom-nav.chengaio-embed .main {
   padding-top: calc(52px + env(safe-area-inset-top, 0px));
 }
 
-/* Wide desktop: always sidebar, never hamburger or phone bottom bar */
+/* Wide Windows desktop: sidebar. Android/mobile (.is-mobile-chrome) keeps bottom nav
+   even in landscape when the viewport is wider than a phone. */
 @media (min-width: 1025px) {
-  .menu-toggle { display: none !important; }
-  .sidebar-backdrop,
-  .sidebar-backdrop.show { display: none !important; }
-  .bottom-nav,
-  .bn-more-sheet { display: none !important; }
-  html.use-bottom-nav .bottom-nav { display: none !important; }
-  html.use-bottom-nav .sidebar {
+  html:not(.is-mobile-chrome) .menu-toggle { display: none !important; }
+  html:not(.is-mobile-chrome) .sidebar-backdrop,
+  html:not(.is-mobile-chrome) .sidebar-backdrop.show { display: none !important; }
+  html:not(.is-mobile-chrome) .bottom-nav,
+  html:not(.is-mobile-chrome) .bn-more-sheet { display: none !important; }
+  html:not(.is-mobile-chrome).use-bottom-nav .bottom-nav { display: none !important; }
+  html:not(.is-mobile-chrome).use-bottom-nav .sidebar {
     display: flex !important;
     position: sticky; transform: none !important;
     width: var(--sidebar-w); height: 100vh; height: 100dvh;
   }
-  html.use-bottom-nav .main {
+  html:not(.is-mobile-chrome).use-bottom-nav .main {
     padding: 20px 24px calc(70px + env(safe-area-inset-bottom, 0px));
     padding-right: calc(24px + env(safe-area-inset-right, 0px));
   }
-  html.use-bottom-nav .theme-fab { display: none; }
-  body.nav-open { overflow: auto; touch-action: auto; }
+  html:not(.is-mobile-chrome).use-bottom-nav .theme-fab { display: none; }
+  html:not(.is-mobile-chrome) body.nav-open { overflow: auto; touch-action: auto; }
 }
 
-/* Tablet band: hamburger drawer (bottom nav is phone-only ≤900) */
+/* Tablet Windows band: hamburger drawer. Android stays on bottom nav. */
 @media (min-width: 901px) and (max-width: 1024px) {
-  html.use-bottom-nav .bottom-nav,
-  html.use-bottom-nav .bn-more-sheet { display: none !important; }
-  html.use-bottom-nav .menu-toggle { display: inline-flex !important; align-items: center; justify-content: center; }
-  html.use-bottom-nav .sidebar {
+  html:not(.is-mobile-chrome).use-bottom-nav .bottom-nav,
+  html:not(.is-mobile-chrome).use-bottom-nav .bn-more-sheet { display: none !important; }
+  html:not(.is-mobile-chrome).use-bottom-nav .menu-toggle { display: inline-flex !important; align-items: center; justify-content: center; }
+  html:not(.is-mobile-chrome).use-bottom-nav .sidebar {
     display: flex !important;
     position: fixed; left: 0; top: 0;
     transform: translateX(-105%);
     width: min(300px, 88vw);
     height: 100vh; height: 100dvh;
   }
-  html.use-bottom-nav .sidebar.open { transform: translateX(0); }
-  html.use-bottom-nav .sidebar-backdrop.show { display: block !important; }
-  html.use-bottom-nav .main {
+  html:not(.is-mobile-chrome).use-bottom-nav .sidebar.open { transform: translateX(0); }
+  html:not(.is-mobile-chrome).use-bottom-nav .sidebar-backdrop.show { display: block !important; }
+  html:not(.is-mobile-chrome).use-bottom-nav .main {
     padding: calc(56px + env(safe-area-inset-top, 0px)) 14px calc(88px + env(safe-area-inset-bottom, 0px));
   }
 }

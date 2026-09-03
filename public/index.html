@@ -35,19 +35,33 @@
       }
     } catch (_e) {}
 
-    /* Prefer bottom nav on phone-width — never force it on desktop (even touch laptops). */
+    /* Mobile/Android: always bottom nav (portrait + landscape). Windows desktop keeps sidebar. */
     (function preferBottomNav() {
+      function isMobileChrome() {
+        try {
+          var cap = window.Capacitor;
+          var native = !!(cap && (cap.isNativePlatform
+            ? cap.isNativePlatform()
+            : (cap.getPlatform && cap.getPlatform() !== 'web')));
+          var ua = navigator.userAgent || '';
+          if (native || /Android|iPhone|iPad|iPod/i.test(ua)) return true;
+        } catch (_e) {}
+        var w = window.innerWidth || document.documentElement.clientWidth || 0;
+        return w > 0 && w <= 900;
+      }
       function apply() {
         try {
-          var w = window.innerWidth || document.documentElement.clientWidth || 0;
-          var phone = w > 0 && w <= 900;
-          document.documentElement.classList.toggle('use-bottom-nav', phone);
-          if (!phone) document.documentElement.classList.remove('nav-open');
+          var mobile = isMobileChrome();
+          document.documentElement.classList.toggle('use-bottom-nav', mobile);
+          document.documentElement.classList.toggle('is-mobile-chrome', mobile);
+          if (!mobile) document.documentElement.classList.remove('nav-open');
         } catch (_e) {}
       }
       apply();
       window.addEventListener('resize', apply);
       window.addEventListener('orientationchange', function () { setTimeout(apply, 120); });
+      document.addEventListener('deviceready', apply, { once: true });
+      window.addEventListener('capacitorReady', apply, { once: true });
     })();
     try {
       if (/[?&]chengaio=1\b/.test(location.search || '') || localStorage.getItem('chengAioEmbedded') === '1') {
@@ -78,7 +92,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="css/app.css?v=68">
+  <link rel="stylesheet" href="css/app.css?v=69">
 </head>
 <body>
   <button class="menu-toggle" id="menu-toggle" aria-label="Menu">☰ Menu</button>
