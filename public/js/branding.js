@@ -34,98 +34,40 @@ const Branding = (() => {
   }
 
   /**
-   * Open the system printer dialog from a hidden iframe.
+   * Open the browser's system printer dialog on the live page.
    *
-   * Live-page window.print() fails in Android WebViews and when Tank Chief is
-   * nested inside ChEng AIO's embed iframe. Writing a self-contained document
-   * and calling print() on that frame matches Voyage Chief and keeps navigation
-   * on the live app (no print-preview trap).
+   * Uses window.print() so the user gets the normal printer picker (including
+   * Save as PDF). Do not tear the print document down until afterprint — removing
+   * it while Chrome/Android print UI is open freezes the app on a dead preview.
    */
-  function printViaIframe(bodyHtml, opts = {}) {
-    const bodyClass = opts.bodyClass || '';
-    const title = opts.title || 'Print';
-    const iframe = document.createElement('iframe');
-    iframe.setAttribute('aria-hidden', 'true');
-    iframe.style.cssText =
-      'position:fixed;left:-10000px;top:0;width:210mm;height:297mm;border:0;opacity:0;pointer-events:none;';
-    document.body.appendChild(iframe);
-
-    const doc = iframe.contentDocument;
-    const cssLinks = [...document.querySelectorAll('link[rel="stylesheet"]')]
-      .map((l) => `<link rel="stylesheet" href="${l.href}">`)
-      .join('\n');
-    doc.open();
-    doc.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title>
-${cssLinks}
-<style>
-  html, body { margin: 0; background: #fff; color: #111; }
-  /* Visible even when a host mishandles @media print un-hide rules. */
-  .calib-print-doc, .fuel-report-print-doc, .report-print-doc { display: block !important; }
-  .app-shell, .sidebar, .bottom-nav, .bn-more-sheet, .theme-fab, .theme-toggle,
-  .menu-toggle, .sidebar-backdrop, .no-print, .toast, .calib-sticky-actions,
-  .pdf-import-panel, .pdf-progress { display: none !important; }
-  .app-credit-print {
-    display: flex !important; gap: 10px; align-items: baseline;
-    margin-top: 8px; padding-top: 1mm; border-top: .4pt solid #999;
-    color: #444; font-size: 7pt; line-height: 1.4;
-  }
-  .app-credit-name { font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
-  .app-credit-authors { flex: 1; }
-  .app-credit-when { color: #777; white-space: nowrap; }
-</style>
-</head><body class="${bodyClass}">${bodyHtml}</body></html>`);
-    doc.close();
-
-    const win = iframe.contentWindow;
-    const cleanup = () => {
-      try { iframe.remove(); } catch (_) { /* ignore */ }
+  function printLiveDocument(prepare, cleanup) {
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      window.removeEventListener('afterprint', finish);
+      try { cleanup && cleanup(); } catch (_) { /* ignore */ }
     };
-    const doPrint = () => {
+    try { prepare && prepare(); } catch (err) {
+      finish();
+      throw err;
+    }
+    window.removeEventListener('afterprint', finish);
+    window.addEventListener('afterprint', finish);
+    window.setTimeout(() => {
       try {
-        win.focus();
-        win.print();
+        window.print();
       } catch (err) {
-        cleanup();
+        finish();
         throw err;
       }
-      setTimeout(cleanup, 1500);
-    };
-
-    const kick = () => {
-      if (doc.fonts && doc.fonts.ready) {
-        doc.fonts.ready.then(() => setTimeout(doPrint, 40)).catch(() => setTimeout(doPrint, 120));
-      } else {
-        setTimeout(doPrint, 120);
-      }
-    };
-
-    const links = [...doc.querySelectorAll('link[rel="stylesheet"]')];
-    if (!links.length) {
-      kick();
-      return;
-    }
-    let pending = links.length;
-    let done = false;
-    const one = () => {
-      pending -= 1;
-      if (pending <= 0 && !done) {
-        done = true;
-        kick();
-      }
-    };
-    links.forEach((l) => {
-      l.addEventListener('load', one);
-      l.addEventListener('error', one);
-    });
-    setTimeout(() => {
-      if (!done) {
-        done = true;
-        kick();
-      }
-    }, 800);
+      /* Some WebViews never fire afterprint — only then clear, and never while
+         the dialog is typically still open. */
+      window.setTimeout(finish, 120000);
+    }, 50);
   }
 
-  return { APP_NAME, AUTHORS, authorLine, creditLine, printCredit, printViaIframe };
+  return { APP_NAME, AUTHORS, authorLine, creditLine, printCredit, printLiveDocument };
 })();
 
 window.Branding = Branding;
