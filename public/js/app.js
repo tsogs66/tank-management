@@ -324,7 +324,7 @@ function apiHref(path) {
   return (typeof Api !== 'undefined' && Api.withPrefix) ? Api.withPrefix(path) : path;
 }
 
-const BOTTOM_PRIMARY = new Set(['dashboard', 'voyage', 'fuel-report', 'bunker-consumption']);
+const BOTTOM_PRIMARY = new Set(['dashboard', 'fuel', 'fuel-report', 'bunker-consumption']);
 
 function syncBottomNav() {
   const page = STATE.route.page;
@@ -377,7 +377,6 @@ function renderMoreNav() {
   g = document.createElement('div');
   g.className = 'nav-group-label'; g.textContent = 'Fuel Management';
   host.appendChild(g);
-  host.appendChild(mk('voyage', 'Voyage Fuel Calc', '🧭'));
   host.appendChild(mk('bunker-consumption', 'Consumption Calc', '📊'));
   host.appendChild(mk('bunker-after', 'After Bunkering', '📥'));
   host.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
@@ -484,7 +483,6 @@ function renderNav() {
   g = document.createElement('div');
   g.className = 'nav-group-label'; g.textContent = 'Fuel Management';
   nav.appendChild(g);
-  nav.appendChild(mk('voyage', 'Voyage Fuel Calc', '🧭'));
   nav.appendChild(mk('fuel-report', 'Fuel Report', '🧾'));
   nav.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
   nav.appendChild(mk('bunker-consumption', 'Consumption Calc', '📊'));
@@ -567,7 +565,7 @@ function render() {
   if (page === 'dashboard') renderDashboard(main);
   else if (page === 'calibration') renderCalibrationList(main);
   else if (page === 'add-tank') renderAddTank(main);
-  else if (page === 'voyage') renderVoyage(main);
+  else if (page === 'voyage') BunkerConsumption.render(main);
   else if (page === 'fuel-report') FuelReport.render(main);
   else if (page === 'bunker-plan') BunkerReports.renderPlan(main);
   else if (page === 'bunker-consumption') BunkerConsumption.render(main);
