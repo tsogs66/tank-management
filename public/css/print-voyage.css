@@ -1,0 +1,587 @@
+/**
+ * Voyage Chief print theme applied to Tank Chief printouts.
+ *
+ * Same faces, palette, headers, meta grids, navy section bars and table
+ * treatment as Voyage — offline fonts from fonts/fonts.css.
+ */
+
+:root {
+  --pr-ink: #0a1420;
+  --pr-muted: #5a6578;
+  --pr-navy: #122238;
+  --pr-accent: #2a6b7a;
+  --pr-rule: #cfd6e0;
+  --pr-soft: #f7f9fc;
+  --pr-border: #d4dce8;
+  --pr-gutter: #c5cdd8;
+  --pr-total: #eef2f8;
+  --pr-remarks-brass: #8a6b3c;
+  --pr-remarks-wash: #fffdf8;
+}
+
+/* ---------- Shared Voyage primitives (.pr-*) ---------- */
+.pr-doc-header {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: end;
+  gap: 1.5mm;
+  padding-bottom: 1.2mm;
+  margin-bottom: 1.2mm;
+  border-bottom: 1.5px solid var(--pr-navy);
+}
+.pr-doc-vessel {
+  font-family: 'Oswald', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pr-navy);
+}
+.pr-doc-dept {
+  font-family: 'Inter', sans-serif;
+  font-size: 9px;
+  color: var(--pr-muted);
+  margin-top: 0;
+  letter-spacing: 0.02em;
+}
+.pr-doc-title-wrap { text-align: center; }
+.pr-doc-badge {
+  display: inline-block;
+  font-family: 'Oswald', sans-serif;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #fff;
+  background: var(--pr-accent);
+  padding: 1px 5px;
+  border-radius: 2px;
+  margin-bottom: 0;
+  border: none;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.pr-doc-title {
+  margin: 0;
+  font-family: 'Oswald', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pr-navy);
+  line-height: 1.1;
+}
+.pr-doc-subtitle {
+  font-family: 'Inter', sans-serif;
+  font-size: 9px;
+  color: var(--pr-muted);
+  margin-top: 0;
+}
+.pr-doc-voyage { text-align: right; }
+.pr-doc-voy-label {
+  display: block;
+  font-family: 'Inter', sans-serif;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--pr-muted);
+}
+.pr-doc-voy-num {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pr-navy);
+}
+
+.pr-meta,
+.calib-print-meta,
+.bc-pr-meta {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--pr-gutter);
+  border: 1px solid var(--pr-gutter);
+  margin-bottom: 1.2mm;
+}
+.pr-meta.cols3,
+.bc-pr-meta.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.pr-meta.cols4,
+.bc-pr-meta.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.pr-meta.cols5 { grid-template-columns: repeat(5, 1fr); }
+.pr-meta.cols6 { grid-template-columns: repeat(3, 1fr); }
+
+.pr-meta-cell,
+.calib-print-meta > div,
+.bc-pr-meta-cell {
+  background: var(--pr-soft);
+  padding: 0.9mm 1.2mm;
+  border: none;
+}
+.pr-meta-lbl,
+.calib-print-meta .k,
+.bc-pr-meta-lbl {
+  display: block;
+  font-family: 'Inter', sans-serif;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--pr-muted);
+  margin-bottom: 0;
+}
+.pr-meta-val,
+.calib-print-meta .v,
+.bc-pr-meta-val {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--pr-ink);
+}
+
+.pr-section,
+.bc-pr-section,
+.fr-tc-block {
+  border: 1px solid var(--pr-border);
+  border-radius: 1px;
+  overflow: hidden;
+  margin-bottom: 1.5mm;
+  page-break-inside: avoid;
+}
+.pr-section-title,
+.bc-pr-section-title,
+.fr-tc-block-head,
+.fuel-report-print-doc .fr-print-h3,
+.fr-preview .fr-print-h3,
+.fr-preview .fr-tc-block-head {
+  margin: 0;
+  padding: 0.8mm 1.3mm;
+  background: var(--pr-navy) !important;
+  color: #fff !important;
+  font-family: 'Oswald', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border: none;
+  border-bottom: none;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.fr-tc-block-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.fr-tc-block-head h3 {
+  margin: 0;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+}
+.fr-tc-block-head span { font-size: 7.5pt; opacity: 0.85; font-family: 'Inter', sans-serif; }
+.pr-section-body,
+.bc-pr-section-body { padding: 1mm 1.3mm; background: #fff; }
+
+.pr-table,
+.bc-pr-table,
+table.calib-print-table,
+.calib-print-index table,
+table.fr-print-table,
+table.fr-tc-table,
+table.fr-tc-mini,
+.fr-preview table.fr-print-table,
+.fr-preview table.fr-tc-table,
+.fr-preview table.fr-tc-mini,
+.report-print-doc .data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+  table-layout: fixed;
+  font-variant-numeric: tabular-nums;
+}
+.pr-table th,
+.bc-pr-table th,
+table.calib-print-table th,
+.calib-print-index th,
+table.fr-print-table th,
+table.fr-tc-table th,
+table.fr-tc-mini th,
+.fr-preview table.fr-print-table th,
+.fr-preview table.fr-tc-table th,
+.fr-preview table.fr-tc-mini th,
+.report-print-doc .data-table th {
+  background: var(--pr-navy) !important;
+  color: #fff !important;
+  font-family: 'Oswald', sans-serif;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.65mm 0.8mm;
+  border: 1px solid var(--pr-navy) !important;
+  font-size: 9px;
+  text-align: center;
+  vertical-align: middle;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.pr-table td,
+.bc-pr-table td,
+table.calib-print-table td,
+.calib-print-index td,
+table.fr-print-table td,
+table.fr-tc-table td,
+table.fr-tc-mini td,
+.fr-preview table.fr-print-table td,
+.fr-preview table.fr-tc-table td,
+.fr-preview table.fr-tc-mini td,
+.report-print-doc .data-table td {
+  padding: 0.55mm 0.8mm;
+  border: 1px solid var(--pr-border) !important;
+  text-align: center;
+  vertical-align: middle;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  color: var(--pr-ink);
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+.pr-table td.row-lbl,
+.bc-pr-table td.row-lbl,
+table.fr-print-table td.fr-print-name,
+table.fr-tc-table td.fr-print-name,
+table.fr-tc-mini td.fr-print-name,
+table.calib-print-table td:first-child {
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  text-align: left;
+}
+.pr-table tr:nth-child(even) td,
+.bc-pr-table tbody tr:nth-child(even) td,
+table.fr-tc-table tbody tr:nth-child(even) td,
+table.fr-print-table tbody tr:nth-child(even) td {
+  background: var(--pr-soft) !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.pr-table tr.pr-total td,
+table.fr-print-table tfoot th,
+table.fr-print-table tfoot td,
+table.fr-tc-table tfoot td,
+table.fr-tc-table tfoot th,
+table.fr-tc-mini tfoot th,
+table.fr-tc-mini tfoot td,
+.fr-preview table.fr-tc-table tfoot td,
+.fr-preview table.fr-tc-table tfoot th,
+.fr-preview table.fr-tc-mini tfoot td,
+.fr-preview table.fr-tc-mini tfoot th {
+  background: var(--pr-total) !important;
+  color: var(--pr-ink) !important;
+  font-weight: 700;
+  border-top: 0.4mm solid var(--pr-navy) !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.pr-remarks,
+.bc-pr-remarks {
+  border: 1px solid var(--pr-border);
+  border-left: 2px solid var(--pr-remarks-brass);
+  background: var(--pr-remarks-wash);
+  padding: 1mm 1.3mm;
+  margin: 1.5mm 0;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.pr-remarks-title,
+.bc-pr-remarks-title {
+  font-family: 'Oswald', sans-serif;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--pr-remarks-brass);
+}
+.pr-remarks-body,
+.bc-pr-remarks-body {
+  font-family: 'Inter', sans-serif;
+  font-size: 9px;
+  color: var(--pr-ink);
+  margin-top: 2px;
+}
+
+.fr-tc-card {
+  border: 1px solid var(--pr-border);
+  padding: 0;
+  overflow: hidden;
+}
+.fr-tc-card h4 {
+  margin: 0;
+  padding: 0.6mm 1.2mm;
+  background: var(--pr-navy) !important;
+  color: #fff !important;
+  font-family: 'Oswald', sans-serif;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: none;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.fr-tc-card table { margin: 0; }
+
+/* ---------- Mastheads → Voyage header look ---------- */
+.calib-print-masthead,
+.fr-preview .calib-print-masthead {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 1.5mm;
+  padding-bottom: 1.2mm;
+  margin: 0 0 1.2mm;
+  border-bottom: 1.5px solid var(--pr-navy);
+  background: transparent;
+}
+.calib-print-masthead h1,
+.fr-preview .calib-print-masthead h1 {
+  margin: 0;
+  font-family: 'Oswald', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pr-navy);
+}
+.calib-print-masthead .sub,
+.fr-preview .calib-print-masthead .sub {
+  font-family: 'Inter', sans-serif;
+  font-size: 9px;
+  color: var(--pr-muted);
+  margin-top: 0;
+}
+.calib-print-badge,
+.fr-preview .calib-print-badge {
+  display: inline-block;
+  font-family: 'Oswald', sans-serif;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #fff !important;
+  background: var(--pr-accent) !important;
+  padding: 1px 5px;
+  border-radius: 2px;
+  border: none !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.bc-pr-sheet {
+  color: var(--pr-ink);
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  line-height: 1.35;
+}
+.bc-pr-header { display: none; } /* replaced by .pr-doc-header in markup */
+
+.fr-tc-masthead,
+.fr-preview .fr-tc-masthead {
+  margin: 0 0 1.2mm;
+  color: var(--pr-ink);
+}
+.fr-tc-brand-row {
+  display: none; /* dept line lives in pr-doc-header when used; hide orphan brand row */
+}
+.fr-tc-title-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: end;
+  gap: 1.5mm;
+  padding-bottom: 1.2mm;
+  margin-bottom: 1.2mm;
+  border-bottom: 1.5px solid var(--pr-navy);
+}
+.fr-tc-title-row h1,
+.fr-preview .fr-tc-title-row h1 {
+  margin: 0;
+  font-family: 'Oswald', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--pr-navy);
+  text-align: center;
+  white-space: nowrap;
+}
+.fr-tc-ident-left { text-align: left; min-width: 0; }
+.fr-tc-ident-name,
+.fr-preview .fr-tc-ident-name {
+  font-family: 'Oswald', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pr-navy);
+  line-height: 1.15;
+}
+.fr-tc-ident-imo,
+.fr-preview .fr-tc-ident-imo {
+  font-family: 'Inter', sans-serif;
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--pr-muted);
+  margin-top: 0;
+}
+.fr-tc-ident-right { text-align: right; }
+.fr-tc-ident-right span,
+.fr-preview .fr-tc-ident-right span {
+  display: block;
+  font-family: 'Inter', sans-serif;
+  font-size: 9px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--pr-muted);
+}
+.fr-tc-ident-right b,
+.fr-preview .fr-tc-ident-right b {
+  display: block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pr-navy);
+}
+
+.fr-tc-facts,
+.fr-preview .fr-tc-facts {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1px;
+  background: var(--pr-gutter);
+  border: 1px solid var(--pr-gutter);
+  margin: 0 0 1.5mm;
+  padding: 0;
+}
+.fr-tc-fact,
+.fr-preview .fr-tc-fact {
+  background: var(--pr-soft);
+  padding: 0.9mm 1.2mm;
+}
+.fr-tc-fact span,
+.fr-preview .fr-tc-fact span {
+  display: block;
+  font-family: 'Inter', sans-serif;
+  font-size: 9px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--pr-muted);
+}
+.fr-tc-fact b,
+.fr-preview .fr-tc-fact b {
+  display: block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--pr-ink);
+  line-height: 1.15;
+}
+
+.fr-tc-capline {
+  display: flex;
+  justify-content: flex-end;
+  gap: 18px;
+  font-family: 'Inter', sans-serif;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--pr-ink);
+  padding: 1mm 1.3mm 1.2mm;
+}
+.fr-tc-capline b {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.calib-print-footer,
+.fr-preview .calib-print-footer,
+.app-credit-print {
+  margin-top: 2mm;
+  padding-top: 1mm;
+  border-top: 1px solid var(--pr-border);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: 'Inter', sans-serif;
+  font-size: 8px;
+  color: #8a95a8;
+}
+.app-credit-print .app-credit-name {
+  font-family: 'Oswald', sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--pr-navy);
+}
+
+.fr-print-sign-line,
+.fr-preview .fr-print-sign-line {
+  border-bottom: 0.6pt solid var(--pr-navy);
+}
+.calib-print-note {
+  font-family: 'Inter', sans-serif;
+  font-size: 8px;
+  color: var(--pr-muted);
+}
+.calib-print-tank-id {
+  border-bottom: 1px solid var(--pr-border);
+  font-family: 'Inter', sans-serif;
+  color: var(--pr-ink);
+}
+.calib-print-title {
+  font-family: 'Oswald', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pr-navy);
+}
+
+table.calib-print-table th.even-keel,
+table.calib-print-table td.even-keel,
+.fr-preview .even-keel {
+  background: #e8eef6 !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.fr-tc-total-mt,
+.fr-preview .fr-tc-total-mt {
+  background: #e4eaf3 !important;
+  color: var(--pr-ink) !important;
+  font-weight: 700;
+}
+.fr-tc-diff { color: #a0452a; font-weight: 700; }
+
+@media print {
+  html, body {
+    background: #fff !important;
+    color: var(--pr-ink) !important;
+    font-family: 'Inter', 'Segoe UI', sans-serif !important;
+  }
+  .calib-print-doc,
+  .fuel-report-print-doc,
+  .bc-pr-sheet,
+  .report-print-doc {
+    color: var(--pr-ink);
+    font-family: 'Inter', sans-serif;
+    font-size: 10px;
+    line-height: 1.35;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .fuel-report-print-doc .fr-print-h3 {
+    display: block;
+    margin: 1.5mm 0 0;
+  }
+}

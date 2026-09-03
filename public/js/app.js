@@ -2047,7 +2047,19 @@ function calibPrintFmtTs(iso) {
   return String(iso).replace('T', ' ').replace(/\.\d+Z$/, ' UTC').slice(0, 19) + (String(iso).includes('Z') ? ' UTC' : '');
 }
 
-function calibPrintMasthead(title, subtitle) {
+function calibPrintMasthead(title, subtitle, opts) {
+  const vessel = STATE.bundle?.vessel || {};
+  const o = opts || {};
+  if (typeof Branding !== 'undefined' && Branding.printDocHeader) {
+    return Branding.printDocHeader({
+      vessel: vessel.name || 'Vessel',
+      title: title || 'Fuel Tank Calibration',
+      subtitle: subtitle || '',
+      badge: o.badge || 'LANDSCAPE A4',
+      rightLabel: o.rightLabel || 'IMO',
+      rightValue: o.rightValue || vessel.imo || '—',
+    });
+  }
   return `<header class="calib-print-masthead">
     <div>
       <h1>${escapeHtml(title || 'Fuel Tank Calibration')}</h1>
@@ -2079,6 +2091,12 @@ function calibPrintTankIdBar(tank, extra) {
 }
 
 function calibPrintMetaGrid(entries) {
+  if (typeof Branding !== 'undefined' && Branding.printMetaGrid) {
+    return Branding.printMetaGrid(
+      entries.map(([k, v]) => ({ label: k, value: escapeHtml(v) })),
+      entries.length > 8 ? 4 : 4,
+    );
+  }
   return `<div class="calib-print-meta">${entries.map(([k, v]) =>
     `<div><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(v)}</span></div>`
   ).join('')}</div>`;
@@ -3617,7 +3635,7 @@ function renderAbout(main) {
   const ver = (typeof Branding !== 'undefined' && Branding.APP_VERSION)
     ? Branding.APP_VERSION
     : (document.querySelector('meta[name="app-version"]')?.content || '');
-  const pkgVer = ver || '2.1.25';
+  const pkgVer = ver || '2.1.26';
   main.innerHTML += `<div class="page-head"><div>
     <h1>About</h1>
     <div class="desc">${Branding.APP_NAME} · v${pkgVer}</div>
@@ -3694,7 +3712,7 @@ function isNewerVersion(latest, current) {
 async function checkTankAppUpdate() {
   const status = document.getElementById('about-update-status');
   const link = document.getElementById('about-update-link');
-  const current = '2.1.25';
+  const current = '2.1.26';
   if (status) status.textContent = 'Checking GitHub for the latest Tank Chief release…';
   if (link) link.style.display = 'none';
   try {
