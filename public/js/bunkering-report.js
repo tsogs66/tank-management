@@ -687,26 +687,53 @@ const BunkerReports = (() => {
     </div>`;
   }
 
-  /** BEFORE / AFTER bunkering tank tables, as on the workbook plan sheet. */
+  /** BEFORE / AFTER bunkering tank tables — sequence tanks only.
+   *
+   * Full-vessel soundings stay on Monitoring and After Bunkering. The plan
+   * shows only tanks in the fill sequence so before/after (and received) stay
+   * on the tank basis of what is being bunkered.
+   */
   function planTankTablesPanel(c) {
-    // Until the after-report has been saved it is only a copy of the pre-bunker
-    // soundings, so show the prompt rather than the same numbers twice.
-    const saved = Boolean(bundle().bunkerAfter);
-    const after = saved
-      ? readOnlyTankTable(Core.computeAfterBunkering(bundle(), bundle().bunkerAfter, view.conversion))
-      : `<p class="empty-state">Not sounded yet — record the tanks on
-         <b>After Bunkering</b> and this table fills in.</p>`;
-    return `<div class="form-panel no-print" style="margin-top:16px">
-      <div class="section-title" style="margin-top:0">Before bunkering — from the fuel report</div>
-      ${readOnlyTankTable(c.before)}
-      <div class="section-title">After bunkering — from the after-bunkering report</div>
-      ${after}
+    return `<div class="form-panel no-print" id="bp-tank-tables" style="margin-top:16px">
+      ${planTankTablesHtml(c)}
     </div>`;
   }
 
-  function readOnlyTankTable(report) {
+  function planTankTablesHtml(c) {
+    const tankIds = Core.sequenceTankIds(view.plan || (c && c.form));
+    const before = Core.filterReportToTankIds(c && c.before, tankIds);
+    // Until the after-report has been saved it is only a copy of the pre-bunker
+    // soundings, so show the prompt rather than the same numbers twice.
+    const saved = Boolean(bundle().bunkerAfter);
+    const afterFull = saved
+      ? Core.computeAfterBunkering(bundle(), bundle().bunkerAfter, view.conversion)
+      : null;
+    const after = afterFull
+      ? readOnlyTankTable(Core.filterReportToTankIds(afterFull, tankIds), {
+        empty: tankIds.length
+          ? 'No soundings yet for the tanks in this sequence'
+          : 'Select tanks in the sequence first',
+      })
+      : `<p class="empty-state">Not sounded yet — record the tanks on
+         <b>After Bunkering</b> and this table fills in for the sequence tanks.</p>`;
+    return `
+      <div class="section-title" style="margin-top:0">Before bunkering — sequence tanks</div>
+      <p class="hint" style="margin-top:0">Only tanks in the bunkering sequence (tank-basis received).
+        Full vessel soundings stay on <b>Monitoring</b> and <b>After Bunkering</b>.</p>
+      ${readOnlyTankTable(before, {
+        empty: tankIds.length
+          ? 'No fuel-report soundings yet for the tanks in this sequence'
+          : 'Select tanks in the sequence to show before condition',
+      })}
+      <div class="section-title">After bunkering — sequence tanks</div>
+      <p class="hint" style="margin-top:0">Same tanks after the transfer, for received quantity on a tank basis.</p>
+      ${after}`;
+  }
+
+  function readOnlyTankTable(report, opts = {}) {
+    const empty = opts.empty || 'No soundings';
     const rows = [];
-    for (const section of report.sections) {
+    for (const section of (report && report.sections) || []) {
       for (const row of section.rows) {
         if (row.measuredM3 == null) continue;
         rows.push(`<tr>
@@ -726,7 +753,7 @@ const BunkerReports = (() => {
         </tr>`);
       }
     }
-    const grades = report.grades.filter((g) => g.actualMT != null)
+    const grades = ((report && report.grades) || []).filter((g) => g.actualMT != null)
       .map((g) => `${g.label} ${n(g.actualMT, 3)} MT`).join(' · ');
     return `<div class="scroll-x"><table class="fr-sheet">
       <thead><tr>
@@ -734,7 +761,7 @@ const BunkerReports = (() => {
         <th>SOUNDING<br>(MM)</th><th>OBSERVED<br>VOLUME</th><th>TEMP<br>°C</th><th>DENSITY<br>15°C</th>
         <th>VCF<br>54-B</th><th>OBSERVED<br>VOL %</th><th>CORRECTED<br>VOL M3</th><th>WCF<br>56</th><th>WEIGHT BY<br>AIR MT</th>
       </tr></thead>
-      <tbody>${rows.join('') || '<tr><td colspan="13" class="empty-state">No soundings</td></tr>'}</tbody>
+      <tbody>${rows.join('') || `<tr><td colspan="13" class="empty-state">${esc(empty)}</td></tr>`}</tbody>
     </table></div>
     <div class="hint">${grades ? esc('Totals: ' + grades) : 'No totals yet'}</div>`;
   }
@@ -947,6 +974,8 @@ const BunkerReports = (() => {
       : '—');
     refreshEstimates(c);
     refreshFinish(c);
+    const tables = document.getElementById('bp-tank-tables');
+    if (tables) tables.innerHTML = planTankTablesHtml(c);
     const startBox = document.getElementById('bp-start-at');
     if (startBox && document.activeElement !== startBox) {
       startBox.value = view.plan.startedAt ? localInputValue(view.plan.startedAt) : '';
@@ -1451,10 +1480,18 @@ const BunkerReports = (() => {
       ${UI.footer(`${c.vessel.name} · bunkering plan · ${c.header.date || ''}`)}
     </section>
     <section class="calib-print-page">
-      ${UI.masthead('BEFORE BUNKERING', `${c.vessel.name} · ${c.header.date || ''}`)}
-      ${c.before.sections.map((s) => UI.printSectionTable(s, c.before.options)).join('')}
+      ${UI.masthead('BEFORE BUNKERING — SEQUENCE TANKS', `${c.vessel.name} · ${c.header.date || ''}`)}
+      <p class="calib-print-note">Tanks in the bunkering sequence only (tank-basis received). Full vessel
+        soundings remain on the fuel report / monitoring and after-bunkering report.</p>
+      ${(() => {
+        const beforeSeq = Core.filterReportToTankIds(c.before, Core.sequenceTankIds(c.form || view.plan));
+        if (!beforeSeq.sections.length) {
+          return '<p class="calib-print-note">No sequence tanks with soundings on the fuel report.</p>';
+        }
+        return beforeSeq.sections.map((s) => UI.printSectionTable(s, beforeSeq.options || c.before.options)).join('');
+      })()}
       ${UI.printSignatureBlock()}
-      ${UI.footer(`${c.vessel.name} · before bunkering`)}
+      ${UI.footer(`${c.vessel.name} · before bunkering · sequence tanks`)}
     </section>`;
   }
 

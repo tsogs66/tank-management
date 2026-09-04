@@ -207,6 +207,106 @@ function robBeforeBunkering(bundle, conversion) {
   return { report, byTank };
 }
 
+/**
+ * Tank ids selected on the bunkering plan sequence (the tanks taking cargo).
+ * Empty slots are ignored.
+ */
+function sequenceTankIds(plan) {
+  const ids = [];
+  const seen = new Set();
+  for (const slot of (plan && plan.sequence) || []) {
+    if (!slot || !slot.tankId || seen.has(slot.tankId)) continue;
+    seen.add(slot.tankId);
+    ids.push(slot.tankId);
+  }
+  return ids;
+}
+
+/**
+ * Restrict a fuel / after-bunkering condition report to the plan sequence tanks.
+ *
+ * The bunkering plan only needs before/after condition for tanks that are
+ * bunkered — received quantity is tank-basis from those readings. Full-vessel
+ * soundings stay on Monitoring and the After Bunkering report.
+ */
+function filterReportToTankIds(report, tankIds) {
+  if (!report) return report;
+  const want = new Set(Array.isArray(tankIds) ? tankIds : []);
+  if (!want.size) {
+    return {
+      ...report,
+      sections: [],
+      grades: (report.grades || []).map((g) => ({
+        ...g,
+        actualMT: null,
+        priorMT: g.priorMT != null ? null : g.priorMT,
+        presentMT: g.presentMT != null ? null : g.presentMT,
+        addedMT: g.addedMT != null ? null : g.addedMT,
+      })),
+      totals: {
+        ...(report.totals || {}),
+        capacity100M3: 0,
+        measuredM3: 0,
+        gsv15M3: 0,
+        weightAirMT: 0,
+        priorMT: 0,
+        addedMT: 0,
+      },
+    };
+  }
+
+  const sumField = (rows, field) => rows.reduce((a, r) => {
+    const v = num(r[field]);
+    return v == null ? a : a + v;
+  }, 0);
+
+  const sections = (report.sections || []).map((section) => {
+    const rows = (section.rows || []).filter((r) => r && want.has(r.tankId));
+    if (!rows.length) return null;
+    const totals = {
+      ...(section.totals || {}),
+      capacity100M3: round(sumField(rows, 'capacity100M3'), 1),
+      capacity85M3: round(sumField(rows, 'capacity85M3'), 2),
+      capacity85MT: round(sumField(rows, 'capacity85MT'), 2),
+      measuredM3: round(sumField(rows, 'measuredM3'), 3),
+      gsv15M3: round(sumField(rows, 'gsv15M3'), 3),
+      weightAirMT: round(sumField(rows, 'weightAirMT'), 3),
+      tanksWeighed: rows.filter((r) => r.weightAirMT != null).length,
+    };
+    return { ...section, rows, totals };
+  }).filter(Boolean);
+
+  const allRows = sections.flatMap((s) => s.rows);
+  const grades = (report.grades || []).map((grade) => {
+    const rows = allRows.filter((r) => r.fuelType === grade.id);
+    const used = rows.some((r) => r.weightAirMT != null);
+    const actualMT = used ? round(sumField(rows, 'weightAirMT'), 3) : null;
+    const out = { ...grade, actualMT };
+    if (Object.prototype.hasOwnProperty.call(grade, 'presentMT')) {
+      out.presentMT = actualMT;
+      const priorMT = num(grade.priorMT);
+      out.priorMT = priorMT;
+      out.addedMT = priorMT != null && actualMT != null ? round(actualMT - priorMT, 3) : null;
+    }
+    return out;
+  });
+
+  return {
+    ...report,
+    sections,
+    grades,
+    totals: {
+      ...(report.totals || {}),
+      capacity100M3: round(sumField(allRows, 'capacity100M3'), 1),
+      measuredM3: round(sumField(allRows, 'measuredM3'), 3),
+      gsv15M3: round(sumField(allRows, 'gsv15M3'), 3),
+      weightAirMT: round(sumField(allRows, 'weightAirMT'), 3),
+      priorMT: round(grades.reduce((a, g) => a + (num(g.priorMT) || 0), 0), 3),
+      addedMT: round(grades.reduce((a, g) => a + (num(g.addedMT) || 0), 0), 3),
+    },
+  };
+}
+
 function emptyBunkerPlan(bundle, conversion) {
   const voyage = (bundle && bundle.voyage) || {};
   const { report } = robBeforeBunkering(bundle, conversion);
@@ -1311,6 +1411,8 @@ return {
   hoursLabel,
   hmsLabel,
   robBeforeBunkering,
+  sequenceTankIds,
+  filterReportToTankIds,
   priorRobFromFuelReport,
   emptyBunkerPlan,
   normalizePlan,
