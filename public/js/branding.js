@@ -121,27 +121,42 @@ const Branding = (() => {
     holdListeners.add(fn);
   }
 
+  function hasAndroidPrintBridge() {
+    try {
+      return !!(window.ChengAndroidPrint
+        && (typeof ChengAndroidPrint.printHtml === 'function'
+          || typeof ChengAndroidPrint.finishPrintJob === 'function'));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function parentAioBridge() {
+    if (!(window.parent && window.parent !== window)) {
+      return { available: false, verified: false };
+    }
+    try {
+      const available = !!(window.parent.ChengAioPrint
+        || window.parent.ChengAndroidPrint
+        || window.parent.__CHENG_ANDROID_PRINT__
+        || window.parent.ChengPro
+        || window.parent.ChengProShell);
+      return { available, verified: true };
+    } catch (_) {
+      /* Cross-origin embed: try postMessage, but fall back locally if silent. */
+      return { available: true, verified: false };
+    }
+  }
+
+  /**
+   * Prefer a native / AIO print bridge only when one is actually available.
+   * A bare Capacitor flag with no PrintManager interface used to claim a
+   * bridge and then swallow the click (window.print is a no-op on Android).
+   */
   function shouldBridgePrint() {
     try {
-      if (window.__CHENG_ANDROID_PRINT__
-        || (window.ChengAndroidPrint && typeof ChengAndroidPrint.printHtml === 'function')) {
-        return true;
-      }
-      if (window.Capacitor && typeof Capacitor.isNativePlatform === 'function'
-        && Capacitor.isNativePlatform()) {
-        return true;
-      }
-      if (window.parent && window.parent !== window) {
-        try {
-          if (window.parent.ChengAioPrint || window.parent.ChengAndroidPrint
-            || window.parent.__CHENG_ANDROID_PRINT__
-            || window.parent.ChengPro || window.parent.ChengProShell) {
-            return true;
-          }
-        } catch (_) {
-          return true;
-        }
-      }
+      if (window.__CHENG_ANDROID_PRINT__ || hasAndroidPrintBridge()) return true;
+      if (parentAioBridge().available) return true;
     } catch (_) { /* ignore */ }
     return false;
   }
@@ -255,6 +270,73 @@ ${css}
 </style></head><body class="${bodyClass || ''}">${bodyHtml || ''}</body></html>`;
   }
 
+  function printViaHiddenIframe(html, title, finish) {
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.style.cssText =
+      'position:fixed;left:-10000px;top:0;width:210mm;height:297mm;border:0;opacity:0;pointer-events:none;';
+    document.body.appendChild(iframe);
+    const doc = iframe.contentDocument;
+    doc.open();
+    doc.write(String(html || ''));
+    doc.close();
+    if (title) {
+      try { doc.title = title; } catch (_) { /* ignore */ }
+    }
+    const win = iframe.contentWindow;
+    let done = false;
+    const wrapFinish = () => {
+      if (done) return;
+      done = true;
+      try { win.removeEventListener('afterprint', wrapFinish); } catch (_) { /* ignore */ }
+      try { window.removeEventListener('afterprint', wrapFinish); } catch (_) { /* ignore */ }
+      try { iframe.remove(); } catch (_) { /* ignore */ }
+      finish();
+    };
+    try { win.addEventListener('afterprint', wrapFinish); } catch (_) { /* ignore */ }
+    try { window.addEventListener('afterprint', wrapFinish); } catch (_) { /* ignore */ }
+    const kick = () => {
+      try {
+        win.focus();
+        win.print();
+      } catch (err) {
+        console.warn('Tank iframe print failed', err);
+        wrapFinish();
+        return;
+      }
+      setTimeout(wrapFinish, 120000);
+    };
+    if (doc.fonts && doc.fonts.ready) {
+      doc.fonts.ready.then(() => setTimeout(kick, 40)).catch(() => setTimeout(kick, 120));
+    } else {
+      setTimeout(kick, 120);
+    }
+  }
+
+  /** Android Binder rejects large JavascriptInterface strings — chunk instead. */
+  function deliverAndroidPrint(html, title) {
+    const bridge = window.ChengAndroidPrint;
+    if (!bridge) throw new Error('No ChengAndroidPrint');
+    const job = title || APP_NAME;
+    const text = String(html || '');
+    if (typeof bridge.beginPrintJob === 'function'
+      && typeof bridge.appendPrintChunk === 'function'
+      && typeof bridge.finishPrintJob === 'function') {
+      const CHUNK = 200000;
+      bridge.beginPrintJob(job, text.length);
+      for (let i = 0; i < text.length; i += CHUNK) {
+        bridge.appendPrintChunk(text.slice(i, i + CHUNK));
+      }
+      bridge.finishPrintJob();
+      return;
+    }
+    if (typeof bridge.printHtml === 'function') {
+      bridge.printHtml(text, job);
+      return;
+    }
+    throw new Error('Android print bridge has no printHtml');
+  }
+
   function deliverBridgedHtml(html, title, finish) {
     const onDone = (ev) => {
       if (ev && ev.data && ev.data.type === 'chengaio-print-done') finish();
@@ -267,20 +349,62 @@ ${css}
       clearDone();
       finish();
     };
+
     try {
-      const payload = { type: 'chengaio-print', html: String(html || ''), title: title || APP_NAME };
-      if (window.parent && window.parent !== window) {
-        window.parent.postMessage(payload, '*');
-      } else if (window.ChengAioPrint && typeof ChengAioPrint.printHtmlDocument === 'function') {
-        ChengAioPrint.printHtmlDocument(payload.html, payload.title);
-      } else if (window.ChengAndroidPrint && typeof ChengAndroidPrint.printHtml === 'function') {
-        ChengAndroidPrint.printHtml(payload.html, payload.title);
+      /* Prefer the native bridge on this window (standalone Tank APK). */
+      if (hasAndroidPrintBridge()) {
+        deliverAndroidPrint(html, title);
         setTimeout(wrappedFinish, 1500);
         return;
-      } else {
-        throw new Error('No print bridge');
       }
-      setTimeout(wrappedFinish, 180000);
+      if (window.ChengAioPrint && typeof ChengAioPrint.printHtmlDocument === 'function') {
+        ChengAioPrint.printHtmlDocument(String(html || ''), title || APP_NAME);
+        setTimeout(wrappedFinish, 180000);
+        return;
+      }
+      const parentBridge = parentAioBridge();
+      if (parentBridge.available) {
+        const payload = { type: 'chengaio-print', html: String(html || ''), title: title || APP_NAME };
+        window.parent.postMessage(payload, '*');
+        let settled = false;
+        const onAck = (ev) => {
+          if (!(ev && ev.data && ev.data.type === 'chengaio-print-done')) return;
+          if (settled) return;
+          settled = true;
+          clearDone();
+          try { window.removeEventListener('message', onAck); } catch (_) { /* ignore */ }
+          finish();
+        };
+        const localFallback = () => {
+          if (settled) return;
+          settled = true;
+          clearDone();
+          try { window.removeEventListener('message', onAck); } catch (_) { /* ignore */ }
+          try {
+            printViaHiddenIframe(html, title || APP_NAME, finish);
+          } catch (err) {
+            console.warn('Tank print fallback failed', err);
+            finish();
+          }
+        };
+        try { window.removeEventListener('message', onDone); } catch (_) { /* ignore */ }
+        try { window.addEventListener('message', onAck); } catch (_) { /* ignore */ }
+        /* Verified AIO parent will ack; unverified cross-origin may be mute —
+           fall back so the Print button never looks dead. */
+        if (parentBridge.verified) {
+          setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            clearDone();
+            try { window.removeEventListener('message', onAck); } catch (_) { /* ignore */ }
+            finish();
+          }, 180000);
+        } else {
+          setTimeout(localFallback, 2500);
+        }
+        return;
+      }
+      throw new Error('No print bridge');
     } catch (err) {
       clearDone();
       throw err;
@@ -290,9 +414,10 @@ ${css}
   /**
    * Open the system printer dialog.
    *
-   * Live-page window.print() works in desktop browsers. Inside ChEng AIO embeds
-   * and on Android WebView it is a no-op, so we hand a self-contained HTML
-   * document to the AIO shell / PrintManager bridge instead.
+   * Desktop: self-contained HTML in a hidden iframe (same approach as AIO /
+   * Voyage) — live-page window.print() is unreliable inside embeds and after
+   * theme CSS fights. Android / AIO: PrintManager bridge, with a fast local
+   * iframe fallback if the parent never answers.
    */
   function printLiveDocument(prepare, cleanup, opts = {}) {
     let finished = false;
@@ -316,7 +441,8 @@ ${css}
       } else {
         const root = document.getElementById(opts.rootId || '')
           || document.getElementById('fuel-report-print-root')
-          || document.getElementById('calib-print-root');
+          || document.getElementById('calib-print-root')
+          || document.getElementById('bc-print-root');
         if (root) bodyHtml = root.outerHTML;
         bodyClass = document.body.className || bodyClass;
       }
@@ -325,27 +451,46 @@ ${css}
       throw err;
     }
 
-    if (shouldBridgePrint() && bodyHtml) {
+    if (!bodyHtml) {
+      console.warn('Tank print: nothing to print');
+      finish();
+      return;
+    }
+
+    let html = '';
+    try {
+      html = buildPrintableHtml(bodyHtml, bodyClass, opts.title || APP_NAME);
+    } catch (err) {
+      console.warn('Tank print HTML build failed', err);
+      finish();
+      throw err;
+    }
+
+    if (shouldBridgePrint()) {
       try {
-        const html = buildPrintableHtml(bodyHtml, bodyClass, opts.title || APP_NAME);
         deliverBridgedHtml(html, opts.title || APP_NAME, finish);
         return;
       } catch (err) {
-        console.warn('Tank print bridge failed, falling back to window.print', err);
+        console.warn('Tank print bridge failed, falling back to iframe print', err);
       }
     }
 
-    window.removeEventListener('afterprint', finish);
-    window.addEventListener('afterprint', finish);
-    window.setTimeout(() => {
-      try {
-        window.print();
-      } catch (err) {
-        finish();
-        throw err;
-      }
-      window.setTimeout(finish, 120000);
-    }, 50);
+    try {
+      printViaHiddenIframe(html, opts.title || APP_NAME, finish);
+    } catch (err) {
+      console.warn('Tank iframe print failed, last resort window.print', err);
+      window.removeEventListener('afterprint', finish);
+      window.addEventListener('afterprint', finish);
+      window.setTimeout(() => {
+        try {
+          window.print();
+        } catch (printErr) {
+          finish();
+          throw printErr;
+        }
+        window.setTimeout(finish, 120000);
+      }, 50);
+    }
   }
 
   return {
