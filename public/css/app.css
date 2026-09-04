@@ -953,9 +953,7 @@ table.fr-sheet tfoot th { text-align: left; }
 .fr-preview table.fr-tc-mini th, .fr-preview table.fr-tc-mini td {
   border: 1px solid #c5cdd8; padding: 2px 4px; text-align: right; color: #111;
 }
-.fr-preview .fr-tc-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
-.fr-preview .fr-tc-card-lube,
-.fr-preview .fr-tc-card-survey { grid-column: 1 / -1; }
+.fr-preview .fr-tc-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .fr-preview .fr-tc-annex { display: grid; grid-template-columns: 1.3fr 1fr; gap: 10px; }
 
 @media (max-width: 900px) {
@@ -1339,7 +1337,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   body.printing-fuel-report .fuel-report-print-doc { display: block !important; }
   .fuel-report-print-doc.fr-preview { display: block !important; }
 
-  .fuel-report-print-doc { color: #111; font-size: 8.5pt; line-height: 1.25; }
+  .fuel-report-print-doc { color: #111; font-size: 9.5pt; line-height: 1.3; }
   .fuel-report-print-doc .fr-print-h3 {
     margin: 10px 0 4px; font-size: 10.5pt; letter-spacing: .03em;
   }
@@ -1443,7 +1441,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   .fr-tc-block-head span { font-size: 7.5pt; opacity: .85; }
   table.fr-tc-table {
     width: 100%; border-collapse: collapse; table-layout: fixed;
-    font-size: 5.8pt; font-variant-numeric: tabular-nums;
+    font-size: 6.6pt; font-variant-numeric: tabular-nums;
   }
   table.fr-tc-table th, table.fr-tc-table td {
     border: 0.35pt solid #c5cdd8; padding: 1px 3px;
@@ -1491,21 +1489,18 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   }
   .fr-tc-capline b { font-size: 11pt; font-weight: 800; }
   .fr-tc-cards {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin-top: 3px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 4px;
   }
-  .fr-tc-card-lube,
-  .fr-tc-card-survey { grid-column: 1 / -1; }
   .fr-tc-card {
-    border: 0.5pt solid #c5cdd8; padding: 0;
-    overflow: hidden;
+    border: 0.5pt solid #c5cdd8; padding: 2px 6px;
   }
   .fr-tc-card h4 {
-    margin: 0; padding: 2px 5px; font-size: 6.5pt; letter-spacing: .05em; text-transform: uppercase;
-    background: #122238 !important; color: #fff !important;
-    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    margin: 0 0 3px; font-size: 7.5pt; letter-spacing: .05em; text-transform: uppercase;
+    border-bottom: 0.4pt solid #999; padding-bottom: 2px;
+    background: transparent !important; color: #111 !important;
   }
   table.fr-tc-mini {
-    width: 100%; border-collapse: collapse; font-size: 5.5pt; font-variant-numeric: tabular-nums;
+    width: 100%; border-collapse: collapse; font-size: 6.5pt; font-variant-numeric: tabular-nums;
   }
   table.fr-tc-mini th, table.fr-tc-mini td {
     border: 0.3pt solid #555; padding-top: 1px; padding-bottom: 1px;
