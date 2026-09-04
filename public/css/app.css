@@ -962,7 +962,7 @@ table.fr-sheet tfoot th { text-align: left; }
 }
 
 /* ---------- Bunkering plan / summary screens ---------- */
-.bp-layout { display: grid; grid-template-columns: minmax(0, 1fr) 176px; gap: 10px; align-items: start; }
+.bp-layout { display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: 10px; align-items: start; }
 table.bp-sheet thead th { min-width: 40px; }
 table.bp-sheet tbody th.fr-tank-name { min-width: 168px; }
 table.bp-sheet tbody th.fr-tank-name select { min-width: 130px; margin-left: 4px; }
@@ -989,13 +989,18 @@ td.bp-valve { min-width: 102px; text-align: center; padding: 3px 3px; }
 tr.bp-row-filling th.fr-tank-name { box-shadow: inset 3px 0 0 var(--good); }
 tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
 
-.bp-monitor { display: flex; flex-direction: column; gap: 10px; }
+.bp-monitor { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.bp-monitor-stats { display: flex; flex-direction: column; gap: 10px; }
+.bp-monitor-progress-text { margin: 0; flex: 1 1 100%; }
 .bp-clock {
   border: 1px solid var(--border); border-radius: 8px; padding: 10px;
   background: var(--bg-panel); display: flex; flex-direction: column; gap: 6px;
+  min-width: 0; width: 100%;
 }
-.bp-clock-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--text-dim); }
-.bp-clock-row b { color: var(--text); font-variant-numeric: tabular-nums; }
+.bp-clock-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); }
+.bp-clock-row > span { flex: 0 1 auto; }
+.bp-clock-row b, .bp-clock-row .bp-clock-input { color: var(--text); font-variant-numeric: tabular-nums; }
+.bp-clock-actions { flex-wrap: wrap; margin: 0; }
 .bp-monitor-box {
   border: 1px solid var(--border); border-radius: 8px; padding: 10px;
   background: var(--bg-panel); display: flex; flex-direction: column; gap: 4px;
@@ -1039,11 +1044,46 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   border-radius: 6px; padding: 7px 8px; resize: vertical;
 }
 
+/* Narrow / phone: sequence full width, stats in a row, pump clock full-width below TOTAL. */
 @media (max-width: 1100px) {
   .bp-layout { grid-template-columns: minmax(0, 1fr); }
-  .bp-monitor { flex-direction: row; flex-wrap: wrap; }
+  .bp-monitor { flex-direction: column; align-items: stretch; }
+  .bp-monitor-stats {
+    display: flex; flex-direction: row; flex-wrap: wrap; gap: 10px;
+  }
   .bp-monitor-box { flex: 1 1 150px; }
   .bp-progress { flex: 1 1 100%; }
+  .bp-clock {
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: none;
+  }
+}
+
+/* Mobile / tablet landscape: never pin pump status in a squeezed side column. */
+@media (orientation: landscape) and (max-height: 900px) {
+  .bp-layout { grid-template-columns: minmax(0, 1fr); }
+  .bp-monitor { flex-direction: column; align-items: stretch; }
+  .bp-monitor-stats {
+    display: flex; flex-direction: row; flex-wrap: wrap; gap: 10px;
+  }
+  .bp-monitor-box { flex: 1 1 140px; }
+  .bp-progress { flex: 1 1 100%; }
+  .bp-clock {
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: none;
+  }
+  .bp-clock-row {
+    display: grid;
+    grid-template-columns: minmax(7.5rem, 38%) minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+  }
+  .bp-clock-row > span { justify-self: start; }
+  .bp-clock-row b,
+  .bp-clock-row .bp-clock-input { justify-self: stretch; text-align: left; min-width: 0; }
+  .bp-clock-actions { justify-content: flex-start; }
 }
 
 /* ---------- Vessel logo / signature upload ---------- */
