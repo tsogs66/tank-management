@@ -639,21 +639,41 @@ const FuelReport = (() => {
 
   /* ---------- printed document ---------- */
 
+  /**
+   * Every printed sheet in the suite carries the same three-part head: ship on
+   * the left, title in the middle, voyage number on the right. Tank Chief used
+   * to print a fixed "Report / Official" in that right-hand slot, which put a
+   * sounding sheet and a noon report side by side looking like two different
+   * documents. The voyage number is what the office files them under, so that
+   * is what goes there, on both programs.
+   *
+   * The subtitle is also cleaned of a leading vessel name: it already prints
+   * above, in bold, on the left.
+   */
+  function voyageNumber() {
+    const b = currentBundle() || {};
+    return String((b.voyage && b.voyage.voyageNo) || (b.vessel && b.vessel.voyageNo) || '').trim();
+  }
+
   function masthead(title, subtitle, opts) {
     const vessel = ((currentBundle() && currentBundle().vessel) || {}).name || 'Vessel';
     const o = opts || {};
+    let sub = String(subtitle || '').trim();
+    if (vessel && sub.startsWith(vessel)) {
+      sub = sub.slice(vessel.length).replace(/^\s*[·|,-]\s*/, '').trim();
+    }
     if (typeof Branding !== 'undefined' && Branding.printDocHeader) {
       return Branding.printDocHeader({
         vessel,
         title: title || '',
-        subtitle: subtitle || '',
+        subtitle: sub,
         badge: o.badge || 'A4',
-        rightLabel: o.rightLabel || 'Report',
-        rightValue: o.rightValue || 'Official',
+        rightLabel: o.rightLabel || 'Voyage No.',
+        rightValue: o.rightValue || voyageNumber() || '—',
       });
     }
     return `<header class="calib-print-masthead">
-      <div><h1>${esc(title)}</h1><div class="sub">${esc(subtitle)}</div></div>
+      <div><h1>${esc(title)}</h1><div class="sub">${esc(sub)}</div></div>
       <div class="calib-print-badge">OFFICIAL · A4</div>
     </header>`;
   }

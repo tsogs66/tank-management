@@ -261,50 +261,19 @@ const PdfProgress = (() => {
 /**
  * Save a JSON backup where the user can find it.
  *
- * Order: File System Access picker (desktop) → system Share sheet (Android) →
- * classic <a download>. Never revoke the blob URL immediately — WebView needs
- * a beat to start the download.
+ * The order of attempts, and what each one means for the message shown
+ * afterwards, lives in ChengSaveFile so that Tank Chief, Voyage Chief and the
+ * ChEng AIO shell all put files in the same place by the same rules. The
+ * fallback below only runs in a build that somehow loaded without it.
  *
- * @returns {Promise<{method:string, filename:string}>}
+ * @returns {Promise<{method:string, filename:string, where?:string}>}
  */
 async function downloadJson(filename, obj) {
+  const safeName = filename || `tank-chief-backup-${Date.now()}.json`;
+  if (window.ChengSaveFile) return ChengSaveFile.saveJson(safeName, obj);
+
   const text = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
   const blob = new Blob([text], { type: 'application/json' });
-  const safeName = filename || `tank-chief-backup-${Date.now()}.json`;
-
-  /* Chromium desktop / many Electron builds: user picks the folder. */
-  try {
-    if (typeof window.showSaveFilePicker === 'function') {
-      const handle = await window.showSaveFilePicker({
-        suggestedName: safeName,
-        types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
-      });
-      const writable = await handle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-      return { method: 'picker', filename: safeName };
-    }
-  } catch (e) {
-    if (e && e.name === 'AbortError') throw new Error('Save cancelled');
-    /* Fall through — picker unavailable or failed. */
-  }
-
-  /* Android / iOS: Share → Save to Files / Drive / USB. */
-  try {
-    const file = new File([blob], safeName, { type: 'application/json' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({
-        files: [file],
-        title: safeName,
-        text: 'Tank Chief backup — use Save to Files / Drive / USB so you can find it later.',
-      });
-      return { method: 'share', filename: safeName };
-    }
-  } catch (e) {
-    if (e && e.name === 'AbortError') throw new Error('Share cancelled — backup was not saved');
-    /* Fall through to anchor download. */
-  }
-
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -318,6 +287,12 @@ async function downloadJson(filename, obj) {
     try { URL.revokeObjectURL(url); } catch (_) { /* ignore */ }
   }, 4000);
   return { method: 'anchor', filename: safeName };
+}
+
+/** Where the file went, in the words the user needs to find it. */
+function downloadWhereLabel(saved) {
+  if (window.ChengSaveFile) return ChengSaveFile.whereLabel(saved);
+  return saved && saved.filename ? `started — check Downloads for ${saved.filename}` : 'saved';
 }
 
 function allTanks() {
@@ -395,38 +370,59 @@ function isBunkerOpsEmbed() {
 }
 
 /**
- * Bunker Plan (ops) nav: hidden inside ChEng AIO (AIO has its own Bunkering Plan menu).
- * Standalone: only when the Tank Chief license permits tanks / bunkering.
+ * The two planning screens — Bunker Plan (the fill sequence and monitoring
+ * sheet) and Bunker Consumption (the voyage fuel calculation) — are hidden
+ * from this menu whenever ChEng AIO is the shell. The suite has its own
+ * Bunkering Plan and Consumption Plan entries and opens these same pages in
+ * an iframe, so leaving the tabs here would put one sheet in two places in
+ * the same window.
+ *
+ * Standalone, each is a licensed program in its own right: an office that did
+ * not buy the bunkering sheet does not get it on the menu.
  */
-function bunkerPlanNavAllowed() {
-  if (isBunkerOpsEmbed()) return false;
+function planNavAllowed(moduleId) {
   if (isAioEmbedded()) return false;
   if (!window.ChengLicense) return true;
   try {
     const ent = ChengLicense.loadEntitlement();
     if (!ChengLicense.isValid(ent)) return false;
-    if (typeof ChengLicense.moduleAllowed === 'function' && ChengLicense.moduleAllowed('tanks', ent)) {
-      return true;
-    }
-    return String(ent.sku || '') === 'tank-chief';
+    if (typeof ChengLicense.moduleAllowed !== 'function') return true;
+    return !!ChengLicense.moduleAllowed(moduleId, ent);
   } catch (_) {
     return true;
   }
 }
 
+function bunkerPlanNavAllowed() {
+  if (isBunkerOpsEmbed()) return false;
+  return planNavAllowed('bunkeringplan');
+}
+
+function bunkerConsumptionNavAllowed() {
+  if (isBunkerOpsEmbed()) return false;
+  return planNavAllowed('bunkerplan');
+}
+
+/* Page id → whether its menu entry is on, and the sidebar label to match. */
+const PLAN_NAV_PAGES = [
+  { page: 'bunker-plan', label: 'Bunker Plan', allowed: bunkerPlanNavAllowed },
+  { page: 'bunker-consumption', label: 'Bunker Consumption', allowed: bunkerConsumptionNavAllowed },
+];
+
 function applyBunkerPlanNavVisibility() {
-  const show = bunkerPlanNavAllowed();
-  document.querySelectorAll('[data-page="bunker-plan"]').forEach((el) => {
-    el.hidden = !show;
-    el.style.display = show ? '' : 'none';
-  });
-  document.querySelectorAll('#sidebar-nav .nav-btn').forEach((el) => {
-    const label = (el.textContent || '').trim();
-    if (label === 'Bunker Plan' || (el.querySelector('span:last-child')?.textContent || '').trim() === 'Bunker Plan') {
+  for (const entry of PLAN_NAV_PAGES) {
+    const show = entry.allowed();
+    document.querySelectorAll(`[data-page="${entry.page}"]`).forEach((el) => {
       el.hidden = !show;
       el.style.display = show ? '' : 'none';
-    }
-  });
+    });
+    document.querySelectorAll('#sidebar-nav .nav-btn, #bn-more-nav .nav-btn').forEach((el) => {
+      const own = (el.querySelector('span:last-child')?.textContent || el.textContent || '').trim();
+      if (own !== entry.label) return;
+      el.hidden = !show;
+      el.style.display = show ? '' : 'none';
+    });
+  }
 }
 
 function syncBottomNav() {
@@ -484,7 +480,9 @@ function renderMoreNav() {
   if (bunkerPlanNavAllowed()) host.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
   host.appendChild(mk('bunker-after', 'After Bunkering', '📥'));
   host.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
-  host.appendChild(mk('bunker-consumption', 'Bunker Consumption', '📊'));
+  if (bunkerConsumptionNavAllowed()) {
+    host.appendChild(mk('bunker-consumption', 'Bunker Consumption', '📊'));
+  }
   host.appendChild(mk('report', 'Voyage Report', '📋'));
 
   g = document.createElement('div');
@@ -530,7 +528,15 @@ const PAGE_ALIASES = { bunkering: 'bunker-plan' };
 function navigate(page, tankId = null) {
   let next = PAGE_ALIASES[page] || page;
   if (next === 'bunker-plan' && !isBunkerOpsEmbed() && !bunkerPlanNavAllowed()) {
-    showToast('Bunker Plan is not available on this license');
+    showToast(isAioEmbedded()
+      ? 'Open Bunkering Plan from the ChEng AIO menu'
+      : 'Bunker Plan is not available on this license');
+    next = 'dashboard';
+  }
+  if (next === 'bunker-consumption' && !bunkerConsumptionNavAllowed()) {
+    showToast(isAioEmbedded()
+      ? 'Open Consumption Plan from the ChEng AIO menu'
+      : 'Bunker Consumption is not available on this license');
     next = 'dashboard';
   }
   STATE.route = { page: next, tankId };
@@ -595,7 +601,7 @@ function renderNav() {
   nav.appendChild(g);
   nav.appendChild(mk('fuel-report', 'Fuel Report', '🧾'));
   if (bunkerPlanNavAllowed()) nav.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
-  nav.appendChild(mk('bunker-consumption', 'Bunker Consumption', '📊'));
+  if (bunkerConsumptionNavAllowed()) nav.appendChild(mk('bunker-consumption', 'Bunker Consumption', '📊'));
   nav.appendChild(mk('bunker-after', 'After Bunkering', '📥'));
   nav.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
   nav.appendChild(mk('report', 'Voyage Report', '📋'));
@@ -1940,11 +1946,7 @@ function renderCalibrationEditor(main, tankId) {
   document.getElementById('btn-export-tank').onclick = async () => {
     try {
       const saved = await downloadJson(tank.id + '-calibration.json', findTank(tankId));
-      showToast(saved.method === 'anchor'
-        ? `Export started — check Downloads for ${saved.filename}`
-        : saved.method === 'share'
-          ? 'Shared — Save to Files / Drive / USB'
-          : 'Calibration saved to the folder you chose');
+      showToast(`Calibration ${downloadWhereLabel(saved)}`);
     } catch (e) {
       showToast(e.message || 'Export failed');
     }
@@ -3224,17 +3226,11 @@ function renderSettings(main) {
       await Progress.yieldToPaint();
       const saved = await downloadJson(`tank-chief-backup-${Date.now()}.json`, backup);
       const vessels = backup?.vessels ? Object.keys(backup.vessels).length : 0;
-      const where = saved.method === 'picker'
-        ? 'saved to the folder you chose'
-        : saved.method === 'share'
-          ? 'shared — use Save to Files / Drive / USB'
-          : 'check your Downloads folder';
+      const where = downloadWhereLabel(saved);
       Progress.done(vessels
         ? `Backup ${where} (${vessels} vessel${vessels === 1 ? '' : 's'})`
         : `Backup ${where}`);
-      showToast(saved.method === 'anchor'
-        ? `Backup started — check Downloads for ${saved.filename}`
-        : `Backup ${where}`);
+      showToast(`Backup ${where}`);
     } catch (e) {
       Progress.done();
       showToast(e.message || 'Backup failed');
@@ -3451,11 +3447,7 @@ function renderSettings(main) {
         backup = await Api.request(`/api/vessels/${encodeURIComponent(STATE.activeVesselId)}/backup`);
       }
       const saved = await downloadJson(`tank-chief-vessel-${STATE.activeVesselId}-${Date.now()}.json`, backup);
-      showToast(saved.method === 'anchor'
-        ? `Vessel backup started — check Downloads for ${saved.filename}`
-        : saved.method === 'share'
-          ? 'Shared — Save to Files / Drive / USB'
-          : 'Vessel backup saved to the folder you chose');
+      showToast(`Vessel backup ${downloadWhereLabel(saved)}`);
     } catch (e) {
       showToast(e.message || 'Export failed');
     } finally {

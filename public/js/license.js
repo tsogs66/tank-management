@@ -264,24 +264,43 @@
   }
 
   /** Program add-ons resolved for an entitlement (AIO selects voyage/tank/eorb). */
+  /**
+   * Programs on a key. Beside the two suites and e-ORB, the two planning
+   * screens are sold separately: 'consumption-plan' is the voyage fuel
+   * consumption calculation (Consumption Plan / Tank Chief's Bunker
+   * Consumption) and 'bunker-plan' is the bunkering fill sequence and
+   * monitoring sheet.
+   *
+   * Keys issued before those two existed carry no add-on list at all, and
+   * losing a screen after a renewal check would read as the program breaking.
+   * So an empty list still means everything that key's SKU covers; a list the
+   * office actually filled in is taken literally.
+   */
+  const PLAN_PROGRAMS = ['consumption-plan', 'bunker-plan'];
+
   function resolveProgramAddons(sku, addons) {
     const ads = Array.isArray(addons) ? addons.map((a) => String(a).toLowerCase()) : [];
     if (sku === 'cheng-admin' || ads.includes('master')) {
-      return ['voyage-chief', 'tank-chief', 'eorb', 'master'];
+      return ['voyage-chief', 'tank-chief', 'eorb', ...PLAN_PROGRAMS, 'master'];
     }
     if (sku === 'cheng-aio') {
       /* Empty + not yet migrated client-side: treat as full suite for old keys. */
-      if (ads.length === 0) return ['voyage-chief', 'tank-chief', 'eorb'];
+      if (ads.length === 0) return ['voyage-chief', 'tank-chief', 'eorb', ...PLAN_PROGRAMS];
       return ads;
     }
     if (sku === 'voyage-chief') {
       const out = ['voyage-chief'];
+      if (ads.length === 0) return [...out, 'consumption-plan'];
       if (ads.includes('eorb')) out.push('eorb');
+      if (ads.includes('consumption-plan')) out.push('consumption-plan');
       if (ads.includes('master')) out.push('master');
       return out;
     }
     if (sku === 'tank-chief') {
       const out = ['tank-chief'];
+      if (ads.length === 0) return [...out, ...PLAN_PROGRAMS];
+      if (ads.includes('consumption-plan')) out.push('consumption-plan');
+      if (ads.includes('bunker-plan')) out.push('bunker-plan');
       if (ads.includes('master')) out.push('master');
       return out;
     }
@@ -292,22 +311,29 @@
   function modulesForSku(sku, addons) {
     const ads = resolveProgramAddons(sku, addons);
     if (sku === 'cheng-admin' || ads.includes('master')) {
-      return ['home', 'voyage', 'tanks', 'performance', 'eorb', 'vessel', 'license', 'about'];
+      return ['home', 'voyage', 'tanks', 'performance', 'eorb', 'bunkerplan', 'bunkeringplan',
+        'vessel', 'license', 'about'];
     }
     if (sku === 'cheng-aio') {
       const mods = ['home', 'performance', 'vessel', 'license', 'about'];
       if (ads.includes('voyage-chief')) mods.push('voyage');
       if (ads.includes('tank-chief')) mods.push('tanks');
       if (ads.includes('eorb')) mods.push('eorb');
+      if (ads.includes('consumption-plan')) mods.push('bunkerplan');
+      if (ads.includes('bunker-plan')) mods.push('bunkeringplan');
       return mods;
     }
     if (sku === 'voyage-chief') {
       const mods = ['home', 'voyage', 'performance', 'vessel', 'license', 'about'];
       if (ads.includes('eorb')) mods.push('eorb');
+      if (ads.includes('consumption-plan')) mods.push('bunkerplan');
       return mods;
     }
     if (sku === 'tank-chief') {
-      return ['home', 'tanks', 'vessel', 'license', 'about'];
+      const mods = ['home', 'tanks', 'vessel', 'license', 'about'];
+      if (ads.includes('consumption-plan')) mods.push('bunkerplan');
+      if (ads.includes('bunker-plan')) mods.push('bunkeringplan');
+      return mods;
     }
     return ['home', 'license', 'about'];
   }
@@ -321,6 +347,16 @@
   function moduleAllowed(moduleId, ent) {
     if (moduleId === 'license' || moduleId === 'home' || moduleId === 'about') return true;
     return modulesAllowed(ent).includes(moduleId);
+  }
+
+  /** Consumption Plan — the voyage fuel calculation, on Voyage and Tank keys alike. */
+  function consumptionPlanLicensed(ent) {
+    return moduleAllowed('bunkerplan', ent);
+  }
+
+  /** Bunkering Plan — the fill sequence / monitoring sheet, a Tank Chief screen. */
+  function bunkerPlanLicensed(ent) {
+    return moduleAllowed('bunkeringplan', ent);
   }
 
   function hasAddon(name, ent) {
@@ -640,6 +676,8 @@
     modulesAllowed,
     moduleAllowed,
     eorbLicensed,
+    consumptionPlanLicensed,
+    bunkerPlanLicensed,
     hasAddon,
     isMaster,
     licenseEmail,
