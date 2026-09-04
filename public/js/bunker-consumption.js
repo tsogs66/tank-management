@@ -3,8 +3,22 @@
  * Separate from bunkering "Bunker Plan" (BunkerReports). */
 const BunkerConsumption = (function () {
   const SIDES = [
-    { key: 'residual', title: 'HFO / LSFO', grades: ['HFO', 'LSFO'], defaultGrade: 'HFO', qtyLabel: 'HFO/LSFO' },
-    { key: 'distillate', title: 'MGO / LSMGO', grades: ['MDO/MGO', 'LSMGO'], defaultGrade: 'MDO/MGO', qtyLabel: 'MGO/LSMGO' },
+    {
+      key: 'residual',
+      title: 'HFO / VLSFO',
+      grades: ['HFO', 'VLSFO'],
+      aliases: ['LSFO'],
+      defaultGrade: 'HFO',
+      qtyLabel: 'HFO/VLSFO',
+    },
+    {
+      key: 'distillate',
+      title: 'MO / MGO / LSMGO',
+      grades: ['MO/MGO', 'LSMGO'],
+      aliases: ['MDO/MGO', 'MDO', 'MGO'],
+      defaultGrade: 'MO/MGO',
+      qtyLabel: 'MO/MGO/LSMGO',
+    },
   ];
   const MAX_LEGS = 10;
 
@@ -21,7 +35,23 @@ const BunkerConsumption = (function () {
     };
   }
   function defaultPlan() {
-    return { voyageNo: '', date: '', residual: emptySide('HFO'), distillate: emptySide('MDO/MGO') };
+    return { voyageNo: '', date: '', residual: emptySide('HFO'), distillate: emptySide('MO/MGO') };
+  }
+
+  /** Keep saved plans readable after LSFO / MDO/MGO label renames. */
+  function normalizeGradeLabel(grade, meta) {
+    const g = String(grade || '').trim();
+    if (meta.grades.includes(g)) return g;
+    if (meta.key === 'residual') {
+      if (/^lsfo$/i.test(g) || /^vlsfo$/i.test(g)) return 'VLSFO';
+    }
+    if (meta.key === 'distillate') {
+      if (/^(mdo\/?mgo|mdo|mgo|mo\/?mgo)$/i.test(g)) return 'MO/MGO';
+    }
+    if ((meta.aliases || []).includes(g)) {
+      return normalizeGradeLabel(meta.key === 'residual' ? 'VLSFO' : 'MO/MGO', meta);
+    }
+    return meta.defaultGrade;
   }
 
   function ensurePlan(plan) {
@@ -40,7 +70,7 @@ const BunkerConsumption = (function () {
         dailyCons: leg.dailyCons ?? null,
         days: leg.days ?? null,
       }));
-      if (!meta.grades.includes(s.grade)) s.grade = meta.defaultGrade;
+      s.grade = normalizeGradeLabel(s.grade, meta);
       if (s.marginPct == null || s.marginPct === '') s.marginPct = 20;
     });
     return plan;
@@ -367,6 +397,7 @@ const BunkerConsumption = (function () {
         <div class="pr-remarks-title bc-pr-remarks-title">Calculation basis</div>
         <div class="pr-remarks-body bc-pr-remarks-body">Sea days = Dist ÷ (Speed × 24). Quantity = Daily Cons × Days. Margin = Consumption × Margin%. Required = Consumption + Margin. Arrival ROB = Current ROB − Required. Next Departure ROB = Arrival ROB + Quantity to Receive.</div>
       </div>
+      ${typeof FuelReport !== 'undefined' ? FuelReport.printSignatureBlock() : ''}
       ${typeof Branding !== 'undefined' ? Branding.printCredit() : ''}
     </div>`;
   }

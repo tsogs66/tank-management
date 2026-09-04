@@ -1364,6 +1364,7 @@ const BunkerReports = (() => {
     <section class="calib-print-page">
       ${UI.masthead('BEFORE BUNKERING', `${c.vessel.name} · ${c.header.date || ''}`)}
       ${c.before.sections.map((s) => UI.printSectionTable(s, c.before.options)).join('')}
+      ${UI.printSignatureBlock()}
       ${UI.footer(`${c.vessel.name} · before bunkering`)}
     </section>`;
   }
@@ -1563,6 +1564,23 @@ const BunkerReports = (() => {
       <td class="fr-print-weight">${signed(g.addedMT, 3) || '—'}</td>
       <td>${n(g.presentMT, 3, '—')}</td>
     </tr>`).join('');
+    const gradeGroupRows = (FRCore.SECTIONS || []).map((sec) => {
+      const members = (c.grades || []).filter((g) => (sec.grades || []).includes(g.id)
+        && (g.tanks > 0 || g.priorMT != null || g.presentMT != null || g.addedMT != null));
+      if (!members.length) return '';
+      const prior = members.reduce((s, g) => s + (Number(g.priorMT) || 0), 0);
+      const added = members.reduce((s, g) => s + (Number(g.addedMT) || 0), 0);
+      const present = members.reduce((s, g) => s + (Number(g.presentMT) || 0), 0);
+      const anyPrior = members.some((g) => g.priorMT != null);
+      const anyAdded = members.some((g) => g.addedMT != null);
+      const anyPresent = members.some((g) => g.presentMT != null);
+      return `<tr>
+        <th class="fr-print-name">${esc(sec.totalLabel || sec.shortLabel || sec.title)}</th>
+        <td><b>${anyPrior ? n(prior, 3) : '—'}</b></td>
+        <td class="fr-print-weight"><b>${anyAdded ? signed(added, 3) : '—'}</b></td>
+        <td><b>${anyPresent ? n(present, 3) : '—'}</b></td>
+      </tr>`;
+    }).join('');
 
     return `<section class="calib-print-page">
       ${UI.masthead('TANK CONDITION AFTER BUNKERING', `${c.vessel.name} · ${c.header.condition || ''}`)}
@@ -1581,9 +1599,10 @@ const BunkerReports = (() => {
       <table class="fr-print-table">
         <thead><tr><th>Grade</th><th>ROB prior bunkering</th><th>Added</th><th>Present</th></tr></thead>
         <tbody>${gradeRows || '<tr><td colspan="4">—</td></tr>'}</tbody>
+        <tfoot>${gradeGroupRows}</tfoot>
       </table>
       <p class="calib-print-note">Added = present − ROB prior bunkering. A negative figure is consumption
-        between the two soundings, not a delivery.</p>
+        between the two soundings, not a delivery. HFO/VLSFO and MO/MGO/LSMGO totals are kept separate.</p>
       ${UI.printSignatureBlock(c.signature && c.signature.preparedBy, c.signature && c.signature.rank)}
       ${UI.footer(`${c.vessel.name} · after bunkering · ${c.header.dateTime}`)}
     </section>`;
@@ -1840,6 +1859,22 @@ const BunkerReports = (() => {
       <td>${g.receivedMT != null ? signed(g.receivedMT, 3) : '—'}</td>
       <td class="fr-print-weight">${n(g.presentMT, 3, '—')}</td>
     </tr>`).join('');
+    const fuelGroupRows = (FRCore.SECTIONS || []).map((sec) => {
+      const members = (c.fuelOnboard || []).filter((g) => (sec.grades || []).includes(g.id));
+      if (!members.length) return '';
+      const prev = members.reduce((s, g) => s + (Number(g.previousMT) || 0), 0);
+      const recv = members.reduce((s, g) => s + (Number(g.receivedMT) || 0), 0);
+      const present = members.reduce((s, g) => s + (Number(g.presentMT) || 0), 0);
+      const anyPrev = members.some((g) => g.previousMT != null);
+      const anyRecv = members.some((g) => g.receivedMT != null);
+      const anyPresent = members.some((g) => g.presentMT != null);
+      return `<tr>
+        <th class="fr-print-name">${esc(sec.totalLabel || sec.shortLabel || sec.title)}</th>
+        <td><b>${anyPrev ? n(prev, 3) : '—'}</b></td>
+        <td><b>${anyRecv ? signed(recv, 3) : '—'}</b></td>
+        <td class="fr-print-weight"><b>${anyPresent ? n(present, 3) : '—'}</b></td>
+      </tr>`;
+    }).join('');
 
     const lubeRows = FRCore.LUBE_FIELDS.map((l) => `<tr>
       <td class="fr-print-name">${esc(l.label)}</td>
@@ -1891,6 +1926,7 @@ const BunkerReports = (() => {
           <table class="fr-print-table">
             <thead><tr><th>Grade</th><th>Previous</th><th>Received</th><th>Present</th></tr></thead>
             <tbody>${fuelRows}</tbody>
+            <tfoot>${fuelGroupRows}</tfoot>
           </table>
           <h3 class="fr-print-h3">Lubes remaining onboard</h3>
           <table class="fr-print-table"><tbody>${lubeRows}</tbody></table>
@@ -1932,6 +1968,7 @@ const BunkerReports = (() => {
       </table>
       <p class="calib-print-note">Tank condition as measured after the delivery — the same figures the
         after-bunkering report was saved with.</p>
+      ${UI.printSignatureBlock()}
       ${UI.footer(`${c.vessel.name} · tanks after bunkering`)}
     </section>`;
   }

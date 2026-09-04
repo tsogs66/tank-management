@@ -394,7 +394,7 @@ const FuelReport = (() => {
     });
   }
 
-  const SECTION_SHORT = { fuel: 'F.O.', do: 'D.O.' };
+  const SECTION_SHORT = { fuel: 'HFO/VLSFO', do: 'MO/MGO/LSMGO' };
 
   /**
    * A row sits in the block its fuel type belongs to, so nothing has to be
@@ -883,7 +883,7 @@ const FuelReport = (() => {
         <tbody>${rows}</tbody>
         <tfoot>
           <tr>
-            <th class="fr-print-name" colspan="5">TOTAL${
+            <th class="fr-print-name" colspan="5">${esc(section.totalLabel || 'TOTAL')}${
               t.soundedWithoutWeight && t.soundedWithoutWeight.length
                 ? ` (${t.tanksWeighed} of ${t.tanks} tanks)` : ''}</th>
             <td>${n(t.capacity100M3, 1)}</td>
@@ -896,7 +896,7 @@ const FuelReport = (() => {
         </tfoot>
       </table>
       <div class="fr-tc-capline">
-        <span>TOTAL (MT) <b>${n(t.weightAirMT, 3)}</b></span>
+        <span>${esc(section.totalLabel || 'TOTAL')} (MT) <b>${n(t.weightAirMT, 3)}</b></span>
         <span>100% m³ × ${options.capacityMtFactor} · ${(options.safeFillRatio * 100).toFixed(0)}% limit <b>${n(t.capacity85MT, 2)} MT</b></span>
       </div>
       ${t.soundedWithoutWeight && t.soundedWithoutWeight.length
@@ -920,6 +920,23 @@ const FuelReport = (() => {
       <td>${n(g.logbookMT, 3, '—')}</td>
       <td class="${!short && g.differenceMT != null && Math.abs(g.differenceMT) > 0.001 ? 'fr-tc-diff' : ''}">${signed(g.differenceMT, 3) || '—'}${short ? ' †' : ''}</td>
     </tr>`;
+    }).join('');
+    /* Group totals — residual (HFO/VLSFO) kept separate from distillate
+       (MO/MGO/LSMGO). Never one combined fuel total. */
+    const groupTotalRows = (Core.SECTIONS || []).map((sec) => {
+      const members = (c.grades || []).filter((g) => (sec.grades || []).includes(g.id));
+      if (!members.length) return '';
+      const actual = members.reduce((s, g) => s + (Number(g.actualMT) || 0), 0);
+      const logbook = members.reduce((s, g) => s + (Number(g.logbookMT) || 0), 0);
+      const diff = actual - logbook;
+      const anyActual = members.some((g) => g.actualMT != null);
+      const anyLog = members.some((g) => g.logbookMT != null);
+      return `<tr>
+        <th class="fr-print-name">${esc(sec.totalLabel || sec.shortLabel || sec.title)}</th>
+        <td><b>${anyActual ? n(actual, 3) : '—'}</b></td>
+        <td><b>${anyLog ? n(logbook, 3) : '—'}</b></td>
+        <td><b>${anyActual && anyLog ? signed(diff, 3) : '—'}</b></td>
+      </tr>`;
     }).join('');
     const lubeRows = c.lube.rows.map((r) => `<tr>
       <td class="fr-print-name">${esc(r.label)}</td>
@@ -964,9 +981,12 @@ const FuelReport = (() => {
           <table class="fr-tc-mini">
             <thead><tr><th>Grade</th><th>Monitoring</th><th>Log book</th><th>Difference</th></tr></thead>
             <tbody>${surveyRows || '<tr><td colspan="4">—</td></tr>'}</tbody>
-            ${shortGrades.length ? `<tfoot><tr><td colspan="4" class="fr-print-name">
+            <tfoot>
+              ${groupTotalRows}
+              ${shortGrades.length ? `<tr><td colspan="4" class="fr-print-name">
               † short of ${shortGrades.reduce((a, g) => a + g.soundedWithoutWeight.length, 0)} sounded tank(s)
-              with no density — the difference is not a real discrepancy until they are entered.</td></tr></tfoot>` : ''}
+              with no density — the difference is not a real discrepancy until they are entered.</td></tr>` : ''}
+            </tfoot>
           </table>
         </div>
       </div>
@@ -1035,6 +1055,7 @@ const FuelReport = (() => {
         <thead><tr><th>Density @15</th>${vcfHead}<th>WCF</th></tr></thead>
         <tbody>${vcfRows}</tbody>
       </table>
+      ${printSignatureBlock(c.signature.preparedBy, c.signature.rank)}
       ${footer(`${c.vessel.name} · annex · ${c.header.dateTime}`)}
     </section>`;
   }

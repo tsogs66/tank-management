@@ -2605,12 +2605,23 @@ function voyageReportTypes(current) {
 
 function renderReport(main) {
   const v = STATE.bundle.voyage || {};
+  const Core = window.FuelReportCore;
+  const fuelSectionOf = (tank) => {
+    if (Core && Core.sectionForTank) return Core.sectionForTank(tank);
+    const g = String(tank.fuelGrade || tank.fuelRole || '').toLowerCase();
+    return (g === 'mdo' || g === 'mgo' || g === 'lsmgo') ? 'do' : 'fuel';
+  };
+  const fuelSectionLabel = (key) => {
+    const sec = Core && Core.SECTIONS && Core.SECTIONS.find((s) => s.id === key);
+    return (sec && (sec.title || sec.shortLabel)) || (key === 'do' ? 'MO / MGO / LSMGO' : 'HFO / VLSFO');
+  };
 
   let sections = '';
   let gVol = 0, gWt = 0, gUnknown = 0;
-  for (const c of CATS) {
-    const tanks = (STATE.bundle.tanks[c.id] || []).filter((t) => getReading(t.id));
-    if (!tanks.length) continue;
+  const fuelGroupTotals = { fuel: { vol: 0, wt: 0, unknown: 0 }, do: { vol: 0, wt: 0, unknown: 0 } };
+
+  function appendTankTable(title, catId, tanks) {
+    if (!tanks.length) return;
     let sVol = 0, sWt = 0, unknown = 0;
     let rows = '';
     for (const t of tanks) {
@@ -2623,18 +2634,44 @@ function renderReport(main) {
         <td>${fmt(r.result.volumeObserved, 2)}</td><td>${r.result.weightMT != null ? fmt(r.result.weightMT, 2) : '–'}</td></tr>`;
     }
     gVol += sVol; gWt += sWt; gUnknown += unknown;
-    /* A tank with no density has no weight, and adding it in as zero would
-       understate the subtotal by however much it holds while its own row shows
-       a dash. The tanks it covers are named instead of assumed. */
     const note = unknown
       ? `<div class="hint">${unknown} tank${unknown === 1 ? '' : 's'} without a density — no weight for ${unknown === 1 ? 'it' : 'them'}, so ${unknown === 1 ? 'it is' : 'they are'} not in the MT subtotal.</div>`
       : '';
-    sections += `<div class="section-title"><span class="cat-dot cat-${c.id}"></span>${c.label}</div>
+    sections += `<div class="section-title"><span class="cat-dot cat-${catId}"></span>${escapeHtml(title)}</div>
       <div class="scroll-x"><table class="data-table"><thead><tr><th>Tank</th><th>Cap</th><th>Reading</th><th>Temp</th><th>Dens</th><th>Vol</th><th>MT</th></tr></thead>
       <tbody>${rows}
       <tr><td colspan="5"><b>Subtotal${unknown ? ` (${tanks.length - unknown} of ${tanks.length} tanks)` : ''}</b></td>
         <td><b>${fmt(sVol, 2)}</b></td><td><b>${fmt(sWt, 2)}</b></td></tr></tbody></table></div>${note}`;
+    return { sVol, sWt, unknown };
   }
+
+  for (const c of CATS) {
+    const tanks = (STATE.bundle.tanks[c.id] || []).filter((t) => getReading(t.id));
+    if (!tanks.length) continue;
+    if (c.id === 'fuel') {
+      const residual = tanks.filter((t) => fuelSectionOf(t) === 'fuel');
+      const distillate = tanks.filter((t) => fuelSectionOf(t) === 'do');
+      const rTot = appendTankTable(fuelSectionLabel('fuel'), 'fuel', residual);
+      const dTot = appendTankTable(fuelSectionLabel('do'), 'fuel', distillate);
+      if (rTot) {
+        fuelGroupTotals.fuel.vol += rTot.sVol;
+        fuelGroupTotals.fuel.wt += rTot.sWt;
+        fuelGroupTotals.fuel.unknown += rTot.unknown;
+      }
+      if (dTot) {
+        fuelGroupTotals.do.vol += dTot.sVol;
+        fuelGroupTotals.do.wt += dTot.sWt;
+        fuelGroupTotals.do.unknown += dTot.unknown;
+      }
+      continue;
+    }
+    appendTankTable(c.label, c.id, tanks);
+  }
+
+  const fuelTotalLines = [
+    `<div class="section-title">${escapeHtml(fuelSectionLabel('fuel'))} total: ${fmt(fuelGroupTotals.fuel.vol, 2)} m³ · ${fmt(fuelGroupTotals.fuel.wt, 2)} MT</div>`,
+    `<div class="section-title">${escapeHtml(fuelSectionLabel('do'))} total: ${fmt(fuelGroupTotals.do.vol, 2)} m³ · ${fmt(fuelGroupTotals.do.wt, 2)} MT</div>`,
+  ].join('');
 
   const wrap = document.createElement('div');
   wrap.innerHTML = `
@@ -2668,9 +2705,11 @@ function renderReport(main) {
       <div style="color:var(--text-dim);margin-bottom:12px">${escapeHtml(v.reportType || '')} · Voy ${escapeHtml(v.voyageNo || '')} · ${escapeHtml(v.port || '')} · ${escapeHtml(v.date || '')}
         · Trim ${fmt(v.trim, 2)} m · Heel ${fmt(v.heel, 2)}°</div>
       ${sections}
+      ${fuelTotalLines}
       <div class="section-title">All categories: ${fmt(gVol, 2)} m³ · ${fmt(gWt, 2)} MT</div>
-      <div class="hint">Fuel, lube, misc and fresh water added together.${gUnknown
+      <div class="hint">Fuel oil is totalled separately as HFO/VLSFO and MO/MGO/LSMGO; lube, misc and fresh water are included in the all-categories line.${gUnknown
         ? ` ${gUnknown} tank${gUnknown === 1 ? ' without a density is' : 's without a density are'} outside the MT figure.` : ''}</div>
+      ${typeof FuelReport !== 'undefined' ? FuelReport.printSignatureBlock() : ''}
     </div>`;
 
   // Bound after the markup is in place. This used to be assigned before a
@@ -3758,7 +3797,7 @@ function renderAbout(main) {
   const ver = (typeof Branding !== 'undefined' && Branding.APP_VERSION)
     ? Branding.APP_VERSION
     : (document.querySelector('meta[name="app-version"]')?.content || '');
-  const pkgVer = ver || '2.1.39';
+  const pkgVer = ver || '2.1.40';
   main.innerHTML += `<div class="page-head"><div>
     <h1>About</h1>
     <div class="desc">${Branding.APP_NAME} · v${pkgVer}</div>
@@ -3835,7 +3874,7 @@ function isNewerVersion(latest, current) {
 async function checkTankAppUpdate() {
   const status = document.getElementById('about-update-status');
   const link = document.getElementById('about-update-link');
-  const current = '2.1.39';
+  const current = '2.1.40';
   if (status) status.textContent = 'Checking GitHub for the latest Tank Chief release…';
   if (link) link.style.display = 'none';
   try {
