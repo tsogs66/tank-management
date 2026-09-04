@@ -1,0 +1,103 @@
+name: CI
+
+# The two release workflows only fire on a v* tag, so until now nothing checked
+# a pull request: a syntax error in public/js reached a tag before anyone saw
+# it. These are the checks a contributor runs before pushing.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: App (JS syntax + server boot)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - run: npm ci
+
+      # No bundler: public/js is hand-edited and loaded straight by the page,
+      # so a parse error would otherwise ship.
+      - name: Check every script parses
+        run: |
+          set -e
+          for f in public/js/*.js server/*.js scripts/*.js; do
+            node --check "$f"
+          done
+
+      # public/embedded is generated from server/ and gitignored. If the copy
+      # step breaks, the on-device database silently stops matching the server.
+      - name: Build the on-device route copy
+        run: npm run embed
+
+      # The server's output goes to a file rather than the step's stdout: a
+      # background process that inherits the pipe keeps the runner waiting on
+      # it long after the step's own commands are done, and the job sits at
+      # "in progress" until it times out. Same reason it is killed at the end.
+      - name: Seed a vessel and boot the server
+        run: |
+          set -e
+          npm run seed
+          npm start > /tmp/tank-server.log 2>&1 &
+          echo $! > /tmp/tank-server.pid
+          for _ in $(seq 1 30); do
+            curl -fsS http://localhost:3080/api/health && break
+            sleep 1
+          done
+          curl -fsS http://localhost:3080/api/health
+          kill "$(cat /tmp/tank-server.pid)" || true
+
+      - name: Server log
+        if: always()
+        run: cat /tmp/tank-server.log || true
+
+  parity:
+    name: Server / on-device parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # The phone runs the server's own routes over its own database. This asks
+      # both the same questions and diffs the answers, so a divergence cannot
+      # reach a signed sheet as a slightly different tonnage.
+      - name: Compare the server and the on-device database
+        run: |
+          set -e
+          npm run embed
+          npm run seed
+          npm start > /tmp/tank-server.log 2>&1 &
+          echo $! > /tmp/tank-server.pid
+          for _ in $(seq 1 30); do
+            curl -fsS http://localhost:3080/api/health && break
+            sleep 1
+          done
+          node scripts/parity-check.js
+          kill "$(cat /tmp/tank-server.pid)" || true
+
+      - name: Server log
+        if: always()
+        run: cat /tmp/tank-server.log || true
