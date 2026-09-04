@@ -167,9 +167,28 @@ const Branding = (() => {
 <link rel="stylesheet" href="${fontsHref}">
 <style>
 ${css}
-html, body { margin: 0; background: #fff !important; color: #0a1420 !important;
-  font-family: 'Inter', sans-serif !important; }
-.calib-print-doc, .fuel-report-print-doc, .report-print-doc, #bc-print-root { display: block !important; }
+/* Last so Android / AIO print cannot keep the night-theme canvas. @page
+   margin must stay 0 — PrintManager paints the canvas into page margins,
+   which became the thick black frame around Tank + Bunker Plan sheets. */
+@page { size: A4 portrait; margin: 0; }
+@page landscape-sheet { size: A4 landscape; margin: 0; }
+:root, html, body {
+  color-scheme: only light !important;
+  margin: 0 !important; padding: 0 !important;
+  background: #fff !important; color: #0a1420 !important;
+  border: none !important; outline: none !important; box-shadow: none !important;
+  font-family: 'Inter', sans-serif !important;
+}
+.calib-print-doc, .fuel-report-print-doc, .report-print-doc, #bc-print-root,
+.bc-pr-sheet, .fr-tc-page, .fr-tc-page-2, .calib-print-page {
+  display: block !important;
+  background: #fff !important;
+  border: none !important; outline: none !important; box-shadow: none !important;
+}
+.fuel-report-print-doc, .report-print-doc, #bc-print-root, .bc-pr-sheet {
+  box-sizing: border-box !important; padding: 10mm !important;
+}
+.calib-print-page { box-sizing: border-box !important; padding: 10mm 12mm !important; }
 .app-shell, .sidebar, .bottom-nav, .bn-more-sheet, .theme-fab, .theme-toggle,
 .menu-toggle, .sidebar-backdrop, .no-print, .toast, .calib-sticky-actions,
 .pdf-import-panel, .pdf-progress { display: none !important; }
