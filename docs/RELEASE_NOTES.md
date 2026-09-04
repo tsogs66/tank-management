@@ -30,8 +30,12 @@ Useful on a vessel where installing software is not permitted.
 
 ## Installing on Android
 
-The APK is unsigned, so allow *"install from unknown sources"* for your browser
-or file manager when it asks. Records live in the app's own private storage.
+Install `TankChief-….apk` (stable sideload signature — same key as later
+releases, so updates overwrite in place without uninstalling). Allow *"install
+from unknown sources"* for your browser or file manager when it asks. Records
+live in the app's own private storage. If an older **unsigned** build somehow
+got onto the device, uninstall that one once; then future signed builds update
+cleanly.
 
 ## What works with no connection
 
