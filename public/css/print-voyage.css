@@ -634,7 +634,6 @@ table.calib-print-table td.even-keel,
   .fr-tc-capline { padding: 0.4mm 1mm 0.6mm; font-size: 8px; }
   .fr-tc-capline b { font-size: 10px; }
   .fr-tc-signoff { margin-top: 2mm; }
-  .fr-print-sign-space { height: 10mm; }
   .app-credit-print { margin-top: 1.5mm; page-break-before: avoid; }
 }
 

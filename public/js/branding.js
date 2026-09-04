@@ -207,6 +207,42 @@ ${css}
   color: #8a95a8; font-size: 8px; line-height: 1.4;
   page-break-before: avoid; break-before: avoid;
 }
+/* Signature + vessel stamp — concrete sizes (no CSS vars). The Android /
+   AIO print bridge rebuilds styles from rule.cssText; empty var() and the
+   old height:0 rubber-stamp overlay drop out and the stamp vanishes. */
+.fr-print-signrow {
+  display: flex !important; align-items: center !important;
+  justify-content: flex-end !important; gap: 6mm !important; margin-top: 8px !important;
+}
+.fr-tc-signoff .fr-print-signrow { justify-content: flex-start !important; margin-top: 0 !important; }
+.fr-print-sign { flex: 0 0 62mm !important; font-size: 8pt !important; text-align: center !important; }
+.fr-print-sign-space {
+  position: relative !important; height: 15mm !important; width: 62mm !important;
+}
+.fr-print-sign-space img {
+  position: absolute !important; left: 50% !important; bottom: 0 !important;
+  transform: translateX(-50%) !important;
+  max-height: 15mm !important; max-width: 62mm !important; object-fit: contain !important;
+  -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
+}
+.fr-print-sign-line {
+  border-bottom: 0.6pt solid #8a96a8 !important; width: 62mm !important;
+  margin-bottom: 1.5mm !important; min-height: 0 !important; padding-top: 0 !important;
+}
+.fr-print-sign-name { font-weight: 700 !important; font-size: 9pt !important; }
+.fr-print-sign-role {
+  font-size: 7.5pt !important; text-transform: uppercase !important;
+  letter-spacing: .06em !important; color: #555 !important;
+}
+.fr-print-logo {
+  flex: 0 0 auto !important; display: flex !important; align-items: center !important;
+  height: auto !important; overflow: visible !important; margin-left: 0 !important;
+}
+.fr-print-logo img {
+  height: 42mm !important; width: auto !important; max-width: 55mm !important;
+  object-fit: contain !important; display: block !important; position: static !important; top: auto !important;
+  -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
+}
 </style></head><body class="${bodyClass || ''}">${bodyHtml || ''}</body></html>`;
   }
 

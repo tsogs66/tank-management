@@ -1072,13 +1072,6 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
 .fuel-report-print-doc { display: none; }
 
 @media print {
-  :root {
-    --fr-sign-line: 62mm; --fr-logo-height: 41.8mm; --fr-sign-space: 15mm;
-    /* Printed below the signature line: the signer's name, their role, and the
-       page footer. The stamp's lower half has to fit inside this, or it runs
-       off the foot of the sheet. */
-    --fr-sign-foot: 15mm;
-  }
   /* Margin lives on the sheet, not @page. Android PrintManager paints the
      canvas colour into @page margins — with color-scheme:dark / night theme
      that showed up as a thick black frame around every Tank / Bunker Plan PDF. */
@@ -1163,12 +1156,6 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     box-sizing: border-box !important;
     /* Narrow sheet margin — packed for one-page ROB / fuel reports. */
     padding: 4mm;
-    /* The stamp is centred on the signature line, so half of it hangs below.
-       The name, role and footer absorb most of that; this reserves whatever is
-       left over, so a sheet that reaches the bottom of the page cannot cut the
-       stamp in half. Nothing is reserved when the stamp is small enough to
-       clear on its own. */
-    padding-bottom: max(4mm, calc(var(--fr-logo-height) / 2 - var(--fr-sign-foot)));
     background: #fff !important;
     border: none !important;
   }
@@ -1377,12 +1364,9 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   .fr-print-cols {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 6px;
   }
-  /* The signature sits in the space above the line so it reads as signed over
-     it, and the vessel logo sits just after the block. */
   .fr-print-signrow {
     display: flex; align-items: center; justify-content: flex-end;
-    /* No gap: the stamp is pulled back over the line by a negative margin. */
-    gap: 0; margin-top: 10px;
+    gap: 6mm; margin-top: 8px;
   }
 
   /* Modern TANK CONDITION face (page 1) + annex (page 2) */
@@ -1525,60 +1509,46 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     display: flex; justify-content: space-between; align-items: flex-end;
     margin-top: 6px; font-size: 8pt;
   }
-  .fr-tc-signoff .fr-print-sign-line { width: 70mm; min-height: 6mm; padding-top: 4mm; }
-  .fr-tc-signoff { --fr-sign-line: 62mm; }
+  .fr-tc-signoff .fr-print-sign-line { width: 62mm; min-height: 6mm; padding-top: 4mm; }
   .fr-tc-page-no { font-size: 7.5pt; color: #555; letter-spacing: .04em; }
   .fr-tc-annex {
     display: grid; grid-template-columns: 1fr; gap: 6px; margin-bottom: 4px;
   }
   .fr-tc-page-2 table.fr-print-table { font-size: 6.2pt; }
 
-  .fr-print-sign { flex: 0 0 var(--fr-sign-line); font-size: 8pt; text-align: center; }
-  .fr-print-sign-space { position: relative; height: var(--fr-sign-space); width: var(--fr-sign-line); }
+  /* Signature + vessel stamp — concrete sizes (no CSS vars). The earlier
+     height:0 / var(--fr-logo-height) overlay broke under the Android print
+     bridge (cssText drops empty var()) and vanished after the classic-face
+     restore. Match the original working print from d9a7b8b / paper builds. */
+  .fr-print-sign {
+    flex: 0 0 62mm; font-size: 8pt; text-align: center;
+  }
+  .fr-print-sign-space {
+    position: relative; height: 15mm; width: 62mm;
+  }
   .fr-print-sign-space img {
     position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
-    max-height: var(--fr-sign-space); max-width: var(--fr-sign-line); object-fit: contain;
+    max-height: 15mm; max-width: 62mm; object-fit: contain;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
   .fr-print-sign-line {
-    border-bottom: 0.6pt solid #8a96a8; width: var(--fr-sign-line); margin-bottom: 1.5mm;
+    border-bottom: 0.6pt solid #8a96a8; width: 62mm; margin-bottom: 1.5mm;
   }
   .fr-print-sign-name { font-weight: 700; font-size: 9pt; }
   .fr-print-sign-role {
     font-size: 7.5pt; text-transform: uppercase; letter-spacing: .06em; color: #555;
   }
-  /* The logo prints like a rubber stamp: it is allowed to overlap whatever is
-     already on the paper, and it must not push the sheet taller. The box is
-     zero-height so it adds nothing to the sign-off row, and the image is
-     lifted out of it to stand on the row's baseline and overlap upwards.
-     No white fill either — a stamp that carried its own card would blank out
-     the print it is supposed to sit over. */
-  /* The logo prints like a rubber stamp struck over the right-hand end of the
-     signature line: centred on the line, covering its last third, and running
-     off to the right of it. It is allowed to overlap whatever is already on
-     the paper, and it adds no height to the sheet — the box is zero-height and
-     the image is positioned out of it, so resizing the stamp moves nothing
-     else. No white fill: a stamp carrying its own card would blank out the
-     print it is meant to sit over. */
   .fr-print-logo {
-    flex: 0 0 auto; display: block; align-self: flex-start;
-    height: 0; overflow: visible;
-    /* Slide back over the last third of the line. */
-    margin-left: calc(var(--fr-sign-line) / -3);
+    flex: 0 0 auto; display: flex; align-items: center;
   }
   .fr-print-logo img {
-    height: var(--fr-logo-height); width: auto; max-width: 110mm;
+    height: 42mm; width: auto; max-width: 55mm;
     object-fit: contain; display: block;
-    /* The line sits directly below the signing space, so dropping by that much
-       and lifting by half the stamp centres the stamp on the line. */
-    position: relative;
-    top: calc(var(--fr-sign-space) - var(--fr-logo-height) / 2);
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
-  /* Inside the TANK CONDITION sign-off row the block hugs the left, leaving the
-     page number on the right; the line is drawn by .fr-print-sign-line itself,
-     so the taller legacy line rule is neutralised here. */
   .fr-tc-signoff .fr-print-signrow { justify-content: flex-start; margin-top: 0; }
   .fr-tc-signoff .fr-print-signrow .fr-print-sign-line {
-    width: var(--fr-sign-line); min-height: 0; padding-top: 0;
+    width: 62mm; min-height: 0; padding-top: 0;
   }
 }
 
