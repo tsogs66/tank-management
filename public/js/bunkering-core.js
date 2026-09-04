@@ -653,6 +653,24 @@ function computeBunkerPlan(bundle, form, conversion) {
   const sum = (key) => used.reduce((a, r) => a + (num(r[key], 0) || 0), 0);
   const receivedMT = round(sum('quantityAddMT'), 3);
   const plannedAddMT = round(sum('planAddMT'), 3);
+  const previousVolumeM3 = round(sum('startingRobM3'), 3);
+  const calculatedVolumeM3 = round(sum('currentVolumeM3'), 3);
+  // Tank-basis change: only slots with both opening ROB and a current sounding
+  // contribute, so a blank current cell is not treated as zero cargo.
+  let receivedVolumeM3 = 0;
+  let receivedVolumeCount = 0;
+  for (const r of used) {
+    if (r.startingRobM3 == null || r.currentVolumeM3 == null) continue;
+    receivedVolumeM3 += r.currentVolumeM3 - r.startingRobM3;
+    receivedVolumeCount += 1;
+  }
+  receivedVolumeM3 = receivedVolumeCount ? round(receivedVolumeM3, 3) : null;
+  const previousMT = density15 != null && previousVolumeM3 != null
+    ? round(mtFromVolume(previousVolumeM3, density15, tempC), 3)
+    : round(sum('startingRobMT'), 3);
+  const calculatedMT = density15 != null && calculatedVolumeM3 != null
+    ? round(mtFromVolume(calculatedVolumeM3, density15, tempC), 3)
+    : null;
   const remaining = quantity != null ? Math.max(0, quantity - (receivedMT || 0)) : null;
 
   const liveClock = pumpingClock(plan, rate, receivedMT);
@@ -803,6 +821,20 @@ function computeBunkerPlan(bundle, form, conversion) {
   const bdnDifferencePercent = reconcilable && bdnQuantity
     ? round((((receivedMT || 0) - bdnQuantity) / bdnQuantity) * 100, 3)
     : null;
+  const bdnVolumeM3 = bdnQuantity != null && density15 != null
+    ? round(volumeFromMT(bdnQuantity, density15, tempC), 3)
+    : null;
+  // Compare measured tank change to the note as soon as both figures exist —
+  // used on the plan change table even while some tanks are still open.
+  const changeDiffMT = bdnQuantity != null && receivedMT != null
+    ? round(receivedMT - bdnQuantity, 3)
+    : null;
+  const changeDiffM3 = bdnVolumeM3 != null && receivedVolumeM3 != null
+    ? round(receivedVolumeM3 - bdnVolumeM3, 3)
+    : null;
+  const changeDiffPercent = bdnQuantity != null && bdnQuantity !== 0 && receivedMT != null
+    ? round(((receivedMT - bdnQuantity) / bdnQuantity) * 100, 3)
+    : null;
 
   const estOperationRate = estimateShare * (filling || 1);
   const estEtcHours = estRemaining != null && estOperationRate > 0
@@ -833,12 +865,42 @@ function computeBunkerPlan(bundle, form, conversion) {
       tanks: used.length,
       capacity100M3: round(sum('capacity100M3'), 3),
       capacity85M3: round(sum('capacity85M3'), 3),
-      startingRobM3: round(sum('startingRobM3'), 3),
+      startingRobM3: previousVolumeM3,
       freeM3At85: round(sum('freeM3At85'), 3),
       targetVolumeM3: round(sum('targetVolumeM3'), 3),
-      currentVolumeM3: round(sum('currentVolumeM3'), 3),
+      currentVolumeM3: calculatedVolumeM3,
       plannedAddMT,
       receivedMT,
+      previousVolumeM3,
+      calculatedVolumeM3,
+      receivedVolumeM3,
+      previousMT,
+      calculatedMT,
+      density15: density15 != null ? round(density15, 4) : null,
+      tempC,
+      bdnQuantityMT: bdnQuantity,
+      bdnVolumeM3,
+      differenceMT: changeDiffMT,
+      differenceM3: changeDiffM3,
+      differencePercent: changeDiffPercent,
+    },
+    /* Tank-basis change vs the delivery note — same figures as totals, kept
+       under a clear name for the plan screen and print page 2. */
+    tankChange: {
+      previousVolumeM3,
+      calculatedVolumeM3,
+      receivedVolumeM3,
+      previousMT,
+      calculatedMT,
+      receivedMT,
+      density15: density15 != null ? round(density15, 4) : null,
+      tempC,
+      bdnQuantityMT: bdnQuantity,
+      bdnVolumeM3,
+      differenceMT: changeDiffMT,
+      differenceM3: changeDiffM3,
+      differencePercent: changeDiffPercent,
+      tanksCompared: receivedVolumeCount,
     },
     monitoring: {
       clock: liveClock,
@@ -1427,5 +1489,7 @@ return {
   afterSnapshot,
   summarySnapshot,
   blendFuels,
+  mtFromVolume,
+  volumeFromMT,
 };
 }));

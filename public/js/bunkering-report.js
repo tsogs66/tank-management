@@ -353,6 +353,7 @@ const BunkerReports = (() => {
       ${planHeaderPanel(c)}
       ${planSequencePanel(c)}
       ${planEstimatesPanel()}
+      ${planChangeSummaryPanel()}
       ${planFinishPanel(c)}
       ${planBlendPanel()}
       ${planTankTablesPanel(c)}
@@ -414,9 +415,13 @@ const BunkerReports = (() => {
           <datalist id="bp-grades">${grades}</datalist></label>
         <label class="fr-field"><span>DENSITY @15</span>
           <input type="number" step="any" data-head="density15" value="${esc(h.density15)}"
-            placeholder="${esc(c.header.density15 ?? '')}"></label>
+            placeholder="${esc(c.header.density15 ?? '')}"
+            title="Bunker density at 15 °C — used to convert tank volume change to MT"></label>
         <label class="fr-field"><span>TEMP (°C)</span>
           <input type="number" step="any" data-head="tempC" value="${esc(h.tempC)}" placeholder="15"></label>
+        <label class="fr-field"><span>BDN QUANTITY (MT)</span>
+          <input type="number" step="any" data-head="bdnQuantityMT" value="${esc(h.bdnQuantityMT)}"
+            title="Quantity on the bunker delivery note — compared with tank-basis received"></label>
         <label class="fr-field"><span>TIME TO BUNKER</span>
           <output class="fr-out" data-bp-head="timeToBunker"></output></label>
       </div>
@@ -525,6 +530,79 @@ const BunkerReports = (() => {
         </div>
       </div>
     </div>`;
+  }
+
+  /**
+   * Tank-basis change vs the delivery note.
+   *
+   * Previous / calculated volumes come from the sequence soundings; received is
+   * the difference converted to MT at the plan density. BDN is the note figure
+   * entered in the header — the difference is what the protest turns on.
+   */
+  function planChangeSummaryPanel() {
+    return `<div class="form-panel no-print bp-change" style="margin-top:16px">
+      <div class="section-title" style="margin-top:0">Tank change vs BDN</div>
+      <p class="hint" style="margin-top:0">Sequence tanks only. Volume from soundings; MT from density @15 °C.
+        Enter density and BDN quantity in the header for an accurate comparison.</p>
+      <div class="scroll-x">
+        <table class="fr-sheet bp-change-table">
+          <thead><tr>
+            <th></th>
+            <th>PREVIOUS<br>VOLUME</th>
+            <th>CALCULATED<br>VOLUME</th>
+            <th>VOLUME<br>RECEIVED</th>
+            <th>BDN<br>(NOTE)</th>
+            <th>ACTUAL − BDN</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <th>m³</th>
+              <td data-bp-chg="previousM3">—</td>
+              <td data-bp-chg="calculatedM3">—</td>
+              <td data-bp-chg="receivedM3">—</td>
+              <td data-bp-chg="bdnM3">—</td>
+              <td data-bp-chg="diffM3">—</td>
+            </tr>
+            <tr>
+              <th>MT</th>
+              <td data-bp-chg="previousMT">—</td>
+              <td data-bp-chg="calculatedMT">—</td>
+              <td data-bp-chg="receivedMT">—</td>
+              <td data-bp-chg="bdnMT">—</td>
+              <td data-bp-chg="diffMT">—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="hint" data-bp-chg="note">—</div>
+    </div>`;
+  }
+
+  function refreshChangeSummary(c) {
+    const ch = c.tankChange || {};
+    const set = UI.setCell;
+    set('[data-bp-chg="previousM3"]', n(ch.previousVolumeM3, 3, '—'));
+    set('[data-bp-chg="calculatedM3"]', n(ch.calculatedVolumeM3, 3, '—'));
+    set('[data-bp-chg="receivedM3"]', n(ch.receivedVolumeM3, 3, '—'));
+    set('[data-bp-chg="bdnM3"]', n(ch.bdnVolumeM3, 3, '—'));
+    set('[data-bp-chg="diffM3"]', ch.differenceM3 != null ? signed(ch.differenceM3, 3) : '—');
+    set('[data-bp-chg="previousMT"]', n(ch.previousMT, 3, '—'));
+    set('[data-bp-chg="calculatedMT"]', n(ch.calculatedMT, 3, '—'));
+    set('[data-bp-chg="receivedMT"]', n(ch.receivedMT, 3, '—'));
+    set('[data-bp-chg="bdnMT"]', n(ch.bdnQuantityMT, 3, '—'));
+    set('[data-bp-chg="diffMT"]', ch.differenceMT != null ? signed(ch.differenceMT, 3) : '—');
+
+    const dens = ch.density15 != null ? `Density @15 ${n(ch.density15, 4)} · ${n(ch.tempC, 0)} °C.` : 'Enter density @15 °C to convert volume to MT.';
+    const pct = ch.differencePercent != null ? ` Difference ${signed(ch.differencePercent, 2)}% of BDN.` : '';
+    const tanks = ch.tanksCompared
+      ? ` Compared on ${ch.tanksCompared} sounded sequence tank(s).`
+      : ' Sound sequence tanks to measure received volume.';
+    set('[data-bp-chg="note"]', dens + tanks + pct);
+
+    document.querySelectorAll('[data-bp-chg="diffM3"], [data-bp-chg="diffMT"]').forEach((el) => {
+      el.classList.toggle('bp-change-short', ch.differenceMT != null && ch.differenceMT < 0);
+      el.classList.toggle('bp-change-over', ch.differenceMT != null && ch.differenceMT > 0);
+    });
   }
 
   /**
@@ -973,6 +1051,7 @@ const BunkerReports = (() => {
       ? `${n(mon.effectiveRateMTPerHour, 1)} MT/h ${mon.rateSourceIsMeasured ? '(measured)' : '(planned)'}`
       : '—');
     refreshEstimates(c);
+    refreshChangeSummary(c);
     refreshFinish(c);
     const tables = document.getElementById('bp-tank-tables');
     if (tables) tables.innerHTML = planTankTablesHtml(c);
@@ -1521,9 +1600,142 @@ const BunkerReports = (() => {
       ${beforeBody}
       <h3 class="fr-print-h3">After bunkering</h3>
       ${afterBody}
+      ${planChangePrintTable(c)}
       ${UI.printSignatureBlock()}
       ${UI.footer(`${c.vessel.name} · sequence tanks · before &amp; after bunkering`)}
     </section>`;
+  }
+
+  /** Totals under the after table: previous / calculated / received vs BDN. */
+  function planChangePrintTable(c) {
+    // Prefer before/after condition reports on this page when after is saved —
+    // that is the same sheet the tables above come from.
+    const ch = sequenceChangeFromReports(c) || c.tankChange || {};
+    const densNote = ch.density15 != null
+      ? `Density @15 ${n(ch.density15, 4)} · ${n(ch.tempC, 0)} °C`
+      : 'Density not entered — MT from volume not converted';
+    return `
+      <h3 class="fr-print-h3">Tank change vs BDN</h3>
+      <p class="calib-print-note">${esc(densNote)}. Sequence tanks only.</p>
+      <table class="fr-print-table bp-change-print">
+        <thead><tr>
+          <th></th>
+          <th>Previous volume</th>
+          <th>Calculated volume</th>
+          <th>Volume received</th>
+          <th>BDN (note)</th>
+          <th>Actual − BDN</th>
+        </tr></thead>
+        <tbody>
+          <tr>
+            <th class="fr-print-name">m³</th>
+            <td>${n(ch.previousVolumeM3, 3, '—')}</td>
+            <td>${n(ch.calculatedVolumeM3, 3, '—')}</td>
+            <td>${n(ch.receivedVolumeM3, 3, '—')}</td>
+            <td>${n(ch.bdnVolumeM3, 3, '—')}</td>
+            <td>${ch.differenceM3 != null ? signed(ch.differenceM3, 3) : '—'}</td>
+          </tr>
+          <tr>
+            <th class="fr-print-name">MT</th>
+            <td>${n(ch.previousMT, 3, '—')}</td>
+            <td>${n(ch.calculatedMT, 3, '—')}</td>
+            <td>${n(ch.receivedMT, 3, '—')}</td>
+            <td>${n(ch.bdnQuantityMT, 3, '—')}</td>
+            <td>${ch.differenceMT != null ? signed(ch.differenceMT, 3) : '—'}</td>
+          </tr>
+        </tbody>
+      </table>
+      ${ch.differencePercent != null
+        ? `<p class="calib-print-note">Difference ${signed(ch.differencePercent, 2)}% of BDN
+            ${ch.tanksCompared ? ` · ${ch.tanksCompared} sounded sequence tank(s)` : ''}.</p>`
+        : ''}`;
+  }
+
+  /**
+   * Previous / after volumes from the condition reports on print page 2,
+   * converted at the plan density so MT matches the BDN comparison.
+   */
+  function sequenceChangeFromReports(c) {
+    if (!bundle().bunkerAfter) return null;
+    const tankIds = Core.sequenceTankIds(c.form || view.plan);
+    if (!tankIds.length) return null;
+    const density15 = c.header && c.header.density15 != null
+      ? Number(c.header.density15)
+      : (c.tankChange && c.tankChange.density15);
+    const tempC = (c.header && c.header.tempC != null ? Number(c.header.tempC) : null)
+      || (c.tankChange && c.tankChange.tempC) || 15;
+    const before = Core.filterReportToTankIds(c.before, tankIds);
+    const after = Core.filterReportToTankIds(
+      Core.computeAfterBunkering(bundle(), bundle().bunkerAfter, view.conversion),
+      tankIds,
+    );
+    const sumVol = (report) => {
+      let total = 0;
+      let count = 0;
+      for (const section of (report && report.sections) || []) {
+        for (const row of section.rows || []) {
+          if (row.measuredM3 == null) continue;
+          total += Number(row.measuredM3) || 0;
+          count += 1;
+        }
+      }
+      return count ? total : null;
+    };
+    const sumMT = (report) => {
+      let total = 0;
+      let count = 0;
+      for (const section of (report && report.sections) || []) {
+        for (const row of section.rows || []) {
+          if (row.weightAirMT == null) continue;
+          total += Number(row.weightAirMT) || 0;
+          count += 1;
+        }
+      }
+      return count ? total : null;
+    };
+    const previousVolumeM3 = sumVol(before);
+    const calculatedVolumeM3 = sumVol(after);
+    const receivedVolumeM3 = previousVolumeM3 != null && calculatedVolumeM3 != null
+      ? calculatedVolumeM3 - previousVolumeM3
+      : null;
+    const previousMT = density15 != null && previousVolumeM3 != null
+      ? Core.mtFromVolume(previousVolumeM3, density15, tempC)
+      : sumMT(before);
+    const calculatedMT = density15 != null && calculatedVolumeM3 != null
+      ? Core.mtFromVolume(calculatedVolumeM3, density15, tempC)
+      : sumMT(after);
+    const receivedMT = density15 != null && receivedVolumeM3 != null
+      ? Core.mtFromVolume(receivedVolumeM3, density15, tempC)
+      : (previousMT != null && calculatedMT != null ? calculatedMT - previousMT : null);
+    const bdnQuantityMT = c.header && c.header.bdnQuantityMT != null && c.header.bdnQuantityMT !== ''
+      ? Number(c.header.bdnQuantityMT)
+      : (c.tankChange && c.tankChange.bdnQuantityMT);
+    const bdnVolumeM3 = bdnQuantityMT != null && density15 != null
+      ? Core.volumeFromMT(bdnQuantityMT, density15, tempC)
+      : null;
+    const differenceMT = bdnQuantityMT != null && receivedMT != null ? receivedMT - bdnQuantityMT : null;
+    const differenceM3 = bdnVolumeM3 != null && receivedVolumeM3 != null
+      ? receivedVolumeM3 - bdnVolumeM3
+      : null;
+    const differencePercent = bdnQuantityMT != null && bdnQuantityMT !== 0 && receivedMT != null
+      ? ((receivedMT - bdnQuantityMT) / bdnQuantityMT) * 100
+      : null;
+    return {
+      previousVolumeM3,
+      calculatedVolumeM3,
+      receivedVolumeM3,
+      previousMT,
+      calculatedMT,
+      receivedMT,
+      density15,
+      tempC,
+      bdnQuantityMT,
+      bdnVolumeM3,
+      differenceMT,
+      differenceM3,
+      differencePercent,
+      tanksCompared: tankIds.length,
+    };
   }
 
   /* ====================================================== after bunkering ==== */

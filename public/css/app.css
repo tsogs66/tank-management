@@ -1849,6 +1849,15 @@ tr.bp-est-over th.fr-tank-name { box-shadow: inset 3px 0 0 var(--bad); }
 .bp-fin-bad { border-color: var(--bad); border-style: solid; }
 .bp-fin-bad > b { color: var(--bad); }
 
+.bp-change-table th, .bp-change-table td {
+  text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.bp-change-table th:first-child, .bp-change-table td:first-child { text-align: left; }
+.bp-change-short { color: var(--bad); font-weight: 700; }
+.bp-change-over { color: var(--good); font-weight: 700; }
+.bp-change-print td, .bp-change-print th { text-align: right; }
+.bp-change-print th.fr-print-name, .bp-change-print th:first-child { text-align: left; }
+
 /* ---------- Name and authorship ---------- */
 
 /* At the foot of the navigation, so it is on every page. Quiet: it is a
