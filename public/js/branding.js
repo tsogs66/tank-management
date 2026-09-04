@@ -185,17 +185,27 @@ ${css}
   background: #fff !important;
   border: none !important; outline: none !important; box-shadow: none !important;
 }
-.fuel-report-print-doc, .report-print-doc, #bc-print-root, .bc-pr-sheet {
-  box-sizing: border-box !important; padding: 10mm !important;
+.fuel-report-print-doc, .report-print-doc, #bc-print-root {
+  box-sizing: border-box !important; padding: 0 !important;
 }
-.calib-print-page { box-sizing: border-box !important; padding: 10mm 12mm !important; }
+.report-print-doc, .bc-pr-sheet {
+  box-sizing: border-box !important; padding: 5mm !important;
+}
+.calib-print-page {
+  box-sizing: border-box !important; padding: 5mm !important;
+  page-break-after: always; break-after: page;
+}
+.calib-print-page:last-of-type {
+  page-break-after: auto !important; break-after: auto !important;
+}
 .app-shell, .sidebar, .bottom-nav, .bn-more-sheet, .theme-fab, .theme-toggle,
 .menu-toggle, .sidebar-backdrop, .no-print, .toast, .calib-sticky-actions,
 .pdf-import-panel, .pdf-progress { display: none !important; }
 .app-credit-print {
   display: flex !important; gap: 10px; align-items: baseline;
-  margin-top: 8px; padding-top: 1mm; border-top: 1px solid #d4dce8;
+  margin-top: 4px; padding-top: 1mm; border-top: 1px solid #d4dce8;
   color: #8a95a8; font-size: 8px; line-height: 1.4;
+  page-break-before: avoid; break-before: avoid;
 }
 </style></head><body class="${bodyClass || ''}">${bodyHtml || ''}</body></html>`;
   }

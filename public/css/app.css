@@ -1116,12 +1116,18 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     box-shadow: none !important;
   }
 
+  /* Padding belongs on the sheet only — never also on the outer print root,
+     or Tank Condition / Bunker Plan get ~20mm margins and spill to page 2. */
   .fuel-report-print-doc,
   .report-print-doc,
-  .bc-pr-sheet,
   #bc-print-root {
     box-sizing: border-box !important;
-    padding: 10mm !important;
+    padding: 0 !important;
+  }
+  .report-print-doc,
+  .bc-pr-sheet {
+    box-sizing: border-box !important;
+    padding: 5mm !important;
   }
 
   .sidebar, .menu-toggle, .sidebar-backdrop, .no-print, .toast,
@@ -1155,14 +1161,16 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     page-break-after: always;
     break-after: page;
     box-sizing: border-box !important;
-    /* Former landscape @page margin, now on the sheet (see @page note above). */
-    padding: 10mm 12mm;
+    /* Narrow sheet margin (was 10–12mm, and was doubled by the outer root).
+       Keeps printer-safe clearance without forcing the ROB / fuel report
+       onto a second page. Font sizes are unchanged. */
+    padding: 5mm;
     /* The stamp is centred on the signature line, so half of it hangs below.
        The name, role and footer absorb most of that; this reserves whatever is
        left over, so a sheet that reaches the bottom of the page cannot cut the
        stamp in half. Nothing is reserved when the stamp is small enough to
        clear on its own. */
-    padding-bottom: max(10mm, calc(var(--fr-logo-height) / 2 - var(--fr-sign-foot)));
+    padding-bottom: max(5mm, calc(var(--fr-logo-height) / 2 - var(--fr-sign-foot)));
     background: #fff !important;
     border: none !important;
   }
@@ -1172,7 +1180,10 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   body.printing-calib .calib-print-page {
     page: landscape-sheet;
   }
-  .calib-print-page:last-child {
+  /* :last-of-type — not :last-child. Branding.printCredit() appends a sibling
+     after the sheet, which made :last-child miss and forced a blank page 2
+     after every Tank Condition / Bunker Plan print. */
+  .calib-print-page:last-of-type {
     page-break-after: auto;
     break-after: auto;
   }
