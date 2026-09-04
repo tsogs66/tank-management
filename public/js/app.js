@@ -535,6 +535,22 @@ function navigate(page, tankId = null) {
       : 'Bunker Consumption is not available on this license');
     next = 'dashboard';
   }
+  /* Leaving the bunkering sheet must not wipe a running pump clock — wall time
+     continues from startedAt when the operator returns. */
+  try {
+    if (
+      STATE.route &&
+      STATE.route.page === 'bunker-plan' &&
+      next !== 'bunker-plan' &&
+      typeof BunkerReports !== 'undefined' &&
+      BunkerReports &&
+      typeof BunkerReports.planClockLive === 'function' &&
+      BunkerReports.planClockLive() &&
+      typeof BunkerReports.persistPlanClock === 'function'
+    ) {
+      BunkerReports.persistPlanClock({ deferServer: false });
+    }
+  } catch (_) { /* ignore */ }
   STATE.route = { page: next, tankId };
   closeMobileNav();
   closeMoreSheet();
@@ -4299,11 +4315,56 @@ function startSyncLoop() {
     // Pull the server's copy back down so both sides agree — the server may
     // have merged our history into work of its own while we were away.
     try {
+      // Keep an in-progress bunkering pump clock across sync remounts. The wall
+      // clock lives on the plan until Save; without this, afterFlush wiped
+      // startedAt and made Start pumping look stopped again.
+      let pendingBunkerPlan = null;
+      try {
+        if (
+          STATE.route &&
+          STATE.route.page === 'bunker-plan' &&
+          typeof BunkerReports !== 'undefined' &&
+          BunkerReports &&
+          typeof BunkerReports.planClockLive === 'function' &&
+          BunkerReports.planClockLive() &&
+          BunkerReports.view &&
+          BunkerReports.view.plan
+        ) {
+          if (typeof BunkerReports.persistPlanClock === 'function') {
+            BunkerReports.persistPlanClock();
+          }
+          pendingBunkerPlan = JSON.parse(JSON.stringify(BunkerReports.view.plan));
+        }
+      } catch { /* ignore */ }
+
       await reloadBundle();
+
+      if (pendingBunkerPlan && STATE.bundle) {
+        try {
+          STATE.bundle.bunkerPlan = pendingBunkerPlan;
+          OfflineDB.idbSet('vessel:' + STATE.activeVesselId, STATE.bundle).catch(() => {});
+          if (BunkerReports && BunkerReports.view) {
+            BunkerReports.view.plan = pendingBunkerPlan;
+          }
+        } catch { /* ignore */ }
+      }
+
       const st = await Api.getStatus();
       STATE.vessels = st.vessels || [];
       STATE.settings = st.settings || {};
-      render();
+      // Skip remount while a bunker pump clock is running — render() recreates
+      // the page and would interrupt the live timer UI; bundle already holds clock.
+      const skipRenderForPump =
+        !!pendingBunkerPlan &&
+        STATE.route &&
+        STATE.route.page === 'bunker-plan' &&
+        typeof BunkerReports !== 'undefined' &&
+        BunkerReports &&
+        typeof BunkerReports.planClockLive === 'function' &&
+        BunkerReports.planClockLive();
+      if (!skipRenderForPump) {
+        render();
+      }
     } catch { /* it went away again; the next tick will retry */ }
     const parts = [`Synced ${flushed} offline change${flushed === 1 ? '' : 's'}`];
     if (dropped) parts.push(`${dropped} rejected by the server`);
