@@ -51,7 +51,7 @@ const BunkerReports = (() => {
   }
 
   /** Save a form part, keeping the offline cache and queue in step. */
-  async function saveChainPart(path, part, form, { snapshot = false, extra = {}, deferServer = false } = {}) {
+  async function saveChainPart(path, part, form, { snapshot = false, extra = {}, deferServer = false, quiet = false } = {}) {
     const b = bundle();
     const body = { form, snapshot, ...extra };
     b[part] = form;
@@ -67,11 +67,11 @@ const BunkerReports = (() => {
           b.bunkerHistory = h;
         }
         await OfflineDB.idbSet('vessel:' + STATE.activeVesselId, b);
-        showToast(snapshot ? 'Saved' : 'Draft saved');
+        if (!quiet) showToast(snapshot ? 'Saved' : 'Draft saved');
         return res;
       } catch {
         await Api.mutate(`/api/vessels/${STATE.activeVesselId}/${path}`, { method: 'PUT', body });
-        showToast('Saved offline — will sync when online');
+        if (!quiet) showToast('Saved offline — will sync when online');
         return null;
       }
     };
@@ -205,9 +205,61 @@ const BunkerReports = (() => {
   let clockTimer = null;
   let tickTimer = null;
   let countdownEndsAt = null;
+  let persistClockTimer = null;
+
   function stopClockTicker() {
     if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
     if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
+  }
+
+  /** True while the overall pump or any tank valve clock is live. */
+  function planClockLive(plan) {
+    const p = plan || view.plan;
+    if (!p) return false;
+    const clock = Core.pumpingClock(p, 0, null);
+    if (clock.running || clock.paused) return true;
+    const seq = Array.isArray(p.sequence) ? p.sequence : [];
+    return seq.some((slot) => {
+      if (!slot || !slot.tankId) return false;
+      const tc = Core.tankClock(slot);
+      return tc.running || tc.paused;
+    });
+  }
+
+  /**
+   * Keep the pumping clock on disk so remounts / sync / leaving the page do not
+   * wipe a transfer that is still underway. Elapsed time is wall-clock based, so
+   * a restart after remount continues from the same startedAt.
+   */
+  function persistPlanClock({ deferServer = true } = {}) {
+    if (!view.plan || !STATE.activeVesselId) return;
+    const form = { ...view.plan, updatedAt: new Date().toISOString() };
+    view.plan = form;
+    const b = bundle();
+    b.bunkerPlan = form;
+    OfflineDB.idbSet('vessel:' + STATE.activeVesselId, b).catch(() => {});
+    if (persistClockTimer) clearTimeout(persistClockTimer);
+    const push = () => {
+      persistClockTimer = null;
+      saveChainPart('bunker-plan', 'bunkerPlan', form, { snapshot: false, quiet: true }).catch(() => {});
+    };
+    if (deferServer) persistClockTimer = setTimeout(push, 400);
+    else push();
+  }
+
+  /**
+   * Ask the ChEng AIO shell to change page. Inside the bunker-ops iframe there is
+   * no Tank sidebar, so MAIN MENU must leave the embed rather than open Tank's
+   * dashboard (which traps the operator with no return path).
+   */
+  function requestAioNavigate(moduleId) {
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'chengpro-navigate', module: moduleId }, '*');
+        return true;
+      }
+    } catch (_) { /* ignore */ }
+    return false;
   }
 
   /**
@@ -973,6 +1025,7 @@ const BunkerReports = (() => {
       slot.completedAt = null;
     }
     refreshPlan();
+    persistPlanClock();
   }
 
   /**
@@ -1045,7 +1098,16 @@ const BunkerReports = (() => {
     // Print without saving: no snapshot filed, nothing written to the vessel.
     document.getElementById('bp-print-only').onclick = () =>
       UI.printHtml(planPrintPages(recomputePlan()));
-    document.getElementById('bp-menu').onclick = () => navigate('dashboard');
+    document.getElementById('bp-menu').onclick = () => {
+      /* Bunker-ops embed under ChEng AIO: leave the embed for AIO Home — do not
+         dump into Tank's dashboard (no in-iframe way back to the plan). */
+      if (typeof isBunkerOpsEmbed === 'function' && isBunkerOpsEmbed()) {
+        if (requestAioNavigate('home')) return;
+        showToast('Use the ChEng AIO Home control to leave Bunkering Plan');
+        return;
+      }
+      navigate('dashboard');
+    };
     document.getElementById('bp-new').onclick = () => {
       if (!confirm('Start a new plan? The current sequence and targets are cleared.')) return;
       view.pendingPlan = Core.emptyBunkerPlan(bundle(), view.conversion);
@@ -1114,6 +1176,7 @@ const BunkerReports = (() => {
       }
       refreshPlan();
       startClockTicker();
+      persistPlanClock();
     };
     /* Pumping usually starts before anyone reaches the tablet, so the start can
        be entered after the fact — from the barge's own log or the BDN — and the
@@ -1134,6 +1197,7 @@ const BunkerReports = (() => {
       }
       refreshPlan();
       startClockTicker();
+      persistPlanClock();
     };
     document.getElementById('bp-clock-reset').onclick = () => {
       view.plan.startedAt = null;
@@ -1145,6 +1209,7 @@ const BunkerReports = (() => {
       // A tank may still be taking fuel; its own clock keeps running, and the
       // ticker retires itself if nothing is.
       startClockTicker();
+      persistPlanClock();
     };
 
     /**
@@ -1188,6 +1253,7 @@ const BunkerReports = (() => {
       view.plan.status = 'completed';
       refreshPlan();
       stopClockTicker();
+      persistPlanClock({ deferServer: false });
 
       const panel = document.querySelector('.bp-finish');
       if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -2017,6 +2083,19 @@ const BunkerReports = (() => {
     return cover + beforePage + afterPage;
   }
 
+  /* Persist a live pump clock if the iframe/tab is about to unload — navigating
+     away must not clear startedAt; only Stop / Finish / Reset does that. */
+  try {
+    window.addEventListener('pagehide', () => {
+      if (planClockLive()) persistPlanClock({ deferServer: false });
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden' && planClockLive()) {
+        persistPlanClock({ deferServer: false });
+      }
+    });
+  } catch (_) { /* ignore */ }
+
   return {
     renderPlan,
     renderAfter,
@@ -2025,6 +2104,8 @@ const BunkerReports = (() => {
     afterPrintPages,
     summaryPrintPages,
     view,
+    planClockLive,
+    persistPlanClock,
   };
 })();
 
