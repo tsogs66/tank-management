@@ -42,12 +42,14 @@ const REPORT_TYPES = [
   'Bunker Survey - Owner',
 ];
 
-/** Grade buckets the weights are totalled into — workbook Data!AD7:AD10. */
+/** Grade buckets the weights are totalled into — workbook Data!AD7:AD10.
+ *  Printouts keep residual (HFO/VLSFO) totals separate from distillate
+ *  (MO/MGO/LSMGO) — never one combined fuel figure. */
 const FUEL_TYPES = [
-  { id: 'hfo', label: 'HFO', section: 'fuel' },
-  { id: 'lsfo', label: 'LSFO', section: 'fuel' },
-  { id: 'mdo', label: 'MDO/MGO', section: 'do' },
-  { id: 'lsmgo', label: 'LSMGO', section: 'do' },
+  { id: 'hfo', label: 'HFO', section: 'fuel', group: 'residual' },
+  { id: 'lsfo', label: 'VLSFO', section: 'fuel', group: 'residual' },
+  { id: 'mdo', label: 'MO/MGO', section: 'do', group: 'distillate' },
+  { id: 'lsmgo', label: 'LSMGO', section: 'do', group: 'distillate' },
 ];
 
 /** Petroleum unit standards — workbook Data!T7:T10. */
@@ -67,8 +69,20 @@ const METHODS = [
 const HEEL_OPTIONS = [-4, -3, -2, -1, 0, 1, 2, 3, 4];
 
 const SECTIONS = [
-  { id: 'fuel', title: 'FUEL OIL', grades: ['hfo', 'lsfo'] },
-  { id: 'do', title: 'DIESEL OIL / GAS OIL', grades: ['mdo', 'lsmgo'] },
+  {
+    id: 'fuel',
+    title: 'HFO / VLSFO',
+    grades: ['hfo', 'lsfo'],
+    totalLabel: 'HFO/VLSFO TOTAL',
+    shortLabel: 'HFO/VLSFO',
+  },
+  {
+    id: 'do',
+    title: 'MO / MGO / LSMGO',
+    grades: ['mdo', 'lsmgo'],
+    totalLabel: 'MO/MGO/LSMGO TOTAL',
+    shortLabel: 'MO/MGO/LSMGO',
+  },
 ];
 
 /** Workbook Report!C11 = 100% m3 * 0.96 (tonnage capacity of a full tank). */
@@ -87,8 +101,8 @@ const LUBE_FIELDS = [
 
 const RECEIVED_FIELDS = [
   { id: 'hfo', label: 'HFO' },
-  { id: 'lsHfo', label: 'LS HFO' },
-  { id: 'mdoMgo', label: 'MDO / MGO' },
+  { id: 'lsHfo', label: 'VLSFO' },
+  { id: 'mdoMgo', label: 'MO / MGO / LSMGO' },
   { id: 'water', label: 'FRESH WATER' },
 ];
 

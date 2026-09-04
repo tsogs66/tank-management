@@ -275,7 +275,7 @@ function slugify(name) {
 
 /** Shared ship identity + engine basis stored on vessel.json (AIO Vessel Setup). */
 const VESSEL_PROFILE_FIELDS = [
-  'callSign', 'flag', 'company', 'owner', 'type', 'dwt', 'notes',
+  'callSign', 'flag', 'company', 'owner', 'type', 'dwt', 'notes', 'chiefEngineer',
   'mcrRpm', 'mcrKw', 'csrRpm', 'csrKw', 'pitch',
   'sfoc100', 'sfoc85', 'slocRef', 'mechEff',
   'fuelDensity', 'lubeDensity', 'lcvRef', 'lcvActual', 'propLawExp',
