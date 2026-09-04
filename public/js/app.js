@@ -353,7 +353,7 @@ function apiHref(path) {
   return (typeof Api !== 'undefined' && Api.withPrefix) ? Api.withPrefix(path) : path;
 }
 
-const BOTTOM_PRIMARY = new Set(['dashboard', 'fuel', 'fuel-report', 'bunker-plan']);
+const BOTTOM_PRIMARY = new Set(['dashboard', 'fuel-report', 'bunker-after']);
 
 function isAioEmbedded() {
   try {
@@ -464,13 +464,10 @@ function renderMoreNav() {
     return b;
   };
 
-  let g = document.createElement('div');
+  let   g = document.createElement('div');
   g.className = 'nav-group-label'; g.textContent = 'Tanks';
   host.appendChild(g);
-  for (const c of CATS) {
-    if (c.id === 'fuel') continue;
-    host.appendChild(mk(c.id, c.label, c.icon));
-  }
+  for (const c of CATS) host.appendChild(mk(c.id, c.label, c.icon));
   host.appendChild(mk('add-tank', 'Add Tank', '+'));
   host.appendChild(mk('calibration', 'Calibration DB', '☰'));
 
@@ -478,7 +475,6 @@ function renderMoreNav() {
   g.className = 'nav-group-label'; g.textContent = 'Fuel Management';
   host.appendChild(g);
   if (bunkerPlanNavAllowed()) host.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
-  host.appendChild(mk('bunker-after', 'After Bunkering', '📥'));
   host.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
   if (bunkerConsumptionNavAllowed()) {
     host.appendChild(mk('bunker-consumption', 'Bunker Consumption', '📊'));
@@ -587,7 +583,7 @@ function renderNav() {
     return b;
   };
 
-  nav.appendChild(mk('dashboard', 'Dashboard', '▦'));
+  nav.appendChild(mk('dashboard', 'Summary', '▦'));
 
   let g = document.createElement('div');
   g.className = 'nav-group-label'; g.textContent = 'Tanks';
@@ -599,10 +595,10 @@ function renderNav() {
   g = document.createElement('div');
   g.className = 'nav-group-label'; g.textContent = 'Fuel Management';
   nav.appendChild(g);
-  nav.appendChild(mk('fuel-report', 'Fuel Report', '🧾'));
+  nav.appendChild(mk('fuel-report', 'Monitoring', '🧾'));
   if (bunkerPlanNavAllowed()) nav.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
   if (bunkerConsumptionNavAllowed()) nav.appendChild(mk('bunker-consumption', 'Bunker Consumption', '📊'));
-  nav.appendChild(mk('bunker-after', 'After Bunkering', '📥'));
+  nav.appendChild(mk('bunker-after', 'Bunkering', '📥'));
   nav.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
   nav.appendChild(mk('report', 'Voyage Report', '📋'));
 
@@ -718,6 +714,10 @@ function renderDashboard(main) {
   main.innerHTML += `<div class="page-head"><div>
     <h1>Vessel Tank Overview</h1>
     <div class="desc">${vesselName()} · ${v.port || ''} · ${v.date || ''}</div>
+  </div>
+  <div class="btn-row no-print">
+    <button class="btn primary" id="btn-tank-summary-print">Print Tank Summary</button>
+    <button class="btn" id="btn-tank-summary-save">Save draft</button>
   </div></div>`;
 
   let grandVol = 0, grandCap = 0, grandWeight = 0, totalTanks = 0, readTanks = 0;
@@ -742,6 +742,127 @@ function renderDashboard(main) {
     <div class="card"><div class="label">Readings</div><div class="value">${readTanks}<span class="unit">/ ${totalTanks}</span></div></div>`;
   main.appendChild(summary);
   main.appendChild(cards);
+
+  const histPanel = document.createElement('div');
+  histPanel.className = 'form-panel no-print';
+  histPanel.innerHTML = `
+    <div class="section-title" style="margin-top:0">Tank Summary Report</div>
+    <p class="hint" style="margin-top:0">Printable overview in Tank Condition format. Drafts stay editable; filed reports can be reprinted or loaded.</p>
+    ${historyTableHtml(STATE.bundle.tankSummaryHistory || [], STATE.bundle.tankSummaryDraft && STATE.bundle.tankSummaryDraft.updatedAt ? {
+      form: STATE.bundle.tankSummaryDraft,
+      voyageNo: v.voyageNo,
+      port: v.port,
+      reportType: 'Tank Summary',
+      date: v.date,
+      savedAt: STATE.bundle.tankSummaryDraft.updatedAt,
+      totalMT: grandWeight,
+    } : null, 'Nothing saved yet — use Save draft, or Print Tank Summary to file a report')}`;
+  main.appendChild(histPanel);
+
+  const printTankSummary = async ({ saveSnapshot = false, formOverride = null } = {}) => {
+    const Core = window.FuelReportCore;
+    if (!Core || !window.FuelReport) { showToast('Fuel report module not loaded'); return; }
+    await loadConversionTable();
+    const voyage = STATE.bundle.voyage || {};
+    const form = formOverride && formOverride.fuelReport
+      ? Core.normalizeForm(STATE.bundle, formOverride.fuelReport)
+      : voyageFuelForm(voyage);
+    if (form) form.header.reportType = form.header.reportType || 'Monitoring';
+    const computed = Core.computeFuelReport(STATE.bundle, form, STATE.conversionTable);
+    const pages = tankConditionPrintHtml(computed, 'TANK SUMMARY REPORT');
+    if (saveSnapshot) {
+      const entry = {
+        id: `tsum_${Date.now().toString(36)}`,
+        savedAt: new Date().toISOString(),
+        voyageNo: voyage.voyageNo,
+        port: voyage.port,
+        reportType: 'Tank Summary',
+        date: voyage.date,
+        totalMT: computed.totals && computed.totals.weightAirMT,
+        form: { voyage, fuelReport: form },
+      };
+      STATE.bundle.tankSummaryHistory = [entry, ...(STATE.bundle.tankSummaryHistory || [])].slice(0, 50);
+      await persistPart('tankSummaryHistory', STATE.bundle.tankSummaryHistory);
+    }
+    try {
+      Branding.beginPrintHold();
+      FuelReport.printHtml(pages);
+    } catch (err) {
+      Branding.endPrintHold();
+      console.warn(err);
+      showToast('Print failed');
+    }
+  };
+
+  const btnPrint = document.getElementById('btn-tank-summary-print');
+  const btnSave = document.getElementById('btn-tank-summary-save');
+  if (btnPrint) {
+    btnPrint.onclick = async () => {
+      await printTankSummary({ saveSnapshot: true });
+      showToast('Tank summary printed & saved');
+      navigate('dashboard');
+    };
+  }
+  if (btnSave) {
+    btnSave.onclick = async () => {
+      const form = voyageFuelForm(STATE.bundle.voyage || {});
+      STATE.bundle.tankSummaryDraft = {
+        voyage: { ...(STATE.bundle.voyage || {}) },
+        fuelReport: form,
+        updatedAt: new Date().toISOString(),
+      };
+      await persistPart('tankSummaryDraft', STATE.bundle.tankSummaryDraft);
+      showToast('Tank summary draft saved');
+      navigate('dashboard');
+    };
+  }
+
+  histPanel.querySelectorAll('[data-hist-print]').forEach((btn) => {
+    btn.onclick = async () => {
+      let entry = (STATE.bundle.tankSummaryHistory || []).find((s) => s.id === btn.dataset.histPrint);
+      if (!entry && btn.dataset.histPrint === '__draft__') {
+        entry = { form: STATE.bundle.tankSummaryDraft || { voyage: STATE.bundle.voyage }, isDraft: true };
+      }
+      if (!entry) { showToast('That saved report has no sheet to print'); return; }
+      await printTankSummary({ saveSnapshot: false, formOverride: entry.form });
+    };
+  });
+  histPanel.querySelectorAll('[data-hist-load]').forEach((btn) => {
+    btn.onclick = async () => {
+      let entry = (STATE.bundle.tankSummaryHistory || []).find((s) => s.id === btn.dataset.histLoad);
+      if (!entry && btn.dataset.histLoad === '__draft__') {
+        entry = { form: STATE.bundle.tankSummaryDraft, isDraft: true };
+      }
+      if (!entry || !entry.form) return;
+      if (entry.form.voyage) await persistPart('voyage', { ...entry.form.voyage, updatedAt: new Date().toISOString() });
+      if (entry.form.fuelReport) {
+        STATE.bundle.fuelReport = entry.form.fuelReport;
+        await OfflineDB.idbSet('vessel:' + STATE.activeVesselId, STATE.bundle);
+      }
+      STATE.bundle.tankSummaryDraft = { ...entry.form, updatedAt: new Date().toISOString() };
+      showToast(entry.isDraft || entry.id === '__draft__' ? 'Draft loaded for editing' : 'Tank summary loaded');
+      navigate('dashboard');
+    };
+  });
+  histPanel.querySelectorAll('[data-hist-del]').forEach((btn) => {
+    btn.onclick = async () => {
+      if (!confirm('Delete this saved report?')) return;
+      try {
+        const res = await Api.request(
+          `/api/vessels/${STATE.activeVesselId}/tank-summary-history/${encodeURIComponent(btn.dataset.histDel)}`,
+          { method: 'DELETE' },
+        );
+        STATE.bundle.tankSummaryHistory = res.history || [];
+      } catch {
+        STATE.bundle.tankSummaryHistory = (STATE.bundle.tankSummaryHistory || [])
+          .filter((s) => s.id !== btn.dataset.histDel);
+        await persistPart('tankSummaryHistory', STATE.bundle.tankSummaryHistory);
+      }
+      await OfflineDB.idbSet('vessel:' + STATE.activeVesselId, STATE.bundle);
+      showToast('Deleted');
+      navigate('dashboard');
+    };
+  });
 
   const modeRow = document.createElement('div');
   modeRow.className = 'btn-row no-print';
@@ -2603,6 +2724,76 @@ function voyageReportTypes(current) {
   return list;
 }
 
+/** Build a fuel-report form from voyage details + current ROB sheet / readings. */
+function voyageFuelForm(voyage) {
+  const Core = window.FuelReportCore;
+  if (!Core) return null;
+  const b = STATE.bundle;
+  const form = Core.normalizeForm(b, b.fuelReport || Core.emptyFuelReport(b));
+  const v = voyage || b.voyage || {};
+  form.header = {
+    ...form.header,
+    voyageNo: v.voyageNo != null ? v.voyageNo : form.header.voyageNo,
+    port: v.port != null ? v.port : form.header.port,
+    reportType: v.reportType || form.header.reportType || 'Monitoring',
+    date: v.date || form.header.date,
+    draftFwd: v.draftFwd != null ? v.draftFwd : form.header.draftFwd,
+    draftAft: v.draftAft != null ? v.draftAft : form.header.draftAft,
+    heel: v.heel != null ? v.heel : form.header.heel,
+  };
+  return form;
+}
+
+async function loadConversionTable() {
+  if (STATE.conversionTable) return STATE.conversionTable;
+  try {
+    STATE.conversionTable = await Api.request('/api/reference/conversion');
+    await OfflineDB.idbSet('conversion', STATE.conversionTable);
+  } catch {
+    STATE.conversionTable = (await OfflineDB.idbGet('conversion'))
+      || { apiToDensity15: [], rdToDensity15: [] };
+  }
+  return STATE.conversionTable;
+}
+
+function tankConditionPrintHtml(computed, title) {
+  const UI = window.FuelReport;
+  if (!UI || !computed) return '';
+  return `<section class="calib-print-page fr-tc-page">
+    ${UI.printMasthead(computed, { title: title || 'TANK CONDITION' })}
+    ${(computed.sections || []).map((s) => UI.printConditionSection(s, computed.options)).join('')}
+    <div class="fr-tc-signoff">
+      ${UI.printSignatureBlock(computed.signature && computed.signature.preparedBy, computed.signature && computed.signature.rank)}
+    </div>
+    ${UI.footer(`${(computed.vessel && computed.vessel.name) || ''} · ${title || 'tank condition'}`)}
+  </section>`;
+}
+
+function historyTableHtml(list, draftEntry, emptyMsg) {
+  const draft = draftEntry && draftEntry.form ? [{
+    ...draftEntry,
+    id: draftEntry.id || '__draft__',
+    isDraft: true,
+    savedAt: draftEntry.savedAt || draftEntry.form.updatedAt || '',
+  }] : [];
+  const merged = [...draft, ...(list || []).filter((s) => s && s.id !== '__draft__' && !s.isDraft)];
+  const rows = merged.map((s) => `<tr>
+    <td>${s.isDraft ? '<span class="chip on">Draft</span> ' : ''}${escapeHtml((s.savedAt || '').replace('T', ' ').slice(0, 16))}</td>
+    <td>${escapeHtml(s.reportType || s.voyageNo || '')}</td>
+    <td>${escapeHtml(s.port || '')}</td>
+    <td>${escapeHtml(s.date || '')}</td>
+    <td>${s.isDraft ? 'Current draft — Load to edit' : (s.totalMT != null ? fmt(s.totalMT, 3) + ' MT' : '—')}</td>
+    <td class="btn-row">
+      <button class="btn small" data-hist-print="${escapeHtml(s.id)}">Print</button>
+      <button class="btn small" data-hist-load="${escapeHtml(s.id)}">Load</button>
+      ${s.isDraft ? '' : `<button class="btn small danger" data-hist-del="${escapeHtml(s.id)}">Delete</button>`}
+    </td></tr>`).join('');
+  return `<div class="scroll-x"><table class="data-table">
+    <thead><tr><th>Saved</th><th>Type / Voy</th><th>Port</th><th>Date</th><th>Result</th><th></th></tr></thead>
+    <tbody>${rows || `<tr><td colspan="6" class="empty-state">${escapeHtml(emptyMsg || 'Nothing saved yet')}</td></tr>`}</tbody>
+  </table></div>`;
+}
+
 function renderReport(main) {
   const v = STATE.bundle.voyage || {};
   const Core = window.FuelReportCore;
@@ -2674,11 +2865,28 @@ function renderReport(main) {
   ].join('');
 
   const wrap = document.createElement('div');
+  const readVoyageFromForm = () => ({
+    ...v,
+    vessel: vesselName(),
+    voyageNo: wrap.querySelector('#v-voyage').value,
+    port: wrap.querySelector('#v-port').value,
+    reportType: wrap.querySelector('#v-type').value,
+    date: wrap.querySelector('#v-date').value,
+    trim: parseFloat(wrap.querySelector('#v-trim').value) || 0,
+    heel: parseFloat(wrap.querySelector('#v-heel').value) || 0,
+    draftFwd: parseFloat(wrap.querySelector('#v-dfwd').value) || 0,
+    draftAft: parseFloat(wrap.querySelector('#v-daft').value) || 0,
+    updatedAt: new Date().toISOString(),
+  });
+
   wrap.innerHTML = `
     <div class="page-head no-print"><div><h1>Voyage Report</h1>
-      <div class="desc">Printable ROB summary</div></div>
-      <div class="btn-row"><button class="btn primary" id="btn-print-voy">Print / PDF</button>
-      <button class="btn" id="btn-save-voy">Save voyage details</button></div></div>
+      <div class="desc">Tank Condition face — fits one A4. Drafts stay below for edit and reprint.</div></div>
+      <div class="btn-row">
+        <button class="btn primary" id="btn-print-voy">Print &amp; Save</button>
+        <button class="btn" id="btn-save-voy">Save only</button>
+        <button class="btn" id="btn-print-voy-only">Print only</button>
+      </div></div>
 
     <div class="form-panel no-print">
       <div class="form-row-2">
@@ -2707,54 +2915,121 @@ function renderReport(main) {
       ${sections}
       ${fuelTotalLines}
       <div class="section-title">All categories: ${fmt(gVol, 2)} m³ · ${fmt(gWt, 2)} MT</div>
-      <div class="hint">Fuel oil is totalled separately as HFO/VLSFO and MO/MGO/LSMGO; lube, misc and fresh water are included in the all-categories line.${gUnknown
+      <div class="hint">Print uses the Tank Condition layout (HFO/VLSFO and MO/MGO/LSMGO separate) so the sheet fits one A4.${gUnknown
         ? ` ${gUnknown} tank${gUnknown === 1 ? ' without a density is' : 's without a density are'} outside the MT figure.` : ''}</div>
       ${typeof FuelReport !== 'undefined' ? FuelReport.printSignatureBlock() : ''}
+    </div>
+
+    <div class="form-panel no-print">
+      <div class="section-title" style="margin-top:0">Saved voyage reports</div>
+      <p class="hint" style="margin-top:0">Drafts stay editable. Filed reports can be reprinted or loaded.</p>
+      ${historyTableHtml(STATE.bundle.voyageHistory || [], v.updatedAt ? {
+        form: { voyage: v },
+        voyageNo: v.voyageNo,
+        port: v.port,
+        reportType: v.reportType,
+        date: v.date,
+        savedAt: v.updatedAt,
+        totalMT: gWt,
+      } : null, 'Nothing saved yet — use Save only for a draft, or Print & Save for a filed report')}
     </div>`;
 
-  // Bound after the markup is in place. This used to be assigned before a
-  // trailing `main.innerHTML +=`, which re-parses everything already in main
-  // and throws away its listeners — the save button did nothing at all.
   main.appendChild(wrap);
 
-  wrap.querySelector('#btn-print-voy').onclick = () => {
-    const parts = [...wrap.querySelectorAll('.form-panel:not(.no-print)')]
-      .map((el) => el.outerHTML)
-      .join('');
+  const printVoyage = async (voyage, { saveSnapshot = false } = {}) => {
+    await loadConversionTable();
+    const form = voyageFuelForm(voyage);
+    const computed = Core.computeFuelReport(STATE.bundle, form, STATE.conversionTable);
+    const pages = tankConditionPrintHtml(computed, 'VOYAGE REPORT');
+    if (saveSnapshot) {
+      const entry = {
+        id: `voy_${Date.now().toString(36)}`,
+        savedAt: new Date().toISOString(),
+        voyageNo: voyage.voyageNo,
+        port: voyage.port,
+        reportType: voyage.reportType,
+        date: voyage.date,
+        totalMT: computed.totals && computed.totals.weightAirMT,
+        form: { voyage, fuelReport: form },
+      };
+      STATE.bundle.voyageHistory = [entry, ...(STATE.bundle.voyageHistory || [])].slice(0, 50);
+      await persistPart('voyageHistory', STATE.bundle.voyageHistory);
+    }
     try {
       Branding.beginPrintHold();
-      Branding.printLiveDocument(
-        null,
-        null,
-        {
-          title: 'Voyage Report',
-          bodyClass: '',
-          bodyHtml: `<div class="report-print-doc">${parts}</div>${Branding.printCredit()}`,
-        },
-      );
+      (window.FuelReport ? FuelReport.printHtml(pages) : Branding.printLiveDocument(null, null, {
+        title: 'Voyage Report',
+        bodyHtml: `<div class="fuel-report-print-doc">${pages}</div>${Branding.printCredit()}`,
+      }));
     } catch (err) {
       Branding.endPrintHold();
       console.warn(err);
       showToast('Print failed');
     }
   };
-  wrap.querySelector('#btn-save-voy').onclick = async () => {
-    const voyage = {
-      ...v,
-      vessel: vesselName(),
-      voyageNo: wrap.querySelector('#v-voyage').value,
-      port: wrap.querySelector('#v-port').value,
-      reportType: wrap.querySelector('#v-type').value,
-      date: wrap.querySelector('#v-date').value,
-      trim: parseFloat(wrap.querySelector('#v-trim').value) || 0,
-      heel: parseFloat(wrap.querySelector('#v-heel').value) || 0,
-      draftFwd: parseFloat(wrap.querySelector('#v-dfwd').value) || 0,
-      draftAft: parseFloat(wrap.querySelector('#v-daft').value) || 0,
-    };
+
+  wrap.querySelector('#btn-print-voy').onclick = async () => {
+    const voyage = readVoyageFromForm();
     await persistPart('voyage', voyage);
-    showToast('Voyage details saved');
+    await printVoyage(voyage, { saveSnapshot: true });
+    showToast('Voyage report printed & saved');
     navigate('report');
   };
+  wrap.querySelector('#btn-print-voy-only').onclick = async () => {
+    await printVoyage(readVoyageFromForm(), { saveSnapshot: false });
+  };
+  wrap.querySelector('#btn-save-voy').onclick = async () => {
+    const voyage = readVoyageFromForm();
+    await persistPart('voyage', voyage);
+    showToast('Draft saved');
+    navigate('report');
+  };
+
+  wrap.querySelectorAll('[data-hist-print]').forEach((btn) => {
+    btn.onclick = async () => {
+      let entry = (STATE.bundle.voyageHistory || []).find((s) => s.id === btn.dataset.histPrint);
+      if (!entry && btn.dataset.histPrint === '__draft__') {
+        entry = { form: { voyage: readVoyageFromForm() }, isDraft: true };
+      }
+      if (!entry || !entry.form) { showToast('That saved report has no sheet to print'); return; }
+      const voyage = entry.form.voyage || entry.form;
+      if (entry.form.fuelReport) STATE.bundle.fuelReport = entry.form.fuelReport;
+      await printVoyage(voyage, { saveSnapshot: false });
+    };
+  });
+  wrap.querySelectorAll('[data-hist-load]').forEach((btn) => {
+    btn.onclick = async () => {
+      let entry = (STATE.bundle.voyageHistory || []).find((s) => s.id === btn.dataset.histLoad);
+      if (!entry && btn.dataset.histLoad === '__draft__') {
+        entry = { form: { voyage: v }, isDraft: true };
+      }
+      if (!entry || !entry.form) return;
+      const voyage = { ...(entry.form.voyage || entry.form), updatedAt: new Date().toISOString() };
+      await persistPart('voyage', voyage);
+      showToast(entry.isDraft || entry.id === '__draft__' ? 'Draft loaded for editing' : 'Voyage report loaded');
+      navigate('report');
+    };
+  });
+  wrap.querySelectorAll('[data-hist-del]').forEach((btn) => {
+    btn.onclick = async () => {
+      if (!confirm('Delete this saved report?')) return;
+      try {
+        const res = await Api.request(
+          `/api/vessels/${STATE.activeVesselId}/voyage-history/${encodeURIComponent(btn.dataset.histDel)}`,
+          { method: 'DELETE' },
+        );
+        STATE.bundle.voyageHistory = res.history || [];
+        await OfflineDB.idbSet('vessel:' + STATE.activeVesselId, STATE.bundle);
+        showToast('Deleted');
+        navigate('report');
+      } catch (err) {
+        STATE.bundle.voyageHistory = (STATE.bundle.voyageHistory || []).filter((s) => s.id !== btn.dataset.histDel);
+        await persistPart('voyageHistory', STATE.bundle.voyageHistory);
+        showToast('Deleted');
+        navigate('report');
+      }
+    };
+  });
 }
 
 /* ---------- Vessel setup ---------- */

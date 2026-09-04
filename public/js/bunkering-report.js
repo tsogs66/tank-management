@@ -83,23 +83,30 @@ const BunkerReports = (() => {
     return pushServer();
   }
 
-  function historyRows(list, kind) {
-    const rows = (list || []).map((s) => `<tr>
-      <td>${esc((s.savedAt || '').replace('T', ' ').slice(0, 16))}</td>
+  function historyRows(list, kind, draftEntry) {
+    const draft = draftEntry && draftEntry.form ? [{
+      ...draftEntry,
+      id: draftEntry.id || '__draft__',
+      isDraft: true,
+      savedAt: draftEntry.savedAt || draftEntry.form.updatedAt || '',
+    }] : [];
+    const merged = [...draft, ...(list || []).filter((s) => s && s.id !== '__draft__' && !s.isDraft)];
+    const rows = merged.map((s) => `<tr>
+      <td>${s.isDraft ? '<span class="chip on">Draft</span> ' : ''}${esc((s.savedAt || '').replace('T', ' ').slice(0, 16))}</td>
       <td>${esc(s.voyageNo || '')}</td>
       <td>${esc(s.port || '')}</td>
       <td>${esc(kind === 'plans' ? `${n(s.receivedMT, 3, '—')} / ${n(s.bunkerQuantityMT, 2, '—')} MT`
         : kind === 'summaries' ? `${n(s.receivedQuantityMT, 3, '—')} MT · BDN ${n(s.bdnQuantityMT, 2, '—')}`
         : (s.grades || []).filter((g) => g.presentMT != null)
-            .map((g) => `${g.label} ${n(g.presentMT, 1)}`).join(' · '))}</td>
+            .map((g) => `${g.label} ${n(g.presentMT, 1)}`).join(' · ') || (s.isDraft ? 'Current draft — Load to edit' : ''))}</td>
       <td class="btn-row">
         <button class="btn small" data-print="${esc(s.id)}">Print</button>
         <button class="btn small" data-load="${esc(s.id)}">Load</button>
-        <button class="btn small danger" data-del="${esc(s.id)}">Delete</button>
+        ${s.isDraft ? '' : `<button class="btn small danger" data-del="${esc(s.id)}">Delete</button>`}
       </td></tr>`).join('');
     return `<div class="scroll-x"><table class="data-table">
       <thead><tr><th>Saved</th><th>Voyage</th><th>Port</th><th>Result</th><th></th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="5" class="empty-state">Nothing saved yet</td></tr>'}</tbody>
+      <tbody>${rows || '<tr><td colspan="5" class="empty-state">Nothing saved yet — use Save only for a draft, or Print &amp; Save for a filed report</td></tr>'}</tbody>
     </table></div>`;
   }
 
@@ -125,16 +132,19 @@ const BunkerReports = (() => {
     },
   };
 
-  function bindHistory(wrap, kind, onLoad) {
+  function bindHistory(wrap, kind, onLoad, draftForm) {
     wrap.querySelectorAll('[data-print]').forEach((btn) => {
       btn.onclick = () => {
-        const entry = (bunkerHistory()[kind] || []).find((s) => s.id === btn.dataset.print);
+        let entry = (bunkerHistory()[kind] || []).find((s) => s.id === btn.dataset.print);
+        if (!entry && btn.dataset.print === '__draft__' && draftForm) {
+          entry = { form: draftForm, id: '__draft__' };
+        }
         if (!entry || !entry.form) { showToast('That saved record has no sheet to print'); return; }
         const build = REPRINTERS[kind];
         if (!build) return;
         try {
           const { fresh, pages } = build(entry);
-          UI.warnIfDrifted(UI.snapshotDrift(entry, fresh));
+          if (!entry.isDraft && entry.id !== '__draft__') UI.warnIfDrifted(UI.snapshotDrift(entry, fresh));
           UI.printHtml(pages);
         } catch (err) {
           console.warn(err);
@@ -144,21 +154,26 @@ const BunkerReports = (() => {
     });
     wrap.querySelectorAll('[data-load]').forEach((btn) => {
       btn.onclick = () => {
-        const entry = (bunkerHistory()[kind] || []).find((s) => s.id === btn.dataset.load);
+        let entry = (bunkerHistory()[kind] || []).find((s) => s.id === btn.dataset.load);
+        if (!entry && btn.dataset.load === '__draft__' && draftForm) {
+          entry = { form: draftForm, id: '__draft__' };
+        }
         if (entry) onLoad(entry);
       };
     });
     wrap.querySelectorAll('[data-del]').forEach((btn) => {
       btn.onclick = async () => {
-        if (!confirm('Delete this saved record?')) return;
+        if (!confirm('Delete this saved report?')) return;
         try {
           const res = await Api.request(
-            `/api/vessels/${STATE.activeVesselId}/bunker-history/${kind}/${btn.dataset.del}`,
-            { method: 'DELETE' });
-          bundle().bunkerHistory = res.history;
-          navigate(view.page);
+            `/api/vessels/${STATE.activeVesselId}/bunker-history/${kind}/${encodeURIComponent(btn.dataset.del)}`,
+            { method: 'DELETE' },
+          );
+          if (res.history) bundle().bunkerHistory = res.history;
+          showToast('Deleted');
+          navigate(kind === 'plans' ? 'bunker-plan' : kind === 'after' ? 'bunker-after' : 'bunker-summary');
         } catch (err) {
-          showToast(err.message);
+          showToast(err.message || 'Could not delete');
         }
       };
     });
@@ -291,7 +306,13 @@ const BunkerReports = (() => {
       ${planTankTablesPanel(c)}
       <div class="form-panel no-print">
         <div class="section-title" style="margin-top:0">Saved plans</div>
-        ${historyRows(bunkerHistory().plans, 'plans')}
+        <p class="hint" style="margin-top:0">Drafts stay editable. Filed reports can be reprinted or loaded.</p>
+        ${historyRows(bunkerHistory().plans, 'plans', view.plan && view.plan.updatedAt ? {
+          form: view.plan,
+          voyageNo: view.plan.header && view.plan.header.voyageNo,
+          port: view.plan.header && view.plan.header.port,
+          savedAt: view.plan.updatedAt,
+        } : null)}
       </div>`;
     main.appendChild(wrap);
 
@@ -1259,8 +1280,8 @@ const BunkerReports = (() => {
     bindHistory(wrap, 'plans', (entry) => {
       view.pendingPlan = entry.form;
       navigate('bunker-plan');
-      showToast('Plan loaded');
-    });
+      showToast(entry.isDraft || entry.id === '__draft__' ? 'Draft loaded for editing' : 'Plan loaded');
+    }, view.plan);
   }
 
   /* --------------------------------------------------------- plan print ---- */
@@ -1403,7 +1424,13 @@ const BunkerReports = (() => {
       ${afterGradesPanel(c)}
       <div class="form-panel no-print">
         <div class="section-title" style="margin-top:0">Saved after-bunkering reports</div>
-        ${historyRows(bunkerHistory().after, 'after')}
+        <p class="hint" style="margin-top:0">Drafts stay here for editing. Filed reports can be reprinted or loaded back into the form.</p>
+        ${historyRows(bunkerHistory().after, 'after', view.after && view.after.updatedAt ? {
+          form: view.after,
+          voyageNo: view.after.header && view.after.header.voyageNo,
+          port: view.after.header && view.after.header.port,
+          savedAt: view.after.updatedAt,
+        } : null)}
       </div>`;
     main.appendChild(wrap);
 
@@ -1427,8 +1454,12 @@ const BunkerReports = (() => {
           <select data-head="reportType">${types}</select></label>
         <label class="fr-field"><span>DRAFT FWD</span>
           <input type="number" step="any" data-head="draftFwd" value="${esc(h.draftFwd)}"></label>
+        <label class="fr-field"><span>DRAFT AFT</span>
+          <input type="number" step="any" data-head="draftAft" value="${esc(h.draftAft)}"></label>
         <label class="fr-field"><span>MEAN DRAFT</span>
           <output class="fr-out" data-ba-head="meanDraft"></output></label>
+        <label class="fr-field"><span>TRIM</span>
+          <output class="fr-out" data-ba-head="trim"></output></label>
         <label class="fr-field"><span>HEEL</span>
           <select data-head="heel">${heels}</select></label>
         <label class="fr-field"><span>ER TEMP.</span>
@@ -1438,10 +1469,6 @@ const BunkerReports = (() => {
           <input type="date" data-head="date" value="${esc(h.date)}"></label>
         <label class="fr-field"><span>TIME</span>
           <input type="time" data-head="time" value="${esc(h.time)}"></label>
-        <label class="fr-field"><span>DRAFT AFT</span>
-          <input type="number" step="any" data-head="draftAft" value="${esc(h.draftAft)}"></label>
-        <label class="fr-field"><span>TRIM</span>
-          <output class="fr-out" data-ba-head="trim"></output></label>
         <label class="fr-field fr-field-wide"><span>PORT</span>
           <input data-head="port" value="${esc(h.port)}"></label>
         <label class="fr-field"><span>SW TEMP.</span>
@@ -1553,8 +1580,8 @@ const BunkerReports = (() => {
     bindHistory(wrap, 'after', (entry) => {
       view.pendingAfter = entry.form;
       navigate('bunker-after');
-      showToast('After-bunkering report loaded');
-    });
+      showToast(entry.isDraft || entry.id === '__draft__' ? 'Draft loaded for editing' : 'After-bunkering report loaded');
+    }, view.after);
   }
 
   function afterPrintPages(c) {
@@ -1582,28 +1609,25 @@ const BunkerReports = (() => {
       </tr>`;
     }).join('');
 
-    return `<section class="calib-print-page">
-      ${UI.masthead('TANK CONDITION AFTER BUNKERING', `${c.vessel.name} · ${c.header.condition || ''}`)}
-      ${UI.metaGrid([
-        ['Vessel', c.vessel.name],
-        ['Voyage No.', c.header.voyageNo],
-        ['Report', c.header.reportType],
-        ['Port', c.header.port],
-        ['Date / time', c.header.dateTime],
-        ['Draft fwd / aft', `${n(c.header.draftFwd, 2)} / ${n(c.header.draftAft, 2)} m`],
-        ['Mean draft', `${n(c.header.meanDraft, 2)} m`],
-        ['Trim / heel', `${n(c.header.trim, 2)} (${c.header.trimLabel}) · ${c.header.heelLabel}`],
-      ])}
-      ${c.sections.map((s) => UI.printSectionTable(s, c.options)).join('')}
-      <h3 class="fr-print-h3">ROB prior bunkering → received → present (MT)</h3>
-      <table class="fr-print-table">
-        <thead><tr><th>Grade</th><th>ROB prior bunkering</th><th>Added</th><th>Present</th></tr></thead>
-        <tbody>${gradeRows || '<tr><td colspan="4">—</td></tr>'}</tbody>
-        <tfoot>${gradeGroupRows}</tfoot>
-      </table>
-      <p class="calib-print-note">Added = present − ROB prior bunkering. A negative figure is consumption
-        between the two soundings, not a delivery. HFO/VLSFO and MO/MGO/LSMGO totals are kept separate.</p>
-      ${UI.printSignatureBlock(c.signature && c.signature.preparedBy, c.signature && c.signature.rank)}
+    /* Same face as Tank Condition: masthead facts put Mean Draft under the
+       draft pair, and HFO/VLSFO vs MO/MGO/LSMGO each get their own table. */
+    return `<section class="calib-print-page fr-tc-page">
+      ${UI.printMasthead(c, { title: 'TANK CONDITION AFTER BUNKERING' })}
+      ${c.sections.map((s) => UI.printConditionSection(s, c.options)).join('')}
+      <div class="fr-tc-cards">
+        <div class="fr-tc-card">
+          <h4>ROB prior bunkering → received → present (MT)</h4>
+          <table class="fr-tc-mini">
+            <thead><tr><th>Grade</th><th>Prior</th><th>Added</th><th>Present</th></tr></thead>
+            <tbody>${gradeRows || '<tr><td colspan="4">—</td></tr>'}</tbody>
+            <tfoot>${gradeGroupRows}</tfoot>
+          </table>
+          <p class="calib-print-note">Added = present − ROB prior. HFO/VLSFO and MO/MGO/LSMGO totals stay separate.</p>
+        </div>
+      </div>
+      <div class="fr-tc-signoff">
+        ${UI.printSignatureBlock(c.signature && c.signature.preparedBy, c.signature && c.signature.rank)}
+      </div>
       ${UI.footer(`${c.vessel.name} · after bunkering · ${c.header.dateTime}`)}
     </section>`;
   }
@@ -1645,7 +1669,13 @@ const BunkerReports = (() => {
       </div>
       <div class="form-panel no-print">
         <div class="section-title" style="margin-top:0">Saved summaries</div>
-        ${historyRows(bunkerHistory().summaries, 'summaries')}
+        <p class="hint" style="margin-top:0">Saved drafts stay editable. Filed reports can be reprinted or loaded.</p>
+        ${historyRows(bunkerHistory().summaries, 'summaries', view.summary && view.summary.updatedAt ? {
+          form: view.summary,
+          voyageNo: view.summary.voyageNo,
+          port: view.summary.port,
+          savedAt: view.summary.updatedAt,
+        } : null)}
       </div>`;
     main.appendChild(wrap);
 
@@ -1842,8 +1872,68 @@ const BunkerReports = (() => {
     bindHistory(wrap, 'summaries', (entry) => {
       view.pendingSummary = entry.form;
       navigate('bunker-summary');
-      showToast('Summary loaded');
-    });
+      showToast(entry.isDraft || entry.id === '__draft__' ? 'Draft loaded for editing' : 'Summary loaded');
+    }, view.summary);
+  }
+
+  /** Fuel onboard split into HFO/VLSFO and MO/MGO/LSMGO tables (Tank Condition style). */
+  function fuelOnboardSectionHtml(c) {
+    return (FRCore.SECTIONS || []).map((sec) => {
+      const members = (c.fuelOnboard || []).filter((g) => (sec.grades || []).includes(g.id));
+      const rows = members.map((g) => `<tr>
+        <td class="fr-print-name">${esc(g.label)}</td>
+        <td>${n(g.previousMT, 3, '—')}</td>
+        <td>${g.receivedMT != null ? signed(g.receivedMT, 3) : '—'}</td>
+        <td class="fr-print-weight">${n(g.presentMT, 3, '—')}</td>
+      </tr>`).join('');
+      const prev = members.reduce((s, g) => s + (Number(g.previousMT) || 0), 0);
+      const recv = members.reduce((s, g) => s + (Number(g.receivedMT) || 0), 0);
+      const present = members.reduce((s, g) => s + (Number(g.presentMT) || 0), 0);
+      const anyPrev = members.some((g) => g.previousMT != null);
+      const anyRecv = members.some((g) => g.receivedMT != null);
+      const anyPresent = members.some((g) => g.presentMT != null);
+      return `<section class="fr-tc-block">
+        <div class="fr-tc-block-head">
+          <h3>${esc(sec.title)}</h3>
+          <span>${members.length} grade${members.length === 1 ? '' : 's'}</span>
+        </div>
+        <table class="fr-tc-table">
+          <thead><tr><th class="fr-print-name">Grade</th><th>Previous</th><th>Received</th><th>Present MT</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="4">—</td></tr>'}</tbody>
+          <tfoot><tr>
+            <th class="fr-print-name">${esc(sec.totalLabel || 'TOTAL')}</th>
+            <td><b>${anyPrev ? n(prev, 3) : '—'}</b></td>
+            <td><b>${anyRecv ? signed(recv, 3) : '—'}</b></td>
+            <td class="fr-tc-total-mt"><b>${anyPresent ? n(present, 3) : '—'}</b></td>
+          </tr></tfoot>
+        </table>
+      </section>`;
+    }).join('');
+  }
+
+  /** Tank Condition face for before/after sheets attached to the summary pack. */
+  function summaryConditionPage(computed, title, note) {
+    if (!computed || !computed.sections || !computed.sections.length) {
+      return `<section class="calib-print-page fr-tc-page">
+        ${UI.masthead(title, `${cVessel(computed)} · ${esc((computed && computed.header && computed.header.date) || '')}`)}
+        <p class="calib-print-note">${esc(note || 'No tank condition recorded for this stage.')}</p>
+        ${UI.printSignatureBlock()}
+        ${UI.footer(title)}
+      </section>`;
+    }
+    return `<section class="calib-print-page fr-tc-page">
+      ${UI.printMasthead(computed, { title })}
+      ${computed.sections.map((s) => UI.printConditionSection(s, computed.options)).join('')}
+      <p class="calib-print-note">${esc(note || '')}</p>
+      <div class="fr-tc-signoff">
+        ${UI.printSignatureBlock(computed.signature && computed.signature.preparedBy, computed.signature && computed.signature.rank)}
+      </div>
+      ${UI.footer(`${computed.vessel && computed.vessel.name ? computed.vessel.name : ''} · ${title}`)}
+    </section>`;
+  }
+
+  function cVessel(computed) {
+    return (computed && computed.vessel && computed.vessel.name) || '';
   }
 
   function summaryPrintPages(c) {
@@ -1853,51 +1943,12 @@ const BunkerReports = (() => {
         <td>${esc(v.date || '—')}</td><td>${esc(v.time || '—')}</td></tr>`;
     }).join('');
 
-    const fuelRows = c.fuelOnboard.map((g) => `<tr>
-      <td class="fr-print-name">${esc(g.label)}</td>
-      <td>${n(g.previousMT, 3, '—')}</td>
-      <td>${g.receivedMT != null ? signed(g.receivedMT, 3) : '—'}</td>
-      <td class="fr-print-weight">${n(g.presentMT, 3, '—')}</td>
-    </tr>`).join('');
-    const fuelGroupRows = (FRCore.SECTIONS || []).map((sec) => {
-      const members = (c.fuelOnboard || []).filter((g) => (sec.grades || []).includes(g.id));
-      if (!members.length) return '';
-      const prev = members.reduce((s, g) => s + (Number(g.previousMT) || 0), 0);
-      const recv = members.reduce((s, g) => s + (Number(g.receivedMT) || 0), 0);
-      const present = members.reduce((s, g) => s + (Number(g.presentMT) || 0), 0);
-      const anyPrev = members.some((g) => g.previousMT != null);
-      const anyRecv = members.some((g) => g.receivedMT != null);
-      const anyPresent = members.some((g) => g.presentMT != null);
-      return `<tr>
-        <th class="fr-print-name">${esc(sec.totalLabel || sec.shortLabel || sec.title)}</th>
-        <td><b>${anyPrev ? n(prev, 3) : '—'}</b></td>
-        <td><b>${anyRecv ? signed(recv, 3) : '—'}</b></td>
-        <td class="fr-print-weight"><b>${anyPresent ? n(present, 3) : '—'}</b></td>
-      </tr>`;
-    }).join('');
-
     const lubeRows = FRCore.LUBE_FIELDS.map((l) => `<tr>
       <td class="fr-print-name">${esc(l.label)}</td>
       <td>${n(c.lubes[l.id], 2, '—')}</td>
     </tr>`).join('');
 
-    const tankRows = c.tanksAfter.map((r) => `<tr>
-      <td class="fr-print-name">${esc(r.name)}</td>
-      <td>${n(r.capacity100M3, 1)}</td>
-      <td>${n(r.capacity85M3, 2)}</td>
-      <td>${esc(r.methodLabel)}</td>
-      <td>${n(r.reading, 0)}</td>
-      <td>${n(r.measuredM3, 3)}</td>
-      <td>${n(r.tempC, 0)}</td>
-      <td>${n(r.density15, 4)}</td>
-      <td>${n(r.vcf, 4)}</td>
-      <td>${pct(r.volumePercent)}</td>
-      <td>${n(r.gsv15M3, 3)}</td>
-      <td>${n(r.wcf, 4)}</td>
-      <td class="fr-print-weight">${n(r.weightAirMT, 3)}</td>
-    </tr>`).join('');
-
-    return `<section class="calib-print-page">
+    const cover = `<section class="calib-print-page fr-tc-page">
       ${UI.masthead('BUNKERING REPORT SUMMARY', `${c.vessel.name} · ${c.port || ''}`)}
       ${UI.metaGrid([
         ['Vessel', c.vessel.name],
@@ -1919,14 +1970,6 @@ const BunkerReports = (() => {
           <table class="fr-print-table">
             <thead><tr><th>Event</th><th>Date</th><th>Time</th></tr></thead>
             <tbody>${eventRows}</tbody>
-          </table>
-        </div>
-        <div>
-          <h3 class="fr-print-h3">Fuel remaining onboard (MT)</h3>
-          <table class="fr-print-table">
-            <thead><tr><th>Grade</th><th>Previous</th><th>Received</th><th>Present</th></tr></thead>
-            <tbody>${fuelRows}</tbody>
-            <tfoot>${fuelGroupRows}</tfoot>
           </table>
           <h3 class="fr-print-h3">Lubes remaining onboard</h3>
           <table class="fr-print-table"><tbody>${lubeRows}</tbody></table>
@@ -1951,26 +1994,27 @@ const BunkerReports = (() => {
           </tbody></table>
         </div>
       </div>
+      <h3 class="fr-print-h3">Fuel remaining onboard (MT)</h3>
+      <p class="calib-print-note">HFO/VLSFO and MO/MGO/LSMGO are totalled in separate tables — same face as Tank Condition.</p>
+      ${fuelOnboardSectionHtml(c)}
       <h3 class="fr-print-h3">Remarks</h3>
       <p class="calib-print-note">${esc(c.remarks || '—')}</p>
       ${UI.printSignatureBlock()}
       ${UI.footer(`${c.vessel.name} · bunkering summary · ${c.date || ''}`)}
-    </section>
-    <section class="calib-print-page">
-      ${UI.masthead('TANKS AFTER BUNKERING', `${c.vessel.name} · ${c.date || ''}`)}
-      <table class="fr-print-table">
-        <thead><tr>
-          <th>Tank</th><th>Vol 100%</th><th>Vol 85%</th><th>Method</th><th>Sounding mm</th>
-          <th>Observed m³</th><th>Temp °C</th><th>Density @15</th><th>VCF 54-B</th>
-          <th>Observed vol %</th><th>Corrected m³</th><th>WCF 56</th><th>Weight air MT</th>
-        </tr></thead>
-        <tbody>${tankRows || '<tr><td colspan="13">No soundings recorded</td></tr>'}</tbody>
-      </table>
-      <p class="calib-print-note">Tank condition as measured after the delivery — the same figures the
-        after-bunkering report was saved with.</p>
-      ${UI.printSignatureBlock()}
-      ${UI.footer(`${c.vessel.name} · tanks after bunkering`)}
     </section>`;
+
+    const beforePage = summaryConditionPage(
+      c.before,
+      'TANK CONDITION BEFORE BUNKERING',
+      'ROB prior to the delivery — from the fuel oil report (or bunker plan before sheet).',
+    );
+    const afterPage = summaryConditionPage(
+      c.after,
+      'TANK CONDITION AFTER BUNKERING',
+      'Tank condition as measured after the delivery — same figures as the after-bunkering report.',
+    );
+
+    return cover + beforePage + afterPage;
   }
 
   return {
