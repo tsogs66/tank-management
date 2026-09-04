@@ -45,16 +45,26 @@ jobs:
       - name: Build the on-device route copy
         run: npm run embed
 
+      # The server's output goes to a file rather than the step's stdout: a
+      # background process that inherits the pipe keeps the runner waiting on
+      # it long after the step's own commands are done, and the job sits at
+      # "in progress" until it times out. Same reason it is killed at the end.
       - name: Seed a vessel and boot the server
         run: |
           set -e
           npm run seed
-          npm start &
+          npm start > /tmp/tank-server.log 2>&1 &
+          echo $! > /tmp/tank-server.pid
           for _ in $(seq 1 30); do
             curl -fsS http://localhost:3080/api/health && break
             sleep 1
           done
           curl -fsS http://localhost:3080/api/health
+          kill "$(cat /tmp/tank-server.pid)" || true
+
+      - name: Server log
+        if: always()
+        run: cat /tmp/tank-server.log || true
 
   parity:
     name: Server / on-device parity
@@ -79,9 +89,15 @@ jobs:
           set -e
           npm run embed
           npm run seed
-          npm start &
+          npm start > /tmp/tank-server.log 2>&1 &
+          echo $! > /tmp/tank-server.pid
           for _ in $(seq 1 30); do
             curl -fsS http://localhost:3080/api/health && break
             sleep 1
           done
           node scripts/parity-check.js
+          kill "$(cat /tmp/tank-server.pid)" || true
+
+      - name: Server log
+        if: always()
+        run: cat /tmp/tank-server.log || true
