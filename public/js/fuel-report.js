@@ -943,11 +943,24 @@ const FuelReport = (() => {
       <td class="${!short && g.differenceMT != null && Math.abs(g.differenceMT) > 0.001 ? 'fr-tc-diff' : ''}">${signed(g.differenceMT, 3) || '—'}${short ? ' †' : ''}</td>
     </tr>`;
     }).join('');
-    const lubeRows = c.lube.rows.map((r) => `<tr>
-      <td class="fr-print-name">${esc(r.label)}</td>
-      <td>${n(r.litres, 0, '—')}</td>
-      <td>${n(r.mt, 3, '—')}</td>
-    </tr>`).join('');
+    /* Transposed: categories across the top, LTRS / MT as two short rows.
+       Saves a row per grade so the ROB sheet stays on one A4. */
+    const lubeCats = c.lube.rows || [];
+    const lubeHead = `<tr>
+      <th class="fr-print-name">Metric</th>
+      ${lubeCats.map((r) => `<th class="fr-print-name">${esc(r.label)}</th>`).join('')}
+      <th>TOTAL</th>
+    </tr>`;
+    const lubeBody = `<tr>
+      <th class="fr-print-name">LTRS</th>
+      ${lubeCats.map((r) => `<td>${n(r.litres, 0, '—')}</td>`).join('')}
+      <td>${n(c.lube.totalLitres, 0)}</td>
+    </tr>
+    <tr>
+      <th class="fr-print-name">MT</th>
+      ${lubeCats.map((r) => `<td>${n(r.mt, 3, '—')}</td>`).join('')}
+      <td>${n(c.lube.totalMT, 3)}</td>
+    </tr>`;
     const receivedRows = c.received.map((r) =>
       `<tr><td class="fr-print-name">${esc(r.label)}</td><td>${n(r.value, 3, '—')}</td></tr>`).join('');
     const consVal = (list, id) => n((list.find((x) => x.id === id) || {}).value, 2, '—');
@@ -957,12 +970,11 @@ const FuelReport = (() => {
       ${printMasthead(c)}
       ${c.sections.map((s) => printConditionSection(s, c.options)).join('')}
       <div class="fr-tc-cards">
-        <div class="fr-tc-card">
+        <div class="fr-tc-card fr-tc-card-lube">
           <h4>Lube Oil Quantities</h4>
-          <table class="fr-tc-mini">
-            <thead><tr><th>Category</th><th>LTRS</th><th>MT</th></tr></thead>
-            <tbody>${lubeRows}</tbody>
-            <tfoot><tr><th>TOTAL</th><td>${n(c.lube.totalLitres, 0)}</td><td>${n(c.lube.totalMT, 3)}</td></tr></tfoot>
+          <table class="fr-tc-mini fr-tc-lube-transpose">
+            <thead>${lubeHead}</thead>
+            <tbody>${lubeBody}</tbody>
           </table>
         </div>
         <div class="fr-tc-card">
@@ -981,7 +993,7 @@ const FuelReport = (() => {
             </tbody>
           </table>
         </div>
-        <div class="fr-tc-card">
+        <div class="fr-tc-card fr-tc-card-survey">
           <h4>Survey Summary</h4>
           <table class="fr-tc-mini">
             <thead><tr><th>Grade</th><th>Monitoring</th><th>Log book</th><th>Difference</th></tr></thead>

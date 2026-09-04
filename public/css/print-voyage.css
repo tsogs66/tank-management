@@ -31,7 +31,7 @@
 }
 .pr-doc-vessel {
   font-family: 'Oswald', sans-serif;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -39,7 +39,7 @@
 }
 .pr-doc-dept {
   font-family: 'Inter', sans-serif;
-  font-size: 9px;
+  font-size: 8px;
   color: var(--pr-muted);
   margin-top: 0;
   letter-spacing: 0.02em;
@@ -48,7 +48,7 @@
 .pr-doc-badge {
   display: inline-block;
   font-family: 'Oswald', sans-serif;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -64,7 +64,7 @@
 .pr-doc-title {
   margin: 0;
   font-family: 'Oswald', sans-serif;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -73,7 +73,7 @@
 }
 .pr-doc-subtitle {
   font-family: 'Inter', sans-serif;
-  font-size: 9px;
+  font-size: 8px;
   color: var(--pr-muted);
   margin-top: 0;
 }
@@ -81,14 +81,14 @@
 .pr-doc-voy-label {
   display: block;
   font-family: 'Inter', sans-serif;
-  font-size: 9px;
+  font-size: 8px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--pr-muted);
 }
 .pr-doc-voy-num {
   font-family: 'IBM Plex Mono', monospace;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   color: var(--pr-navy);
 }
@@ -122,7 +122,7 @@
 .bc-pr-meta-lbl {
   display: block;
   font-family: 'Inter', sans-serif;
-  font-size: 9px;
+  font-size: 8px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--pr-muted);
@@ -132,7 +132,7 @@
 .calib-print-meta .v,
 .bc-pr-meta-val {
   font-family: 'IBM Plex Mono', monospace;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
   color: var(--pr-ink);
 }
@@ -143,7 +143,7 @@
   border: 1px solid var(--pr-border);
   border-radius: 1px;
   overflow: hidden;
-  margin-bottom: 1.5mm;
+  margin-bottom: 1mm;
   page-break-inside: avoid;
 }
 .pr-section-title,
@@ -153,11 +153,11 @@
 .fr-preview .fr-print-h3,
 .fr-preview .fr-tc-block-head {
   margin: 0;
-  padding: 0.8mm 1.3mm;
+  padding: 0.5mm 1mm;
   background: var(--pr-navy) !important;
   color: #fff !important;
   font-family: 'Oswald', sans-serif;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -179,9 +179,9 @@
   letter-spacing: inherit;
   color: inherit;
 }
-.fr-tc-block-head span { font-size: 7.5pt; opacity: 0.85; font-family: 'Inter', sans-serif; }
+.fr-tc-block-head span { font-size: 6.5pt; opacity: 0.85; font-family: 'Inter', sans-serif; }
 .pr-section-body,
-.bc-pr-section-body { padding: 1mm 1.3mm; background: #fff; }
+.bc-pr-section-body { padding: 0.7mm 1mm; background: #fff; }
 
 .pr-table,
 .bc-pr-table,
@@ -196,7 +196,7 @@ table.fr-tc-mini,
 .report-print-doc .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 10px;
+  font-size: 9px;
   table-layout: fixed;
   font-variant-numeric: tabular-nums;
 }
@@ -217,9 +217,9 @@ table.fr-tc-mini th,
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  padding: 0.65mm 0.8mm;
+  padding: 0.4mm 0.5mm;
   border: 1px solid var(--pr-navy) !important;
-  font-size: 9px;
+  font-size: 8px;
   text-align: center;
   vertical-align: middle;
   -webkit-print-color-adjust: exact;
@@ -236,12 +236,12 @@ table.fr-tc-mini td,
 .fr-preview table.fr-tc-table td,
 .fr-preview table.fr-tc-mini td,
 .report-print-doc .data-table td {
-  padding: 0.55mm 0.8mm;
+  padding: 0.35mm 0.5mm;
   border: 1px solid var(--pr-border) !important;
   text-align: center;
   vertical-align: middle;
   font-family: 'IBM Plex Mono', monospace;
-  font-size: 9px;
+  font-size: 8px;
   color: var(--pr-ink);
   word-wrap: break-word;
   overflow-wrap: anywhere;
@@ -333,11 +333,11 @@ table.fr-tc-mini tfoot td,
 }
 .fr-tc-card h4 {
   margin: 0;
-  padding: 0.6mm 1.2mm;
+  padding: 0.4mm 1mm;
   background: var(--pr-navy) !important;
   color: #fff !important;
   font-family: 'Oswald', sans-serif;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -346,6 +346,30 @@ table.fr-tc-mini tfoot td,
   print-color-adjust: exact;
 }
 .fr-tc-card table { margin: 0; }
+
+/* Bottom cards: lube (transposed, wide) and survey span the full row so the
+   sheet packs into one A4 without shrinking the main tank tables further. */
+.fr-tc-cards,
+.fr-preview .fr-tc-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.2mm;
+  margin-top: 1.2mm;
+}
+.fr-tc-card-lube,
+.fr-tc-card-survey {
+  grid-column: 1 / -1;
+}
+table.fr-tc-lube-transpose th.fr-print-name,
+table.fr-tc-lube-transpose td.fr-print-name,
+table.fr-tc-lube-transpose th:first-child,
+table.fr-tc-lube-transpose td:first-child,
+table.fr-tc-lube-transpose tbody th {
+  text-align: left;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  white-space: nowrap;
+}
 
 /* ---------- Mastheads → Voyage header look ---------- */
 .calib-print-masthead,
@@ -602,8 +626,8 @@ table.calib-print-table td.even-keel,
   .calib-print-page {
     color: var(--pr-ink);
     font-family: 'Inter', sans-serif;
-    font-size: 10px;
-    line-height: 1.35;
+    font-size: 9px;
+    line-height: 1.25;
     background: #fff !important;
     border: none !important;
     outline: none !important;
@@ -614,9 +638,9 @@ table.calib-print-table td.even-keel,
   .fuel-report-print-doc,
   #bc-print-root { padding: 0 !important; }
   .bc-pr-sheet,
-  .report-print-doc { padding: 5mm !important; box-sizing: border-box !important; }
+  .report-print-doc { padding: 4mm !important; box-sizing: border-box !important; }
   .calib-print-page {
-    padding: 5mm !important;
+    padding: 4mm !important;
     box-sizing: border-box !important;
   }
   .calib-print-page:last-of-type {
@@ -625,12 +649,15 @@ table.calib-print-table td.even-keel,
   }
   .fuel-report-print-doc .fr-print-h3 {
     display: block;
-    margin: 1.5mm 0 0;
+    margin: 1mm 0 0;
   }
-  /* Slightly tighter vertical rhythm so ROB / fuel oil stays on one page
-     without shrinking type. */
-  .fr-tc-block { margin-bottom: 1.5mm; }
-  .fr-tc-cards { gap: 2mm; margin-top: 2mm; }
-  .fr-tc-signoff { margin-top: 3mm; }
-  .app-credit-print { margin-top: 2mm; page-break-before: avoid; }
+  /* Pack ROB / fuel oil onto one A4: 1px-smaller type + transposed lube +
+     tighter vertical rhythm. */
+  .fr-tc-block { margin-bottom: 1mm; }
+  .fr-tc-cards { gap: 1.2mm; margin-top: 1.2mm; }
+  .fr-tc-capline { padding: 0.4mm 1mm 0.6mm; font-size: 8px; }
+  .fr-tc-capline b { font-size: 10px; }
+  .fr-tc-signoff { margin-top: 2mm; }
+  .fr-print-sign-space { height: 10mm; }
+  .app-credit-print { margin-top: 1.5mm; page-break-before: avoid; }
 }
