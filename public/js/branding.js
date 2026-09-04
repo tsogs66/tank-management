@@ -210,7 +210,10 @@ ${css}
 /* Signature + vessel stamp — rubber-stamp overlap matching the paper build.
    Concrete mm only (no CSS vars): Android/AIO print-bridge cssText drops
    empty var() and the stamp vanishes. Zero-height box + negative margin
-   pulls the stamp over the last third of the signature line. */
+   centres the stamp on the signature line.
+
+   Default (flex-end): Bunkering Plan — signature RIGHT, stamp LEFT.
+   .fr-tc-signoff: Tank Condition — signature LEFT, stamp RIGHT. */
 .fr-print-signrow {
   display: flex !important; align-items: center !important;
   justify-content: flex-end !important; gap: 0 !important; margin-top: 8px !important;
@@ -237,7 +240,11 @@ ${css}
 }
 .fr-print-logo {
   flex: 0 0 auto !important; display: block !important; align-self: flex-start !important;
-  height: 0 !important; overflow: visible !important; margin-left: -20.67mm !important;
+  height: 0 !important; overflow: visible !important;
+  order: -1 !important; margin-left: 0 !important; margin-right: -20.67mm !important;
+}
+.fr-tc-signoff .fr-print-logo {
+  order: 0 !important; margin-left: -20.67mm !important; margin-right: 0 !important;
 }
 .fr-print-logo img {
   height: 41.8mm !important; width: auto !important; max-width: 110mm !important;
