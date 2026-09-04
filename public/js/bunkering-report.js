@@ -1479,56 +1479,50 @@ const BunkerReports = (() => {
       ${UI.printSignatureBlock()}
       ${UI.footer(`${c.vessel.name} · bunkering plan · ${c.header.date || ''}`)}
     </section>
-    ${planSequenceConditionPage(c, 'before')}
-    ${planSequenceConditionPage(c, 'after')}`;
+    ${planSequenceConditionPage(c)}`;
   }
 
   /**
-   * Tank-condition print page for sequence tanks only (before or after).
-   * Full-vessel sheets stay on Monitoring / After Bunkering.
+   * One print page: before + after condition for sequence tanks only, with a
+   * single stamp / signature. Full-vessel sheets stay on Monitoring / After
+   * Bunkering. Plan print is therefore two pages total.
    */
-  function planSequenceConditionPage(c, stage) {
+  function planSequenceConditionPage(c) {
     const tankIds = Core.sequenceTankIds(c.form || view.plan);
-    const isAfter = stage === 'after';
-    const title = isAfter
-      ? 'AFTER BUNKERING — SEQUENCE TANKS'
-      : 'BEFORE BUNKERING — SEQUENCE TANKS';
-    const note = isAfter
-      ? 'Same sequence tanks after the transfer (tank-basis received). Full vessel soundings remain on the after-bunkering report.'
-      : 'Tanks in the bunkering sequence only (tank-basis received). Full vessel soundings remain on the fuel report / monitoring and after-bunkering report.';
+    const opts = (c.before && c.before.options) || {};
 
-    let report = null;
-    let emptyMsg = '';
-    if (isAfter) {
-      const saved = Boolean(bundle().bunkerAfter);
-      if (!saved) {
-        emptyMsg = 'After bunkering not recorded yet — complete After Bunkering to print sequence-tank condition.';
-      } else {
-        report = Core.filterReportToTankIds(
-          Core.computeAfterBunkering(bundle(), bundle().bunkerAfter, view.conversion),
-          tankIds,
-        );
-        emptyMsg = tankIds.length
-          ? 'No after-bunkering soundings for the tanks in this sequence.'
-          : 'No tanks in the bunkering sequence.';
-      }
-    } else {
-      report = Core.filterReportToTankIds(c.before, tankIds);
-      emptyMsg = tankIds.length
+    const beforeReport = Core.filterReportToTankIds(c.before, tankIds);
+    const beforeBody = beforeReport && beforeReport.sections && beforeReport.sections.length
+      ? beforeReport.sections.map((s) => UI.printSectionTable(s, beforeReport.options || opts)).join('')
+      : `<p class="calib-print-note">${esc(tankIds.length
         ? 'No sequence tanks with soundings on the fuel report.'
-        : 'No tanks in the bunkering sequence.';
+        : 'No tanks in the bunkering sequence.')}</p>`;
+
+    let afterBody;
+    if (!bundle().bunkerAfter) {
+      afterBody = '<p class="calib-print-note">After bunkering not recorded yet — complete After Bunkering to print sequence-tank condition.</p>';
+    } else {
+      const afterReport = Core.filterReportToTankIds(
+        Core.computeAfterBunkering(bundle(), bundle().bunkerAfter, view.conversion),
+        tankIds,
+      );
+      afterBody = afterReport && afterReport.sections && afterReport.sections.length
+        ? afterReport.sections.map((s) => UI.printSectionTable(s, afterReport.options || opts)).join('')
+        : `<p class="calib-print-note">${esc(tankIds.length
+          ? 'No after-bunkering soundings for the tanks in this sequence.'
+          : 'No tanks in the bunkering sequence.')}</p>`;
     }
 
-    const body = report && report.sections && report.sections.length
-      ? report.sections.map((s) => UI.printSectionTable(s, report.options || (c.before && c.before.options))).join('')
-      : `<p class="calib-print-note">${esc(emptyMsg)}</p>`;
-
     return `<section class="calib-print-page">
-      ${UI.masthead(title, `${c.vessel.name} · ${c.header.date || ''}`)}
-      <p class="calib-print-note">${esc(note)}</p>
-      ${body}
+      ${UI.masthead('SEQUENCE TANKS — BEFORE & AFTER BUNKERING', `${c.vessel.name} · ${c.header.date || ''}`)}
+      <p class="calib-print-note">Tanks in the bunkering sequence only (tank-basis received). Full vessel
+        soundings remain on Monitoring and the After Bunkering report.</p>
+      <h3 class="fr-print-h3">Before bunkering</h3>
+      ${beforeBody}
+      <h3 class="fr-print-h3">After bunkering</h3>
+      ${afterBody}
       ${UI.printSignatureBlock()}
-      ${UI.footer(`${c.vessel.name} · ${isAfter ? 'after' : 'before'} bunkering · sequence tanks`)}
+      ${UI.footer(`${c.vessel.name} · sequence tanks · before &amp; after bunkering`)}
     </section>`;
   }
 
