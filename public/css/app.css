@@ -1154,8 +1154,11 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     page-break-after: always;
     break-after: page;
     box-sizing: border-box !important;
-    /* Narrow sheet margin — packed for one-page ROB / fuel reports. */
+    /* Narrow sheet margin — packed for one-page ROB / fuel reports.
+       Extra bottom padding so the stamp's lower half (centred on the
+       signature line) is not clipped at the foot of the sheet. */
     padding: 4mm;
+    padding-bottom: 6mm;
     background: #fff !important;
     border: none !important;
   }
@@ -1366,7 +1369,8 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   }
   .fr-print-signrow {
     display: flex; align-items: center; justify-content: flex-end;
-    gap: 6mm; margin-top: 8px;
+    /* No gap: stamp is pulled back over the end of the signature line. */
+    gap: 0; margin-top: 8px;
   }
 
   /* Modern TANK CONDITION face (page 1) + annex (page 2) */
@@ -1516,10 +1520,11 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   }
   .fr-tc-page-2 table.fr-print-table { font-size: 6.2pt; }
 
-  /* Signature + vessel stamp — concrete sizes (no CSS vars). The earlier
-     height:0 / var(--fr-logo-height) overlay broke under the Android print
-     bridge (cssText drops empty var()) and vanished after the classic-face
-     restore. Match the original working print from d9a7b8b / paper builds. */
+  /* Signature + vessel stamp — rubber-stamp overlap (matches paper build).
+     Concrete mm only (no CSS vars): Android/AIO print-bridge cssText drops
+     empty var() declarations and the stamp vanishes. The stamp box is
+     zero-height so it adds no page height; the image is positioned to sit
+     on the signature line and cover its last third. */
   .fr-print-sign {
     flex: 0 0 62mm; font-size: 8pt; text-align: center;
   }
@@ -1539,11 +1544,17 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     font-size: 7.5pt; text-transform: uppercase; letter-spacing: .06em; color: #555;
   }
   .fr-print-logo {
-    flex: 0 0 auto; display: flex; align-items: center;
+    flex: 0 0 auto; display: block; align-self: flex-start;
+    height: 0; overflow: visible;
+    /* Slide back over the last third of the 62mm signature line. */
+    margin-left: -20.67mm;
   }
   .fr-print-logo img {
-    height: 42mm; width: auto; max-width: 55mm;
+    height: 41.8mm; width: auto; max-width: 110mm;
     object-fit: contain; display: block;
+    /* Centre the stamp on the signature line (space 15mm, stamp 41.8mm). */
+    position: relative;
+    top: -5.9mm;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
   .fr-tc-signoff .fr-print-signrow { justify-content: flex-start; margin-top: 0; }
