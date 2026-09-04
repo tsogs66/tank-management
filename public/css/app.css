@@ -1079,19 +1079,49 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
        off the foot of the sheet. */
     --fr-sign-foot: 15mm;
   }
+  /* Margin lives on the sheet, not @page. Android PrintManager paints the
+     canvas colour into @page margins — with color-scheme:dark / night theme
+     that showed up as a thick black frame around every Tank / Bunker Plan PDF. */
   @page {
     size: A4 portrait;
-    margin: 10mm 10mm;
+    margin: 0;
   }
   @page landscape-sheet {
     size: A4 landscape;
-    margin: 10mm 12mm;
+    margin: 0;
   }
 
-  html, body {
+  :root, html, body {
+    color-scheme: only light !important;
     background: #fff !important;
     color: #0a1420 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
     font-family: 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif !important;
+  }
+
+  .calib-print-doc,
+  .fuel-report-print-doc,
+  .report-print-doc,
+  .bc-pr-sheet,
+  #bc-print-root,
+  .fr-tc-page,
+  .fr-tc-page-2 {
+    background: #fff !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  .fuel-report-print-doc,
+  .report-print-doc,
+  .bc-pr-sheet,
+  #bc-print-root {
+    box-sizing: border-box !important;
+    padding: 10mm !important;
   }
 
   .sidebar, .menu-toggle, .sidebar-backdrop, .no-print, .toast,
@@ -1124,13 +1154,17 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   .calib-print-page {
     page-break-after: always;
     break-after: page;
-    padding: 0;
+    box-sizing: border-box !important;
+    /* Former landscape @page margin, now on the sheet (see @page note above). */
+    padding: 10mm 12mm;
     /* The stamp is centred on the signature line, so half of it hangs below.
        The name, role and footer absorb most of that; this reserves whatever is
        left over, so a sheet that reaches the bottom of the page cannot cut the
        stamp in half. Nothing is reserved when the stamp is small enough to
        clear on its own. */
-    padding-bottom: max(0mm, calc(var(--fr-logo-height) / 2 - var(--fr-sign-foot)));
+    padding-bottom: max(10mm, calc(var(--fr-logo-height) / 2 - var(--fr-sign-foot)));
+    background: #fff !important;
+    border: none !important;
   }
   /* No leading gap at the very top of a sheet — the page margin is the margin. */
   .calib-print-page > *:first-child,

@@ -580,19 +580,34 @@ table.calib-print-table td.even-keel,
 .fr-tc-diff { color: #a0452a; font-weight: 700; }
 
 @media print {
-  html, body {
+  @page { margin: 0; }
+  :root, html, body {
+    color-scheme: only light !important;
     background: #fff !important;
     color: var(--pr-ink) !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
     font-family: 'Inter', 'Segoe UI', sans-serif !important;
   }
   .calib-print-doc,
   .fuel-report-print-doc,
   .bc-pr-sheet,
-  .report-print-doc {
+  .report-print-doc,
+  #bc-print-root,
+  .fr-tc-page,
+  .fr-tc-page-2,
+  .calib-print-page {
     color: var(--pr-ink);
     font-family: 'Inter', sans-serif;
     font-size: 10px;
     line-height: 1.35;
+    background: #fff !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
