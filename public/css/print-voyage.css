@@ -611,8 +611,26 @@ table.calib-print-table td.even-keel,
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+  .fuel-report-print-doc,
+  #bc-print-root { padding: 0 !important; }
+  .bc-pr-sheet,
+  .report-print-doc { padding: 5mm !important; box-sizing: border-box !important; }
+  .calib-print-page {
+    padding: 5mm !important;
+    box-sizing: border-box !important;
+  }
+  .calib-print-page:last-of-type {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
   .fuel-report-print-doc .fr-print-h3 {
     display: block;
     margin: 1.5mm 0 0;
   }
+  /* Slightly tighter vertical rhythm so ROB / fuel oil stays on one page
+     without shrinking type. */
+  .fr-tc-block { margin-bottom: 1.5mm; }
+  .fr-tc-cards { gap: 2mm; margin-top: 2mm; }
+  .fr-tc-signoff { margin-top: 3mm; }
+  .app-credit-print { margin-top: 2mm; page-break-before: avoid; }
 }
