@@ -273,7 +273,30 @@ app.delete('/api/vessels/:id/fuel-report/history/:snapshotId', (req, res) => {
   try {
     const bundle = store.getVesselBundle(req.params.id);
     const history = (bundle.reportHistory || []).filter((s) => s.id !== req.params.snapshotId);
-    store.saveVesselPart(req.params.id, 'reportHistory', history);
+    store.replaceVesselPart(req.params.id, 'reportHistory', history);
+    res.json({ history });
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
+/* ---------- Voyage / tank-summary print histories ---------- */
+app.delete('/api/vessels/:id/voyage-history/:entryId', (req, res) => {
+  try {
+    const bundle = store.getVesselBundle(req.params.id);
+    const history = (bundle.voyageHistory || []).filter((s) => s.id !== req.params.entryId);
+    store.replaceVesselPart(req.params.id, 'voyageHistory', history);
+    res.json({ history });
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
+app.delete('/api/vessels/:id/tank-summary-history/:entryId', (req, res) => {
+  try {
+    const bundle = store.getVesselBundle(req.params.id);
+    const history = (bundle.tankSummaryHistory || []).filter((s) => s.id !== req.params.entryId);
+    store.replaceVesselPart(req.params.id, 'tankSummaryHistory', history);
     res.json({ history });
   } catch (e) {
     res.status(404).json({ error: e.message });
@@ -486,7 +509,7 @@ app.delete('/api/vessels/:id/bunker-history/:list/:entryId', (req, res) => {
     const bundle = store.getVesselBundle(req.params.id);
     const history = bunkerHistory(bundle);
     history[list] = (history[list] || []).filter((e) => e.id !== req.params.entryId);
-    store.saveVesselPart(req.params.id, 'bunkerHistory', history);
+    store.replaceVesselPart(req.params.id, 'bunkerHistory', history);
     res.json({ history });
   } catch (e) {
     res.status(404).json({ error: e.message });
@@ -496,7 +519,7 @@ app.delete('/api/vessels/:id/bunker-history/:list/:entryId', (req, res) => {
 app.put('/api/vessels/:id/:part', (req, res) => {
   const allowed = [
     'tanks', 'readings', 'voyage', 'bunkering', 'transfers', 'bunkerOps',
-    'fuelReport', 'reportHistory',
+    'fuelReport', 'reportHistory', 'voyageHistory', 'tankSummaryHistory', 'tankSummaryDraft',
     'bunkerPlan', 'bunkerAfter', 'bunkerSummary', 'bunkerHistory', 'assets',
   ];
   if (!allowed.includes(req.params.part)) {

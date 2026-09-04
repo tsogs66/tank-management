@@ -1133,6 +1133,21 @@ function eventGapHours(from, to) {
 function computeBunkerSummary(bundle, form, after, conversion) {
   const summary = normalizeSummary(bundle, form);
   const afterComputed = after || computeAfterBunkering(bundle, bundle && bundle.bunkerAfter, conversion);
+  /* ROB before bunkering is the fuel-oil report (or plan before) — printed as a
+     Tank Condition sheet on the summary pack. */
+  let before = null;
+  try {
+    const beforeForm = (bundle && bundle.fuelReport)
+      || (bundle && bundle.bunkerPlan && bundle.bunkerPlan.beforeForm)
+      || null;
+    if (beforeForm && FuelReport && FuelReport.computeFuelReport) {
+      before = FuelReport.computeFuelReport(bundle, beforeForm, conversion);
+    } else if (beforeForm) {
+      before = null;
+    }
+  } catch (err) {
+    console.warn('before bunkering sheet:', err);
+  }
 
   const fuelOnboard = afterComputed.grades.map((g) => ({
     id: g.id,
@@ -1225,6 +1240,7 @@ function computeBunkerSummary(bundle, form, after, conversion) {
     },
     tanksAfter,
     after: afterComputed,
+    before,
     form: summary,
     generatedAt: new Date().toISOString(),
   };

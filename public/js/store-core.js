@@ -150,6 +150,9 @@ const VESSEL_FILES = [
   'bunker-ops.json',
   'fuel-report.json',
   'report-history.json',
+  'voyage-history.json',
+  'tank-summary-history.json',
+  'tank-summary-draft.json',
   'bunker-plan.json',
   'bunker-after.json',
   'bunker-summary.json',
@@ -478,6 +481,9 @@ function createVessel(details = {}) {
   writeJson(vesselPath(id, 'bunker-ops.json'), details.bunkerOps || []);
   writeJson(vesselPath(id, 'fuel-report.json'), details.fuelReport || null);
   writeJson(vesselPath(id, 'report-history.json'), details.reportHistory || []);
+  writeJson(vesselPath(id, 'voyage-history.json'), details.voyageHistory || []);
+  writeJson(vesselPath(id, 'tank-summary-history.json'), details.tankSummaryHistory || []);
+  writeJson(vesselPath(id, 'tank-summary-draft.json'), details.tankSummaryDraft || null);
   writeJson(vesselPath(id, 'bunker-plan.json'), details.bunkerPlan || null);
   writeJson(vesselPath(id, 'bunker-after.json'), details.bunkerAfter || null);
   writeJson(vesselPath(id, 'bunker-summary.json'), details.bunkerSummary || null);
@@ -551,6 +557,9 @@ function getVesselBundle(id) {
     bunkerOps: readJson(vesselPath(id, 'bunker-ops.json'), []),
     fuelReport: readJson(vesselPath(id, 'fuel-report.json'), null),
     reportHistory: readJson(vesselPath(id, 'report-history.json'), []),
+    voyageHistory: readJson(vesselPath(id, 'voyage-history.json'), []),
+    tankSummaryHistory: readJson(vesselPath(id, 'tank-summary-history.json'), []),
+    tankSummaryDraft: readJson(vesselPath(id, 'tank-summary-draft.json'), null),
     bunkerPlan: readJson(vesselPath(id, 'bunker-plan.json'), null),
     bunkerAfter: readJson(vesselPath(id, 'bunker-after.json'), null),
     bunkerSummary: readJson(vesselPath(id, 'bunker-summary.json'), null),
@@ -571,6 +580,9 @@ function saveVesselPart(id, part, data) {
     bunkerOps: 'bunker-ops.json',
     fuelReport: 'fuel-report.json',
     reportHistory: 'report-history.json',
+    voyageHistory: 'voyage-history.json',
+    tankSummaryHistory: 'tank-summary-history.json',
+    tankSummaryDraft: 'tank-summary-draft.json',
     bunkerPlan: 'bunker-plan.json',
     bunkerAfter: 'bunker-after.json',
     bunkerSummary: 'bunker-summary.json',
@@ -585,6 +597,21 @@ function saveVesselPart(id, part, data) {
   return merged;
 }
 
+/** Write a part as-is (no history union). Used for explicit deletes. */
+function replaceVesselPart(id, part, data) {
+  const allowed = {
+    reportHistory: 'report-history.json',
+    voyageHistory: 'voyage-history.json',
+    tankSummaryHistory: 'tank-summary-history.json',
+    bunkerHistory: 'bunker-history.json',
+  };
+  if (!allowed[part]) throw new Error('Unknown part: ' + part);
+  if (!fs.existsSync(vesselDir(id))) throw new Error('Vessel not found');
+  writeJson(vesselPath(id, allowed[part]), data);
+  touchVessel(id);
+  return data;
+}
+
 /**
  * Saved reports and bunkering history only ever grow, so a write of them is a
  * contribution rather than a replacement. A tablet that was offline for a week
@@ -596,7 +623,7 @@ function saveVesselPart(id, part, data) {
  * rather than by sending a shorter list.
  */
 function mergePartOnWrite(id, part, file, data) {
-  if (part === 'reportHistory') {
+  if (part === 'reportHistory' || part === 'voyageHistory' || part === 'tankSummaryHistory') {
     return unionById(readJson(vesselPath(id, file), []), data, 'savedAt');
   }
   if (part === 'bunkerHistory') {
@@ -803,7 +830,8 @@ function isBackupPayload(backup) {
 
 const BUNDLE_PART_KEYS = [
   'tanks', 'readings', 'voyage', 'bunkering', 'transfers', 'bunkerOps',
-  'fuelReport', 'reportHistory', 'bunkerPlan', 'bunkerAfter', 'bunkerSummary',
+  'fuelReport', 'reportHistory',   'voyageHistory', 'tankSummaryHistory', 'tankSummaryDraft',
+  'bunkerPlan', 'bunkerAfter', 'bunkerSummary',
   'bunkerHistory', 'assets', 'meta',
 ];
 
@@ -828,6 +856,12 @@ const FILE_KEY_TO_PART = {
   fuelReport: 'fuelReport',
   'report-history.json': 'reportHistory',
   reportHistory: 'reportHistory',
+  'voyage-history.json': 'voyageHistory',
+  voyageHistory: 'voyageHistory',
+  'tank-summary-history.json': 'tankSummaryHistory',
+  tankSummaryHistory: 'tankSummaryHistory',
+  'tank-summary-draft.json': 'tankSummaryDraft',
+  tankSummaryDraft: 'tankSummaryDraft',
   'bunker-plan.json': 'bunkerPlan',
   bunkerPlan: 'bunkerPlan',
   'bunker-after.json': 'bunkerAfter',
@@ -934,6 +968,9 @@ function normalizeImportedBundle(bundle) {
     bunkerOps: Array.isArray(base.bunkerOps) ? base.bunkerOps : [],
     fuelReport: base.fuelReport != null ? base.fuelReport : null,
     reportHistory: Array.isArray(base.reportHistory) ? base.reportHistory : [],
+    voyageHistory: Array.isArray(base.voyageHistory) ? base.voyageHistory : [],
+    tankSummaryHistory: Array.isArray(base.tankSummaryHistory) ? base.tankSummaryHistory : [],
+    tankSummaryDraft: base.tankSummaryDraft != null ? base.tankSummaryDraft : null,
     bunkerPlan: base.bunkerPlan != null ? base.bunkerPlan : null,
     bunkerAfter: base.bunkerAfter != null ? base.bunkerAfter : null,
     bunkerSummary: base.bunkerSummary != null ? base.bunkerSummary : null,
@@ -1109,6 +1146,9 @@ function importBackup(backup, { merge = true } = {}) {
     writeJson(vesselPath(id, 'bunker-ops.json'), norm.bunkerOps);
     writeJson(vesselPath(id, 'fuel-report.json'), norm.fuelReport);
     writeJson(vesselPath(id, 'report-history.json'), norm.reportHistory);
+    writeJson(vesselPath(id, 'voyage-history.json'), norm.voyageHistory);
+    writeJson(vesselPath(id, 'tank-summary-history.json'), norm.tankSummaryHistory);
+    writeJson(vesselPath(id, 'tank-summary-draft.json'), norm.tankSummaryDraft);
     writeJson(vesselPath(id, 'bunker-plan.json'), norm.bunkerPlan);
     writeJson(vesselPath(id, 'bunker-after.json'), norm.bunkerAfter);
     writeJson(vesselPath(id, 'bunker-summary.json'), norm.bunkerSummary);
@@ -1175,6 +1215,9 @@ function applySyncPayload(payload) {
           'bunker-ops': 'bunkerOps',
           'fuel-report': 'fuelReport',
           'report-history': 'reportHistory',
+          'voyage-history': 'voyageHistory',
+          'tank-summary-history': 'tankSummaryHistory',
+          'tank-summary-draft': 'tankSummaryDraft',
           'bunker-plan': 'bunkerPlan',
           'bunker-after': 'bunkerAfter',
           'bunker-summary': 'bunkerSummary',
@@ -1238,6 +1281,9 @@ function readVesselBundleAt(dataDir, id) {
     bunkerOps: readJson(vesselFileAt(dataDir, id, 'bunker-ops.json'), []),
     fuelReport: readJson(vesselFileAt(dataDir, id, 'fuel-report.json'), null),
     reportHistory: readJson(vesselFileAt(dataDir, id, 'report-history.json'), []),
+    voyageHistory: readJson(vesselFileAt(dataDir, id, 'voyage-history.json'), []),
+    tankSummaryHistory: readJson(vesselFileAt(dataDir, id, 'tank-summary-history.json'), []),
+    tankSummaryDraft: readJson(vesselFileAt(dataDir, id, 'tank-summary-draft.json'), null),
     bunkerPlan: readJson(vesselFileAt(dataDir, id, 'bunker-plan.json'), null),
     bunkerAfter: readJson(vesselFileAt(dataDir, id, 'bunker-after.json'), null),
     bunkerSummary: readJson(vesselFileAt(dataDir, id, 'bunker-summary.json'), null),
@@ -1341,6 +1387,7 @@ const api = {
   deleteVessel,
   getVesselBundle,
   saveVesselPart,
+  replaceVesselPart,
   updateVesselDetails,
   upsertTank,
   deleteTank,

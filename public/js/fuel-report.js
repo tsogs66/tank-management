@@ -365,21 +365,34 @@ const FuelReport = (() => {
   }
 
   function renderHistoryPanel(history) {
-    const rows = (history || []).map((s) => `<tr>
-      <td>${esc((s.savedAt || '').replace('T', ' ').slice(0, 16))}</td>
+    const draftForm = view.form && view.form.updatedAt ? view.form : null;
+    const draft = draftForm ? [{
+      id: '__draft__',
+      isDraft: true,
+      savedAt: draftForm.updatedAt,
+      reportType: (draftForm.header && draftForm.header.reportType) || '',
+      voyageNo: (draftForm.header && draftForm.header.voyageNo) || '',
+      port: (draftForm.header && draftForm.header.port) || '',
+      totals: null,
+      form: draftForm,
+    }] : [];
+    const merged = [...draft, ...(history || []).filter((s) => s && s.id !== '__draft__' && !s.isDraft)];
+    const rows = merged.map((s) => `<tr>
+      <td>${s.isDraft ? '<span class="chip on">Draft</span> ' : ''}${esc((s.savedAt || '').replace('T', ' ').slice(0, 16))}</td>
       <td>${esc(s.reportType || '')}</td>
       <td>${esc(s.voyageNo || '')}</td>
       <td>${esc(s.port || '')}</td>
-      <td>${n(s.totals && s.totals.weightAirMT, 3)}</td>
+      <td>${s.isDraft ? 'Current draft — Load to edit' : n(s.totals && s.totals.weightAirMT, 3)}</td>
       <td class="btn-row"><button class="btn small" data-print-snapshot="${esc(s.id)}">Print</button>
         <button class="btn small" data-load-snapshot="${esc(s.id)}">Load</button>
-        <button class="btn small danger" data-del-snapshot="${esc(s.id)}">Delete</button></td>
+        ${s.isDraft ? '' : `<button class="btn small danger" data-del-snapshot="${esc(s.id)}">Delete</button>`}</td>
     </tr>`).join('');
     return `<div class="form-panel no-print" id="fr-history-panel">
       <div class="section-title" style="margin-top:0">Saved reports</div>
+      <p class="hint" style="margin-top:0">Drafts stay editable. Filed reports can be reprinted or loaded.</p>
       <div class="scroll-x"><table class="data-table">
         <thead><tr><th>Saved</th><th>Type</th><th>Voyage</th><th>Port</th><th>Total MT</th><th></th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="6" class="empty-state">No saved reports yet</td></tr>'}</tbody>
+        <tbody>${rows || '<tr><td colspan="6" class="empty-state">Nothing saved yet — use Save only for a draft, or Print &amp; Save for a filed report</td></tr>'}</tbody>
       </table></div>
     </div>`;
   }
@@ -561,22 +574,32 @@ const FuelReport = (() => {
 
     wrap.querySelectorAll('[data-print-snapshot]').forEach((btn) => {
       btn.onclick = () => {
-        const snap = (currentBundle().reportHistory || []).find((s) => s.id === btn.dataset.printSnapshot);
+        let snap = (currentBundle().reportHistory || []).find((s) => s.id === btn.dataset.printSnapshot);
+        if (!snap && btn.dataset.printSnapshot === '__draft__' && view.form) {
+          snap = { form: view.form, id: '__draft__', isDraft: true };
+        }
         if (!snap || !snap.form) { showToast('That saved report has no sheet to print'); return; }
         // Computed from the saved form, not from the sheet on screen, so
         // printing an old report never disturbs the one being worked on.
         const computed = Core.computeFuelReport(currentBundle(), snap.form, view.conversion);
-        warnIfDrifted(snapshotDrift(snap, Core.snapshotFromReport(computed)));
+        if (!snap.isDraft && snap.id !== '__draft__') {
+          warnIfDrifted(snapshotDrift(snap, Core.snapshotFromReport(computed)));
+        }
         printReport(computed);
       };
     });
     wrap.querySelectorAll('[data-load-snapshot]').forEach((btn) => {
       btn.onclick = () => {
-        const snap = (currentBundle().reportHistory || []).find((s) => s.id === btn.dataset.loadSnapshot);
+        let snap = (currentBundle().reportHistory || []).find((s) => s.id === btn.dataset.loadSnapshot);
+        if (!snap && btn.dataset.loadSnapshot === '__draft__' && view.form) {
+          snap = { form: view.form, id: '__draft__', isDraft: true };
+        }
         if (!snap) return;
         view.pendingForm = snap.form;
         navigate('fuel-report');
-        showToast('Saved report loaded into the sheet');
+        showToast(snap.isDraft || snap.id === '__draft__'
+          ? 'Draft loaded for editing'
+          : 'Saved report loaded into the sheet');
       };
     });
     wrap.querySelectorAll('[data-del-snapshot]').forEach((btn) => {
@@ -1269,6 +1292,9 @@ const FuelReport = (() => {
     COMPUTED_COLUMNS,
     CELL_FORMAT,
     printSectionTable,
+    printConditionSection,
+    printMasthead,
+    printConditionPage,
     snapshotDrift,
     warnIfDrifted,
     masthead,
