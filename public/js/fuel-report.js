@@ -809,43 +809,9 @@ const FuelReport = (() => {
     const reportType = c.header.reportType || '—';
     const imo = c.vessel.imo ? `IMO ${c.vessel.imo}` : 'IMO —';
     const dateTime = c.header.dateTime || prettyDate(c.header.date);
-    const header = (typeof Branding !== 'undefined' && Branding.printDocHeader)
-      ? Branding.printDocHeader({
-        vessel: c.vessel.name || 'Vessel',
-        title,
-        subtitle: imo,
-        badge: reportType !== '—' ? reportType : 'ROB',
-        rightLabel: 'Voyage No.',
-        rightValue: c.header.voyageNo || '—',
-      })
-      : `<header class="fr-tc-masthead">
-      <div class="fr-tc-title-row">
-        <div class="fr-tc-ident-left">
-          <div class="fr-tc-ident-name">${esc(c.vessel.name || '—')}</div>
-          <div class="fr-tc-ident-imo">${esc(imo)}</div>
-        </div>
-        <h1>${esc(title)}</h1>
-        <div class="fr-tc-ident-right">
-          <span>Report</span>
-          <b>${esc(reportType)}</b>
-        </div>
-      </div>
-    </header>`;
-    const facts = showFacts
-      ? (typeof Branding !== 'undefined' && Branding.printMetaGrid
-        ? Branding.printMetaGrid([
-          { label: 'Date', value: esc(dateTime || '—') },
-          { label: 'Port', value: esc(c.header.port || '—') },
-          { label: 'Voyage No.', value: esc(c.header.voyageNo || '—') },
-          { label: 'Heel', value: esc(c.header.heelLabel || '—') },
-          { label: 'FW Draft', value: `${n(c.header.draftFwd, 2)} m` },
-          { label: 'Aft Draft', value: `${n(c.header.draftAft, 2)} m` },
-          { label: 'Mean Draft', value: `${n(c.header.meanDraft, 2)} m` },
-          { label: 'Trim', value: `${n(c.header.trim, 2)} (${esc(c.header.trimLabel)})` },
-          { label: 'S/W Temp', value: `${n(c.header.seaTemp, 0, '—')} °C` },
-          { label: 'E/R Temp', value: `${n(c.header.engineRoomTemp, 0, '—')} °C` },
-        ], 5)
-        : `<div class="fr-tc-facts">
+    /* Classic Tank Condition face (pre–Voyage theme): vessel | title | report
+       type, then a plain facts strip. That layout is what fits one A4. */
+    const facts = showFacts ? `<div class="fr-tc-facts">
       ${fact('Date', esc(dateTime || '—'))}
       ${fact('Port', esc(c.header.port || '—'))}
       ${fact('Voyage No.', esc(c.header.voyageNo || '—'))}
@@ -856,9 +822,21 @@ const FuelReport = (() => {
       ${fact('Trim', `${n(c.header.trim, 2)} (${esc(c.header.trimLabel)})`)}
       ${fact('S/W Temp', `${n(c.header.seaTemp, 0, '—')} °C`)}
       ${fact('E/R Temp', `${n(c.header.engineRoomTemp, 0, '—')} °C`)}
-    </div>`)
-      : '';
-    return `${header}${facts}`;
+    </div>` : '';
+    return `<header class="fr-tc-masthead">
+      <div class="fr-tc-title-row">
+        <div class="fr-tc-ident-left">
+          <div class="fr-tc-ident-name">${esc(c.vessel.name || '—')}</div>
+          <div class="fr-tc-ident-imo">${esc(imo)}</div>
+        </div>
+        <h1>${esc(title)}</h1>
+        <div class="fr-tc-ident-right">
+          <span>${esc(Branding.APP_NAME)} REPORT</span>
+          <b>${esc(reportType)}</b>
+        </div>
+      </div>
+      ${facts}
+    </header>`;
   }
 
   function printConditionSection(section, options) {
@@ -943,24 +921,11 @@ const FuelReport = (() => {
       <td class="${!short && g.differenceMT != null && Math.abs(g.differenceMT) > 0.001 ? 'fr-tc-diff' : ''}">${signed(g.differenceMT, 3) || '—'}${short ? ' †' : ''}</td>
     </tr>`;
     }).join('');
-    /* Transposed: categories across the top, LTRS / MT as two short rows.
-       Saves a row per grade so the ROB sheet stays on one A4. */
-    const lubeCats = c.lube.rows || [];
-    const lubeHead = `<tr>
-      <th class="fr-print-name">Metric</th>
-      ${lubeCats.map((r) => `<th class="fr-print-name">${esc(r.label)}</th>`).join('')}
-      <th>TOTAL</th>
-    </tr>`;
-    const lubeBody = `<tr>
-      <th class="fr-print-name">LTRS</th>
-      ${lubeCats.map((r) => `<td>${n(r.litres, 0, '—')}</td>`).join('')}
-      <td>${n(c.lube.totalLitres, 0)}</td>
-    </tr>
-    <tr>
-      <th class="fr-print-name">MT</th>
-      ${lubeCats.map((r) => `<td>${n(r.mt, 3, '—')}</td>`).join('')}
-      <td>${n(c.lube.totalMT, 3)}</td>
-    </tr>`;
+    const lubeRows = c.lube.rows.map((r) => `<tr>
+      <td class="fr-print-name">${esc(r.label)}</td>
+      <td>${n(r.litres, 0, '—')}</td>
+      <td>${n(r.mt, 3, '—')}</td>
+    </tr>`).join('');
     const receivedRows = c.received.map((r) =>
       `<tr><td class="fr-print-name">${esc(r.label)}</td><td>${n(r.value, 3, '—')}</td></tr>`).join('');
     const consVal = (list, id) => n((list.find((x) => x.id === id) || {}).value, 2, '—');
@@ -970,11 +935,12 @@ const FuelReport = (() => {
       ${printMasthead(c)}
       ${c.sections.map((s) => printConditionSection(s, c.options)).join('')}
       <div class="fr-tc-cards">
-        <div class="fr-tc-card fr-tc-card-lube">
+        <div class="fr-tc-card">
           <h4>Lube Oil Quantities</h4>
-          <table class="fr-tc-mini fr-tc-lube-transpose">
-            <thead>${lubeHead}</thead>
-            <tbody>${lubeBody}</tbody>
+          <table class="fr-tc-mini">
+            <thead><tr><th>Category</th><th>LTRS</th><th>MT</th></tr></thead>
+            <tbody>${lubeRows}</tbody>
+            <tfoot><tr><th>TOTAL</th><td>${n(c.lube.totalLitres, 0)}</td><td>${n(c.lube.totalMT, 3)}</td></tr></tfoot>
           </table>
         </div>
         <div class="fr-tc-card">
@@ -993,7 +959,7 @@ const FuelReport = (() => {
             </tbody>
           </table>
         </div>
-        <div class="fr-tc-card fr-tc-card-survey">
+        <div class="fr-tc-card">
           <h4>Survey Summary</h4>
           <table class="fr-tc-mini">
             <thead><tr><th>Grade</th><th>Monitoring</th><th>Log book</th><th>Difference</th></tr></thead>

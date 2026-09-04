@@ -333,11 +333,11 @@ table.fr-tc-mini tfoot td,
 }
 .fr-tc-card h4 {
   margin: 0;
-  padding: 0.4mm 1mm;
+  padding: 0.6mm 1.2mm;
   background: var(--pr-navy) !important;
   color: #fff !important;
   font-family: 'Oswald', sans-serif;
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -346,30 +346,6 @@ table.fr-tc-mini tfoot td,
   print-color-adjust: exact;
 }
 .fr-tc-card table { margin: 0; }
-
-/* Bottom cards: lube (transposed, wide) and survey span the full row so the
-   sheet packs into one A4 without shrinking the main tank tables further. */
-.fr-tc-cards,
-.fr-preview .fr-tc-cards {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.2mm;
-  margin-top: 1.2mm;
-}
-.fr-tc-card-lube,
-.fr-tc-card-survey {
-  grid-column: 1 / -1;
-}
-table.fr-tc-lube-transpose th.fr-print-name,
-table.fr-tc-lube-transpose td.fr-print-name,
-table.fr-tc-lube-transpose th:first-child,
-table.fr-tc-lube-transpose td:first-child,
-table.fr-tc-lube-transpose tbody th {
-  text-align: left;
-  font-family: 'Inter', sans-serif;
-  font-weight: 600;
-  white-space: nowrap;
-}
 
 /* ---------- Mastheads → Voyage header look ---------- */
 .calib-print-masthead,
@@ -661,3 +637,289 @@ table.calib-print-table td.even-keel,
   .fr-print-sign-space { height: 10mm; }
   .app-credit-print { margin-top: 1.5mm; page-break-before: avoid; }
 }
+
+/* =====================================================================
+   Classic Tank Condition face — restore the pre–Voyage layout that fits
+   one A4. Voyage theme (.pr-* / .bc-pr-*) stays for bunker consumption.
+   Soft gray table rules (no heavy black page frame).
+   ===================================================================== */
+.fr-tc-page,
+.fr-tc-page-2,
+.fr-preview.fr-tc-page,
+.fuel-report-print-doc .fr-tc-page {
+  font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif !important;
+  color: #111 !important;
+  font-size: 9.5pt;
+  line-height: 1.3;
+}
+.fr-tc-masthead,
+.fr-preview .fr-tc-masthead {
+  display: block !important;
+  margin: 0 0 5px !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+}
+.fr-tc-brand-row { display: none !important; }
+.fr-tc-title-row,
+.fr-preview .fr-tc-title-row {
+  display: grid !important;
+  grid-template-columns: 1fr auto 1fr !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 0 0 1px !important;
+  margin: 0 !important;
+  border: none !important;
+  border-bottom: none !important;
+}
+.fr-tc-title-row h1,
+.fr-preview .fr-tc-title-row h1 {
+  margin: 0 !important;
+  font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif !important;
+  font-size: 15pt !important;
+  font-weight: 800 !important;
+  letter-spacing: .12em !important;
+  text-transform: uppercase !important;
+  color: #1b2a44 !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+}
+.fr-tc-ident-name,
+.fr-preview .fr-tc-ident-name {
+  font-family: inherit !important;
+  font-size: 12pt !important;
+  font-weight: 800 !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  color: #111 !important;
+  line-height: 1.15 !important;
+}
+.fr-tc-ident-imo,
+.fr-preview .fr-tc-ident-imo {
+  font-family: inherit !important;
+  font-size: 8pt !important;
+  font-weight: 600 !important;
+  color: #555 !important;
+  margin-top: 1px !important;
+}
+.fr-tc-ident-right span,
+.fr-preview .fr-tc-ident-right span {
+  display: block !important;
+  font-family: inherit !important;
+  font-size: 6.5pt !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: .08em !important;
+  color: #7a8494 !important;
+}
+.fr-tc-ident-right b,
+.fr-preview .fr-tc-ident-right b {
+  display: block !important;
+  font-family: inherit !important;
+  font-size: 11pt !important;
+  font-weight: 800 !important;
+  color: #111 !important;
+}
+.fr-tc-facts,
+.fr-preview .fr-tc-facts {
+  display: grid !important;
+  grid-template-columns: repeat(4, 1fr) !important;
+  gap: 0 12px !important;
+  background: transparent !important;
+  border: none !important;
+  border-top: 0.5pt solid #c5cdd8 !important;
+  border-bottom: 1.4pt solid #9aa8b8 !important;
+  margin: 0 0 3px !important;
+  padding: 1px 0 2px !important;
+}
+.fr-tc-fact,
+.fr-preview .fr-tc-fact {
+  background: transparent !important;
+  padding: 0 !important;
+}
+.fr-tc-fact span,
+.fr-preview .fr-tc-fact span {
+  display: block !important;
+  font-family: inherit !important;
+  font-size: 6.5pt !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: .08em !important;
+  color: #7a8494 !important;
+}
+.fr-tc-fact b,
+.fr-preview .fr-tc-fact b {
+  display: block !important;
+  font-family: inherit !important;
+  font-size: 10pt !important;
+  font-weight: 800 !important;
+  color: #111 !important;
+  line-height: 1.1 !important;
+}
+.fr-tc-block {
+  border: none !important;
+  border-radius: 0 !important;
+  overflow: visible !important;
+  margin-bottom: 3px !important;
+  page-break-inside: avoid;
+}
+.fr-tc-block-head,
+.fr-preview .fr-tc-block-head {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: baseline !important;
+  background: #1b2a44 !important;
+  color: #fff !important;
+  padding: 3px 8px !important;
+  font-family: inherit !important;
+  font-size: 9pt !important;
+  border: none !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.fr-tc-block-head h3 { margin: 0 !important; font-size: 9pt !important; letter-spacing: .06em !important; color: inherit !important; }
+.fr-tc-block-head span { font-size: 7.5pt !important; opacity: .85 !important; font-family: inherit !important; }
+
+table.fr-tc-table,
+.fr-preview table.fr-tc-table,
+table.fr-tc-mini,
+.fr-preview table.fr-tc-mini {
+  font-family: inherit !important;
+  font-size: 6.6pt !important;
+  table-layout: fixed;
+  border-collapse: collapse;
+  width: 100%;
+}
+table.fr-tc-table th,
+.fr-preview table.fr-tc-table th,
+table.fr-tc-mini th,
+.fr-preview table.fr-tc-mini th {
+  background: #eef2f7 !important;
+  color: #111 !important;
+  font-family: inherit !important;
+  font-weight: 700 !important;
+  font-size: 6.6pt !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  text-align: center !important;
+  vertical-align: middle !important;
+  padding: 1px 3px !important;
+  border: 0.35pt solid #c5cdd8 !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+table.fr-tc-table td,
+.fr-preview table.fr-tc-table td,
+table.fr-tc-mini td,
+.fr-preview table.fr-tc-mini td {
+  font-family: inherit !important;
+  font-size: 6.6pt !important;
+  color: #111 !important;
+  padding: 1px 3px !important;
+  border: 0.35pt solid #c5cdd8 !important;
+  text-align: right !important;
+  vertical-align: middle !important;
+}
+table.fr-tc-table td.fr-print-name,
+table.fr-tc-table th.fr-print-name,
+table.fr-tc-mini td.fr-print-name,
+table.fr-tc-mini th.fr-print-name {
+  text-align: center !important;
+  font-weight: 600 !important;
+}
+table.fr-tc-table tbody tr:nth-child(even) td,
+.fr-preview table.fr-tc-table tbody tr:nth-child(even) td {
+  background: #f7f8fb !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+table.fr-tc-table tfoot td,
+table.fr-tc-table tfoot th,
+table.fr-tc-mini tfoot td,
+table.fr-tc-mini tfoot th,
+.fr-preview table.fr-tc-table tfoot td,
+.fr-preview table.fr-tc-table tfoot th,
+.fr-preview table.fr-tc-mini tfoot td,
+.fr-preview table.fr-tc-mini tfoot th {
+  background: #d9e2ee !important;
+  color: #000 !important;
+  font-weight: 800 !important;
+  font-size: 7pt !important;
+  border-top: 1.2pt solid #9aa8b8 !important;
+  border-bottom: 1.2pt solid #9aa8b8 !important;
+  border-right: 0.35pt solid #c5cdd8 !important;
+  border-left: 0.35pt solid #c5cdd8 !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.fr-tc-total-mt,
+.fr-preview .fr-tc-total-mt {
+  background: #c5d4e8 !important;
+  color: #000 !important;
+  font-weight: 800 !important;
+}
+.fr-tc-capline {
+  display: flex !important;
+  justify-content: flex-end !important;
+  gap: 18px !important;
+  font-family: inherit !important;
+  font-size: 9pt !important;
+  font-weight: 700 !important;
+  color: #111 !important;
+  padding: 0 2px 3px !important;
+}
+.fr-tc-capline b { font-size: 11pt !important; font-weight: 800 !important; font-family: inherit !important; }
+
+.fr-tc-cards,
+.fr-preview .fr-tc-cards {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 4px !important;
+  margin-top: 4px !important;
+}
+.fr-tc-card,
+.fr-preview .fr-tc-card {
+  border: 0.5pt solid #c5cdd8 !important;
+  padding: 2px 6px !important;
+  overflow: visible !important;
+  background: #fff !important;
+  grid-column: auto !important;
+}
+.fr-tc-card h4,
+.fr-preview .fr-tc-card h4 {
+  margin: 0 0 3px !important;
+  padding: 0 0 2px !important;
+  font-family: inherit !important;
+  font-size: 7.5pt !important;
+  font-weight: 700 !important;
+  letter-spacing: .05em !important;
+  text-transform: uppercase !important;
+  color: #111 !important;
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 0.4pt solid #999 !important;
+}
+table.fr-tc-mini {
+  font-size: 6.5pt !important;
+}
+table.fr-tc-mini th,
+table.fr-tc-mini td {
+  border: 0.3pt solid #c5cdd8 !important;
+  padding-top: 1px !important;
+  padding-bottom: 1px !important;
+  padding-left: 3px !important;
+  padding-right: 3px !important;
+}
+table.fr-tc-mini th {
+  background: #f0f0f0 !important;
+  color: #111 !important;
+}
+
+@media print {
+  .fr-tc-page .calib-print-page,
+  .calib-print-page.fr-tc-page {
+    padding: 8mm 8mm !important;
+  }
+  .fr-tc-signoff { margin-top: 6px !important; }
+}
+
