@@ -162,6 +162,41 @@ public class MainActivity extends BridgeActivity {
   }
 
   private class PrintBridge {
+    private final StringBuilder printJobHtml = new StringBuilder();
+    private String printJobName = "Tank Chief";
+
+    @JavascriptInterface
+    public void beginPrintJob(final String jobName, final int expectedLength) {
+      synchronized (printJobHtml) {
+        printJobHtml.setLength(0);
+        if (expectedLength > 0 && expectedLength < 8_000_000) {
+          printJobHtml.ensureCapacity(expectedLength);
+        }
+        printJobName = (jobName == null || jobName.trim().isEmpty())
+            ? "Tank Chief" : jobName.trim();
+      }
+    }
+
+    @JavascriptInterface
+    public void appendPrintChunk(final String chunk) {
+      if (chunk == null || chunk.isEmpty()) return;
+      synchronized (printJobHtml) {
+        printJobHtml.append(chunk);
+      }
+    }
+
+    @JavascriptInterface
+    public void finishPrintJob() {
+      final String html;
+      final String name;
+      synchronized (printJobHtml) {
+        html = printJobHtml.toString();
+        name = printJobName;
+        printJobHtml.setLength(0);
+      }
+      printHtml(html, name);
+    }
+
     @JavascriptInterface
     public void printHtml(final String html, final String jobName) {
       runOnUiThread(() -> {
