@@ -1369,7 +1369,8 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   }
   .fr-print-signrow {
     display: flex; align-items: center; justify-content: flex-end;
-    /* No gap: stamp is pulled back over the end of the signature line. */
+    /* No gap: stamp overlaps the signature line. Default (Bunkering Plan
+       etc.) packs the block to the right — stamp sits LEFT of the signature. */
     gap: 0; margin-top: 8px;
   }
 
@@ -1524,7 +1525,12 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
      Concrete mm only (no CSS vars): Android/AIO print-bridge cssText drops
      empty var() declarations and the stamp vanishes. The stamp box is
      zero-height so it adds no page height; the image is positioned to sit
-     on the signature line and cover its last third. */
+     on the signature line.
+
+     Default (.fr-print-signrow, flex-end): used by Bunkering Plan — signature
+     on the RIGHT, stamp on the LEFT overlapping the first third of the line.
+     Tank Condition (.fr-tc-signoff): signature on the LEFT, stamp on the RIGHT
+     overlapping the last third of the line. */
   .fr-print-sign {
     flex: 0 0 62mm; font-size: 8pt; text-align: center;
   }
@@ -1546,8 +1552,11 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   .fr-print-logo {
     flex: 0 0 auto; display: block; align-self: flex-start;
     height: 0; overflow: visible;
-    /* Slide back over the last third of the 62mm signature line. */
-    margin-left: -20.67mm;
+    /* Default (right-aligned sign-off): draw stamp before the signature and
+       pull it over the left third of the 62mm line. */
+    order: -1;
+    margin-left: 0;
+    margin-right: -20.67mm;
   }
   .fr-print-logo img {
     height: 41.8mm; width: auto; max-width: 110mm;
@@ -1560,6 +1569,12 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   .fr-tc-signoff .fr-print-signrow { justify-content: flex-start; margin-top: 0; }
   .fr-tc-signoff .fr-print-signrow .fr-print-sign-line {
     width: 62mm; min-height: 0; padding-top: 0;
+  }
+  /* Tank Condition: stamp after the signature, overlapping the right end. */
+  .fr-tc-signoff .fr-print-logo {
+    order: 0;
+    margin-left: -20.67mm;
+    margin-right: 0;
   }
 }
 
