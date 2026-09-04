@@ -189,10 +189,10 @@ ${css}
   box-sizing: border-box !important; padding: 0 !important;
 }
 .report-print-doc, .bc-pr-sheet {
-  box-sizing: border-box !important; padding: 5mm !important;
+  box-sizing: border-box !important; padding: 4mm !important;
 }
 .calib-print-page {
-  box-sizing: border-box !important; padding: 5mm !important;
+  box-sizing: border-box !important; padding: 4mm !important;
   page-break-after: always; break-after: page;
 }
 .calib-print-page:last-of-type {
