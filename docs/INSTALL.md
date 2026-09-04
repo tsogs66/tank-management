@@ -70,10 +70,11 @@ installer's size.
 Built by GitHub Actions the same way as the Windows installer — push a `v*` tag
 for a release, or run *Android APK* from the Actions tab for a build artifact.
 
-The APK is **unsigned**. Signing needs a keystore, and a keystore belongs to
-whoever publishes the app rather than in a repository. Install it with "install
-from unknown sources" allowed for your browser or file manager, or sign it with
-your own key before handing it out.
+The APK is **signed** with a stable sideload keystore committed under
+`signing/` (same idea as ChEng AIO). That is what modern Android requires to
+install outside the Play Store, and it lets each new release overwrite the
+previous one without uninstalling. Allow "install from unknown sources" for
+your browser or file manager when prompted.
 
 ### It is standalone
 

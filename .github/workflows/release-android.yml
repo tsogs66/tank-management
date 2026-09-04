@@ -83,24 +83,6 @@ jobs:
       - name: Generate the Android project
         run: npx cap add android
 
-      # Capacitor's template hardcodes versionName "1.0" and versionCode 1.
-      # Left alone, every build reports 1.0 in Android's app info however it was
-      # tagged — and, worse, Android refuses to install an update whose
-      # versionCode has not increased, so the second release would simply not
-      # go on over the first.
-      - name: Take the app version from the manifest
-        shell: bash
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          # A monotonic integer from major.minor.patch: 2.1.0 -> 20100.
-          CODE=$(node -p "
-            const [a,b,c] = require('./package.json').version.split('.').map(Number);
-            (a * 10000) + (b * 100) + (c || 0);
-          ")
-          sed -i "s/versionCode 1$/versionCode $CODE/" android/app/build.gradle
-          sed -i "s/versionName \"1.0\"/versionName \"$VERSION\"/" android/app/build.gradle
-          grep -n 'versionCode\|versionName' android/app/build.gradle
-
       # Launcher icons for every screen density, and the two adaptive layers a
       # launcher masks into a circle or a squircle. Generated from the SVG
       # masters so the mark on the home screen is the same one in the browser
@@ -111,30 +93,34 @@ jobs:
       - name: Sync web assets
         run: npx cap sync android
 
-      - name: Build the APK
+      # Capacitor's template is unsigned and hardcodes version 1.0. Patch
+      # versionCode/versionName and attach the committed sideload keystore so
+      # phones can install the APK and later updates overwrite in place.
+      - name: Version + sideload signing keystore
+        run: node scripts/android-release-prep.js
+
+      - name: Build the signed APK
         run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
 
-      # Gradle calls it app-release-unsigned.apk, which says nothing about what
-      # it is or which version it came from. On a release page beside
-      # TankChief-Setup-2.1.0-x64.exe that is the one file nobody can identify
-      # six months later.
       - name: Name the APK
         shell: bash
         run: |
           VERSION=$(node -p "require('./package.json').version")
           mkdir -p dist
-          for f in android/app/build/outputs/apk/release/*.apk; do
-            cp "$f" "dist/TankChief-$VERSION.apk"
-            break
-          done
+          SRC="android/app/build/outputs/apk/release/app-release.apk"
+          if [ ! -f "$SRC" ]; then
+            # Fall back if Gradle named it differently
+            SRC=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
+          fi
+          cp "$SRC" "dist/TankChief-$VERSION.apk"
           ls -lh dist/
+          # Prove the APK is signed (unsigned releases are not installable).
+          "$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner" verify --verbose "dist/TankChief-$VERSION.apk"
 
-      # Unsigned: signing needs a keystore, which belongs to whoever publishes
-      # the app and must not live in the repository. Install with "unknown
-      # sources" allowed, or sign it with your own key before distributing.
+      # Signed with signing/tankchief-sideload.keystore (stable across releases).
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
