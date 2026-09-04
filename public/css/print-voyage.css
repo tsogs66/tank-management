@@ -278,6 +278,22 @@ table.fr-tc-mini tfoot td,
   background: var(--pr-total) !important;
   color: var(--pr-ink) !important;
   font-weight: 700;
+  /* The TOTAL label is a <th>, so it picked up the header rule's navy border.
+     That border is invisible on a header cell, which is filled navy — but the
+     total row is filled pale, so it came out as a black box drawn around the
+     sum. The grid here is the same hairline the data cells use; only the rule
+     above the row stays dark, which is what marks it as a total.
+
+     Written one side at a time on purpose. ChEng AIO prints these sheets by
+     rebuilding the stylesheet from rule.cssText, and a `border` shorthand
+     sitting beside a per-side override in the same rule cannot be serialised
+     back as a shorthand. The browser decomposes it into longhands, whose
+     var() values serialise empty, and the declaration is dropped — so
+     `border` + `border-top` here would hold standalone and vanish inside the
+     suite. Four separate sides survive the round trip. */
+  border-right: 1px solid var(--pr-border) !important;
+  border-bottom: 1px solid var(--pr-border) !important;
+  border-left: 1px solid var(--pr-border) !important;
   border-top: 0.4mm solid var(--pr-navy) !important;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
