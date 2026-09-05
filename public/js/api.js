@@ -30,11 +30,13 @@ const Api = (() => {
   }
   window.addEventListener('online', () => {
     setOnline(true);
+    /* Do not flush immediately — wait for operator idle so reconnect
+       cannot stall an active sounding / bunkering entry. */
     if (window.Branding && Branding.isPrintHold && Branding.isPrintHold()) {
-      Branding.afterPrintHold(() => { flushQueue(); });
+      Branding.afterPrintHold(() => { requestIdleFlush(); });
       return;
     }
-    flushQueue();
+    requestIdleFlush();
   });
   window.addEventListener('offline', () => setOnline(false));
 
@@ -281,26 +283,34 @@ const Api = (() => {
     });
   }
 
+  /* Server writes are queued and flushed only after the UI has been idle,
+     so a slow sync cannot freeze soundings / bunkering mid-entry. Local
+     transport still writes immediately (no network). Manual Flush / Push
+     still call flushQueue() directly. */
+  let idleFlushHandler = null;
+  function onIdleFlushRequest(fn) { idleFlushHandler = fn; }
+  function requestIdleFlush() {
+    if (typeof idleFlushHandler === 'function') idleFlushHandler();
+  }
+
+  async function queueWrite(path, opts) {
+    if (transport === 'local' && canUseLocal()) return request(path, opts);
+    await OfflineDB.queuePush({ path, opts });
+    requestIdleFlush();
+    return { queued: true, deferred: true };
+  }
+
   async function mutate(path, opts, offlineApply) {
     // On the device there is nothing to be offline from: the write has already
     // landed in the only database there is, so it must not also be queued for
     // some server to replay later.
     if (transport === 'local' && canUseLocal()) return request(path, opts);
-    if (!navigator.onLine) {
-      if (typeof offlineApply === 'function') await offlineApply();
-      await OfflineDB.queuePush({ path, opts });
-      setOnline(false);
-      return { queued: true, offline: true };
-    }
-    try {
-      const result = await request(path, opts);
-      return result;
-    } catch (err) {
-      if (typeof offlineApply === 'function') await offlineApply();
-      await OfflineDB.queuePush({ path, opts });
-      setOnline(false);
-      return { queued: true, offline: true, error: err.message };
-    }
+    if (typeof offlineApply === 'function') await offlineApply();
+    /* Always queue for server transport — idle loop delivers the PUT. */
+    await OfflineDB.queuePush({ path, opts });
+    if (!navigator.onLine) setOnline(false);
+    requestIdleFlush();
+    return { queued: true, deferred: true, offline: !navigator.onLine };
   }
 
   /**
@@ -380,26 +390,26 @@ const Api = (() => {
   function afterFlush(fn) { onFlushed = fn; }
 
   return {
-    request, upload, download, getStatus, getVessel, mutate, flushQueue, onStatus, isOnline,
-    reachable, afterFlush, getTransport, setTransport, canUseLocal, withPrefix, apiPrefix: API_PREFIX,
+    request, upload, download, getStatus, getVessel, mutate, queueWrite, flushQueue, onStatus, isOnline,
+    reachable, afterFlush, onIdleFlushRequest, requestIdleFlush, getTransport, setTransport, canUseLocal, withPrefix, apiPrefix: API_PREFIX,
     listVessels: () => request('/api/vessels'),
     createVessel: (body) => request('/api/vessels', { method: 'POST', body }),
     setActive: (id) => request('/api/vessels/active', { method: 'POST', body: { id } }),
     updateVessel: (id, body) => request('/api/vessels/' + id, { method: 'PUT', body }),
     deleteVessel: (id) => request('/api/vessels/' + id, { method: 'DELETE' }),
-    savePart: (id, part, body) => request(`/api/vessels/${id}/${part}`, { method: 'PUT', body }),
+    savePart: (id, part, body) => queueWrite(`/api/vessels/${id}/${part}`, { method: 'PUT', body }),
     upsertTank: (id, body) => request(`/api/vessels/${id}/tanks`, { method: 'POST', body }),
     deleteTank: (id, tankId) => request(`/api/vessels/${id}/tanks/${tankId}`, { method: 'DELETE' }),
     saveCalibration: (id, tankId, body) => request(`/api/vessels/${id}/tanks/${tankId}/calibration`, { method: 'PUT', body }),
     calculate: (id, body) => request(`/api/vessels/${id}/calculate`, { method: 'POST', body }),
     getFuelReport: (id) => request(`/api/vessels/${id}/fuel-report`),
     bunkeringChain: (id) => request(`/api/vessels/${id}/bunkering-chain`),
-    saveBunkerPlan: (id, body) => request(`/api/vessels/${id}/bunker-plan`, { method: 'PUT', body }),
-    saveBunkerAfter: (id, body) => request(`/api/vessels/${id}/bunker-after`, { method: 'PUT', body }),
+    saveBunkerPlan: (id, body) => queueWrite(`/api/vessels/${id}/bunker-plan`, { method: 'PUT', body }),
+    saveBunkerAfter: (id, body) => queueWrite(`/api/vessels/${id}/bunker-after`, { method: 'PUT', body }),
     bunkerAfterGetData: (id, body) =>
       request(`/api/vessels/${id}/bunker-after/get-data`, { method: 'POST', body }),
-    saveBunkerSummary: (id, body) => request(`/api/vessels/${id}/bunker-summary`, { method: 'PUT', body }),
-    saveFuelReport: (id, body) => request(`/api/vessels/${id}/fuel-report`, { method: 'PUT', body }),
+    saveBunkerSummary: (id, body) => queueWrite(`/api/vessels/${id}/bunker-summary`, { method: 'PUT', body }),
+    saveFuelReport: (id, body) => queueWrite(`/api/vessels/${id}/fuel-report`, { method: 'PUT', body }),
     deleteFuelReportSnapshot: (id, snapshotId) =>
       request(`/api/vessels/${id}/fuel-report/history/${snapshotId}`, { method: 'DELETE' }),
     bunkerDistribute: (id, body) => request(`/api/vessels/${id}/bunker-distribute`, { method: 'POST', body }),

@@ -58,22 +58,10 @@ const BunkerReports = (() => {
     await OfflineDB.idbSet('vessel:' + STATE.activeVesselId, b);
 
     const pushServer = async () => {
-      try {
-        const res = await Api.request(`/api/vessels/${STATE.activeVesselId}/${path}`, { method: 'PUT', body });
-        if (res.form) b[part] = res.form;
-        if (res.history) {
-          const h = bunkerHistory();
-          h[path === 'bunker-plan' ? 'plans' : path === 'bunker-after' ? 'after' : 'summaries'] = res.history;
-          b.bunkerHistory = h;
-        }
-        await OfflineDB.idbSet('vessel:' + STATE.activeVesselId, b);
-        if (!quiet) showToast(snapshot ? 'Saved' : 'Draft saved');
-        return res;
-      } catch {
-        await Api.mutate(`/api/vessels/${STATE.activeVesselId}/${path}`, { method: 'PUT', body });
-        if (!quiet) showToast('Saved offline — will sync when online');
-        return null;
-      }
+      /* Queue for idle flush — avoid stalling bunkering UI on every save. */
+      await Api.mutate(`/api/vessels/${STATE.activeVesselId}/${path}`, { method: 'PUT', body });
+      if (!quiet) showToast(snapshot ? 'Saved — syncs after idle' : 'Draft saved — syncs after idle');
+      return null;
     };
 
     if (deferServer) {

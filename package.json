@@ -1,7 +1,7 @@
 {
   "name": "tank-chief",
   "version": "2.1.48",
-  "description": "Tank Chief — multi-vessel fuel tank management with sounding calibration, bunkering distribution, voyage fuel planning, and offline sync",
+  "description": "Tank Chief \u2014 multi-vessel fuel tank management with sounding calibration, bunkering distribution, voyage fuel planning, and offline sync",
   "author": "ts0gs (Marvin C. Endozo)",
   "main": "desktop/main.js",
   "scripts": {
@@ -16,7 +16,8 @@
     "parity": "node scripts/parity-check.js",
     "android:sync": "npm run embed && npx cap sync android && node scripts/apply-android-bridges.js",
     "android:apk": "npm run android:sync && node scripts/android-release-prep.js && cd android && ./gradlew assembleRelease",
-    "icons": "node scripts/render-icons.js"
+    "icons": "node scripts/render-icons.js",
+    "test": "node tests/test_idle_sync.js"
   },
   "engines": {
     "node": ">=18"

@@ -632,16 +632,9 @@ const FuelReport = (() => {
     await OfflineDB.idbSet('vessel:' + STATE.activeVesselId, bundle);
 
     const pushServer = async () => {
-      try {
-        const res = await Api.saveFuelReport(STATE.activeVesselId, body);
-        bundle.fuelReport = res.form;
-        if (res.history) bundle.reportHistory = res.history;
-        await OfflineDB.idbSet('vessel:' + STATE.activeVesselId, bundle);
-        showToast(snapshot ? 'Report saved' : 'Draft saved');
-      } catch {
-        await Api.mutate(`/api/vessels/${STATE.activeVesselId}/fuel-report`, { method: 'PUT', body });
-        showToast('Saved offline — will sync when online');
-      }
+      /* Queue for idle flush — keep print/save responsive. */
+      await Api.mutate(`/api/vessels/${STATE.activeVesselId}/fuel-report`, { method: 'PUT', body });
+      showToast(snapshot ? 'Report saved — syncs after idle' : 'Draft saved — syncs after idle');
     };
 
     view.dirty = false;
