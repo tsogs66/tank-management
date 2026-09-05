@@ -561,11 +561,12 @@ function navigate(page, tankId = null) {
 async function persistPart(part, data) {
   STATE.bundle[part] = data;
   await OfflineDB.idbSet('vessel:' + STATE.activeVesselId, STATE.bundle);
+  /* Local-first: queue the server PUT and flush only after 3 min idle so
+     sync cannot stall soundings / bunkering while the operator is working. */
   try {
     await Api.savePart(STATE.activeVesselId, part, data);
   } catch {
     await Api.mutate(`/api/vessels/${STATE.activeVesselId}/${part}`, { method: 'PUT', body: data });
-    showToast('Saved offline — will sync when online');
   }
 }
 
@@ -676,7 +677,7 @@ function render() {
   if (!STATE.online) {
     const banner = document.createElement('div');
     banner.className = 'offline-banner';
-    banner.textContent = 'Working offline — changes are saved locally and will sync when the server is available.';
+    banner.textContent = 'Working offline — changes stay on this device and sync after 3 minutes idle once the server is reachable.';
     main.appendChild(banner);
   }
 
@@ -3519,11 +3520,11 @@ function renderSettings(main) {
         <button class="btn" id="btn-probe-sync">Test connection</button>
         <button class="btn" id="btn-pull">Pull from peer</button>
         <button class="btn primary" id="btn-push">Push to peer</button>
-        <button class="btn" id="btn-flush">Flush offline queue</button>
+        <button class="btn" id="btn-flush">Flush queue now</button>
       </div>
       <div class="hint" style="margin-top:8px;color:var(--text-faint);font-size:12px">
         ChEng AIO peer: <code>http://host:8080</code>. Standalone Tank Chief: <code>http://host:3080</code>.
-        Local and LXC instances can sync when either becomes reachable. Offline edits stay in IndexedDB until flushed.
+        Local and LXC instances can sync when either becomes reachable. Edits stay on this device and auto-flush after 3 minutes idle (or use Flush queue now).
       </div>
     </div>
     <div class="form-panel">
@@ -4265,7 +4266,8 @@ async function boot() {
     STATE.settings = st.settings || {};
     STATE.online = true;
     if (STATE.activeVesselId) await reloadBundle();
-    await Api.flushQueue();
+    /* Arm idle flush — do not push/pull during boot while the operator may start work. */
+    if (typeof Api.requestIdleFlush === 'function') Api.requestIdleFlush();
   } catch (e) {
     STATE.online = false;
     const st = await OfflineDB.idbGet('status');
@@ -4307,9 +4309,36 @@ async function boot() {
  * rather than half a minute.
  */
 function startSyncLoop() {
-  const IDLE_MS = 30000;
-  const PENDING_MS = 5000;
+  /* Flush queued server writes only after 3 minutes with no operator input.
+     Reachability probes stay gentle so sync never fights active data entry. */
+  const IDLE_FLUSH_MS = 3 * 60 * 1000;
+  const PROBE_MS = 60000;
   let timer = null;
+  let lastActivityAt = Date.now();
+  let flushArmed = false;
+
+  function noteActivity() {
+    lastActivityAt = Date.now();
+    if (flushArmed) schedule();
+  }
+
+  function bindActivity() {
+    if (window.__tankSyncIdleBound) return;
+    window.__tankSyncIdleBound = true;
+    let throttleAt = 0;
+    const onAct = () => {
+      const now = Date.now();
+      if (now - throttleAt < 400) return;
+      throttleAt = now;
+      noteActivity();
+    };
+    ['pointerdown', 'keydown', 'touchstart', 'click', 'input', 'change', 'scroll', 'wheel'].forEach((ev) => {
+      window.addEventListener(ev, onAct, { capture: true, passive: true });
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') noteActivity();
+    });
+  }
 
   Api.afterFlush(async ({ flushed, dropped, pending }) => {
     // Pull the server's copy back down so both sides agree — the server may
@@ -4372,25 +4401,48 @@ function startSyncLoop() {
     showToast(parts.join(' · '));
   });
 
+  const schedule = () => {
+    window.clearTimeout(timer);
+    const pendingWait = flushArmed
+      ? Math.max(1000, IDLE_FLUSH_MS - (Date.now() - lastActivityAt))
+      : PROBE_MS;
+    timer = window.setTimeout(tick, pendingWait);
+  };
+
+  const armFlush = () => {
+    flushArmed = true;
+    schedule();
+  };
+
   const tick = async () => {
     let pending = 0;
     try {
       pending = (await OfflineDB.queueAll()).length;
+      flushArmed = pending > 0;
       if (pending) {
+        if (Date.now() - lastActivityAt < IDLE_FLUSH_MS) {
+          schedule();
+          return;
+        }
         if (await Api.reachable()) await Api.flushQueue();
       } else {
         await Api.reachable();
       }
       pending = (await OfflineDB.queueAll()).length;
+      flushArmed = pending > 0;
     } catch { /* nothing to do but wait for the next tick */ }
-    timer = window.setTimeout(tick, pending ? PENDING_MS : IDLE_MS);
+    schedule();
   };
 
+  bindActivity();
+  if (typeof Api.onIdleFlushRequest === 'function') {
+    Api.onIdleFlushRequest(armFlush);
+  }
+  /* online listener in api.js only arms idle flush; keep a soft probe here. */
   window.addEventListener('online', () => {
-    window.clearTimeout(timer);
-    tick();
+    armFlush();
   });
-  timer = window.setTimeout(tick, PENDING_MS);
+  schedule();
 }
 
 /* Tank ROB bridge: respond to parent/AIO requests for current fuel ROB by grade. */
