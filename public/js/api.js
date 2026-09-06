@@ -30,11 +30,8 @@ const Api = (() => {
   }
   window.addEventListener('online', () => {
     setOnline(true);
-    if (window.Branding && Branding.isPrintHold && Branding.isPrintHold()) {
-      Branding.afterPrintHold(() => { flushQueue(); });
-      return;
-    }
-    flushQueue();
+    /* Manual sync only — do not flush queued writes on reconnect.
+       Operator presses Flush / Push / Pull when ready. */
   });
   window.addEventListener('offline', () => setOnline(false));
 
