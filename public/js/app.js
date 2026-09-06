@@ -3523,7 +3523,7 @@ function renderSettings(main) {
       </div>
       <div class="hint" style="margin-top:8px;color:var(--text-faint);font-size:12px">
         ChEng AIO peer: <code>http://host:8080</code>. Standalone Tank Chief: <code>http://host:3080</code>.
-        Local and LXC instances can sync when either becomes reachable. Offline edits stay in IndexedDB until flushed.
+        Local and LXC instances can sync when either becomes reachable. Offline edits stay in IndexedDB until you press Flush, Push, or Pull.
       </div>
     </div>
     <div class="form-panel">
@@ -4265,7 +4265,7 @@ async function boot() {
     STATE.settings = st.settings || {};
     STATE.online = true;
     if (STATE.activeVesselId) await reloadBundle();
-    await Api.flushQueue();
+    /* Manual sync only — queued offline writes wait for Flush / Push / Pull. */
   } catch (e) {
     STATE.online = false;
     const st = await OfflineDB.idbGet('status');
@@ -4294,21 +4294,17 @@ async function boot() {
 }
 
 /**
- * Keep the local database and the server in step.
+ * Soft reachability probe only. Queued offline writes are NOT flushed here —
+ * the operator must press Flush / Push / Pull. That keeps active sounding and
+ * bunkering entry free of surprise network sync.
  *
  * navigator.onLine only says whether the device has a network; it says nothing
  * about whether the server at the other end is up, and aboard a ship the common
  * case is exactly that — the tablet is on the vessel's wifi while the server box
- * is off. So reachability is asked of the server itself, and the queue is
- * retried on that answer rather than on the browser's opinion.
- *
- * While there is nothing waiting the check is cheap and infrequent. While there
- * is queued work it runs often, so a server coming back is picked up in seconds
- * rather than half a minute.
+ * is off. Reachability is still asked of the server itself for the status lamp.
  */
 function startSyncLoop() {
-  const IDLE_MS = 30000;
-  const PENDING_MS = 5000;
+  const IDLE_MS = 60000;
   let timer = null;
 
   Api.afterFlush(async ({ flushed, dropped, pending }) => {
@@ -4373,24 +4369,17 @@ function startSyncLoop() {
   });
 
   const tick = async () => {
-    let pending = 0;
     try {
-      pending = (await OfflineDB.queueAll()).length;
-      if (pending) {
-        if (await Api.reachable()) await Api.flushQueue();
-      } else {
-        await Api.reachable();
-      }
-      pending = (await OfflineDB.queueAll()).length;
-    } catch { /* nothing to do but wait for the next tick */ }
-    timer = window.setTimeout(tick, pending ? PENDING_MS : IDLE_MS);
+      await Api.reachable();
+    } catch { /* status lamp only; never auto-flush */ }
+    timer = window.setTimeout(tick, IDLE_MS);
   };
 
   window.addEventListener('online', () => {
     window.clearTimeout(timer);
     tick();
   });
-  timer = window.setTimeout(tick, PENDING_MS);
+  timer = window.setTimeout(tick, IDLE_MS);
 }
 
 /* Tank ROB bridge: respond to parent/AIO requests for current fuel ROB by grade. */
