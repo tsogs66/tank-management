@@ -2134,6 +2134,14 @@ const BunkerReports = (() => {
             <div class="bp-monitor-box" id="bs-diff-box"><span>DIFFERENCE</span><b data-bs="differenceMT"></b></div>
           </div>
           <div class="hint" data-bs="difference-note"></div>
+          <div class="section-title">BDN document / photo</div>
+          <div class="btn-row" style="flex-wrap:wrap; gap:8px; align-items:center;">
+            <input type="file" id="bs-bdn-photo-file" accept="image/*,application/pdf,.pdf" style="max-width:240px;">
+            <button type="button" class="ghost small" id="bs-bdn-take-photo">Take Picture</button>
+            <button type="button" class="ghost small" id="bs-bdn-clear-photo">Remove</button>
+          </div>
+          <div id="bs-bdn-photo-preview" class="hint" style="margin-top:8px;">No BDN photo attached.</div>
+          <div class="hint">Photograph the BDN on Android or a Windows webcam, or choose a PDF/image. Signature and vessel stamp stay on Setup — this is paperwork only.</div>
         </div>
       </div>
     </div>`;
@@ -2174,6 +2182,82 @@ const BunkerReports = (() => {
       + ((c.timing.warnings || []).length ? ` · ${c.timing.warnings.join(' ')}` : ''));
   }
 
+  function renderBdnPhotoPreview() {
+    const box = document.getElementById('bs-bdn-photo-preview');
+    if (!box) return;
+    const photo = view.summary && view.summary.bdnPhoto;
+    if (!photo || !photo.dataUrl) {
+      box.innerHTML = 'No BDN photo attached.';
+      box.className = 'hint';
+      return;
+    }
+    const isImg = photo.mime
+      ? String(photo.mime).startsWith('image/')
+      : /^data:image\//i.test(photo.dataUrl);
+    box.className = '';
+    box.innerHTML = isImg
+      ? `<img src="${photo.dataUrl}" alt="BDN photo" style="max-width:100%;max-height:220px;border:1px solid var(--line,#333);border-radius:4px;">`
+      : `<div class="hint" style="margin:0;">Attached: ${esc(photo.filename || 'BDN document')}</div>`;
+  }
+
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error || new Error('read failed'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function setBdnPhotoFromFile(file) {
+    if (!file) return;
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+    const isImage = (file.type && file.type.startsWith('image/')) || /\.(jpe?g|png|webp|gif)$/i.test(file.name);
+    if (!isPdf && !isImage) {
+      showToast('Choose a PDF or image of the BDN');
+      return;
+    }
+    let dataUrl = await readFileAsDataUrl(file);
+    if (isImage && typeof ImageCutout !== 'undefined' && ImageCutout.toPngDataUrl) {
+      try { dataUrl = await ImageCutout.toPngDataUrl(file); } catch (_) { /* keep raw */ }
+    }
+    view.summary.bdnPhoto = {
+      filename: file.name || (isImage ? 'bdn-photo.jpg' : 'bdn.pdf'),
+      mime: file.type || (isPdf ? 'application/pdf' : 'image/jpeg'),
+      dataUrl,
+      capturedAt: new Date().toISOString()
+    };
+    renderBdnPhotoPreview();
+  }
+
+  function wireBdnPhotoUi() {
+    const fileEl = document.getElementById('bs-bdn-photo-file');
+    const clearBtn = document.getElementById('bs-bdn-clear-photo');
+    fileEl?.addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      try {
+        await setBdnPhotoFromFile(file);
+      } catch (_) {
+        showToast('Could not load that BDN file');
+      }
+    });
+    clearBtn?.addEventListener('click', () => {
+      view.summary.bdnPhoto = null;
+      if (fileEl) fileEl.value = '';
+      renderBdnPhotoPreview();
+    });
+    if (typeof ChengCamera !== 'undefined') {
+      ChengCamera.wireTakePictureButton(document.getElementById('bs-bdn-take-photo'), {
+        fileInput: fileEl,
+        title: 'Photograph BDN',
+        basename: 'bdn',
+        onFile: (file) => setBdnPhotoFromFile(file)
+      });
+    }
+    renderBdnPhotoPreview();
+  }
+
   function bindSummaryEvents(wrap) {
     const apply = (el) => {
       if (el.dataset.sum) {
@@ -2194,6 +2278,7 @@ const BunkerReports = (() => {
     };
     wrap.addEventListener('input', (e) => { if (apply(e.target)) refreshSummary(); });
     wrap.addEventListener('change', (e) => { if (apply(e.target)) refreshSummary(); });
+    wireBdnPhotoUi();
 
     document.getElementById('bs-print-save').onclick = async () => {
       Branding.beginPrintHold();

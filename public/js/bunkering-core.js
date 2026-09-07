@@ -1259,6 +1259,7 @@ function emptySummary(bundle) {
     remarks: '',
     lubes: { cylHigh: '', cylLow: '', meSystem: '', dgSystem: '' },
     bdn: { fuelType: 'lsfo', quantityMT: '', sulphurPercent: '', density15: '' },
+    bdnPhoto: null,
     updatedAt: null,
   };
 }
