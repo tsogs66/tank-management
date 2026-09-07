@@ -75,9 +75,11 @@
         color:var(--paper-dim, #9aa5b1);
       }
       .cheng-cam-error{
-        padding:24px 16px; font-family:"IBM Plex Mono",monospace; font-size:12px;
+        padding:8px 16px 0; font-family:"IBM Plex Mono",monospace; font-size:12px;
         color:var(--alert, #d07070); text-align:center;
       }
+      .cheng-cam-error[hidden]{display:none !important;}
+      .cheng-cam-actions button:disabled{opacity:0.45; cursor:not-allowed;}
     `;
     document.head.appendChild(css);
   }
@@ -146,7 +148,9 @@
           <h3>${title}</h3>
           <div class="cheng-cam-video-wrap"><video playsinline autoplay muted></video></div>
           <div class="cheng-cam-hint">Point the camera and tap Capture. On a laptop this uses the webcam.</div>
+          <div class="cheng-cam-error" data-cam="err" hidden></div>
           <div class="cheng-cam-actions">
+            <button type="button" data-cam="system">Use Device Camera</button>
             <button type="button" data-cam="switch">Switch Camera</button>
             <button type="button" data-cam="cancel">Cancel</button>
             <button type="button" class="cheng-cam-primary" data-cam="shot">Capture</button>
@@ -154,6 +158,9 @@
         </div>`;
       document.body.appendChild(overlay);
       const video = overlay.querySelector('video');
+      const errBox = overlay.querySelector('[data-cam="err"]');
+      const shotBtn = overlay.querySelector('[data-cam="shot"]');
+      const switchBtn = overlay.querySelector('[data-cam="switch"]');
       let settled = false;
 
       const cleanup = () => {
@@ -172,9 +179,20 @@
         cleanup();
         reject(err);
       };
+      const showErr = (msg) => {
+        if (!errBox) return;
+        errBox.hidden = false;
+        errBox.textContent = msg;
+        if (shotBtn) shotBtn.disabled = true;
+      };
 
       async function start() {
         stopStream();
+        if (!canUseLiveCamera()) {
+          showErr('This browser cannot show a live preview here. Use Device Camera, or Cancel and choose a file.');
+          if (switchBtn) switchBtn.disabled = true;
+          return;
+        }
         try {
           activeStream = await navigator.mediaDevices.getUserMedia({
             audio: false,
@@ -184,26 +202,47 @@
               height: { ideal: 960 }
             }
           });
+          if (errBox) errBox.hidden = true;
+          if (shotBtn) shotBtn.disabled = false;
           video.srcObject = activeStream;
           try { await video.play(); } catch (_) { /* autoplay policies */ }
         } catch (err) {
-          finishErr(err);
+          const name = err && err.name;
+          const msg = name === 'NotAllowedError'
+            ? 'Camera permission was denied. Allow the camera, or tap Use Device Camera.'
+            : name === 'NotFoundError'
+              ? 'No camera was found on this device. Tap Use Device Camera or choose a file.'
+              : 'Live camera preview is unavailable. Tap Use Device Camera (Android) or choose a file.';
+          showErr(msg);
+          if (switchBtn) switchBtn.disabled = true;
         }
       }
 
       overlay.querySelector('[data-cam="cancel"]').addEventListener('click', () => {
         finishErr(new Error('cancelled'));
       });
-      overlay.querySelector('[data-cam="switch"]').addEventListener('click', () => {
+      overlay.querySelector('[data-cam="system"]').addEventListener('click', async () => {
+        try {
+          /* Close the overlay first so the OS camera UI is not covered. */
+          const prefer = true;
+          cleanup();
+          settled = true;
+          const file = await openSystemCameraInput();
+          resolve(file);
+        } catch (err) {
+          reject(err);
+        }
+      });
+      switchBtn.addEventListener('click', () => {
         facingMode = facingMode === 'environment' ? 'user' : 'environment';
         start();
       });
-      overlay.querySelector('[data-cam="shot"]').addEventListener('click', () => {
+      shotBtn.addEventListener('click', () => {
         try {
-          const w = video.videoWidth || 1280;
-          const h = video.videoHeight || 960;
+          const w = video.videoWidth || 0;
+          const h = video.videoHeight || 0;
           if (!(w > 0 && h > 0)) {
-            finishErr(new Error('Camera not ready'));
+            showErr('Camera is not ready yet — wait for the preview, or use Device Camera.');
             return;
           }
           const canvas = document.createElement('canvas');
@@ -213,13 +252,13 @@
           ctx.drawImage(video, 0, 0, w, h);
           canvas.toBlob((blob) => {
             if (!blob) {
-              finishErr(new Error('Could not capture frame'));
+              showErr('Could not capture that frame. Try again.');
               return;
             }
             finishOk(fileFromBlob(blob, options && options.basename));
           }, 'image/jpeg', 0.88);
         } catch (err) {
-          finishErr(err);
+          showErr((err && err.message) || 'Capture failed');
         }
       });
       overlay.addEventListener('click', (e) => {
@@ -236,15 +275,10 @@
    */
   async function takePicture(options) {
     const opts = options || {};
-    if (!opts.preferSystem && canUseLiveCamera()) {
-      try {
-        return await openLiveCameraModal(opts);
-      } catch (err) {
-        if (err && String(err.message) === 'cancelled') throw err;
-        /* Fall through to the system camera / picker. */
-      }
-    }
-    return openSystemCameraInput();
+    if (opts.preferSystem) return openSystemCameraInput();
+    /* Always open the dialog so the user sees a clear path on Android and Windows,
+       even when live preview is blocked (no webcam, permission, or insecure context). */
+    return openLiveCameraModal(opts);
   }
 
   /** Put a captured File onto an existing <input type="file"> so existing change handlers run. */
