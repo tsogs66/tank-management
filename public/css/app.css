@@ -2045,7 +2045,7 @@ html.bright .bunker-side { background: rgba(18,34,56,0.04); }
 }
 .bunker-table {
   width: 100%;
-  min-width: 640px;
+  min-width: 720px;
   border-collapse: collapse;
   font-size: 11px;
   table-layout: fixed;
@@ -2087,9 +2087,11 @@ html.bright .bunker-side { background: rgba(18,34,56,0.04); }
 }
 .bunker-table .col-port { width: 40px; text-align: center; }
 .bunker-table .col-from,
-.bunker-table .col-to { width: 18%; }
-.bunker-table .col-num { width: 70px; }
-.bunker-table .col-qty { width: 78px; }
+.bunker-table .col-to { width: 16%; }
+.bunker-table .col-num { width: 64px; }
+.bunker-table .col-margin { width: 68px; }
+.bunker-table .col-qty { width: 72px; }
+.bunker-leg-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; }
 .bunker-totals {
   display: grid;
   grid-template-columns: 1fr 1fr;

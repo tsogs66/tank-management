@@ -20,17 +20,48 @@ const BunkerConsumption = (function () {
       qtyLabel: 'MO/MGO/LSMGO',
     },
   ];
-  const MAX_LEGS = 10;
+  const MAX_LEGS = 30;
 
   function emptyLeg() {
-    return { port: false, from: '', to: '', distance: null, speed: null, dailyCons: null, days: null };
+    return { port: false, from: '', to: '', distance: null, speed: null, dailyCons: null, days: null, marginPct: null };
+  }
+  function legIsBlank(leg) {
+    if (!leg) return true;
+    return !leg.port
+      && !(String(leg.from || '').trim())
+      && !(String(leg.to || '').trim())
+      && leg.distance == null
+      && leg.speed == null
+      && leg.dailyCons == null
+      && leg.days == null;
+  }
+  function normalizeLegs(legs, legacySideMargin) {
+    let list = Array.isArray(legs) ? legs.map((leg) => ({
+      port: !!leg.port,
+      from: leg.from || '',
+      to: leg.to || '',
+      distance: leg.distance ?? null,
+      speed: leg.speed ?? null,
+      dailyCons: leg.dailyCons ?? null,
+      days: leg.days ?? null,
+      marginPct: (leg.marginPct == null || leg.marginPct === '') ? null : Number(leg.marginPct),
+    })) : [];
+    list.forEach((leg) => { if (leg.marginPct != null && isNaN(leg.marginPct)) leg.marginPct = null; });
+    while (list.length > 1 && legIsBlank(list[list.length - 1])) list.pop();
+    if (!list.length) list = [emptyLeg()];
+    const anyPerLeg = list.some((l) => l.marginPct != null);
+    const legacy = (legacySideMargin == null || legacySideMargin === '') ? null : Number(legacySideMargin);
+    if (!anyPerLeg && legacy != null && !isNaN(legacy)) {
+      list.forEach((leg) => { if (!legIsBlank(leg)) leg.marginPct = legacy; });
+    }
+    if (list.length > MAX_LEGS) list = list.slice(0, MAX_LEGS);
+    return list;
   }
   function emptySide(grade) {
     return {
       grade,
-      legs: Array.from({ length: MAX_LEGS }, () => emptyLeg()),
+      legs: [emptyLeg()],
       currentRob: null,
-      marginPct: 20,
       qtyReceive: null,
     };
   }
@@ -59,19 +90,10 @@ const BunkerConsumption = (function () {
     SIDES.forEach((meta) => {
       if (!plan[meta.key]) plan[meta.key] = emptySide(meta.defaultGrade);
       const s = plan[meta.key];
-      if (!Array.isArray(s.legs)) s.legs = [];
-      while (s.legs.length < MAX_LEGS) s.legs.push(emptyLeg());
-      s.legs = s.legs.slice(0, MAX_LEGS).map((leg) => ({
-        port: !!leg.port,
-        from: leg.from || '',
-        to: leg.to || '',
-        distance: leg.distance ?? null,
-        speed: leg.speed ?? null,
-        dailyCons: leg.dailyCons ?? null,
-        days: leg.days ?? null,
-      }));
+      const legacyMargin = s.marginPct;
+      s.legs = normalizeLegs(s.legs, legacyMargin);
+      if ('marginPct' in s) delete s.marginPct;
       s.grade = normalizeGradeLabel(s.grade, meta);
-      if (s.marginPct == null || s.marginPct === '') s.marginPct = 20;
     });
     return plan;
   }
@@ -90,11 +112,18 @@ const BunkerConsumption = (function () {
     if (days == null || !(daily >= 0) || isNaN(daily)) return null;
     return daily * days;
   }
+  function legMarginMt(leg) {
+    const qty = legQty(leg);
+    const mp = Number(leg.marginPct);
+    if (qty == null || isNaN(mp)) return null;
+    return qty * (mp / 100);
+  }
   function summarize(side) {
     let daysPort = 0;
     let daysSea = 0;
     let totalDist = 0;
     let totalCons = 0;
+    let margin = 0;
     (side.legs || []).forEach((leg) => {
       const days = legDays(leg);
       const qty = legQty(leg);
@@ -104,10 +133,12 @@ const BunkerConsumption = (function () {
         if (leg.port) daysPort += days;
         else daysSea += days;
       }
-      if (qty != null) totalCons += qty;
+      if (qty != null) {
+        totalCons += qty;
+        const m = legMarginMt(leg);
+        if (m != null) margin += m;
+      }
     });
-    const mp = Number(side.marginPct);
-    const margin = !isNaN(mp) ? totalCons * (mp / 100) : 0;
     const required = totalCons + margin;
     const rob = (side.currentRob != null && side.currentRob !== '' && !isNaN(side.currentRob))
       ? Number(side.currentRob) : null;
@@ -117,6 +148,21 @@ const BunkerConsumption = (function () {
     const nextDepRob = arrivalRob == null ? null : arrivalRob + receive;
     const stem = rob == null ? null : Math.max(0, required - rob - receive);
     return { daysPort, daysSea, totalDist, totalCons, margin, required, arrivalRob, nextDepRob, stem, receive };
+  }
+
+  function addLeg(sideKey) {
+    const side = _plan[sideKey];
+    if (!side || side.legs.length >= MAX_LEGS) return;
+    side.legs.push(emptyLeg());
+    renderGrid(_plan);
+    scheduleSave();
+  }
+  function removeLeg(sideKey) {
+    const side = _plan[sideKey];
+    if (!side || side.legs.length <= 1) return;
+    side.legs.pop();
+    renderGrid(_plan);
+    scheduleSave();
   }
 
   function autoFillSeaDays(leg) {
@@ -206,9 +252,7 @@ const BunkerConsumption = (function () {
       document.querySelectorAll(`input[data-bc-sf][data-bc-side="${meta.key}"]`).forEach((inp) => {
         const f = inp.dataset.bcSf;
         const v = inp.value === '' ? null : parseFloat(inp.value);
-        side[f] = (f === 'marginPct')
-          ? (v == null || isNaN(v) ? 20 : v)
-          : (v == null || isNaN(v) ? null : v);
+        side[f] = (v == null || isNaN(v) ? null : v);
       });
       side.legs.forEach((leg, i) => {
         const tr = document.querySelector(`tr[data-bc-side="${meta.key}"][data-bc-row="${i}"]`);
@@ -219,7 +263,7 @@ const BunkerConsumption = (function () {
           const el = tr.querySelector(`[data-f="${f}"]`);
           if (el) leg[f] = el.value;
         });
-        ['distance', 'speed', 'dailyCons', 'days'].forEach((f) => {
+        ['distance', 'speed', 'dailyCons', 'days', 'marginPct'].forEach((f) => {
           const el = tr.querySelector(`[data-f="${f}"]`);
           if (!el) return;
           const v = el.value === '' ? null : parseFloat(el.value);
@@ -258,12 +302,13 @@ const BunkerConsumption = (function () {
         return `<tr data-bc-side="${meta.key}" data-bc-row="${i}">
           <td class="col-port"><input type="checkbox" data-f="port" ${leg.port ? 'checked' : ''} title="Port or anchorage stay"></td>
           <td class="col-from"><input type="text" data-f="from" value="${esc(leg.from)}" placeholder="From" autocomplete="off"></td>
-          <td class="col-to"><input type="text" data-f="to" value="${esc(leg.to)}" placeholder="To" autocomplete="off"></td>
+          <td class="col-to"><input type="text" data-f="to" value="${esc(leg.to)}" placeholder="To / destination" autocomplete="off"></td>
           <td class="col-num"><input type="number" step="0.1" data-f="distance" value="${leg.distance ?? ''}" ${leg.port ? 'disabled' : ''} inputmode="decimal"></td>
           <td class="col-num"><input type="number" step="0.1" data-f="speed" value="${leg.speed ?? ''}" ${leg.port ? 'disabled' : ''} inputmode="decimal"></td>
           <td class="col-num"><input type="number" step="0.01" data-f="dailyCons" value="${leg.dailyCons ?? ''}" inputmode="decimal"></td>
           <td class="col-num"><input type="number" step="0.001" data-f="days" value="${days ?? ''}" inputmode="decimal"></td>
           <td class="col-qty"><input type="number" readonly tabindex="-1" value="${qty == null ? '' : fmtFuel(qty)}"></td>
+          <td class="col-margin"><input type="number" step="0.1" data-f="marginPct" value="${leg.marginPct ?? ''}" placeholder="%" title="Safety margin % for this destination / stay only" inputmode="decimal"></td>
         </tr>`;
       }).join('');
       return `<div class="bunker-side" data-bc-side="${meta.key}">
@@ -282,13 +327,17 @@ const BunkerConsumption = (function () {
               <th class="col-num">Daily Cons</th>
               <th class="col-num">Days</th>
               <th class="col-qty">${meta.qtyLabel} MT</th>
+              <th class="col-margin" title="Optional reserve for this line only">Margin %</th>
             </tr></thead>
             <tbody>${rows}</tbody>
           </table>
         </div>
+        <div class="bunker-leg-actions">
+          <button type="button" class="btn small" data-bc-add-leg="${meta.key}">Add destination / stay</button>
+          <button type="button" class="btn small" data-bc-remove-leg="${meta.key}" ${side.legs.length <= 1 ? 'disabled' : ''}>Remove last line</button>
+        </div>
         <div class="bunker-totals">
           <div class="field"><label>Current ROB (MT)</label><input type="number" step="0.001" data-bc-sf="currentRob" data-bc-side="${meta.key}" value="${side.currentRob ?? ''}"></div>
-          <div class="field"><label>Margin %</label><input type="number" step="0.1" data-bc-sf="marginPct" data-bc-side="${meta.key}" value="${side.marginPct ?? 20}"></div>
           <div class="field"><label>Quantity to Receive (MT)</label><input type="number" step="0.001" data-bc-sf="qtyReceive" data-bc-side="${meta.key}" value="${side.qtyReceive ?? ''}"></div>
           <div class="field calc"><label>Days at Port / Anchor</label><input readonly tabindex="-1" value="${fmtN(sum.daysPort, 3)}"></div>
           <div class="field calc"><label>Days at Sea</label><input readonly tabindex="-1" value="${fmtN(sum.daysSea, 3)}"></div>
@@ -300,7 +349,7 @@ const BunkerConsumption = (function () {
           <div class="field calc"><label>Next Departure ROB (MT)</label><input readonly tabindex="-1" value="${sum.nextDepRob == null ? '—' : fmtFuel(sum.nextDepRob)}"></div>
           <div class="field calc full"><label>Stem still needed (MT)</label><input readonly tabindex="-1" value="${sum.stem == null ? '—' : fmtFuel(sum.stem)}"></div>
         </div>
-        <div class="bunker-formula">Sea days = Dist ÷ (Speed × 24) · Qty = Daily × Days · Margin = Cons × Margin% · Required = Cons + Margin · Arrival ROB = Current ROB − Required · Next Dep ROB = Arrival ROB + Qty to Receive</div>
+        <div class="bunker-formula">Sea days = Dist ÷ (Speed × 24) · Qty = Daily × Days · Line margin = Qty × Margin% · Required = Σ Qty + Σ margins · Arrival ROB = Current ROB − Required · Next Dep ROB = Arrival ROB + Qty to Receive</div>
       </div>`;
     }).join('');
   }
@@ -321,7 +370,7 @@ const BunkerConsumption = (function () {
     const sidesHtml = SIDES.map((meta) => {
       const side = plan[meta.key];
       const sum = summarize(side);
-      const body = side.legs.map((leg) => {
+      const body = side.legs.filter((leg) => !legIsBlank(leg) || legQty(leg) != null).map((leg) => {
         const days = legDays(leg);
         const qty = legQty(leg);
         return `<tr>
@@ -333,6 +382,7 @@ const BunkerConsumption = (function () {
           <td>${leg.dailyCons != null ? fmtFuel(leg.dailyCons) : ''}</td>
           <td>${days != null ? fmtN(days, 3) : ''}</td>
           <td>${qty != null ? fmtFuel(qty) : ''}</td>
+          <td>${leg.marginPct != null ? fmtN(leg.marginPct, 1) : ''}</td>
         </tr>`;
       }).join('');
       return `<section class="pr-section bc-pr-section">
@@ -340,20 +390,20 @@ const BunkerConsumption = (function () {
         <div class="pr-section-body bc-pr-section-body">
           <table class="pr-table bc-pr-table">
             <thead><tr>
-              <th style="width:7%">P/A</th>
-              <th style="width:18%">From</th>
-              <th style="width:18%">To</th>
-              <th style="width:10%">Dist</th>
-              <th style="width:10%">Speed</th>
-              <th style="width:12%">Daily</th>
-              <th style="width:10%">Days</th>
-              <th style="width:15%">Qty MT</th>
+              <th style="width:6%">P/A</th>
+              <th style="width:15%">From</th>
+              <th style="width:15%">To</th>
+              <th style="width:9%">Dist</th>
+              <th style="width:9%">Speed</th>
+              <th style="width:10%">Daily</th>
+              <th style="width:9%">Days</th>
+              <th style="width:12%">Qty MT</th>
+              <th style="width:10%">Margin %</th>
             </tr></thead>
             <tbody>${body}</tbody>
           </table>
           ${printMetaGrid([
             { label: 'Current ROB', value: side.currentRob == null ? '—' : fmtFuel(side.currentRob) + ' MT' },
-            { label: 'Margin %', value: fmtN(side.marginPct, 1) + '%' },
             { label: 'Qty to Receive', value: side.qtyReceive == null ? '—' : fmtFuel(side.qtyReceive) + ' MT' },
             { label: 'Days Port', value: fmtN(sum.daysPort, 3) },
             { label: 'Days Sea', value: fmtN(sum.daysSea, 3) },
@@ -395,7 +445,7 @@ const BunkerConsumption = (function () {
       ${sidesHtml}
       <div class="pr-remarks bc-pr-remarks">
         <div class="pr-remarks-title bc-pr-remarks-title">Calculation basis</div>
-        <div class="pr-remarks-body bc-pr-remarks-body">Sea days = Dist ÷ (Speed × 24). Quantity = Daily Cons × Days. Margin = Consumption × Margin%. Required = Consumption + Margin. Arrival ROB = Current ROB − Required. Next Departure ROB = Arrival ROB + Quantity to Receive.</div>
+        <div class="pr-remarks-body bc-pr-remarks-body">Sea days = Dist ÷ (Speed × 24). Quantity = Daily Cons × Days. Each line may carry its own Margin % (line margin = Qty × Margin%). Required = Σ Qty + Σ line margins. Arrival ROB = Current ROB − Required. Next Departure ROB = Arrival ROB + Quantity to Receive.</div>
       </div>
       ${typeof FuelReport !== 'undefined' ? FuelReport.printSignatureBlock() : ''}
       ${typeof Branding !== 'undefined' ? Branding.printCredit() : ''}
@@ -551,6 +601,22 @@ const BunkerConsumption = (function () {
 
     const grid = document.getElementById('bcGrid');
     if (grid) {
+      grid.addEventListener('click', (e) => {
+        const addBtn = e.target.closest('[data-bc-add-leg]');
+        const remBtn = e.target.closest('[data-bc-remove-leg]');
+        if (addBtn) {
+          e.preventDefault();
+          readFromDom(_plan);
+          addLeg(addBtn.dataset.bcAddLeg);
+          return;
+        }
+        if (remBtn) {
+          e.preventDefault();
+          readFromDom(_plan);
+          removeLeg(remBtn.dataset.bcRemoveLeg);
+          return;
+        }
+      });
       grid.addEventListener('change', (e) => {
         const t = e.target;
         if (!t) return;
@@ -635,7 +701,7 @@ const BunkerConsumption = (function () {
     main.innerHTML += `
     <div class="form-panel bc-page no-print">
       <h2 class="bc-page-title">Bunker Consumption Calculation</h2>
-      <div class="hint">Plan fuel burn by voyage leg for residual (HFO/LSFO) and distillate (MDO/MGO/LSMGO). Sea days auto-fill from Distance ÷ (Speed × 24) when Port/Anchor is unchecked (1 kn = 1 nm/h). Quantity = Daily Cons × Days. Required Quantity = Total Consumption + Margin %. Arrival ROB = Current ROB − Required (conservative). Next Departure ROB adds bunkers to be received.</div>
+      <div class="hint">Plan fuel burn by voyage leg for residual (HFO/VLSFO) and distillate (MO/MGO/LSMGO). Start with one destination or stay; set Margin % on that line if needed, then Add destination / stay for the next. Sea days auto-fill from Distance ÷ (Speed × 24). Required = Σ consumption + Σ per-line margins. Arrival ROB = Current ROB − Required.</div>
       <div class="bunker-plan-head">
         <div class="field"><label>Vessel</label><input id="bc_vessel" readonly></div>
         <div class="field"><label>Voyage No.</label><input id="bc_voyageNo"></div>
@@ -651,7 +717,7 @@ const BunkerConsumption = (function () {
         </div>
       </div>
       <div class="bunker-plan-grid" id="bcGrid"></div>
-      <div class="hint" style="margin-top:12px;">Industry practice: sea days ≈ distance (nm) ÷ (speed kn × 24); port/anchor days are entered directly; a percentage safety margin (often 10–20%) is added to voyage consumption when sizing stems (many operators also keep a 48–72 h steaming reserve).</div>
+      <div class="hint" style="margin-top:12px;">Industry practice: sea days ≈ distance (nm) ÷ (speed kn × 24); port/anchor days are entered directly. Each destination or stay can carry its own Margin % — e.g. a higher reserve into a bunkering port than for a short anchorage.</div>
     </div>
     <div class="form-panel no-print" id="bcHistory" style="display:none;">
       <h2 class="bc-page-title">Saved Calculations</h2>
