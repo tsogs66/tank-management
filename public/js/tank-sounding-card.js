@@ -286,10 +286,12 @@ html, body{
   font-size:7.2pt;
 }
 .pr-tsc-method-cell{
-  text-align:left; white-space:nowrap; font-size:5.8pt; padding:0.35mm 0.5mm !important;
+  text-align:center; white-space:nowrap; font-size:5.8pt; padding:0.35mm 0.5mm !important;
+  vertical-align:middle;
 }
 .pr-tsc-method-cell .pr-tsc-chk{
-  display:inline-flex; align-items:center; gap:0.7mm; margin-right:1.6mm; font-weight:500;
+  display:inline-flex; align-items:center; justify-content:center; gap:0.7mm;
+  margin:0 1.1mm; font-weight:500;
 }
 .pr-tsc-box{
   display:inline-block; width:2.8mm; height:2.8mm;

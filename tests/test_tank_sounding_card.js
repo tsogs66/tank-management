@@ -72,7 +72,7 @@ check('draft and trim fields', half.includes('Forward Draft') && half.includes('
 check('sea and E/R temperature fields', half.includes('Sea Temp (°C)') && half.includes('E/R Temp (°C)'));
 check('no global sounding method row', !half.includes('Sounding method'));
 check('ullage and depth per tank row', half.includes('pr-tsc-method-cell') && half.includes('Ullage') && half.includes('Depth') && half.includes('pr-tsc-box'));
-check('method column header', /<th>Method<\/th>/.test(half));
+check('method column centered', /\.pr-tsc-method-cell\{[\s\S]{0,120}text-align:center/.test(SRC));
 check('sounding cm column', half.includes('Sounding (cm)'));
 check('tank temperature column', half.includes('Temp (°C)') && half.includes('pr-tsc-temp'));
 check('lists all tank names', half.includes('NO.1 HFO (P)') && half.includes('NO.2 HFO (S)') && half.includes('SETTLING'));
