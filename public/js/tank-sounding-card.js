@@ -36,11 +36,19 @@ const TankSoundingCard = (() => {
       ? tanks.map((t, i) => {
         const val = sample ? String(120 + i * 17) : '';
         const temp = sample ? String(38 + (i % 5)) : '';
+        let method = String(t.soundingMethod || t.method || '').toLowerCase();
+        if (sample && !method) method = (i % 3 === 0) ? 'depth' : 'ullage';
+        const ullageChk = sample && (method === 'ullage' || method === 'ull') ? ' pr-tsc-checked' : '';
+        const depthChk = sample && (method === 'depth' || method === 'dip' || method === 'sounding') ? ' pr-tsc-checked' : '';
         return `<tr><td class="pr-tsc-tank">${esc(t.name || 'Tank')}</td>`
+          + `<td class="pr-tsc-method-cell">`
+          + `<label class="pr-tsc-chk${ullageChk}"><span class="pr-tsc-box"></span> Ullage</label>`
+          + `<label class="pr-tsc-chk${depthChk}"><span class="pr-tsc-box"></span> Depth</label>`
+          + `</td>`
           + `<td class="pr-tsc-cm">${esc(val)}</td>`
           + `<td class="pr-tsc-temp">${esc(temp)}</td></tr>`;
       }).join('')
-      : `<tr><td class="pr-tsc-tank pr-tsc-empty" colspan="3">No fuel oil tanks in vessel database</td></tr>`;
+      : `<tr><td class="pr-tsc-tank pr-tsc-empty" colspan="4">No fuel oil tanks in vessel database</td></tr>`;
 
     const dateVal = sample ? esc(opts.sampleDate || '') : '';
     const timeVal = sample ? esc(opts.sampleTime || '') : '';
@@ -50,8 +58,6 @@ const TankSoundingCard = (() => {
     const seaVal = sample ? esc(opts.sampleSea || '') : '';
     const erVal = sample ? esc(opts.sampleEr || '') : '';
     const byVal = sample ? esc(opts.sampleBy || '') : '';
-    const ullageChk = sample && opts.sampleMethod === 'ullage' ? ' pr-tsc-checked' : '';
-    const depthChk = sample && opts.sampleMethod === 'depth' ? ' pr-tsc-checked' : '';
 
     return `<div class="pr-tsc-inner">
       <div class="pr-tsc-title">TANK SOUNDING CARD</div>
@@ -72,14 +78,8 @@ const TankSoundingCard = (() => {
           <div class="pr-tsc-field"><span class="pr-tsc-lbl">E/R Temp (°C)</span><span class="pr-tsc-line">${erVal}</span></div>
         </div>
 
-        <div class="pr-tsc-method">
-          <span class="pr-tsc-lbl">Sounding method</span>
-          <label class="pr-tsc-chk${ullageChk}"><span class="pr-tsc-box"></span> Ullage</label>
-          <label class="pr-tsc-chk${depthChk}"><span class="pr-tsc-box"></span> Depth</label>
-        </div>
-
         <table class="pr-tsc-table">
-          <thead><tr><th>Tank</th><th>Sounding (cm)</th><th>Temp (°C)</th></tr></thead>
+          <thead><tr><th>Tank</th><th>Method</th><th>Sounding (cm)</th><th>Temp (°C)</th></tr></thead>
           <tbody>${tankRows}</tbody>
         </table>
       </div>
@@ -285,17 +285,16 @@ html, body{
   padding:0 0.4mm 0.15mm;
   font-size:7.2pt;
 }
-.pr-tsc-method{
-  display:flex; align-items:center; gap:3.5mm; flex-wrap:wrap;
-  margin:0 0 1.6mm; font-size:7pt;
+.pr-tsc-method-cell{
+  text-align:left; white-space:nowrap; font-size:5.8pt; padding:0.35mm 0.5mm !important;
 }
-.pr-tsc-chk{
-  display:inline-flex; align-items:center; gap:1.2mm; font-weight:500;
+.pr-tsc-method-cell .pr-tsc-chk{
+  display:inline-flex; align-items:center; gap:0.7mm; margin-right:1.6mm; font-weight:500;
 }
 .pr-tsc-box{
-  display:inline-block; width:3.2mm; height:3.2mm;
-  border:0.6pt solid #222; box-sizing:border-box;
-  background:#fff;
+  display:inline-block; width:2.8mm; height:2.8mm;
+  border:0.55pt solid #222; box-sizing:border-box;
+  background:#fff; flex:0 0 auto;
 }
 .pr-tsc-checked .pr-tsc-box{
   background:linear-gradient(to bottom right, transparent 42%, #111 42%, #111 58%, transparent 58%),
@@ -303,18 +302,19 @@ html, body{
 }
 .pr-tsc-table{
   width:100%; border-collapse:collapse; table-layout:fixed;
-  font-size:7pt; margin:0; flex:1 1 auto;
+  font-size:7pt; margin:0.8mm 0 0; flex:1 1 auto;
 }
 .pr-tsc-table th, .pr-tsc-table td{
-  border:0.5pt solid #222; padding:0.55mm 1mm;
+  border:0.5pt solid #222; padding:0.55mm 0.7mm;
   height:var(--tsc-row, 4.0mm); vertical-align:middle;
 }
 .pr-tsc-table th{
-  background:#efefef; font-weight:600; font-size:6.6pt; text-align:center;
+  background:#efefef; font-weight:600; font-size:6.4pt; text-align:center;
 }
-.pr-tsc-tank{ text-align:left; width:54%; font-weight:500; }
-.pr-tsc-cm{ text-align:center; width:24%; }
-.pr-tsc-temp{ text-align:center; width:22%; }
+.pr-tsc-tank{ text-align:left; width:42%; font-weight:500; }
+.pr-tsc-method-cell{ width:28%; }
+.pr-tsc-cm{ text-align:center; width:16%; }
+.pr-tsc-temp{ text-align:center; width:14%; }
 .pr-tsc-empty{ text-align:center; color:#666; font-style:italic; }
 .pr-tsc-by{
   flex:0 0 auto; margin-top:auto; padding-top:2mm; width:100%;
@@ -383,7 +383,6 @@ html, body{
       sampleTrim: '0.65 A',
       sampleSea: '28.5',
       sampleEr: '36.0',
-      sampleMethod: 'ullage',
       sampleBy: 'C/E',
       tanks: tanks.length ? tanks : [{ name: 'NO.1 H.F.O. TANK (P)' }, { name: 'NO.1 H.F.O. TANK (S)' }],
     });
@@ -411,7 +410,7 @@ html, body{
     </div></div>
     <div class="form-panel">
       <div class="section-title" style="margin-top:0">Fuel oil tanks (${tanks.length})</div>
-      <p class="hint" style="margin-top:0">Rows follow the vessel fuel tanks database. Each half includes Date, Time, Forward / Aft Draft, Trim, Sea Temp, E/R Temp, Ullage / Depth checkboxes, tank name + blank sounding (cm) + tank Temp (°C), and Sounded by. Subtitle and footer match the Voyage Log Entry Data Card style.</p>
+      <p class="hint" style="margin-top:0">Rows follow the vessel fuel tanks database. Each half includes Date, Time, Forward / Aft Draft, Trim, Sea Temp, E/R Temp, and per tank: Ullage / Depth method checkboxes, blank sounding (cm), and Temp (°C), plus Sounded by. Subtitle and footer match the Voyage Log Entry Data Card style.</p>
       <p class="hint" id="tsc-tank-list"><strong>Tanks:</strong> ${names}</p>
     </div>`;
     const printBtn = document.getElementById('btn-tsc-print');
