@@ -493,6 +493,43 @@ ${css}
     }
   }
 
+  /**
+   * Print a complete HTML document as-is (e.g. landscape handout cards).
+   * Unlike printLiveDocument, this does not wrap content in the portrait sheet chrome.
+   */
+  function printHtmlDocument(html, title, opts = {}) {
+    let finished = false;
+    const heldHere = !isPrintHold();
+    if (heldHere) beginPrintHold();
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      try { cleanupOpts && cleanupOpts(); } catch (_) { /* ignore */ }
+      endPrintHold();
+    };
+    const cleanupOpts = opts && typeof opts.cleanup === 'function' ? opts.cleanup : null;
+    const docHtml = String(html || '');
+    const job = title || APP_NAME;
+    if (!docHtml) {
+      finish();
+      return;
+    }
+    if (shouldBridgePrint()) {
+      try {
+        deliverBridgedHtml(docHtml, job, finish);
+        return;
+      } catch (err) {
+        console.warn('Tank printHtmlDocument bridge failed, falling back to iframe', err);
+      }
+    }
+    try {
+      printViaHiddenIframe(docHtml, job, finish);
+    } catch (err) {
+      finish();
+      throw err;
+    }
+  }
+
   return {
     APP_NAME,
     AUTHORS,
@@ -503,6 +540,7 @@ ${css}
     printMetaGrid,
     escPrint,
     printLiveDocument,
+    printHtmlDocument,
     beginPrintHold,
     endPrintHold,
     isPrintHold,
