@@ -479,6 +479,7 @@ function renderMoreNav() {
   if (bunkerConsumptionNavAllowed()) {
     host.appendChild(mk('bunker-consumption', 'Bunker Consumption', '📊'));
   }
+  host.appendChild(mk('sounding-card', 'Sounding Card', '📇'));
   host.appendChild(mk('report', 'Voyage Report', '📋'));
 
   g = document.createElement('div');
@@ -616,6 +617,7 @@ function renderNav() {
   if (bunkerConsumptionNavAllowed()) nav.appendChild(mk('bunker-consumption', 'Bunker Consumption', '📊'));
   nav.appendChild(mk('bunker-after', 'Bunkering', '📥'));
   nav.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
+  nav.appendChild(mk('sounding-card', 'Sounding Card', '📇'));
   nav.appendChild(mk('report', 'Voyage Report', '📋'));
 
   g = document.createElement('div');
@@ -699,6 +701,13 @@ function render() {
   else if (page === 'bunker-consumption') BunkerConsumption.render(main);
   else if (page === 'bunker-after') BunkerReports.renderAfter(main);
   else if (page === 'bunker-summary') BunkerReports.renderSummary(main);
+  else if (page === 'sounding-card') {
+    if (window.TankSoundingCard) TankSoundingCard.renderPage(main, STATE.bundle);
+    else {
+      main.innerHTML = `<div class="form-panel"><h2>Sounding Card</h2>
+        <p class="hint">Tank Sounding Card module failed to load.</p></div>`;
+    }
+  }
   else if (page === 'report') renderReport(main);
   else if (page === 'vcf-wcf') renderVcfWcf(main);
   else if (page === 'iso8217') renderIso8217(main);
@@ -4088,7 +4097,7 @@ function renderAbout(main) {
   const ver = (typeof Branding !== 'undefined' && Branding.APP_VERSION)
     ? Branding.APP_VERSION
     : (document.querySelector('meta[name="app-version"]')?.content || '');
-  const pkgVer = ver || '2.1.41';
+  const pkgVer = ver || '2.1.52';
   main.innerHTML += `<div class="page-head"><div>
     <h1>About</h1>
     <div class="desc">${Branding.APP_NAME} · v${pkgVer}</div>
@@ -4165,7 +4174,7 @@ function isNewerVersion(latest, current) {
 async function checkTankAppUpdate() {
   const status = document.getElementById('about-update-status');
   const link = document.getElementById('about-update-link');
-  const current = '2.1.41';
+  const current = '2.1.52';
   if (status) status.textContent = 'Checking GitHub for the latest Tank Chief release…';
   if (link) link.style.display = 'none';
   try {
