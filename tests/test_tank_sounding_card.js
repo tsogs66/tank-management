@@ -75,6 +75,11 @@ check('ullage and depth per tank row', half.includes('pr-tsc-method-cell') && ha
 check('method column centered', /\.pr-tsc-method-cell\{[\s\S]{0,120}text-align:center/.test(SRC));
 check('sounding cm column', half.includes('Sounding (cm)'));
 check('tank temperature column', half.includes('Temp (°C)') && half.includes('pr-tsc-temp'));
+check('meta block spaces table from header details', half.includes('pr-tsc-meta') && /pr-tsc-meta\{[\s\S]{0,120}margin:0 0 3\.2mm/.test(SRC));
+check('table wrap content-sized for fit', half.includes('pr-tsc-table-wrap') && /\.pr-tsc-table-wrap\{[\s\S]{0,120}flex:0 0 auto/.test(SRC));
+check('fit maximizes row height for table', /hi = 8\.5/.test(SRC) && /Grow row height/.test(SRC) && /measureHeightRatio/.test(SRC));
+check('fit locks landscape page box for measure', /Lock the landscape page box/.test(SRC) && /page\.style\.height = '210mm'/.test(SRC));
+check('fit measures against fixed half frame', /201\.3mm/.test(SRC) && /frame\.clientHeight/.test(SRC));
 check('lists all tank names', half.includes('NO.1 HFO (P)') && half.includes('NO.2 HFO (S)') && half.includes('SETTLING'));
 check('sounded by line', /Sounded by/.test(half));
 
