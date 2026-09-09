@@ -69,8 +69,10 @@ check('subtitle Tank Chief - vessel', half.includes('Tank Chief - MV TEST'));
 check('footer vessel — company — ts0gs', half.includes('MV TEST — Ocean Co — ts0gs'));
 check('date and time fields', half.includes('>Date<') && half.includes('>Time<'));
 check('draft and trim fields', half.includes('Forward Draft') && half.includes('Aft Draft') && half.includes('>Trim<'));
+check('sea and E/R temperature fields', half.includes('Sea Temp (°C)') && half.includes('E/R Temp (°C)'));
 check('ullage and depth checkboxes', half.includes('Ullage') && half.includes('Depth') && half.includes('pr-tsc-box'));
 check('sounding cm column', half.includes('Sounding (cm)'));
+check('tank temperature column', half.includes('Temp (°C)') && half.includes('pr-tsc-temp'));
 check('lists all tank names', half.includes('NO.1 HFO (P)') && half.includes('NO.2 HFO (S)') && half.includes('SETTLING'));
 check('sounded by line', /Sounded by/.test(half));
 

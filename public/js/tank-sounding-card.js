@@ -35,16 +35,20 @@ const TankSoundingCard = (() => {
     const tankRows = tanks.length
       ? tanks.map((t, i) => {
         const val = sample ? String(120 + i * 17) : '';
+        const temp = sample ? String(38 + (i % 5)) : '';
         return `<tr><td class="pr-tsc-tank">${esc(t.name || 'Tank')}</td>`
-          + `<td class="pr-tsc-cm">${esc(val)}</td></tr>`;
+          + `<td class="pr-tsc-cm">${esc(val)}</td>`
+          + `<td class="pr-tsc-temp">${esc(temp)}</td></tr>`;
       }).join('')
-      : `<tr><td class="pr-tsc-tank pr-tsc-empty" colspan="2">No fuel oil tanks in vessel database</td></tr>`;
+      : `<tr><td class="pr-tsc-tank pr-tsc-empty" colspan="3">No fuel oil tanks in vessel database</td></tr>`;
 
     const dateVal = sample ? esc(opts.sampleDate || '') : '';
     const timeVal = sample ? esc(opts.sampleTime || '') : '';
     const fwdVal = sample ? esc(opts.sampleFwd || '') : '';
     const aftVal = sample ? esc(opts.sampleAft || '') : '';
     const trimVal = sample ? esc(opts.sampleTrim || '') : '';
+    const seaVal = sample ? esc(opts.sampleSea || '') : '';
+    const erVal = sample ? esc(opts.sampleEr || '') : '';
     const byVal = sample ? esc(opts.sampleBy || '') : '';
     const ullageChk = sample && opts.sampleMethod === 'ullage' ? ' pr-tsc-checked' : '';
     const depthChk = sample && opts.sampleMethod === 'depth' ? ' pr-tsc-checked' : '';
@@ -63,6 +67,10 @@ const TankSoundingCard = (() => {
           <div class="pr-tsc-field"><span class="pr-tsc-lbl">Aft Draft</span><span class="pr-tsc-line">${aftVal}</span></div>
           <div class="pr-tsc-field"><span class="pr-tsc-lbl">Trim</span><span class="pr-tsc-line">${trimVal}</span></div>
         </div>
+        <div class="pr-tsc-grid2">
+          <div class="pr-tsc-field"><span class="pr-tsc-lbl">Sea Temp (°C)</span><span class="pr-tsc-line">${seaVal}</span></div>
+          <div class="pr-tsc-field"><span class="pr-tsc-lbl">E/R Temp (°C)</span><span class="pr-tsc-line">${erVal}</span></div>
+        </div>
 
         <div class="pr-tsc-method">
           <span class="pr-tsc-lbl">Sounding method</span>
@@ -71,7 +79,7 @@ const TankSoundingCard = (() => {
         </div>
 
         <table class="pr-tsc-table">
-          <thead><tr><th>Tank</th><th>Sounding (cm)</th></tr></thead>
+          <thead><tr><th>Tank</th><th>Sounding (cm)</th><th>Temp (°C)</th></tr></thead>
           <tbody>${tankRows}</tbody>
         </table>
       </div>
@@ -304,8 +312,9 @@ html, body{
 .pr-tsc-table th{
   background:#efefef; font-weight:600; font-size:6.6pt; text-align:center;
 }
-.pr-tsc-tank{ text-align:left; width:68%; font-weight:500; }
-.pr-tsc-cm{ text-align:center; width:32%; }
+.pr-tsc-tank{ text-align:left; width:54%; font-weight:500; }
+.pr-tsc-cm{ text-align:center; width:24%; }
+.pr-tsc-temp{ text-align:center; width:22%; }
 .pr-tsc-empty{ text-align:center; color:#666; font-style:italic; }
 .pr-tsc-by{
   flex:0 0 auto; margin-top:auto; padding-top:2mm; width:100%;
@@ -372,6 +381,8 @@ html, body{
       sampleFwd: '8.45',
       sampleAft: '9.10',
       sampleTrim: '0.65 A',
+      sampleSea: '28.5',
+      sampleEr: '36.0',
       sampleMethod: 'ullage',
       sampleBy: 'C/E',
       tanks: tanks.length ? tanks : [{ name: 'NO.1 H.F.O. TANK (P)' }, { name: 'NO.1 H.F.O. TANK (S)' }],
@@ -400,7 +411,7 @@ html, body{
     </div></div>
     <div class="form-panel">
       <div class="section-title" style="margin-top:0">Fuel oil tanks (${tanks.length})</div>
-      <p class="hint" style="margin-top:0">Rows follow the vessel fuel tanks database. Each half includes Date, Time, Forward / Aft Draft, Trim, Ullage / Depth checkboxes, tank name + blank sounding (cm), and Sounded by. Subtitle and footer match the Voyage Log Entry Data Card style.</p>
+      <p class="hint" style="margin-top:0">Rows follow the vessel fuel tanks database. Each half includes Date, Time, Forward / Aft Draft, Trim, Sea Temp, E/R Temp, Ullage / Depth checkboxes, tank name + blank sounding (cm) + tank Temp (°C), and Sounded by. Subtitle and footer match the Voyage Log Entry Data Card style.</p>
       <p class="hint" id="tsc-tank-list"><strong>Tanks:</strong> ${names}</p>
     </div>`;
     const printBtn = document.getElementById('btn-tsc-print');
