@@ -34,8 +34,10 @@ html.bright {
   --border: rgba(18, 34, 56, 0.14);
   --border-soft: rgba(18, 34, 56, 0.08);
   --text: #122238;
-  --text-dim: #4a5568;
-  --text-faint: #6b7280;
+  /* Match AIO shell muted (#3d4a5c) — old #6b7280 failed AA on cream. */
+  --text-dim: #3d4a5c;
+  --text-faint: #3d4a5c;
+  --input: #ffffff;
   --accent: #8a5a1a;
   --accent-2: #1f7a72;
   --good: #2f7a45;
@@ -43,7 +45,7 @@ html.bright {
   --bad: #b33a22;
   --fuel: #8a5a1a;
   --lube: #1f7a72;
-  --misc: #4a5568;
+  --misc: #3d4a5c;
   --water: #1f7a72;
   --brass: #8a5a1a;
   --shadow: 0 2px 10px rgba(18,34,56,0.12);
@@ -388,6 +390,7 @@ label.btn { margin: 0; }
 .form-row input:focus, .form-row select:focus, .form-row textarea:focus {
   outline: none; border-color: var(--accent);
 }
+.hint { font-size: 11px; color: var(--text-dim); margin-top: 4px; line-height: 1.5; }
 .form-row .hint { font-size: 11px; color: var(--text-faint); margin-top: 4px; }
 .form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
@@ -1777,7 +1780,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
    required one — the box being empty is the normal state. */
 .hint-inline {
   font-size: 9.5px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: .07em; color: #7c8aa3; margin-left: 6px;
+  letter-spacing: .07em; color: var(--text-faint); margin-left: 6px;
 }
 
 /* Operation estimates.
@@ -1889,6 +1892,56 @@ tr.bp-est-over th.fr-tank-name { box-shadow: inset 3px 0 0 var(--bad); }
   margin: 8px 4px 4px;
 }
 html.bright .theme-toggle { background: rgba(18,34,56,0.06); }
+
+/* Bright-mode contrast — small uppercase labels need ink closer to body text
+   than the shared muted token, matching AIO shell calc/stat labels. */
+html.bright .fr-field > span,
+html.bright .bp-est-box > span,
+html.bright .bp-monitor-box > span,
+html.bright .bs-event > span,
+html.bright .card .label,
+html.bright .fr-preview-label,
+html.bright .nav-group-label,
+html.bright table.fr-sheet thead th,
+html.bright table.data-table th,
+html.bright table.tank-table th,
+html.bright table.leg-table th,
+html.bright table.calib-table th,
+html.bright .bunker-plan-head .field label,
+html.bright .bunker-totals .field label,
+html.bright .bunker-table th {
+  color: #2a3544;
+}
+html.bright .hint,
+html.bright .bp-est-box > i,
+html.bright .bp-est-figure > i,
+html.bright .bp-est-empty,
+html.bright .bp-est-from,
+html.bright .bp-state-time,
+html.bright .page-head .desc,
+html.bright .form-row .hint,
+html.bright .empty-state {
+  color: var(--text-dim);
+}
+html.bright table.fr-sheet tbody input,
+html.bright table.fr-sheet tbody select,
+html.bright .form-row input,
+html.bright .form-row select,
+html.bright .form-row textarea,
+html.bright table.leg-table input,
+html.bright table.calib-table input,
+html.bright .fr-field input,
+html.bright .fr-field select,
+html.bright .bp-clock-input,
+html.bright .bunker-plan-head .field input,
+html.bright .bunker-totals .field input {
+  color: var(--text);
+  background: var(--input, #ffffff);
+}
+html.bright .bp-progress,
+html.bright .bunker-progress-bar {
+  background: rgba(18, 34, 56, 0.08);
+}
 .theme-toggle:hover { border-color: var(--accent); color: var(--text); }
 
 /* Theme stays in the sidebar / More sheet — no bottom-left FAB on phone
