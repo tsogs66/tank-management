@@ -1234,13 +1234,8 @@ function renderTankDetail(main, tankId) {
   const existing = getReading(tankId) || {};
   const c = CATS.find((x) => x.id === tank.category);
 
-  const back = document.createElement('div');
-  back.className = 'back-link';
-  back.textContent = '← Back to ' + c.label;
-  back.onclick = () => navigate(tank.category);
-  main.appendChild(back);
-
-  main.innerHTML += `<div class="page-head"><div><h1>${tank.name}</h1>
+  main.innerHTML += `<div class="back-link" id="tank-back-link" role="button" tabindex="0">← Back to ${escapeHtml(c.label)}</div>
+  <div class="page-head"><div><h1>${tank.name}</h1>
     <div class="desc">${c.label} · ${tank.fuelRole || ''} · ${tank.side || ''} · cap ${fmt(tank.capacity,2)} m³ · ${tank.calcType}</div></div>
     <div class="btn-row">
       <button class="btn small" id="btn-edit-calib">Edit calibration</button>
@@ -1288,6 +1283,16 @@ function renderTankDetail(main, tankId) {
     </div>
     <div class="result-panel" id="result-panel"></div>`;
   main.appendChild(grid);
+
+  const backLink = document.getElementById('tank-back-link');
+  if (backLink) {
+    const goBack = () => navigate(tank.category);
+    backLink.onclick = goBack;
+    backLink.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goBack(); }
+    };
+  }
+
 
   document.getElementById('btn-edit-calib').onclick = () => navigate('calibration', tankId);
   document.getElementById('btn-del-tank').onclick = async () => {
@@ -4232,7 +4237,7 @@ function renderAbout(main) {
   const ver = (typeof Branding !== 'undefined' && Branding.APP_VERSION)
     ? Branding.APP_VERSION
     : (document.querySelector('meta[name="app-version"]')?.content || '');
-  const pkgVer = ver || '2.1.61';
+  const pkgVer = ver || '2.1.62';
   main.innerHTML += `<div class="page-head"><div>
     <h1>About</h1>
     <div class="desc">${Branding.APP_NAME} · v${pkgVer}</div>
@@ -4309,7 +4314,7 @@ function isNewerVersion(latest, current) {
 async function checkTankAppUpdate() {
   const status = document.getElementById('about-update-status');
   const link = document.getElementById('about-update-link');
-  const current = '2.1.61';
+  const current = '2.1.62';
   if (status) status.textContent = 'Checking GitHub for the latest Tank Chief release…';
   if (link) link.style.display = 'none';
   try {

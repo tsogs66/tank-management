@@ -563,11 +563,18 @@ table.excel-table input[type="number"]:focus {
   position: fixed;
   bottom: calc(22px + env(safe-area-inset-bottom, 0px));
   left: 50%; transform: translateX(-50%) translateY(20px);
-  background: #223353; border: 1px solid var(--border); color: var(--text);
+  background: var(--bg-panel, #223353); border: 1px solid var(--border); color: var(--text);
   padding: 10px 16px; border-radius: 8px; opacity: 0; transition: .2s; z-index: 100;
   max-width: min(90vw, 520px); pointer-events: none;
+  box-shadow: var(--shadow, 0 8px 24px rgba(0,0,0,.35));
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+/* Bright: solid dark chip so toast never washes out on cream panels. */
+html.bright .toast {
+  background: #122238;
+  color: #fff8ee;
+  border-color: rgba(138, 90, 26, 0.45);
+}
 .textarea-json {
   width: 100%; min-height: 160px; background: var(--bg-panel);
   border: 1px solid var(--border); border-radius: 8px; padding: 10px;
@@ -1631,7 +1638,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
 }
 .sigpad {
   width: min(880px, 100%);
-  background: var(--panel, #16203a);
+  background: var(--bg-card, #16203a);
   border: 1px solid var(--border, #2a3550);
   border-radius: 12px;
   padding: 14px;
@@ -1692,6 +1699,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   background: rgba(255, 255, 255, .02);
 }
 .tg-schematic-head {
+  color: var(--text);
   font-size: 13px; font-weight: 800; letter-spacing: .04em;
   text-transform: uppercase; color: var(--text, #e8eef8);
 }
@@ -1752,18 +1760,20 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
 @media (max-width: 760px)  { .tg-grid { grid-template-columns: 1fr; } }
 
 .tg-card {
-  background: var(--panel, #16203a);
+  background: var(--bg-card, var(--bg-panel, #16203a));
   border: 1px solid var(--border, #2a3550);
   border-radius: 10px;
   padding: 10px 10px 8px;
   display: flex; flex-direction: column; gap: 6px;
   min-width: 0;
+  color: var(--text);
 }
 .tg-card.clickable { cursor: pointer; }
 .tg-card.clickable:hover { border-color: #3d6ea8; }
 .tg-name {
   font-size: 11.5px; font-weight: 700; line-height: 1.25;
   min-height: 2.4em; overflow: hidden;
+  color: var(--text);
 }
 .tg-art { position: relative; }
 .tg-svg { display: block; width: 100%; height: auto; --tg-ink: #93a1b8; }
@@ -1781,10 +1791,10 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
 
 .tg-stats {
   display: grid; grid-template-columns: 1fr 1fr; gap: 1px 8px;
-  font-size: 11px; color: #9fb0c8; font-variant-numeric: tabular-nums;
+  font-size: 11px; color: var(--text-dim, #9fb0c8); font-variant-numeric: tabular-nums;
 }
 .tg-chip {
-  font-weight: 700; color: #dfe8f6; font-size: 10px;
+  font-weight: 700; color: var(--text); font-size: 10px;
   letter-spacing: .04em; display: inline-flex; align-items: center; gap: 5px;
 }
 .tg-chip::before {
@@ -1801,7 +1811,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
 }
 .tg-tab-handle {
   flex: 0 0 auto; width: 26px;
-  background: var(--panel, #16203a);
+  background: var(--bg-card, #16203a);
   border: 1px solid var(--border, #2a3550); border-right: none;
   border-radius: 8px 0 0 8px;
   color: #cfe0f5; cursor: pointer; padding: 0;
@@ -1812,7 +1822,7 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
 }
 .tg-tab-body {
   flex: 0 0 auto; width: 178px; overflow-y: auto;
-  background: var(--panel, #16203a);
+  background: var(--bg-card, #16203a);
   border: 1px solid var(--border, #2a3550); border-right: none;
   border-radius: 8px 0 0 8px;
   padding: 8px; display: flex; flex-direction: column; gap: 3px;
@@ -1953,6 +1963,41 @@ tr.bp-est-over th.fr-tank-name { box-shadow: inset 3px 0 0 var(--bad); }
   margin: 8px 4px 4px;
 }
 html.bright .theme-toggle { background: rgba(18,34,56,0.06); }
+
+/* Graphical tanks — bright theme readability */
+html.bright .tg-card {
+  background: var(--bg-card);
+  border-color: var(--border);
+  color: var(--text);
+}
+html.bright .tg-name { color: var(--text); }
+html.bright .tg-pct {
+  color: var(--text);
+  text-shadow: 0 1px 2px rgba(255,255,255,.8);
+}
+html.bright .tg-stats { color: var(--text-dim); }
+html.bright .tg-chip { color: var(--text); }
+html.bright .tg-void { fill: rgba(18, 34, 56, 0.06); }
+html.bright .tg-shell { stroke: #5a6a80; }
+html.bright .tg-schematic-col {
+  background: var(--bg-panel);
+  border-color: var(--border);
+}
+html.bright .tg-schematic-head { color: var(--text); }
+html.bright .tg-schematic-sub { color: var(--text-dim); }
+html.bright .tg-schematic-empty {
+  color: var(--text-dim);
+  border-color: var(--border);
+}
+html.bright .tg-tab-handle,
+html.bright .tg-tab-body {
+  background: var(--bg-panel);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+
+
 
 /* Bright-mode contrast — small uppercase labels need ink closer to body text
    than the shared muted token, matching AIO shell calc/stat labels. */
