@@ -117,27 +117,35 @@
    * The inside of the tank, as a path. The liquid is clipped to this, so the
    * shape of the floor shapes the oil sitting on it.
    *
-   * Settling and service floors fall to a sump on the right. Overflow tanks are
-   * plain boxes — their character is the weir and downcomer drawn on top.
+   * Settling tanks take a 45° cut on the bottom-left (drain at the low corner).
+   * Service tanks take a 45° cut on the bottom-right (suction clear of the sump).
+   * Overflow tanks stay plain boxes — their character is the weir on top.
    */
-  const SLOPE = 18;          // how far the floor falls across the tank
-  const SUMP_W = 18;         // the flat catch at the low corner
+  const CUT = 28;            // equal x/y → true 45° corner cut
 
   function cavityPath(role) {
-    if (role === 'settling' || role === 'service') {
-      // Floor falls left-to-right and ends in a short flat sump at the low
-      // corner. Drawn as one closed path so the liquid, clipped to it, sits on
-      // the slope instead of on an invented flat bottom.
-      return `M${L} ${T} L${R} ${T} L${R} ${B} L${R - SUMP_W} ${B} L${L} ${B - SLOPE} Z`;
+    if (role === 'settling') {
+      // Bottom-left 45° cut: floor drops into a sump on the port/left side.
+      return `M${L} ${T} L${R} ${T} L${R} ${B} L${L + CUT} ${B} L${L} ${B - CUT} Z`;
+    }
+    if (role === 'service') {
+      // Bottom-right 45° cut: floor drops into a sump on the starboard/right side.
+      return `M${L} ${T} L${R} ${T} L${R} ${B - CUT} L${R - CUT} ${B} L${L} ${B} Z`;
     }
     return `M${L} ${T} L${R} ${T} L${R} ${B} L${L} ${B} Z`;
   }
 
   /** Where the floor sits at a given x — used to place things on the slope. */
   function floorY(role, x) {
-    if (role !== 'settling' && role !== 'service') return B;
-    if (x >= R - SUMP_W) return B;
-    return B - SLOPE + ((x - L) / (R - SUMP_W - L)) * SLOPE;
+    if (role === 'settling') {
+      if (x <= L + CUT) return B - CUT + (x - L);
+      return B;
+    }
+    if (role === 'service') {
+      if (x >= R - CUT) return B - (R - x);
+      return B;
+    }
+    return B;
   }
 
   /** Fittings that say what the tank is for. */
@@ -145,23 +153,20 @@
     const ink = 'var(--tg-ink)';
     const parts = [];
     if (role === 'settling' || role === 'service') {
-      // Drain cock at the low corner — the point of the slope is that the water
-      // and sludge collect here, so this is where they are let out.
-      const dx = R - SUMP_W / 2;
-      parts.push(`<path d="M${dx} ${B} L${dx} ${B + 7}" stroke="${ink}" stroke-width="2" fill="none"/>`);
-      parts.push(`<path d="M${dx - 6} ${B + 7} L${dx + 6} ${B + 7} L${dx} ${B + 14} Z" fill="${ink}"/>`);
-      // Heating coil, following the slope: these tanks are kept warm so the
-      // heavy ends stay fluid enough to separate.
-      const y0 = floorY(role, L + 12) - 12;
-      const y1 = floorY(role, R - SUMP_W - 6) - 12;
-      parts.push(`<path d="M${L + 12} ${y0} L${R - SUMP_W - 6} ${y1}"
+      // Drain cock at the low corner of the 45° cut.
+      const dx = role === 'settling' ? L + CUT * 0.35 : R - CUT * 0.35;
+      const dy = floorY(role, dx);
+      parts.push(`<path d="M${dx} ${dy} L${dx} ${dy + 7}" stroke="${ink}" stroke-width="2" fill="none"/>`);
+      parts.push(`<path d="M${dx - 6} ${dy + 7} L${dx + 6} ${dy + 7} L${dx} ${dy + 14} Z" fill="${ink}"/>`);
+      // Heating coil along the flat floor, clear of the cut corner.
+      const x0 = role === 'settling' ? L + CUT + 8 : L + 12;
+      const x1 = role === 'settling' ? R - 12 : R - CUT - 8;
+      parts.push(`<path d="M${x0} ${B - 12} L${x1} ${B - 12}"
         stroke="${ink}" stroke-width="1.6" fill="none" opacity=".55" stroke-dasharray="5 4"/>`);
     }
     if (role === 'service') {
-      // Suction standing clear above the sump: clean oil is drawn from well
-      // above whatever has settled out. This is the difference from a settling
-      // tank, and the reason the pair exists.
-      const x = L + 30;
+      // Suction standing clear above the right-hand sump.
+      const x = L + (R - L) * 0.38;
       const bell = floorY(role, x) - 20;
       parts.push(`<path d="M${x} ${T - 8} L${x} ${bell}" stroke="${ink}" stroke-width="2.2" fill="none"/>`);
       parts.push(`<path d="M${x - 7} ${bell} L${x + 7} ${bell} L${x} ${bell + 7} Z" fill="${ink}"/>`);
@@ -213,8 +218,10 @@
             fill="url(#${uid}-liq)"/>
           <rect x="${L - 4}" y="${levelY}" width="${R - L + 8}" height="2.5" fill="#fff" opacity=".28"/>` : ''}
         ${settles && known && level > 0
-          ? `<path d="M${L - 4} ${B - SLOPE - 1} L${R - SUMP_W} ${B - 1} L${R + 4} ${B - 1} L${R + 4} ${B + 6} L${L - 4} ${B + 6} Z"
-              fill="#000" opacity=".4"/>` : ''}
+          ? (role === 'settling'
+            ? `<path d="M${L - 4} ${B - CUT - 1} L${L + CUT} ${B - 1} L${R + 4} ${B - 1} L${R + 4} ${B + 6} L${L - 4} ${B + 6} Z" fill="#000" opacity=".4"/>`
+            : `<path d="M${L - 4} ${B - 1} L${R - CUT} ${B - 1} L${R + 4} ${B - CUT - 1} L${R + 4} ${B + 6} L${L - 4} ${B + 6} Z" fill="#000" opacity=".4"/>`)
+          : ''}
       </g>
 
       ${options.safeFill !== null ? `<path d="M${L - 5} ${safeY} L${R + 5} ${safeY}" class="tg-safe"/>` : ''}
@@ -233,8 +240,8 @@
   /** The purpose each silhouette is drawing, for the legend and the tooltip. */
   const ROLE_MEANING = {
     storage: 'Plain box, bottom suction',
-    settling: 'Floor falling to a sump, drain at the low corner, heating coil',
-    service: 'As settling, plus suction standing clear above the sump',
+    settling: '45° bottom-left cut, drain at the low corner, heating coil',
+    service: '45° bottom-right cut, suction standing clear above the sump',
     overflow: 'Weir and downcomer — catches what the others cannot hold',
   };
 
