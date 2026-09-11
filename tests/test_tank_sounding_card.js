@@ -52,16 +52,22 @@ const bundle = {
   vessel: { name: 'MV TEST', company: 'Ocean Co' },
   tanks: {
     fuel: [
-      { id: 'f2', name: 'NO.2 HFO (S)', tankNo: 2 },
-      { id: 'f1', name: 'NO.1 HFO (P)', tankNo: 1 },
-      { id: 'f3', name: 'SETTLING', tankNo: 3 },
+      /* DB order deliberately not tankNo order — condition report keeps insertion
+         order within residual (HFO/VLSFO), then distillate (MO/MGO/LSMGO). */
+      { id: 'f2', name: 'NO.2 HFO (S)', tankNo: 2, fuelGrade: 'hfo' },
+      { id: 'f1', name: 'NO.1 HFO (P)', tankNo: 1, fuelGrade: 'hfo' },
+      { id: 'm1', name: 'MGO SERVICE', tankNo: 10, fuelGrade: 'mgo' },
+      { id: 'f3', name: 'SETTLING', tankNo: 3, fuelGrade: 'hfo' },
     ],
   },
 };
 
 const tanks = TSC.fuelTanks(bundle);
-check('reads fuel tanks only', tanks.length === 3);
-check('sorts by tankNo', tanks[0].name === 'NO.1 HFO (P)' && tanks[2].name === 'SETTLING');
+check('reads fuel tanks only', tanks.length === 4);
+check(
+  'condition-report order (DB residual then distillate)',
+  tanks.map((t) => t.name).join('|') === 'NO.2 HFO (S)|NO.1 HFO (P)|SETTLING|MGO SERVICE'
+);
 
 const half = TSC.buildHalfHtml(bundle);
 check('title TANK SOUNDING CARD', half.includes('TANK SOUNDING CARD'));
@@ -80,8 +86,14 @@ check('table wrap content-sized for fit', half.includes('pr-tsc-table-wrap') && 
 check('fit maximizes row height for table', /hi = 8\.5/.test(SRC) && /Grow row height/.test(SRC) && /measureHeightRatio/.test(SRC));
 check('fit locks landscape page box for measure', /Lock the landscape page box/.test(SRC) && /page\.style\.height = '210mm'/.test(SRC));
 check('fit measures against fixed half frame', /201\.3mm/.test(SRC) && /frame\.clientHeight/.test(SRC));
-check('lists all tank names', half.includes('NO.1 HFO (P)') && half.includes('NO.2 HFO (S)') && half.includes('SETTLING'));
+check('lists all tank names', half.includes('NO.1 HFO (P)') && half.includes('NO.2 HFO (S)') && half.includes('SETTLING') && half.includes('MGO SERVICE'));
 check('sounded by line', /Sounded by/.test(half));
+check(
+  'print rows follow condition-report order',
+  half.indexOf('NO.2 HFO (S)') < half.indexOf('NO.1 HFO (P)')
+    && half.indexOf('NO.1 HFO (P)') < half.indexOf('SETTLING')
+    && half.indexOf('SETTLING') < half.indexOf('MGO SERVICE')
+);
 
 const page = TSC.buildPageHtml(bundle);
 check('two mirrored copies', (page.match(/pr-tsc-copy/g) || []).length === 2);
