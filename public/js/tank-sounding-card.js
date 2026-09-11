@@ -18,14 +18,24 @@ const TankSoundingCard = (() => {
     return { name, company };
   }
 
+  /* Same order as Tank Condition report: DB order within residual (HFO/VLSFO),
+     then distillate (MO/MGO/LSMGO). Do not sort by tankNo — that scrambles the report. */
   function fuelTanks(bundle) {
     const list = ((bundle && bundle.tanks && bundle.tanks.fuel) || []).filter(Boolean);
-    return list.slice().sort((a, b) => {
-      const an = a.tankNo != null && a.tankNo !== '' ? Number(a.tankNo) : NaN;
-      const bn = b.tankNo != null && b.tankNo !== '' ? Number(b.tankNo) : NaN;
-      if (!Number.isNaN(an) && !Number.isNaN(bn) && an !== bn) return an - bn;
-      return String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true, sensitivity: 'base' });
+    const sectionFor = (typeof FuelReportCore !== 'undefined' && FuelReportCore
+      && typeof FuelReportCore.sectionForTank === 'function')
+      ? FuelReportCore.sectionForTank
+      : function (tank) {
+          const g = String((tank && (tank.fuelGrade || tank.grade)) || '').toLowerCase();
+          return (g === 'mdo' || g === 'mgo' || g === 'lsmgo') ? 'do' : 'fuel';
+        };
+    const residual = [];
+    const distillate = [];
+    list.forEach((t) => {
+      if (sectionFor(t) === 'do') distillate.push(t);
+      else residual.push(t);
     });
+    return residual.concat(distillate);
   }
 
   function buildHalfHtml(bundle, opts = {}) {
