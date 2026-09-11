@@ -263,28 +263,6 @@ const FuelReport = (() => {
     </div>`;
   }
 
-  /**
-   * Copy each grade's current TOTAL ACTUAL (tank ROB from soundings) into the
-   * matching LOGBOOK ROB field — same source as the Actual column beside it.
-   */
-  function fillLogbookFromCurrentRob() {
-    const c = recompute();
-    let filled = 0;
-    for (const grade of c.grades || []) {
-      if (grade.actualMT == null || !Number.isFinite(Number(grade.actualMT))) continue;
-      const val = n(grade.actualMT, 3);
-      view.form.logbook[grade.id] = val;
-      const input = document.querySelector(`[data-logbook="${grade.id}"]`);
-      if (input) input.value = val;
-      filled += 1;
-    }
-    view.dirty = true;
-    refreshComputed();
-    showToast(filled
-      ? `Logbook filled from current ROB (${filled} fuel type${filled === 1 ? '' : 's'})`
-      : 'No tank ROB to fill — sound tanks first');
-  }
-
   function renderGradesPanel() {
     const cells = Core.FUEL_TYPES.map((g) => `
       <div class="fr-grade" data-grade="${g.id}">
@@ -297,10 +275,7 @@ const FuelReport = (() => {
           <b data-fr-grade="${g.id}.differenceMT"></b></div>
       </div>`).join('');
     return `<div class="form-panel no-print">
-      <div class="section-title" style="margin-top:0">
-        <span>Totals vs log book</span>
-        <button type="button" class="btn small" id="fr-fill-logbook-rob">Get current ROB</button>
-      </div>
+      <div class="section-title" style="margin-top:0">Totals vs log book</div>
       <div class="fr-grades">${cells}</div>
     </div>`;
   }
@@ -582,10 +557,6 @@ const FuelReport = (() => {
       }
       mark();
       refreshComputed();
-    });
-
-    document.getElementById('fr-fill-logbook-rob')?.addEventListener('click', () => {
-      fillLogbookFromCurrentRob();
     });
 
     document.getElementById('fr-print-save').onclick = () => saveReport({ snapshot: true, print: true });
