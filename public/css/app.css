@@ -1672,6 +1672,67 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   .sigpad-baseline { left: 5%; right: 5%; }
 }
 
+/* ---------- Fuel schematic (heavy | distillate) ---------- */
+
+.tg-schematic {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 10px;
+  /* Same right reserve as .tg-grid so the floating Groups tab does not cover cards. */
+  padding-right: 214px;
+}
+.tg-schematic.tab-collapsed { padding-right: 46px; }
+.tg-schematic-col {
+  display: flex; flex-direction: column; gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border, #2a3550);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .02);
+}
+.tg-schematic-head {
+  font-size: 13px; font-weight: 800; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--text, #e8eef8);
+}
+.tg-schematic-head-other { margin: 16px 0 6px; padding-right: 214px; }
+.tg-schematic-sub {
+  font-size: 11px; font-weight: 700; color: var(--muted, #9fb0c8);
+  text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px;
+}
+.tg-schematic-storage {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.tg-schematic-aux {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border, #2a3550);
+}
+.tg-schematic-aux-col { min-width: 0; }
+.tg-schematic-aux-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+.tg-schematic-empty {
+  font-size: 12px; color: var(--muted, #9fb0c8);
+  padding: 12px 8px; text-align: center;
+  border: 1px dashed var(--border, #2a3550); border-radius: 8px;
+}
+@media (max-width: 1100px) {
+  .tg-schematic { grid-template-columns: 1fr; padding-right: 46px; }
+  .tg-schematic-head-other { padding-right: 46px; }
+}
+@media (max-width: 760px) {
+  .tg-schematic-storage { grid-template-columns: 1fr; }
+  .tg-schematic-aux { grid-template-columns: 1fr; }
+}
+
 /* ---------- Graphical tank view ---------- */
 
 /* Four across, as asked. Below that the tanks would be postage stamps, so the

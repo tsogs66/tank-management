@@ -719,6 +719,50 @@ function render() {
 }
 
 /* ---------- Dashboard ---------- */
+/** Distillate grades (MDO / MGO / LSMGO) vs residual heavy fuel (HFO / VLSFO). */
+function isDistillateFuel(tank) {
+  const g = String((tank && tank.fuelGrade) || '').toLowerCase();
+  return g === 'mdo' || g === 'mgo' || g === 'lsmgo';
+}
+
+function fuelFamilyTotals(tanks) {
+  const out = {
+    heavy: { capacity: 0, volume: 0, weight: 0, withReading: 0, count: 0 },
+    distillate: { capacity: 0, volume: 0, weight: 0, withReading: 0, count: 0 },
+  };
+  for (const t of tanks) {
+    const bucket = isDistillateFuel(t) ? out.distillate : out.heavy;
+    bucket.count += 1;
+    bucket.capacity += t.capacity || 0;
+    const r = getReading(t.id);
+    if (r?.result) {
+      bucket.volume += r.result.volumeObserved || 0;
+      bucket.weight += r.result.weightMT || 0;
+      bucket.withReading += 1;
+    }
+  }
+  return out;
+}
+
+function sideRank(side) {
+  const s = String(side || '').toLowerCase();
+  if (s === 'port') return 0;
+  if (s === 'starboard') return 1;
+  return 2;
+}
+
+/** Storage tanks: tank number ascending, then P left / S right / centre. */
+function sortStorageTanks(tanks) {
+  return tanks.slice().sort((a, b) => {
+    const an = a.tankNo == null || a.tankNo === '' ? 1e9 : Number(a.tankNo);
+    const bn = b.tankNo == null || b.tankNo === '' ? 1e9 : Number(b.tankNo);
+    if (an !== bn) return an - bn;
+    const sr = sideRank(a.side) - sideRank(b.side);
+    if (sr) return sr;
+    return String(a.name || '').localeCompare(String(b.name || ''));
+  });
+}
+
 function categoryTotals(catId) {
   const tanks = STATE.bundle.tanks[catId] || [];
   let capacity = 0, volume = 0, weight = 0, withReading = 0;
@@ -752,6 +796,21 @@ function renderDashboard(main) {
     const t = categoryTotals(c.id);
     grandVol += t.volume; grandCap += t.capacity; grandWeight += t.weight;
     totalTanks += t.count; readTanks += t.withReading;
+    if (c.id === 'fuel') {
+      const fam = fuelFamilyTotals(STATE.bundle.tanks.fuel || []);
+      const pct = (b) => (b.capacity ? (b.volume / b.capacity) * 100 : 0);
+      cards.innerHTML += `<div class="card">
+        <div class="label"><span class="cat-dot cat-fuel"></span>HFO / VLSFO</div>
+        <div class="value">${fmt(fam.heavy.volume,1)}<span class="unit">m³ / ${fmt(fam.heavy.capacity,0)}</span></div>
+        <div class="sub">${fmt(fam.heavy.weight,2)} MT · ${fam.heavy.withReading}/${fam.heavy.count} · ${fmt(pct(fam.heavy),1)}% full</div>
+      </div>`;
+      cards.innerHTML += `<div class="card">
+        <div class="label"><span class="cat-dot cat-fuel"></span>MDO / MGO / LSMGO</div>
+        <div class="value">${fmt(fam.distillate.volume,1)}<span class="unit">m³ / ${fmt(fam.distillate.capacity,0)}</span></div>
+        <div class="sub">${fmt(fam.distillate.weight,2)} MT · ${fam.distillate.withReading}/${fam.distillate.count} · ${fmt(pct(fam.distillate),1)}% full</div>
+      </div>`;
+      continue;
+    }
     const pct = t.capacity ? (t.volume / t.capacity) * 100 : 0;
     cards.innerHTML += `<div class="card">
       <div class="label"><span class="cat-dot cat-${c.id}"></span>${c.label}</div>
@@ -943,39 +1002,142 @@ function allTanks() {
   return out;
 }
 
+function makeTankGraphicCard(t) {
+  const r = getReading(t.id);
+  const pct = r?.result?.fillPercent ?? null;
+  const card = document.createElement('div');
+  card.className = 'tg-card clickable';
+  card.onclick = () => navigate(t.category, t.id);
+  const role = TankGraphics.roleOf(t);
+  card.title = `${t.name} — ${TankGraphics.ROLE_MEANING[role] || ''}`;
+  card.innerHTML = `
+    <div class="tg-name">${escapeHtml(t.name)}</div>
+    <div class="tg-art">${TankGraphics.tankSvg(t, pct, { safeFill: t.category === 'fuel' ? 85 : null })}
+      <div class="tg-pct">${pct != null ? fmt(pct, 0) + '%' : '—'}</div>
+    </div>
+    <div class="tg-stats">
+      <span class="tg-chip" style="--tg-chip:${TankGraphics.liquidColour(t)}">${escapeHtml(TankGraphics.contentLabel(t))}</span>
+      <span>${r ? fmt(r.result.volumeObserved, 1) : '–'} m³</span>
+      <span>${r?.tempC != null && r.tempC !== '' ? fmt(r.tempC, 1) + ' °C' : '– °C'}</span>
+      <span>${r?.result?.weightMT != null ? fmt(r.result.weightMT, 2) + ' MT' : '– MT'}</span>
+    </div>`;
+  return card;
+}
+
+function appendTankCards(host, tanks) {
+  for (const t of tanks) host.appendChild(makeTankGraphicCard(t));
+}
+
+/**
+ * Fuel mock-up: heavy fuel left, distillate right.
+ * Numbered storage by tank No. (P left, S right), then settling left / service right.
+ */
+function buildFuelSchematic(fuelTanks) {
+  const wrap = document.createElement('div');
+  wrap.className = 'tg-schematic';
+
+  function column(title, familyTanks) {
+    const col = document.createElement('div');
+    col.className = 'tg-schematic-col';
+    col.innerHTML = `<div class="tg-schematic-head">${escapeHtml(title)}</div>`;
+
+    const storage = sortStorageTanks(familyTanks.filter((t) => {
+      const role = TankGraphics.roleOf(t);
+      return role === 'storage' || role === 'overflow' || role === 'other';
+    }));
+    const settling = familyTanks.filter((t) => TankGraphics.roleOf(t) === 'settling')
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    const service = familyTanks.filter((t) => TankGraphics.roleOf(t) === 'service')
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+
+    const storageGrid = document.createElement('div');
+    storageGrid.className = 'tg-schematic-storage';
+    if (!storage.length) {
+      storageGrid.innerHTML = '<div class="tg-schematic-empty">No storage tanks</div>';
+    } else {
+      appendTankCards(storageGrid, storage);
+    }
+    col.appendChild(storageGrid);
+
+    const aux = document.createElement('div');
+    aux.className = 'tg-schematic-aux';
+    const settleBox = document.createElement('div');
+    settleBox.className = 'tg-schematic-aux-col';
+    settleBox.innerHTML = '<div class="tg-schematic-sub">Settling</div>';
+    const settleGrid = document.createElement('div');
+    settleGrid.className = 'tg-schematic-aux-grid';
+    if (settling.length) appendTankCards(settleGrid, settling);
+    else settleGrid.innerHTML = '<div class="tg-schematic-empty">—</div>';
+    settleBox.appendChild(settleGrid);
+
+    const serviceBox = document.createElement('div');
+    serviceBox.className = 'tg-schematic-aux-col';
+    serviceBox.innerHTML = '<div class="tg-schematic-sub">Service</div>';
+    const serviceGrid = document.createElement('div');
+    serviceGrid.className = 'tg-schematic-aux-grid';
+    if (service.length) appendTankCards(serviceGrid, service);
+    else serviceGrid.innerHTML = '<div class="tg-schematic-empty">—</div>';
+    serviceBox.appendChild(serviceGrid);
+
+    aux.appendChild(settleBox);
+    aux.appendChild(serviceBox);
+    col.appendChild(aux);
+    return col;
+  }
+
+  const heavy = fuelTanks.filter((t) => !isDistillateFuel(t));
+  const distillate = fuelTanks.filter((t) => isDistillateFuel(t));
+  wrap.appendChild(column('HFO / VLSFO', heavy));
+  wrap.appendChild(column('MDO / MGO / LSMGO', distillate));
+  return wrap;
+}
+
 function renderTankGraphics(main) {
   const group = TANK_GROUPS.find((g) => g.id === STATE.tankGroup) || TANK_GROUPS[0];
   const tanks = allTanks().filter(group.match);
+  const pad = STATE.tankTabOpen === false ? ' tab-collapsed' : '';
 
-  const grid = document.createElement('div');
-  grid.className = 'tg-grid' + (STATE.tankTabOpen === false ? ' tab-collapsed' : '');
   if (!tanks.length) {
-    grid.innerHTML = '<div class="empty-state">No tanks in this group</div>';
+    const empty = document.createElement('div');
+    empty.className = 'tg-grid' + pad;
+    empty.innerHTML = '<div class="empty-state">No tanks in this group</div>';
+    main.appendChild(empty);
+    main.appendChild(buildGroupTab(group));
+    return;
   }
-  for (const t of tanks) {
-    const r = getReading(t.id);
-    const pct = r?.result?.fillPercent ?? null;
-    const card = document.createElement('div');
-    card.className = 'tg-card clickable';
-    card.onclick = () => navigate(t.category, t.id);
-    const role = TankGraphics.roleOf(t);
-    card.title = `${t.name} — ${TankGraphics.ROLE_MEANING[role] || ''}`;
-    card.innerHTML = `
-      <div class="tg-name">${escapeHtml(t.name)}</div>
-      <div class="tg-art">${TankGraphics.tankSvg(t, pct, { safeFill: t.category === 'fuel' ? 85 : null })}
-        <div class="tg-pct">${pct != null ? fmt(pct, 0) + '%' : '—'}</div>
-      </div>
-      <div class="tg-stats">
-        <span class="tg-chip" style="--tg-chip:${TankGraphics.liquidColour(t)}">${escapeHtml(TankGraphics.contentLabel(t))}</span>
-        <span>${r ? fmt(r.result.volumeObserved, 1) : '–'} m³</span>
-        <span>${r?.tempC != null && r.tempC !== '' ? fmt(r.tempC, 1) + ' °C' : '– °C'}</span>
-        <span>${r?.result?.weightMT != null ? fmt(r.result.weightMT, 2) + ' MT' : '– MT'}</span>
-      </div>`;
-    grid.appendChild(card);
+
+  const fuelTanks = tanks.filter((t) => t.category === 'fuel');
+  const otherTanks = tanks.filter((t) => t.category !== 'fuel');
+  const showSchematic = fuelTanks.length > 0 && (
+    group.id === 'all' || group.id === 'fuel'
+    || group.id === 'storage' || group.id === 'settling'
+    || group.id === 'service' || group.id === 'overflow'
+  );
+
+  if (showSchematic) {
+    const schematic = buildFuelSchematic(fuelTanks);
+    schematic.classList.add('tg-schematic-wrap');
+    if (STATE.tankTabOpen === false) schematic.classList.add('tab-collapsed');
+    main.appendChild(schematic);
   }
-  main.appendChild(grid);
+
+  if (otherTanks.length || !showSchematic) {
+    const grid = document.createElement('div');
+    grid.className = 'tg-grid' + pad;
+    const list = showSchematic ? otherTanks : tanks;
+    if (showSchematic && otherTanks.length) {
+      const head = document.createElement('div');
+      head.className = 'tg-schematic-head tg-schematic-head-other';
+      head.textContent = 'Other tanks';
+      main.appendChild(head);
+    }
+    appendTankCards(grid, list);
+    main.appendChild(grid);
+  }
+
   main.appendChild(buildGroupTab(group));
 }
+
 
 /**
  * The group picker rides on the right edge rather than sitting in the flow, so
@@ -4070,7 +4232,7 @@ function renderAbout(main) {
   const ver = (typeof Branding !== 'undefined' && Branding.APP_VERSION)
     ? Branding.APP_VERSION
     : (document.querySelector('meta[name="app-version"]')?.content || '');
-  const pkgVer = ver || '2.1.60';
+  const pkgVer = ver || '2.1.61';
   main.innerHTML += `<div class="page-head"><div>
     <h1>About</h1>
     <div class="desc">${Branding.APP_NAME} · v${pkgVer}</div>
@@ -4147,7 +4309,7 @@ function isNewerVersion(latest, current) {
 async function checkTankAppUpdate() {
   const status = document.getElementById('about-update-status');
   const link = document.getElementById('about-update-link');
-  const current = '2.1.60';
+  const current = '2.1.61';
   if (status) status.textContent = 'Checking GitHub for the latest Tank Chief release…';
   if (link) link.style.display = 'none';
   try {
