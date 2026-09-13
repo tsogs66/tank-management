@@ -991,6 +991,17 @@ function normalizeImportedBundle(bundle) {
 function normalizeBackupPayload(backup) {
   if (!backup || typeof backup !== 'object') return null;
 
+  /* ChEng AIO entire-program suite — standalone Tank restores the Tank half. */
+  if (backup.format === 'cheng-aio-suite-v1') {
+    if (!backup.tank || typeof backup.tank !== 'object') {
+      throw new Error(
+        'This ChEng AIO suite file has no Tank Chief database. '
+        + 'Open it in ChEng AIO Backup, or use a Tank-only backup (vessel-fuel-tms-backup).'
+      );
+    }
+    return normalizeBackupPayload(backup.tank);
+  }
+
   /* Unwrap { data: { vessels, settings, vessels-index } } folder dumps. */
   let src = backup;
   if (backup.data && typeof backup.data === 'object'
@@ -1101,7 +1112,8 @@ function importBackup(backup, { merge = true } = {}) {
   if (!normalized) {
     const keys = backup && typeof backup === 'object' ? Object.keys(backup).slice(0, 12).join(', ') : '';
     throw new Error(
-      'Invalid fleet backup — expected format vessel-fuel-tms-backup with a vessels map. '
+      'Invalid fleet backup — expected format vessel-fuel-tms-backup with a vessels map '
+      + '(or a ChEng AIO suite file cheng-aio-suite-v1 containing a tank half). '
       + (keys ? `Top-level keys: ${keys}` : 'File is not a Tank Chief JSON backup.')
     );
   }
