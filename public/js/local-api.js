@@ -14,7 +14,7 @@ const LocalApi = (() => {
 
   /* The server files the device runs. Copied into the bundle at build time by
      scripts/copy-embedded.js, so there is one copy of them in the repository. */
-  const EMBEDDED = ['calc.js', 'bunker-live.js', 'index.js'];
+  const EMBEDDED = ['calc.js', 'bunker-live.js', 'voyage-inventory.js', 'index.js'];
   /* Reference tables the routes open by path — the density conversion table
      and the ISO 8217 specifications. They go into the device's filesystem at
      the same place the server keeps them, so the routes find them unchanged. */

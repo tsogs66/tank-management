@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const FILES = ['calc.js', 'bunker-live.js', 'index.js'];
+const FILES = ['calc.js', 'bunker-live.js', 'voyage-inventory.js', 'index.js'];
 /* Reference tables the routes read off disk: the density conversion table and
    the ISO 8217 fuel specifications. Without them the device answers 404 to
    three endpoints that work perfectly well on the server. */
