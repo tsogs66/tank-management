@@ -1372,6 +1372,89 @@ function syncPushBundle() {
   return syncPushBundleAggregate();
 }
 
+
+/**
+ * Catalog of vessels across root + every users/<slug>/ database.
+ * Any signed-in engineer can list name + IMO and request a copy into their own DB.
+ */
+function listVesselLibrary() {
+  const out = [];
+  const seen = new Set();
+
+  function collect(ownerSlug) {
+    let vessels;
+    try {
+      vessels = listVessels();
+    } catch (_) {
+      return;
+    }
+    for (const v of vessels || []) {
+      const key = `${ownerSlug || ''}::${v.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        ownerSlug: ownerSlug || null,
+        vesselId: v.id,
+        name: v.name || '',
+        imo: v.imo || '',
+        flag: v.flag || '',
+        updatedAt: v.updatedAt || null,
+      });
+    }
+  }
+
+  runWithUserScope({ email: null, master: false, actAs: null }, () => collect(null));
+  for (const u of listUserDatabases()) {
+    runWithUserScope(
+      { email: u.emailSlug, master: true, actAs: u.emailSlug },
+      () => collect(u.emailSlug)
+    );
+  }
+  out.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
+  return out;
+}
+
+/**
+ * Copy ship particulars only (no tanks / readings / bunkering) from another
+ * owner's database into the current license scope.
+ */
+function importVesselProfileFromOwner(ownerSlug, vesselId) {
+  if (!vesselId) {
+    const err = new Error('vesselId is required');
+    err.status = 400;
+    throw err;
+  }
+  let sourceVessel = null;
+  const scope = ownerSlug
+    ? { email: ownerSlug, master: true, actAs: ownerSlug }
+    : { email: null, master: false, actAs: null };
+  runWithUserScope(scope, () => {
+    const bundle = getVesselBundle(vesselId);
+    sourceVessel = bundle && bundle.vessel ? bundle.vessel : null;
+  });
+  if (!sourceVessel) {
+    const err = new Error('Source vessel not found');
+    err.status = 404;
+    throw err;
+  }
+  const details = {
+    id: sourceVessel.id,
+    name: sourceVessel.name,
+    imo: sourceVessel.imo,
+    callSign: sourceVessel.callSign,
+    flag: sourceVessel.flag,
+    company: sourceVessel.company,
+    owner: sourceVessel.owner,
+    type: sourceVessel.type,
+    dwt: sourceVessel.dwt,
+    notes: sourceVessel.notes,
+  };
+  applyVesselProfileFields(details, sourceVessel);
+  /* Profile only — empty tank tables in the requester's database. */
+  details.tanks = emptyTanks();
+  return createVessel(details);
+}
+
 const api = {
   ensureDirs,
   getDataDir,
@@ -1384,6 +1467,8 @@ const api = {
   runWithUserScope,
   isMasterScope,
   listUserDatabases,
+  listVesselLibrary,
+  importVesselProfileFromOwner,
   seedScopedFromRootIfEmpty,
   getSettings,
   saveSettings,
