@@ -7,6 +7,7 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const store = require('./store');
+const voyageInventory = require('./voyage-inventory');
 const { parseScopedEntitlement, requireSyncAuth } = require('./license-scope');
 const {
   computeTank,
@@ -66,6 +67,135 @@ app.get('/api/admin/users', (req, res) => {
   }
   res.json({ users: store.listUserDatabases() });
 });
+
+app.get('/api/vessel-library', (req, res) => {
+  try {
+    res.json({ vessels: store.listVesselLibrary() });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'Failed to list vessel library' });
+  }
+});
+
+app.post('/api/vessel-library/import', (req, res) => {
+  try {
+    const ownerSlug = (req.body && req.body.ownerSlug) || null;
+    const vesselId = req.body && req.body.vesselId;
+    if (!vesselId) return res.status(400).json({ error: 'vesselId is required' });
+    const vessel = store.importVesselProfileFromOwner(ownerSlug, vesselId);
+    let voyageLeg = null;
+    let voyageCopy = null;
+    try {
+      const sourceVessel = store.runWithUserScope(
+        ownerSlug
+          ? { email: ownerSlug, master: true, actAs: ownerSlug }
+          : { email: null, master: false, actAs: null },
+        () => {
+          try {
+            return store.getVesselBundle(vesselId).vessel;
+          } catch (_) {
+            return vessel;
+          }
+        }
+      );
+      const leg = voyageInventory.findLatestLegForVessel(ownerSlug, sourceVessel || vessel);
+      if (leg) {
+        voyageLeg = {
+          ownerSlug: leg.ownerSlug,
+          vesselSlug: leg.vesselSlug,
+          voyageNo: leg.voyageNo,
+          condition: leg.condition,
+          updatedAt: leg.updatedAt,
+          data: leg.data,
+        };
+        const destScope = store.getUserScope && store.getUserScope();
+        const destSlug = destScope && (destScope.actAs || destScope.email)
+          ? store.emailSlug(destScope.actAs || destScope.email)
+          : null;
+        if (destSlug) {
+          voyageCopy = voyageInventory.copyLegToOwner(
+            leg,
+            destSlug,
+            (sourceVessel && (sourceVessel.voyageSlug || sourceVessel.id || sourceVessel.name)) || vessel.id
+          );
+        }
+      }
+    } catch (legErr) {
+      console.warn('[vessel-library] voyage leg copy skipped:', legErr.message);
+    }
+    res.json({
+      ok: true,
+      vessel,
+      voyageLeg,
+      voyageCopy,
+      message: voyageCopy
+        ? 'Ship particulars imported and latest voyage leg copied into your server database.'
+        : (voyageLeg
+          ? 'Ship particulars imported. Latest voyage leg was found but could not be scoped to your account.'
+          : 'Ship particulars imported. No voyage leg found on the server for this vessel.'),
+    });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || 'Import failed' });
+  }
+});
+
+app.get('/api/admin/inventory', (req, res) => {
+  if (!store.isMasterScope()) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  try {
+    const users = store.listUserDatabases().map((u) => {
+      let vessels = [];
+      try {
+        vessels = store.runWithUserScope(
+          { email: u.emailSlug, master: true, actAs: u.emailSlug },
+          () => store.listVessels()
+        );
+      } catch (_) {
+        vessels = [];
+      }
+      return {
+        emailSlug: u.emailSlug,
+        vesselCount: u.vesselCount,
+        vessels: (vessels || []).map((v) => ({
+          id: v.id,
+          name: v.name,
+          imo: v.imo,
+          updatedAt: v.updatedAt,
+        })),
+      };
+    });
+    /* Also include unscoped root vessels when present. */
+    let rootVessels = [];
+    try {
+      rootVessels = store.runWithUserScope(
+        { email: null, master: false, actAs: null },
+        () => store.listVessels()
+      );
+    } catch (_) {
+      rootVessels = [];
+    }
+    const voyageLegs = voyageInventory.listAllVoyageLegs().map((leg) => ({
+      ownerSlug: leg.ownerSlug,
+      vesselSlug: leg.vesselSlug,
+      voyageNo: leg.voyageNo,
+      condition: leg.condition,
+      updatedAt: leg.updatedAt,
+    }));
+    res.json({
+      users,
+      rootVessels: (rootVessels || []).map((v) => ({
+        id: v.id,
+        name: v.name,
+        imo: v.imo,
+        updatedAt: v.updatedAt,
+      })),
+      voyageLegs,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'Inventory failed' });
+  }
+});
+
 
 /* Points standalone EXE / portable builds at the production license host. */
 app.get('/js/license-config.js', (req, res) => {
