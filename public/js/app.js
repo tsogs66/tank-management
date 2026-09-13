@@ -491,7 +491,7 @@ function renderMoreNav() {
   g = document.createElement('div');
   g.className = 'nav-group-label'; g.textContent = 'System';
   host.appendChild(g);
-  host.appendChild(mk('setup', 'Vessel Setup', '⚙'));
+  if (!isAioEmbedded()) host.appendChild(mk('setup', 'Vessel Setup', '⚙'));
   host.appendChild(mk('settings', 'Backup / Sync', '⇅'));
   host.appendChild(mk('about', 'About', 'ℹ'));
 
@@ -506,16 +506,21 @@ function renderMoreNav() {
 
   const sw = document.getElementById('bn-vessel-switcher');
   if (sw) {
-    sw.onchange = async (e) => {
-      const id = e.target.value;
-      if (!id) return;
-      await Api.setActive(id);
-      STATE.activeVesselId = id;
-      await reloadBundle();
-      closeMoreSheet();
-      navigate('dashboard');
-      showToast('Loaded vessel');
-    };
+    if (isAioEmbedded()) {
+      sw.closest('.form-row')?.remove?.();
+      sw.remove();
+    } else {
+      sw.onchange = async (e) => {
+        const id = e.target.value;
+        if (!id) return;
+        await Api.setActive(id);
+        STATE.activeVesselId = id;
+        await reloadBundle();
+        closeMoreSheet();
+        navigate('dashboard');
+        showToast('Loaded vessel');
+      };
+    }
   }
 }
 
@@ -524,6 +529,10 @@ const PAGE_ALIASES = { bunkering: 'bunker-plan' };
 
 function navigate(page, tankId = null) {
   let next = PAGE_ALIASES[page] || page;
+  if (next === 'setup' && isAioEmbedded()) {
+    showToast('Open Vessel Setup from the ChEng AIO menu');
+    next = STATE.bundle ? 'dashboard' : 'about';
+  }
   if (next === 'bunker-plan' && !isBunkerOpsEmbed() && !bunkerPlanNavAllowed()) {
     showToast(isAioEmbedded()
       ? 'Open Bunkering Plan from the ChEng AIO menu'
@@ -586,10 +595,10 @@ function renderNav() {
     <div class="ship">${vesselName()}</div>
     <div class="sub"><span class="status-dot ${STATE.online ? 'online' : 'offline'}"></span>
       ${STATE.online ? 'Online' : 'Offline'} · ${Branding.APP_NAME}</div>
-    <select class="vessel-select" id="vessel-switcher">
+    ${isAioEmbedded() ? '' : `<select class="vessel-select" id="vessel-switcher">
       <option value="">— Select vessel —</option>
       ${STATE.vessels.map((v) => `<option value="${v.id}" ${v.id === STATE.activeVesselId ? 'selected' : ''}>${v.name}</option>`).join('')}
-    </select>`;
+    </select>`}`;
   nav.appendChild(brand);
 
   const mk = (page, label, icon) => {
@@ -629,7 +638,7 @@ function renderNav() {
   g = document.createElement('div');
   g.className = 'nav-group-label'; g.textContent = 'System';
   nav.appendChild(g);
-  nav.appendChild(mk('setup', 'Vessel Setup', '⚙'));
+  if (!isAioEmbedded()) nav.appendChild(mk('setup', 'Vessel Setup', '⚙'));
   nav.appendChild(mk('settings', 'Backup / Sync', '⇅'));
   nav.appendChild(mk('about', 'About', 'ℹ'));
 
@@ -658,15 +667,18 @@ function renderNav() {
   nav.appendChild(themeBtn);
   if (window.MarineTheme) MarineTheme.bind(nav);
 
-  document.getElementById('vessel-switcher').onchange = async (e) => {
-    const id = e.target.value;
-    if (!id) return;
-    await Api.setActive(id);
-    STATE.activeVesselId = id;
-    await reloadBundle();
-    navigate('dashboard');
-    showToast('Loaded vessel');
-  };
+  const vesselSwitcher = document.getElementById('vessel-switcher');
+  if (vesselSwitcher) {
+    vesselSwitcher.onchange = async (e) => {
+      const id = e.target.value;
+      if (!id) return;
+      await Api.setActive(id);
+      STATE.activeVesselId = id;
+      await reloadBundle();
+      navigate('dashboard');
+      showToast('Loaded vessel');
+    };
+  }
 }
 
 function render() {
@@ -684,10 +696,15 @@ function render() {
 
   const noVesselOk = ['setup', 'settings', 'about', 'vcf-wcf', 'iso8217'];
   if (!STATE.bundle && !noVesselOk.includes(STATE.route.page)) {
-    main.innerHTML += `<div class="form-panel"><h2>No vessel selected</h2>
-      <p style="color:var(--text-dim)">Create or select a vessel in Vessel Setup to begin.</p>
-      <button class="btn primary" id="go-setup">Open Vessel Setup</button></div>`;
-    document.getElementById('go-setup').onclick = () => navigate('setup');
+    if (isAioEmbedded()) {
+      main.innerHTML += `<div class="form-panel"><h2>No vessel selected</h2>
+        <p style="color:var(--text-dim)">Select or create a vessel in <strong>ChEng AIO → Vessel Setup</strong>.</p></div>`;
+    } else {
+      main.innerHTML += `<div class="form-panel"><h2>No vessel selected</h2>
+        <p style="color:var(--text-dim)">Create or select a vessel in Vessel Setup to begin.</p>
+        <button class="btn primary" id="go-setup">Open Vessel Setup</button></div>`;
+      document.getElementById('go-setup').onclick = () => navigate('setup');
+    }
     return;
   }
 
@@ -3226,23 +3243,15 @@ function renderReport(main) {
 
 /* ---------- Vessel setup ---------- */
 function renderSetup(main) {
-  const embedded = !!(window.parent && window.parent !== window && window.parent.ChengPro)
-    || !!window.ChengPro
-    || (typeof localStorage !== 'undefined' && localStorage.getItem('chengAioEmbedded') === '1');
+  if (isAioEmbedded()) {
+    main.innerHTML += `<div class="page-head"><div><h1>Vessel Setup</h1>
+      <div class="desc">Vessel identity and printed document assets are managed in <strong>ChEng AIO → Vessel Setup</strong>.</div></div></div>
+      <div class="form-panel"><p class="hint" style="margin:0">Use the ChEng AIO Vessel Setup screen to select the active vessel, edit ship details, and upload the Chief Engineer signature and vessel stamp. Tank Chief here keeps tanks, monitoring, and bunkering only.</p></div>`;
+    return;
+  }
 
   main.innerHTML += `<div class="page-head"><div><h1>Vessel Setup</h1>
-    <div class="desc">${embedded
-      ? 'Ship identity is editable here for corrections. Prefer <strong>ChEng AIO → Vessel Setup</strong> for fleet-wide changes; create, clone, and edit work in this tank database too.'
-      : 'Create multiple vessel records. Each vessel is stored in its own database folder and can be selected anytime.'}</div></div></div>`;
-
-  if (embedded) {
-    const banner = document.createElement('div');
-    banner.className = 'form-panel';
-    banner.innerHTML = `<div class="section-title" style="margin-top:0">ChEng AIO</div>
-      <p class="hint" style="margin:0">Name, IMO, call sign, flag, company, type and DWT stay editable for corrections (same as Voyage Chief).
-      AIO Vessel Setup may re-apply hub values on the next load. Create blank / Clone active still work here and copy tank tables.</p>`;
-    main.appendChild(banner);
-  }
+    <div class="desc">Create multiple vessel records. Each vessel is stored in its own database folder and can be selected anytime.</div></div></div>`;
 
   const list = document.createElement('div');
   list.className = 'form-panel';
@@ -4237,7 +4246,7 @@ function renderAbout(main) {
   const ver = (typeof Branding !== 'undefined' && Branding.APP_VERSION)
     ? Branding.APP_VERSION
     : (document.querySelector('meta[name="app-version"]')?.content || '');
-  const pkgVer = ver || '2.1.63';
+  const pkgVer = ver || '2.1.64';
   main.innerHTML += `<div class="page-head"><div>
     <h1>About</h1>
     <div class="desc">${Branding.APP_NAME} · v${pkgVer}</div>
@@ -4314,7 +4323,7 @@ function isNewerVersion(latest, current) {
 async function checkTankAppUpdate() {
   const status = document.getElementById('about-update-status');
   const link = document.getElementById('about-update-link');
-  const current = '2.1.63';
+  const current = '2.1.64';
   if (status) status.textContent = 'Checking GitHub for the latest Tank Chief release…';
   if (link) link.style.display = 'none';
   try {
