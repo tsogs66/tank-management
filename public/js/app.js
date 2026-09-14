@@ -1045,67 +1045,95 @@ function appendTankCards(host, tanks) {
   for (const t of tanks) host.appendChild(makeTankGraphicCard(t));
 }
 
+function byTankNoThenName(a, b) {
+  const an = a.tankNo == null || a.tankNo === '' || Number.isNaN(Number(a.tankNo)) ? 1e9 : Number(a.tankNo);
+  const bn = b.tankNo == null || b.tankNo === '' || Number.isNaN(Number(b.tankNo)) ? 1e9 : Number(b.tankNo);
+  if (an !== bn) return an - bn;
+  return String(a.name || '').localeCompare(String(b.name || ''));
+}
+
+function byTankName(a, b) {
+  return String(a.name || '').localeCompare(String(b.name || ''));
+}
+
+function tankSideKey(tank) {
+  return String((tank && tank.side) || '').toLowerCase();
+}
+
 /**
- * Fuel mock-up: heavy fuel left, distillate right.
- * Numbered storage by tank No. (P left, S right), then settling left / service right.
+ * One side-row inside a fuel family (heavy or distillate).
+ * Port: numbered storage → settling → overflow last.
+ * Starboard: numbered storage → service → remaining (centre / other) last.
+ * Tanks moved into the distillate family follow the same distillate rows.
+ */
+function arrangeFuelSideRow(familyTanks, side) {
+  const roleOf = (t) => TankGraphics.roleOf(t);
+  const numbered = familyTanks
+    .filter((t) => roleOf(t) === 'storage' && tankSideKey(t) === side)
+    .sort(byTankNoThenName);
+
+  if (side === 'port') {
+    const settling = familyTanks.filter((t) => roleOf(t) === 'settling').sort(byTankName);
+    const overflow = familyTanks.filter((t) => roleOf(t) === 'overflow').sort(byTankName);
+    return numbered.concat(settling, overflow);
+  }
+
+  const service = familyTanks.filter((t) => roleOf(t) === 'service').sort(byTankName);
+  const claimed = new Set(numbered.concat(service).map((t) => t.id));
+  for (const t of familyTanks) {
+    const r = roleOf(t);
+    if (r === 'settling' || r === 'overflow') claimed.add(t.id);
+    if (r === 'storage' && tankSideKey(t) === 'port') claimed.add(t.id);
+  }
+  const other = familyTanks.filter((t) => !claimed.has(t.id)).sort(byTankNoThenName);
+  return numbered.concat(service, other);
+}
+
+/**
+ * Family for schematic rows: follow Monitoring fuel type when a report exists
+ * so HFO tanks carrying distillate land on distillate rows (same as Monitoring).
+ */
+function isSchematicDistillate(tank) {
+  const form = STATE.bundle && STATE.bundle.fuelReport;
+  if (form && typeof FuelReportCore !== 'undefined' && typeof FuelReportCore.sectionForRow === 'function') {
+    const rowForm = (form.rows && form.rows[tank.id]) || {};
+    return FuelReportCore.sectionForRow(tank, rowForm) === 'do';
+  }
+  return isDistillateFuel(tank);
+}
+
+/**
+ * Fuel mock-up as four columns (tablet/Windows show all four; phones two):
+ *   1 HFO/VLSFO port · 2 HFO/VLSFO starboard · 3 distillate port · 4 distillate starboard
+ * Tanks stack top→bottom inside each column (same order as the former rows).
  */
 function buildFuelSchematic(fuelTanks) {
   const wrap = document.createElement('div');
   wrap.className = 'tg-schematic';
 
-  function column(title, familyTanks) {
-    const col = document.createElement('div');
-    col.className = 'tg-schematic-col';
-    col.innerHTML = `<div class="tg-schematic-head">${escapeHtml(title)}</div>`;
+  const heavy = fuelTanks.filter((t) => !isSchematicDistillate(t));
+  const distillate = fuelTanks.filter((t) => isSchematicDistillate(t));
+  const cols = [
+    { title: 'HFO / VLSFO — Port', tanks: arrangeFuelSideRow(heavy, 'port') },
+    { title: 'HFO / VLSFO — Starboard', tanks: arrangeFuelSideRow(heavy, 'starboard') },
+    { title: 'MDO / MGO / LSMGO — Port', tanks: arrangeFuelSideRow(distillate, 'port') },
+    { title: 'MDO / MGO / LSMGO — Starboard', tanks: arrangeFuelSideRow(distillate, 'starboard') },
+  ];
 
-    const storage = sortStorageTanks(familyTanks.filter((t) => {
-      const role = TankGraphics.roleOf(t);
-      return role === 'storage' || role === 'overflow' || role === 'other';
-    }));
-    const settling = familyTanks.filter((t) => TankGraphics.roleOf(t) === 'settling')
-      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-    const service = familyTanks.filter((t) => TankGraphics.roleOf(t) === 'service')
-      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-
-    const storageGrid = document.createElement('div');
-    storageGrid.className = 'tg-schematic-storage';
-    if (!storage.length) {
-      storageGrid.innerHTML = '<div class="tg-schematic-empty">No storage tanks</div>';
+  for (const col of cols) {
+    const colEl = document.createElement('div');
+    colEl.className = 'tg-schematic-col';
+    colEl.innerHTML = `<div class="tg-schematic-head">${escapeHtml(col.title)}</div>`;
+    const stack = document.createElement('div');
+    stack.className = 'tg-schematic-col-tanks';
+    if (!col.tanks.length) {
+      stack.innerHTML = '<div class="tg-schematic-empty">—</div>';
     } else {
-      appendTankCards(storageGrid, storage);
+      appendTankCards(stack, col.tanks);
     }
-    col.appendChild(storageGrid);
-
-    const aux = document.createElement('div');
-    aux.className = 'tg-schematic-aux';
-    const settleBox = document.createElement('div');
-    settleBox.className = 'tg-schematic-aux-col';
-    settleBox.innerHTML = '<div class="tg-schematic-sub">Settling</div>';
-    const settleGrid = document.createElement('div');
-    settleGrid.className = 'tg-schematic-aux-grid';
-    if (settling.length) appendTankCards(settleGrid, settling);
-    else settleGrid.innerHTML = '<div class="tg-schematic-empty">—</div>';
-    settleBox.appendChild(settleGrid);
-
-    const serviceBox = document.createElement('div');
-    serviceBox.className = 'tg-schematic-aux-col';
-    serviceBox.innerHTML = '<div class="tg-schematic-sub">Service</div>';
-    const serviceGrid = document.createElement('div');
-    serviceGrid.className = 'tg-schematic-aux-grid';
-    if (service.length) appendTankCards(serviceGrid, service);
-    else serviceGrid.innerHTML = '<div class="tg-schematic-empty">—</div>';
-    serviceBox.appendChild(serviceGrid);
-
-    aux.appendChild(settleBox);
-    aux.appendChild(serviceBox);
-    col.appendChild(aux);
-    return col;
+    colEl.appendChild(stack);
+    wrap.appendChild(colEl);
   }
-
-  const heavy = fuelTanks.filter((t) => !isDistillateFuel(t));
-  const distillate = fuelTanks.filter((t) => isDistillateFuel(t));
-  wrap.appendChild(column('HFO / VLSFO', heavy));
-  wrap.appendChild(column('MDO / MGO / LSMGO', distillate));
   return wrap;
 }
 

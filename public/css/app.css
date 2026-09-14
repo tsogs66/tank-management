@@ -1679,53 +1679,53 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   .sigpad-baseline { left: 5%; right: 5%; }
 }
 
-/* ---------- Fuel schematic (heavy | distillate) ---------- */
+/* ---------- Fuel schematic (4 columns: HFO P/S, distillate P/S) ---------- */
 
 .tg-schematic {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  /* Tablet + Windows (portrait & landscape): four side columns. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
   margin-top: 10px;
   /* Same right reserve as .tg-grid so the floating Groups tab does not cover cards. */
   padding-right: 214px;
+  align-items: start;
 }
 .tg-schematic.tab-collapsed { padding-right: 46px; }
 .tg-schematic-col {
-  display: flex; flex-direction: column; gap: 10px;
   min-width: 0;
-  padding: 10px;
+  padding: 8px;
   border: 1px solid var(--border, #2a3550);
-  border-radius: 12px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, .02);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .tg-schematic-head {
-  color: var(--text);
-  font-size: 13px; font-weight: 800; letter-spacing: .04em;
+  font-size: 12px; font-weight: 800; letter-spacing: .04em;
   text-transform: uppercase; color: var(--text, #e8eef8);
 }
 .tg-schematic-head-other { margin: 16px 0 6px; padding-right: 214px; }
-.tg-schematic-sub {
-  font-size: 11px; font-weight: 700; color: var(--muted, #9fb0c8);
-  text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px;
+.tg-schematic-col-tanks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-.tg-schematic-storage {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+.tg-schematic-col-tanks .tg-card {
+  padding: 6px 6px 5px;
+  gap: 3px;
+  border-radius: 8px;
 }
-.tg-schematic-aux {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-top: 2px;
-  padding-top: 10px;
-  border-top: 1px dashed var(--border, #2a3550);
+.tg-schematic-col-tanks .tg-name {
+  font-size: 10px;
+  min-height: 2em;
+  line-height: 1.2;
 }
-.tg-schematic-aux-col { min-width: 0; }
-.tg-schematic-aux-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 8px;
+.tg-schematic-col-tanks .tg-pct { font-size: 11px; }
+.tg-schematic-col-tanks .tg-stats {
+  font-size: 10px;
+  gap: 0 6px;
 }
 .tg-schematic-empty {
   font-size: 12px; color: var(--muted, #9fb0c8);
@@ -1733,12 +1733,21 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   border: 1px dashed var(--border, #2a3550); border-radius: 8px;
 }
 @media (max-width: 1100px) {
-  .tg-schematic { grid-template-columns: 1fr; padding-right: 46px; }
+  .tg-schematic { padding-right: 46px; }
   .tg-schematic-head-other { padding-right: 46px; }
 }
-@media (max-width: 760px) {
-  .tg-schematic-storage { grid-template-columns: 1fr; }
-  .tg-schematic-aux { grid-template-columns: 1fr; }
+/* Android / narrow phones: two columns (HFO pair, then distillate pair). Tablets stay at four. */
+@media (max-width: 600px) {
+  .tg-schematic {
+    padding-right: 46px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+/* Phone landscape only (narrow + short). Android tablets keep four columns. */
+@media (max-height: 430px) and (max-width: 600px) {
+  .tg-schematic {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /* ---------- Graphical tank view ---------- */
@@ -1748,16 +1757,21 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
 .tg-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: 8px;
   margin-top: 10px;
   /* Reserve the width the floating tab occupies, so it sits beside the fourth
      column rather than on top of it. Collapsing the tab gives the width back. */
   padding-right: 214px;
 }
 .tg-grid.tab-collapsed { padding-right: 46px; }
-@media (max-width: 1400px) { .tg-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 1100px) { .tg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 760px)  { .tg-grid { grid-template-columns: 1fr; } }
+@media (max-width: 1100px) { .tg-grid { padding-right: 46px; } }
+/* Phones: two across. Tablets / Windows keep four. */
+@media (max-width: 600px) {
+  .tg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-right: 46px; }
+}
+@media (max-height: 430px) and (max-width: 600px) {
+  .tg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 .tg-card {
   background: var(--bg-card, var(--bg-panel, #16203a));
@@ -1984,7 +1998,6 @@ html.bright .tg-schematic-col {
   border-color: var(--border);
 }
 html.bright .tg-schematic-head { color: var(--text); }
-html.bright .tg-schematic-sub { color: var(--text-dim); }
 html.bright .tg-schematic-empty {
   color: var(--text-dim);
   border-color: var(--border);
