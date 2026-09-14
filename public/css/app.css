@@ -1679,18 +1679,20 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   .sigpad-baseline { left: 5%; right: 5%; }
 }
 
-/* ---------- Fuel schematic (4 rows: HFO P/S, distillate P/S) ---------- */
+/* ---------- Fuel schematic (4 columns: HFO P/S, distillate P/S) ---------- */
 
 .tg-schematic {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  /* Tablet + Windows (portrait & landscape): four side columns. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   margin-top: 10px;
   /* Same right reserve as .tg-grid so the floating Groups tab does not cover cards. */
   padding-right: 214px;
+  align-items: start;
 }
 .tg-schematic.tab-collapsed { padding-right: 46px; }
-.tg-schematic-row {
+.tg-schematic-col {
   min-width: 0;
   padding: 8px;
   border: 1px solid var(--border, #2a3550);
@@ -1705,24 +1707,23 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   text-transform: uppercase; color: var(--text, #e8eef8);
 }
 .tg-schematic-head-other { margin: 16px 0 6px; padding-right: 214px; }
-.tg-schematic-row-tanks {
-  display: grid;
-  /* Tablet + Windows (portrait & landscape): four tanks across. */
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+.tg-schematic-col-tanks {
+  display: flex;
+  flex-direction: column;
   gap: 6px;
 }
-.tg-schematic-row-tanks .tg-card {
+.tg-schematic-col-tanks .tg-card {
   padding: 6px 6px 5px;
   gap: 3px;
   border-radius: 8px;
 }
-.tg-schematic-row-tanks .tg-name {
+.tg-schematic-col-tanks .tg-name {
   font-size: 10px;
   min-height: 2em;
   line-height: 1.2;
 }
-.tg-schematic-row-tanks .tg-pct { font-size: 11px; }
-.tg-schematic-row-tanks .tg-stats {
+.tg-schematic-col-tanks .tg-pct { font-size: 11px; }
+.tg-schematic-col-tanks .tg-stats {
   font-size: 10px;
   gap: 0 6px;
 }
@@ -1735,14 +1736,16 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   .tg-schematic { padding-right: 46px; }
   .tg-schematic-head-other { padding-right: 46px; }
 }
-/* Android / narrow phones: two tanks across (portrait or landscape). Tablets stay at four. */
+/* Android / narrow phones: two columns (HFO pair, then distillate pair). Tablets stay at four. */
 @media (max-width: 600px) {
-  .tg-schematic { padding-right: 46px; }
-  .tg-schematic-row-tanks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tg-schematic {
+    padding-right: 46px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
-/* Phone landscape only (narrow + short). Android tablets keep four across. */
+/* Phone landscape only (narrow + short). Android tablets keep four columns. */
 @media (max-height: 430px) and (max-width: 600px) {
-  .tg-schematic-row-tanks {
+  .tg-schematic {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1990,7 +1993,7 @@ html.bright .tg-stats { color: var(--text-dim); }
 html.bright .tg-chip { color: var(--text); }
 html.bright .tg-void { fill: rgba(18, 34, 56, 0.06); }
 html.bright .tg-shell { stroke: #5a6a80; }
-html.bright .tg-schematic-row {
+html.bright .tg-schematic-col {
   background: var(--bg-panel);
   border-color: var(--border);
 }

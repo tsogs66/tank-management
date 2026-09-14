@@ -1103,8 +1103,9 @@ function isSchematicDistillate(tank) {
 }
 
 /**
- * Fuel mock-up as four rows (tablet/Windows show four tanks across; phones two):
+ * Fuel mock-up as four columns (tablet/Windows show all four; phones two):
  *   1 HFO/VLSFO port · 2 HFO/VLSFO starboard · 3 distillate port · 4 distillate starboard
+ * Tanks stack top→bottom inside each column (same order as the former rows).
  */
 function buildFuelSchematic(fuelTanks) {
   const wrap = document.createElement('div');
@@ -1112,26 +1113,26 @@ function buildFuelSchematic(fuelTanks) {
 
   const heavy = fuelTanks.filter((t) => !isSchematicDistillate(t));
   const distillate = fuelTanks.filter((t) => isSchematicDistillate(t));
-  const rows = [
+  const cols = [
     { title: 'HFO / VLSFO — Port', tanks: arrangeFuelSideRow(heavy, 'port') },
     { title: 'HFO / VLSFO — Starboard', tanks: arrangeFuelSideRow(heavy, 'starboard') },
     { title: 'MDO / MGO / LSMGO — Port', tanks: arrangeFuelSideRow(distillate, 'port') },
     { title: 'MDO / MGO / LSMGO — Starboard', tanks: arrangeFuelSideRow(distillate, 'starboard') },
   ];
 
-  for (const row of rows) {
-    const rowEl = document.createElement('div');
-    rowEl.className = 'tg-schematic-row';
-    rowEl.innerHTML = `<div class="tg-schematic-head">${escapeHtml(row.title)}</div>`;
-    const grid = document.createElement('div');
-    grid.className = 'tg-schematic-row-tanks';
-    if (!row.tanks.length) {
-      grid.innerHTML = '<div class="tg-schematic-empty">—</div>';
+  for (const col of cols) {
+    const colEl = document.createElement('div');
+    colEl.className = 'tg-schematic-col';
+    colEl.innerHTML = `<div class="tg-schematic-head">${escapeHtml(col.title)}</div>`;
+    const stack = document.createElement('div');
+    stack.className = 'tg-schematic-col-tanks';
+    if (!col.tanks.length) {
+      stack.innerHTML = '<div class="tg-schematic-empty">—</div>';
     } else {
-      appendTankCards(grid, row.tanks);
+      appendTankCards(stack, col.tanks);
     }
-    rowEl.appendChild(grid);
-    wrap.appendChild(rowEl);
+    colEl.appendChild(stack);
+    wrap.appendChild(colEl);
   }
   return wrap;
 }
