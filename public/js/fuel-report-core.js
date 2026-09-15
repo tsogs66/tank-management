@@ -192,28 +192,32 @@ function fuelTanks(bundle) {
 }
 
 /**
- * Density @15°C from the selected petroleum unit standard.
- * Workbook Data!M: DEN @15 is used as entered, API/RD go through the
- * Conversion sheet lookup tables.
+ * UI soundings are entered in centimetres; calibration tables and stored
+ * readings stay in millimetres (the native table axis).
  */
-function densityFromUnit(unit, unitValue, conversion) {
+const SOUNDING_MM_PER_CM = 10;
+function mmToCm(mm) {
+  const v = num(mm);
+  return v == null ? null : round(v / SOUNDING_MM_PER_CM, 2);
+}
+function cmToMm(cm) {
+  const v = num(cm);
+  return v == null ? null : round(v * SOUNDING_MM_PER_CM, 1);
+}
+function formatCm(mm) {
+  const cm = mmToCm(mm);
+  return cm == null ? '' : String(cm);
+}
+
+/**
+ * SG column is always treated as density @15°C (kg/L). Legacy API/RD/SG
+ * unit standards are ignored so every sheet uses dens @15.
+ */
+function densityFromUnit(_unit, unitValue, _conversion) {
   const value = num(unitValue);
-  if (value == null) return { density15: null, source: 'no unit value entered' };
-  if (value <= 0) return { density15: null, source: 'unit value must be greater than zero' };
-  const tables = conversion || {};
-  if (unit === 'api60') {
-    const d = lerpLookup(tables.apiToDensity15 || [], value);
-    return d == null
-      ? { density15: null, source: 'API outside Conversion sheet range' }
-      : { density15: d, source: `API ${value} -> Conversion sheet` };
-  }
-  if (unit === 'rd60' || unit === 'sg15') {
-    const d = lerpLookup(tables.rdToDensity15 || [], value);
-    return d == null
-      ? { density15: null, source: 'RD/SG outside Conversion sheet range' }
-      : { density15: d, source: `RD/SG ${value} -> Conversion sheet` };
-  }
-  return { density15: value, source: 'entered as density @15°C' };
+  if (value == null) return { density15: null, source: 'no SG / dens @15°C entered' };
+  if (value <= 0) return { density15: null, source: 'SG / dens @15°C must be greater than zero' };
+  return { density15: value, source: 'entered as density @15°C (SG column)' };
 }
 
 /** A blank row seeded from the tank definition and its last saved reading. */
@@ -318,7 +322,7 @@ function computeRow(tank, rowForm, ctx) {
   const section = sectionForRow(tank, row);
   const fuelType = FUEL_TYPES.some((f) => f.id === row.fuelType) ? row.fuelType : defaultFuelType(tank);
   const method = normalizeMethod(row.method);
-  const unit = UNIT_STANDARDS.some((u) => u.id === row.unit) ? row.unit : 'den15';
+  const unit = 'den15';
   const reading = num(row.reading);
   const tempC = num(row.tempC, 15);
   const capacity = num(tank.capacity, 0) || 0;
@@ -656,6 +660,10 @@ return {
   sectionForFuelType,
   sectionForRow,
   densityFromUnit,
+  SOUNDING_MM_PER_CM,
+  mmToCm,
+  cmToMm,
+  formatCm,
   emptyFuelReport,
   normalizeForm,
   computeRow,

@@ -2329,3 +2329,47 @@ html.bright .bunker-side { background: rgba(18,34,56,0.04); }
   body.printing-bc #app-credit-page { display: none !important; }
   body.printing-bc #bc-print-root { display: block !important; }
 }
+
+/* ---- Monitoring / bunkering sheet popups (phone & tablet) ---- */
+.tsp-overlay {
+  position: fixed; inset: 0; z-index: 9200;
+  display: flex; align-items: flex-end; justify-content: center;
+  padding: max(8px, env(safe-area-inset-top, 0px)) 10px max(10px, env(safe-area-inset-bottom, 0px));
+  background: rgba(8, 14, 24, .55); backdrop-filter: blur(2px);
+}
+@media (min-width: 720px) {
+  .tsp-overlay { align-items: center; }
+}
+.tsp-dialog {
+  width: min(560px, 100%); max-height: min(88vh, 820px);
+  overflow: auto; box-sizing: border-box;
+  background: var(--panel, #152033); color: var(--text, #e8eef8);
+  border: 1px solid var(--line, #2a3550); border-radius: 14px 14px 10px 10px;
+  padding: 12px 14px 14px; box-shadow: 0 18px 40px rgba(0,0,0,.35);
+}
+html.bright .tsp-dialog { background: #fff; color: #122238; border-color: rgba(18,34,56,.16); }
+.tsp-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.tsp-head h3 { margin: 0; font-size: 16px; }
+.tsp-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.tsp-row {
+  display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(90px, 0.9fr) minmax(80px, 0.7fr);
+  gap: 8px; align-items: end;
+  border: 1px solid var(--line, #2a3550); border-radius: 8px; padding: 8px 10px;
+}
+.tsp-mode-sg .tsp-row { grid-template-columns: minmax(0, 1.2fr) minmax(110px, 0.8fr); }
+.tsp-name { font-weight: 600; font-size: 13px; padding-bottom: 6px; }
+.tsp-field { display: flex; flex-direction: column; gap: 4px; margin: 0; min-width: 0; }
+.tsp-field span {
+  font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted, #9fb0c8);
+}
+.tsp-field input {
+  width: 100%; box-sizing: border-box; min-height: 40px; font-size: 16px;
+  padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line, #2a3550);
+  background: transparent; color: inherit;
+}
+.tsp-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+@media (max-width: 1100px), (pointer: coarse) {
+  .fr-sheet input[data-sheet-popup] {
+    caret-color: transparent;
+  }
+}
