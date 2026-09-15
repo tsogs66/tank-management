@@ -262,6 +262,135 @@ const FuelReport = (() => {
     </div>`;
   }
 
+  /**
+   * AIO-only: Voyage Chief Calculated ROB is available on the parent shell.
+   */
+  function showVoyageRobButton() {
+    try {
+      return typeof isAioEmbedded === 'function' && isAioEmbedded();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /** Map Voyage fuel grade labels onto Fuel Oil Report logbook keys. */
+  function logbookIdForVoyageGrade(grade) {
+    const g = String(grade || '').trim().toUpperCase();
+    if (g === 'HFO' || (g.includes('HFO') && !g.includes('LS'))) return 'hfo';
+    if (g === 'LSFO' || g.includes('VLSFO') || g.includes('LSFO')) return 'lsfo';
+    if (g === 'LSMGO' || g.includes('LSMGO')) return 'lsmgo';
+    if (g === 'MDO/MGO' || g.includes('MDO') || g.includes('MGO') || g === 'MO/MGO') return 'mdo';
+    return null;
+  }
+
+  /**
+   * Map Voyage lube tank kind/name onto Fuel Oil Report lube quantity keys.
+   */
+  function lubeIdForVoyageTank(tank) {
+    const kind = String((tank && tank.kind) || '').trim();
+    if (kind === 'cylHigh') return 'cylHigh';
+    if (kind === 'cylLow') return 'cylLow';
+    if (kind === 'meSys') return 'meSystem';
+    if (kind === 'geSys') return 'dgSystem';
+    const name = String((tank && (tank.name || tank.id)) || '').trim().toUpperCase();
+    if (name.includes('CYL') && name.includes('HIGH')) return 'cylHigh';
+    if (name.includes('CYL') && name.includes('LOW')) return 'cylLow';
+    if (name.includes('ME SYS') || name.includes('M/E SYS') || name === 'MESYSOIL') return 'meSystem';
+    if (name.includes('GE SYS') || name.includes('G/E SYS') || name.includes('D/G')
+      || name === 'GESYSOIL') return 'dgSystem';
+    return null;
+  }
+
+  /**
+   * Read Voyage Chief present ROB (Calculated ROB book) from the AIO shell.
+   * Returns { fuels: {hfo,lsfo,mdo,lsmgo}, lubes: {cylHigh,...} } or null.
+   */
+  async function readVoyageRobSnapshot() {
+    try {
+      const parentWin = window.parent;
+      if (!parentWin || parentWin === window) return null;
+      const bridge = parentWin.ChengProVoyageBridge;
+      if (!bridge || typeof bridge.readHomeSnapshot !== 'function') return null;
+      let vessel = null;
+      try {
+        vessel = parentWin.ChengPro && parentWin.ChengPro.vessel
+          && typeof parentWin.ChengPro.vessel.getActive === 'function'
+          ? parentWin.ChengPro.vessel.getActive()
+          : null;
+      } catch (_) { /* cross-origin or missing */ }
+      const snap = await bridge.readHomeSnapshot(vessel);
+      if (!snap || !snap.ok) return null;
+
+      const fuels = { hfo: null, lsfo: null, mdo: null, lsmgo: null };
+      const rob = snap.robCurrent || {};
+      const tanks = Array.isArray(snap.fuelTanks) ? snap.fuelTanks : [];
+      for (const t of tanks) {
+        const key = logbookIdForVoyageGrade(t.grade || t.name);
+        if (!key) continue;
+        const v = Number(rob[t.id]);
+        if (!Number.isFinite(v)) continue;
+        fuels[key] = (fuels[key] == null ? 0 : fuels[key]) + v;
+      }
+
+      const lubes = { cylHigh: null, cylLow: null, meSystem: null, dgSystem: null };
+      const robLube = snap.robLubeCurrent || {};
+      const lubeTanks = Array.isArray(snap.lubeTanks) ? snap.lubeTanks : [];
+      for (const t of lubeTanks) {
+        const key = lubeIdForVoyageTank(t);
+        if (!key) continue;
+        const v = Number(robLube[t.id]);
+        if (!Number.isFinite(v)) continue;
+        lubes[key] = (lubes[key] == null ? 0 : lubes[key]) + v;
+      }
+
+      return { fuels, lubes };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * AIO only — fill LOGBOOK ROB (MT) and lube oil quantity (litres) from
+   * Voyage Chief Calculated ROB.
+   */
+  async function fillLogbookFromVoyageRob() {
+    const snap = await readVoyageRobSnapshot();
+    if (!snap) {
+      showToast('Voyage ROB unavailable — open Voyage Chief for this vessel first');
+      return;
+    }
+    let fuelFilled = 0;
+    let lubeFilled = 0;
+    for (const grade of Core.FUEL_TYPES) {
+      const mt = snap.fuels[grade.id];
+      if (mt == null || !Number.isFinite(Number(mt))) continue;
+      const val = n(mt, 3);
+      view.form.logbook[grade.id] = val;
+      const input = document.querySelector(`[data-logbook="${grade.id}"]`);
+      if (input) input.value = val;
+      fuelFilled += 1;
+    }
+    for (const field of Core.LUBE_FIELDS) {
+      const litres = snap.lubes[field.id];
+      if (litres == null || !Number.isFinite(Number(litres))) continue;
+      const val = n(litres, 0);
+      view.form.lube[field.id] = val;
+      const input = document.querySelector(`[data-lube="${field.id}"]`);
+      if (input) input.value = val;
+      lubeFilled += 1;
+    }
+    view.dirty = true;
+    refreshComputed();
+    if (!fuelFilled && !lubeFilled) {
+      showToast('No Voyage ROB figures for this vessel');
+      return;
+    }
+    const parts = [];
+    if (fuelFilled) parts.push(`${fuelFilled} fuel`);
+    if (lubeFilled) parts.push(`${lubeFilled} lube`);
+    showToast(`Filled from Voyage ROB (${parts.join(', ')})`);
+  }
+
   function renderGradesPanel() {
     const cells = Core.FUEL_TYPES.map((g) => `
       <div class="fr-grade" data-grade="${g.id}">
@@ -273,8 +402,14 @@ const FuelReport = (() => {
         <div class="fr-grade-row"><span>LOGBOOK − ACTUAL</span>
           <b data-fr-grade="${g.id}.differenceMT"></b></div>
       </div>`).join('');
+    const robBtn = showVoyageRobButton()
+      ? `<button type="button" class="btn small" id="fr-fill-logbook-rob">Get current ROB</button>`
+      : '';
     return `<div class="form-panel no-print">
-      <div class="section-title" style="margin-top:0">Totals vs log book</div>
+      <div class="section-title" style="margin-top:0">
+        <span>Totals vs log book</span>
+        ${robBtn}
+      </div>
       <div class="fr-grades">${cells}</div>
     </div>`;
   }
@@ -573,6 +708,9 @@ const FuelReport = (() => {
     document.getElementById('fr-save').onclick = () => saveReport({ snapshot: false, print: false });
     document.getElementById('fr-main-menu').onclick = () => navigate('dashboard');
     document.getElementById('fr-print-only').onclick = () => printReport(recompute());
+    document.getElementById('fr-fill-logbook-rob')?.addEventListener('click', () => {
+      fillLogbookFromVoyageRob();
+    });
 
     document.getElementById('fr-toggle-calc').onclick = (e) => {
       view.showCalcSheet = !view.showCalcSheet;

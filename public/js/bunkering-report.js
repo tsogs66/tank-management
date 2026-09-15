@@ -1841,11 +1841,37 @@ const BunkerReports = (() => {
         <div class="fr-grade-row"><span>TOTAL PRESENT (MT)</span><b data-ba-grade="${g.id}.presentMT"></b></div>
       </div>`).join('');
     return `<div class="form-panel no-print">
-      <div class="section-title" style="margin-top:0">ROB prior bunkering → total added → present</div>
+      <div class="section-title" style="margin-top:0">
+        <span>ROB prior bunkering → total added → present</span>
+        <button type="button" class="btn small" id="ba-fill-prior-rob">Get current ROB</button>
+      </div>
       <div class="fr-grades">${cells}</div>
-      <p class="hint"><b>GET DATA</b> refills the prior-ROB column and the soundings from the saved fuel report.
+      <p class="hint"><b>Get current ROB</b> fills prior ROB from the monitoring page weight by air (MT)
+        for each fuel type. <b>GET DATA</b> (header) can also refresh soundings from the fuel report.
         A negative "added" is consumption, not intake.</p>
     </div>`;
+  }
+
+  /**
+   * Fill ROB PRIOR BUNKERING from the Fuel Oil Report weight-by-air totals
+   * (monitoring TOTAL ACTUAL / grade.actualMT). Does not touch soundings or lubes.
+   */
+  function fillPriorRobFromMonitoring() {
+    const prior = Core.priorRobFromFuelReport(bundle(), view.conversion);
+    let filled = 0;
+    for (const grade of FRCore.FUEL_TYPES) {
+      const mt = prior[grade.id];
+      if (mt == null || !Number.isFinite(Number(mt))) continue;
+      const val = n(mt, 3);
+      view.after.priorRob[grade.id] = val;
+      const input = document.querySelector(`[data-prior="${grade.id}"]`);
+      if (input) input.value = val;
+      filled += 1;
+    }
+    refreshAfter();
+    showToast(filled
+      ? `Prior ROB filled from monitoring (${filled} fuel type${filled === 1 ? '' : 's'})`
+      : 'No monitoring weight-by-air figures yet — enter soundings on the fuel report first');
   }
 
   function refreshAfter() {
@@ -1929,6 +1955,9 @@ const BunkerReports = (() => {
       navigate('bunker-after');
       showToast('Data pulled from the fuel report');
     };
+    document.getElementById('ba-fill-prior-rob')?.addEventListener('click', () => {
+      fillPriorRobFromMonitoring();
+    });
     document.getElementById('ba-print-save').onclick = async () => {
       Branding.beginPrintHold();
       try {
