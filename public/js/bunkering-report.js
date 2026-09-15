@@ -184,11 +184,11 @@ const BunkerReports = (() => {
   const PLAN_COLUMNS = [
     { field: 'capacity100M3', label: 'CAPACITY 100% M3', d: 1 },
     { field: 'capacity85M3', label: 'CAPACITY 85% M3', d: 2 },
-    { field: 'startingUllageMM', label: 'STARTING ULL. (MM)', d: 0 },
+    { field: 'startingUllageMM', label: 'STARTING ULL. (CM)', d: 1 },
     { field: 'startingRobM3', label: 'STARTING ROB (M3)', d: 3 },
     { field: 'freeM3At85', label: 'FREE (M3) @85% CAP', d: 3 },
     { field: 'targetVolumePercent', label: 'TARGET VOL. %', d: 'pct' },
-    { field: 'targetUllageMM', label: 'TARGET ULLAGE', d: 0 },
+    { field: 'targetUllageMM', label: 'TARGET ULLAGE (CM)', d: 1 },
     { field: 'planAddMT', label: 'PLAN ADD (MT)', d: 3 },
     { field: 'currentVolumePercent', label: 'CURRENT VOL.(%)', d: 'pct' },
     { field: 'currentVolumeM3', label: 'CURRENT VOL.(M3)', d: 3 },
@@ -199,6 +199,9 @@ const BunkerReports = (() => {
   function planCell(field, value) {
     const col = PLAN_COLUMNS.find((c) => c.field === field);
     if (!col) return n(value, 2);
+    if (field === 'startingUllageMM' || field === 'targetUllageMM') {
+      return n(FRCore.mmToCm(value), 1);
+    }
     return col.d === 'pct' ? pct(value) : n(value, col.d);
   }
 
@@ -443,7 +446,7 @@ const BunkerReports = (() => {
         <td><input type="number" step="any" data-slot="${i}" data-field="targetVolumeM3" value="${esc(f.targetVolumeM3)}"></td>
         ${cell('targetVolumePercent')}${cell('targetUllageMM')}${cell('planAddMT')}
         <td class="bp-valve" data-bp-valve="${i}"></td>
-        <td><input type="number" step="any" data-slot="${i}" data-field="currentSoundingMM" value="${esc(f.currentSoundingMM)}">
+        <td><input type="number" step="any" data-slot="${i}" data-field="currentSoundingMM" value="${esc(FRCore.formatCm(f.currentSoundingMM))}">
           <span class="bp-method" data-bp-method="${i}"></span></td>
         ${cell('currentVolumePercent')}${cell('currentVolumeM3')}${cell('quantityAddMT')}
         ${cell('remainingToTargetMT')}
@@ -469,11 +472,11 @@ const BunkerReports = (() => {
           <table class="fr-sheet bp-sheet">
             <thead><tr>
               <th>SEQUENCE / TANK NAME</th>
-              <th>CAPACITY<br>100% M3</th><th>CAPACITY<br>85% M3</th><th>STARTING<br>ULL. (MM)</th>
+              <th>CAPACITY<br>100% M3</th><th>CAPACITY<br>85% M3</th><th>STARTING<br>ULL. (CM)</th>
               <th>STARTING<br>ROB (M3)</th><th>FREE (M3)<br>@85% CAP</th>
-              <th>TARGET<br>VOL. (M3)</th><th>TARGET<br>VOL. %</th><th>TARGET<br>ULLAGE</th><th>PLAN ADD<br>(MT)</th>
+              <th>TARGET<br>VOL. (M3)</th><th>TARGET<br>VOL. %</th><th>TARGET<br>ULL. (CM)</th><th>PLAN ADD<br>(MT)</th>
               <th>VALVE /<br>STATUS</th>
-              <th>CURRENT<br>SOUND (MM)</th><th>CURRENT<br>VOL.(%)</th><th>CURRENT<br>VOL.(M3)</th><th>QUANTITY<br>ADD (MT)</th>
+              <th>CURRENT<br>SOUND (CM)</th><th>CURRENT<br>VOL.(%)</th><th>CURRENT<br>VOL.(M3)</th><th>QUANTITY<br>ADD (MT)</th>
               <th>TO GO<br>(MT)</th><th>ETA</th>
             </tr></thead>
             <tbody>${rows}</tbody>
@@ -917,7 +920,7 @@ const BunkerReports = (() => {
       return `<tr class="${r.estimatedOverLimit ? 'bp-est-over' : ''}">
         <th class="fr-tank-name">${esc(r.name)}</th>
         <td>${n(r.estimateRateMTPerHour, 1)}</td>
-        <td class="bp-est-figure">${n(r.estimatedSoundingMM, 0)}${method}</td>
+        <td class="bp-est-figure">${n(FRCore.mmToCm(r.estimatedSoundingMM), 1)}${method}</td>
         <td>${n(r.estimatedUllageMM, 0)}</td>
         <td>${pct(r.estimatedVolumePercent)}</td>
         <td>${n(r.estimatedVolumeM3, 3)}</td>
@@ -1175,13 +1178,15 @@ const BunkerReports = (() => {
       if (el.dataset.slot != null && el.dataset.field) {
         const slot = view.plan.sequence[Number(el.dataset.slot)];
         if (slot) {
-          slot[el.dataset.field] = el.value;
           if (el.dataset.field === 'currentSoundingMM') {
+            slot.currentSoundingMM = FRCore.cmToMm(el.value);
             // Anchor the estimate on this reading, in the tank's own running
             // hours so time spent shut is not counted as time taking fuel.
             const tc = Core.tankClock(slot);
             slot.currentSoundingAtElapsedH = tc.elapsedHours || 0;
             slot.currentSoundingAt = new Date().toISOString();
+          } else {
+            slot[el.dataset.field] = el.value;
           }
         }
       } else if (el.dataset.head) {
@@ -1467,14 +1472,14 @@ const BunkerReports = (() => {
       <td class="fr-print-name">${r.slot}. ${esc(r.name)}</td>
       <td>${n(r.capacity100M3, 1)}</td>
       <td>${n(r.capacity85M3, 2)}</td>
-      <td>${n(r.startingUllageMM, 0)}</td>
+      <td>${n(FRCore.mmToCm(r.startingUllageMM), 1)}</td>
       <td>${n(r.startingRobM3, 3)}</td>
       <td>${n(r.freeM3At85, 3)}</td>
       <td>${n(r.targetVolumeM3, 3)}</td>
       <td>${pct(r.targetVolumePercent)}</td>
-      <td>${n(r.targetUllageMM, 0)}</td>
+      <td>${n(FRCore.mmToCm(r.targetUllageMM), 1)}</td>
       <td>${n(r.planAddMT, 3)}</td>
-      <td>${n(r.currentSoundingMM, 0)}</td>
+      <td>${n(FRCore.mmToCm(r.currentSoundingMM), 1)}</td>
       <td>${pct(r.currentVolumePercent)}</td>
       <td>${n(r.currentVolumeM3, 3)}</td>
       <td class="fr-print-weight">${n(r.quantityAddMT, 3)}</td>
@@ -1868,6 +1873,14 @@ const BunkerReports = (() => {
       view.pendingAfter = view.after;
       navigate('bunker-after');
     });
+    if (typeof UI.bindSheetPopups === 'function') {
+      UI.bindSheetPopups(
+        wrap,
+        () => view.after.rows,
+        () => view.computed || recomputeAfter(),
+        () => { refreshAfter(); },
+      );
+    }
     wrap.addEventListener('input', (e) => {
       const el = e.target;
       if (el.dataset.row && el.dataset.field) {
@@ -1875,7 +1888,15 @@ const BunkerReports = (() => {
         if (!row) return;
         const moves = el.dataset.field === 'fuelType'
           && UI.sectionWouldChange(view.computed, row, el.dataset.row, el.value);
-        row[el.dataset.field] = el.type === 'checkbox' ? el.checked : el.value;
+        if (el.dataset.field === 'reading') {
+          row.reading = FRCore.cmToMm(el.value);
+          row.unit = 'den15';
+        } else if (el.dataset.field === 'unitValue') {
+          row.unitValue = el.value;
+          row.unit = 'den15';
+        } else {
+          row[el.dataset.field] = el.type === 'checkbox' ? el.checked : el.value;
+        }
         if (moves) {
           view.pendingAfter = view.after;
           navigate('bunker-after');

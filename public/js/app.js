@@ -1299,8 +1299,8 @@ function renderTankDetail(main, tankId) {
           <option value="meter" ${initialGT==='meter'?'selected':''}>Meter / ullage (calibration)</option>
           <option value="volume" ${initialGT==='volume'?'selected':''}>Volume gauge (m³ direct)</option>
         </select></div>` : ''}
-      <div class="form-row"><label id="reading-label">${initialGT==='volume'?'Volume m³':(tank.soundingMethod||'Reading')}</label>
-        <input type="number" step="any" id="in-reading" value="${existing.reading ?? ''}"></div>
+      <div class="form-row"><label id="reading-label">${initialGT==='volume'?'Volume m³':((tank.soundingMethod||'Reading') + ' (cm)')}</label>
+        <input type="number" step="any" id="in-reading" value="${existing.reading != null && existing.reading !== '' ? (Number(existing.reading) / 10) : ''}"></div>
       <div class="form-row-2" id="trimlist-row" style="${initialGT==='volume'?'display:none':''}">
         <div class="form-row"><label>Trim (m)</label><input type="number" step="any" id="in-trim" value="${existing.trim ?? STATE.bundle.voyage?.trim ?? 0}"></div>
         <div class="form-row"><label>List / Heel (°)</label><input type="number" step="any" id="in-list" value="${existing.list ?? STATE.bundle.voyage?.heel ?? 0}"></div>
@@ -1355,9 +1355,11 @@ function renderTankDetail(main, tankId) {
   }
 
   async function doCalc() {
-    const reading = parseFloat(document.getElementById('in-reading').value);
+    let reading = parseFloat(document.getElementById('in-reading').value);
     if (Number.isNaN(reading)) { showToast('Enter a reading'); return; }
     const gaugeType = gaugeChoice ? document.getElementById('in-gaugetype').value : 'meter';
+    /* Sounding/ullage inputs are centimetres; calibration stays millimetres. */
+    if (gaugeType !== 'volume') reading = reading * 10;
     const inputs = {
       reading,
       trim: gaugeType === 'volume' ? 0 : (parseFloat(document.getElementById('in-trim').value) || 0),
