@@ -3155,22 +3155,23 @@ function renderReport(main) {
       ${fuelTotalLines}
       <div class="section-title">All categories: ${fmt(gVol, 2)} m³ · ${fmt(gWt, 2)} MT</div>
       <div class="hint">Print uses the Tank Condition layout (HFO/VLSFO and MO/MGO/LSMGO separate) so the sheet fits one A4.${gUnknown
-        ? ` ${gUnknown} tank${gUnknown === 1 ? ' without a density is' : 's without a density are'} outside the MT figure.` : ''}</div>
-      ${typeof FuelReport !== 'undefined' ? FuelReport.printSignatureBlock() : ''}
+        ? ` ${gUnknown} tank${gUnknown === 1 ? ' without a density is' : 's without a density are'} outside the MT figure.` : ''} Vessel stamp and chief signature appear on the printout from Vessel Setup.</div>
     </div>
 
     <div class="form-panel no-print">
-      <div class="section-title" style="margin-top:0">Saved voyage reports</div>
-      <p class="hint" style="margin-top:0">Drafts stay editable. Filed reports can be reprinted or loaded.</p>
-      ${historyTableHtml(STATE.bundle.voyageHistory || [], v.updatedAt ? {
-        form: { voyage: v },
-        voyageNo: v.voyageNo,
-        port: v.port,
-        reportType: v.reportType,
-        date: v.date,
-        savedAt: v.updatedAt,
-        totalMT: gWt,
-      } : null, 'Nothing saved yet — use Save only for a draft, or Print & Save for a filed report')}
+      <details class="saved-reports-fold">
+        <summary class="section-title" style="margin-top:0; cursor:pointer;">Saved voyage reports</summary>
+        <p class="hint" style="margin-top:8px;">Drafts stay editable. Filed reports can be reprinted or loaded.</p>
+        ${historyTableHtml(STATE.bundle.voyageHistory || [], v.updatedAt ? {
+          form: { voyage: v },
+          voyageNo: v.voyageNo,
+          port: v.port,
+          reportType: v.reportType,
+          date: v.date,
+          savedAt: v.updatedAt,
+          totalMT: gWt,
+        } : null, 'Nothing saved yet — use Save only for a draft, or Print &amp; Save for a filed report')}
+      </details>
     </div>`;
 
   main.appendChild(wrap);

@@ -361,14 +361,16 @@ const BunkerReports = (() => {
       ${planBlendPanel()}
       ${planTankTablesPanel(c)}
       <div class="form-panel no-print">
-        <div class="section-title" style="margin-top:0">Saved plans</div>
-        <p class="hint" style="margin-top:0">Drafts stay editable. Filed reports can be reprinted or loaded.</p>
-        ${historyRows(bunkerHistory().plans, 'plans', view.plan && view.plan.updatedAt ? {
-          form: view.plan,
-          voyageNo: view.plan.header && view.plan.header.voyageNo,
-          port: view.plan.header && view.plan.header.port,
-          savedAt: view.plan.updatedAt,
-        } : null)}
+        <details class="saved-reports-fold">
+          <summary class="section-title" style="margin-top:0; cursor:pointer;">Saved plans</summary>
+          <p class="hint" style="margin-top:8px;">Drafts stay editable. Filed reports can be reprinted or loaded.</p>
+          ${historyRows(bunkerHistory().plans, 'plans', view.plan && view.plan.updatedAt ? {
+            form: view.plan,
+            voyageNo: view.plan.header && view.plan.header.voyageNo,
+            port: view.plan.header && view.plan.header.port,
+            savedAt: view.plan.updatedAt,
+          } : null)}
+        </details>
       </div>`;
     main.appendChild(wrap);
 
@@ -1776,14 +1778,16 @@ const BunkerReports = (() => {
       ${c.sections.map((s) => UI.sheetTableHtml(s, view.after.rows)).join('')}
       ${afterGradesPanel(c)}
       <div class="form-panel no-print">
-        <div class="section-title" style="margin-top:0">Saved after-bunkering reports</div>
-        <p class="hint" style="margin-top:0">Drafts stay here for editing. Filed reports can be reprinted or loaded back into the form.</p>
-        ${historyRows(bunkerHistory().after, 'after', view.after && view.after.updatedAt ? {
-          form: view.after,
-          voyageNo: view.after.header && view.after.header.voyageNo,
-          port: view.after.header && view.after.header.port,
-          savedAt: view.after.updatedAt,
-        } : null)}
+        <details class="saved-reports-fold">
+          <summary class="section-title" style="margin-top:0; cursor:pointer;">Saved after-bunkering reports</summary>
+          <p class="hint" style="margin-top:8px;">Drafts stay here for editing. Filed reports can be reprinted or loaded back into the form.</p>
+          ${historyRows(bunkerHistory().after, 'after', view.after && view.after.updatedAt ? {
+            form: view.after,
+            voyageNo: view.after.header && view.after.header.voyageNo,
+            port: view.after.header && view.after.header.port,
+            savedAt: view.after.updatedAt,
+          } : null)}
+        </details>
       </div>`;
     main.appendChild(wrap);
 
@@ -2066,14 +2070,16 @@ const BunkerReports = (() => {
         ${readOnlyTankTable(c.after)}
       </div>
       <div class="form-panel no-print">
-        <div class="section-title" style="margin-top:0">Saved summaries</div>
-        <p class="hint" style="margin-top:0">Saved drafts stay editable. Filed reports can be reprinted or loaded.</p>
-        ${historyRows(bunkerHistory().summaries, 'summaries', view.summary && view.summary.updatedAt ? {
-          form: view.summary,
-          voyageNo: view.summary.voyageNo,
-          port: view.summary.port,
-          savedAt: view.summary.updatedAt,
-        } : null)}
+        <details class="saved-reports-fold">
+          <summary class="section-title" style="margin-top:0; cursor:pointer;">Saved summaries</summary>
+          <p class="hint" style="margin-top:8px;">Saved drafts stay editable. Filed reports can be reprinted or loaded.</p>
+          ${historyRows(bunkerHistory().summaries, 'summaries', view.summary && view.summary.updatedAt ? {
+            form: view.summary,
+            voyageNo: view.summary.voyageNo,
+            port: view.summary.port,
+            savedAt: view.summary.updatedAt,
+          } : null)}
+        </details>
       </div>`;
     main.appendChild(wrap);
 
