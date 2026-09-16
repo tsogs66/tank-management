@@ -522,12 +522,14 @@ const FuelReport = (() => {
         ${s.isDraft ? '' : `<button class="btn small danger" data-del-snapshot="${esc(s.id)}">Delete</button>`}</td>
     </tr>`).join('');
     return `<div class="form-panel no-print" id="fr-history-panel">
-      <div class="section-title" style="margin-top:0">Saved reports</div>
-      <p class="hint" style="margin-top:0">Drafts stay editable. Filed reports can be reprinted or loaded.</p>
-      <div class="scroll-x"><table class="data-table">
-        <thead><tr><th>Saved</th><th>Type</th><th>Voyage</th><th>Port</th><th>Total MT</th><th></th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="6" class="empty-state">Nothing saved yet — use Save only for a draft, or Print &amp; Save for a filed report</td></tr>'}</tbody>
-      </table></div>
+      <details class="saved-reports-fold">
+        <summary class="section-title" style="margin-top:0; cursor:pointer;">Saved reports</summary>
+        <p class="hint" style="margin-top:8px;">Drafts stay editable. Filed reports can be reprinted or loaded.</p>
+        <div class="scroll-x"><table class="data-table">
+          <thead><tr><th>Saved</th><th>Type</th><th>Voyage</th><th>Port</th><th>Total MT</th><th></th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="6" class="empty-state">Nothing saved yet — use Save only for a draft, or Print &amp; Save for a filed report</td></tr>'}</tbody>
+        </table></div>
+      </details>
     </div>`;
   }
 

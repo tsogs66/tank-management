@@ -439,6 +439,16 @@ table.leg-table input, table.calib-table input {
   font-size: 15px; font-weight: 700; margin: 22px 0 10px;
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 }
+details.saved-reports-fold > summary.section-title{
+  list-style: none; cursor: pointer; user-select: none;
+}
+details.saved-reports-fold > summary.section-title::-webkit-details-marker{display:none;}
+details.saved-reports-fold > summary.section-title::before{
+  content: '▸'; display: inline-block; width: 1em; color: var(--text-dim);
+  transition: transform .15s ease;
+}
+details.saved-reports-fold[open] > summary.section-title::before{content: '▾';}
+
 table.calib-table { font-variant-numeric: tabular-nums; }
 table.calib-table th {
   position: sticky; top: 0; background: var(--bg-panel); z-index: 1;
