@@ -591,58 +591,110 @@ function renderNav() {
   const nav = document.getElementById('sidebar-nav');
   nav.innerHTML = '';
 
-  const brand = document.createElement('div');
-  brand.className = 'brand';
-  brand.innerHTML = `
-    <div class="ship">${vesselName()}</div>
-    <div class="sub"><span class="status-dot ${STATE.online ? 'online' : 'offline'}"></span>
-      ${STATE.online ? 'Online' : 'Offline'} · ${Branding.APP_NAME}</div>
-    ${isAioEmbedded() ? '' : `<select class="vessel-select" id="vessel-switcher">
-      <option value="">— Select vessel —</option>
-      ${STATE.vessels.map((v) => `<option value="${v.id}" ${v.id === STATE.activeVesselId ? 'selected' : ''}>${v.name}</option>`).join('')}
-    </select>`}`;
-  nav.appendChild(brand);
+  let topNav = false;
+  try {
+    const ua = navigator.userAgent || '';
+    topNav = !document.documentElement.classList.contains('is-mobile-chrome')
+      && (/Windows|Electron/i.test(ua) || document.documentElement.classList.contains('chengaio-embed')
+        || window.innerWidth >= 1025);
+    document.documentElement.classList.toggle('tc-top-nav', topNav);
+  } catch (_) {}
+
+  /* No Tank Chief title header — vessel name only when not AIO-embedded. */
+  if (!isAioEmbedded()) {
+    const brand = document.createElement('div');
+    brand.className = 'brand';
+    brand.innerHTML = `
+      <div class="ship">${vesselName()}</div>
+      <div class="sub"><span class="status-dot ${STATE.online ? 'online' : 'offline'}"></span>
+        ${STATE.online ? 'Online' : 'Offline'}</div>
+      <select class="vessel-select" id="vessel-switcher">
+        <option value="">— Select vessel —</option>
+        ${STATE.vessels.map((v) => `<option value="${v.id}" ${v.id === STATE.activeVesselId ? 'selected' : ''}>${v.name}</option>`).join('')}
+      </select>`;
+    nav.appendChild(brand);
+  }
 
   const mk = (page, label, icon) => {
     const b = document.createElement('button');
     b.className = 'nav-btn' + (STATE.route.page === page ? ' active' : '');
     b.innerHTML = `<span class="ic">${icon}</span><span>${label}</span>`;
-    b.onclick = () => navigate(page);
+    b.onclick = () => {
+      if (topNav) closeTopNavMenus();
+      navigate(page);
+    };
     return b;
   };
 
-  nav.appendChild(mk('dashboard', 'Summary', '▦'));
+  function closeTopNavMenus() {
+    if (!topNav) return;
+    nav.querySelectorAll('.nav-group').forEach((g) => g.classList.add('collapsed'));
+  }
 
-  let g = document.createElement('div');
-  g.className = 'nav-group-label'; g.textContent = 'Tanks';
-  nav.appendChild(g);
-  for (const c of CATS) nav.appendChild(mk(c.id, c.label, c.icon));
-  nav.appendChild(mk('add-tank', 'Add Tank', '+'));
-  nav.appendChild(mk('calibration', 'Calibration DB', '☰'));
+  function group(title, build) {
+    const wrap = document.createElement('div');
+    wrap.className = 'nav-group';
+    const key = 'tc-nav-collapse:' + title;
+    /* Windows menubar: start collapsed; open one at a time on click. */
+    let collapsed = true;
+    if (!topNav) {
+      try { collapsed = localStorage.getItem(key) === '1'; } catch (_) {}
+    }
+    if (collapsed) wrap.classList.add('collapsed');
+    const label = document.createElement('button');
+    label.type = 'button';
+    label.className = 'nav-group-label';
+    label.textContent = title;
+    label.setAttribute('aria-haspopup', topNav ? 'true' : 'false');
+    label.onclick = (ev) => {
+      ev.stopPropagation();
+      if (topNav) {
+        const opening = wrap.classList.contains('collapsed');
+        closeTopNavMenus();
+        if (opening) wrap.classList.remove('collapsed');
+        return;
+      }
+      wrap.classList.toggle('collapsed');
+      try { localStorage.setItem(key, wrap.classList.contains('collapsed') ? '1' : '0'); } catch (_) {}
+    };
+    const body = document.createElement('div');
+    body.className = 'nav-group-body';
+    build(body);
+    wrap.appendChild(label);
+    wrap.appendChild(body);
+    nav.appendChild(wrap);
+  }
 
-  g = document.createElement('div');
-  g.className = 'nav-group-label'; g.textContent = 'Fuel Management';
-  nav.appendChild(g);
-  nav.appendChild(mk('fuel-report', 'Monitoring', '🧾'));
-  if (bunkerPlanNavAllowed()) nav.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
-  if (bunkerConsumptionNavAllowed()) nav.appendChild(mk('bunker-consumption', 'Bunker Consumption', '📊'));
-  nav.appendChild(mk('bunker-after', 'Bunkering', '📥'));
-  nav.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
-  nav.appendChild(mk('sounding-card', 'Sounding Card', '📇'));
-  nav.appendChild(mk('report', 'Voyage Report', '📋'));
+  group('Summary', (body) => {
+    body.appendChild(mk('dashboard', 'Summary', '▦'));
+  });
 
-  g = document.createElement('div');
-  g.className = 'nav-group-label'; g.textContent = 'Reference';
-  nav.appendChild(g);
-  nav.appendChild(mk('vcf-wcf', 'VCF / WCF Calc', 'Σ'));
-  nav.appendChild(mk('iso8217', 'ISO 8217 Specs', '▤'));
+  group('Tanks', (body) => {
+    for (const c of CATS) body.appendChild(mk(c.id, c.label, c.icon));
+    body.appendChild(mk('add-tank', 'Add Tank', '+'));
+    body.appendChild(mk('calibration', 'Calibration DB', '☰'));
+  });
 
-  g = document.createElement('div');
-  g.className = 'nav-group-label'; g.textContent = 'System';
-  nav.appendChild(g);
-  if (!isAioEmbedded()) nav.appendChild(mk('setup', 'Vessel Setup', '⚙'));
-  nav.appendChild(mk('settings', 'Backup / Sync', '⇅'));
-  nav.appendChild(mk('about', 'About', 'ℹ'));
+  group('Fuel Management', (body) => {
+    body.appendChild(mk('fuel-report', 'Monitoring', '🧾'));
+    if (bunkerPlanNavAllowed()) body.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
+    if (bunkerConsumptionNavAllowed()) body.appendChild(mk('bunker-consumption', 'Bunker Consumption', '📊'));
+    body.appendChild(mk('bunker-after', 'Bunkering', '📥'));
+    body.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
+    body.appendChild(mk('sounding-card', 'Sounding Card', '📇'));
+    body.appendChild(mk('report', 'Voyage Report', '📋'));
+  });
+
+  group('Reference', (body) => {
+    body.appendChild(mk('vcf-wcf', 'VCF / WCF Calc', 'Σ'));
+    body.appendChild(mk('iso8217', 'ISO 8217 Specs', '▤'));
+  });
+
+  group('System', (body) => {
+    if (!isAioEmbedded()) body.appendChild(mk('setup', 'Vessel Setup', '⚙'));
+    body.appendChild(mk('settings', 'Backup / Sync', '⇅'));
+    body.appendChild(mk('about', 'About', 'ℹ'));
+  });
 
   /* The credit that prints from pages which print themselves — the voyage
      report calls window.print() on the live page rather than building a
@@ -652,32 +704,52 @@ function renderNav() {
   if (pageCredit) pageCredit.outerHTML = Branding.printCredit().replace(
     'class="app-credit-print"', 'class="app-credit-print" id="app-credit-page"');
 
-  /* Who wrote it, at the foot of the navigation, so it is on every page rather
-     than only on the About page nobody opens. */
   const credit = document.createElement('div');
   credit.className = 'nav-credit no-print';
   credit.innerHTML = `<span>${Branding.APP_NAME}</span>`
     + Branding.AUTHORS.map((a) => `<b>${a}</b>`).join('');
   nav.appendChild(credit);
 
-  const themeBtn = document.createElement('button');
-  themeBtn.type = 'button';
-  themeBtn.className = 'theme-toggle no-print';
-  themeBtn.setAttribute('data-theme-toggle', '');
-  const mode = window.MarineTheme?.readMode?.()
-    || (document.documentElement.classList.contains('bright') ? 'bright'
-      : document.documentElement.classList.contains('prism') ? 'prism'
-      : document.documentElement.classList.contains('astrolabe') ? 'astrolabe'
-      : 'night');
-  themeBtn.textContent = mode === 'night' ? 'Bright' : mode === 'bright' ? 'Prism' : mode === 'prism' ? 'Astrolabe' : 'Night';
-  themeBtn.title = mode === 'night' ? 'Day / bright mode for sunlight'
-    : mode === 'bright' ? 'Prism — nautical emerald prism / brass refraction'
-    : mode === 'prism' ? 'Astrolabe — chart-ink indigo with copper engraving'
-    : 'Night / dark bridge mode';
-  nav.appendChild(themeBtn);
-  if (window.MarineTheme) {
+  /* Windows / AIO top menubar: theme lives on AIO chrome — no duplicate here. */
+  if (!topNav && !isAioEmbedded()) {
+    const themeBtn = document.createElement('button');
+    themeBtn.type = 'button';
+    themeBtn.className = 'theme-toggle no-print';
+    themeBtn.setAttribute('data-theme-toggle', '');
+    const mode = window.MarineTheme?.readMode?.()
+      || (document.documentElement.classList.contains('bright') ? 'bright'
+        : document.documentElement.classList.contains('prism') ? 'prism'
+        : document.documentElement.classList.contains('astrolabe') ? 'astrolabe'
+        : 'night');
+    themeBtn.textContent = mode === 'night' ? 'Bright' : mode === 'bright' ? 'Prism' : mode === 'prism' ? 'Astrolabe' : 'Night';
+    themeBtn.title = mode === 'night' ? 'Day / bright mode for sunlight'
+      : mode === 'bright' ? 'Prism — nautical emerald prism / brass refraction'
+      : mode === 'prism' ? 'Astrolabe — chart-ink indigo with copper engraving'
+      : 'Night / dark bridge mode';
+    nav.appendChild(themeBtn);
+    if (window.MarineTheme) {
+      MarineTheme.apply(MarineTheme.readMode(), { persist: false });
+      MarineTheme.bind(nav);
+    }
+  } else if (window.MarineTheme) {
     MarineTheme.apply(MarineTheme.readMode(), { persist: false });
-    MarineTheme.bind(nav);
+  }
+
+  if (topNav) {
+    if (!document.documentElement._tcTopNavOutsideBound) {
+      document.documentElement._tcTopNavOutsideBound = true;
+      document.addEventListener('click', (ev) => {
+        if (!document.documentElement.classList.contains('tc-top-nav')) return;
+        const sidebar = document.getElementById('sidebar');
+        if (sidebar && sidebar.contains(ev.target)) return;
+        document.querySelectorAll('#sidebar-nav .nav-group').forEach((g) => g.classList.add('collapsed'));
+      });
+      document.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Escape') return;
+        if (!document.documentElement.classList.contains('tc-top-nav')) return;
+        document.querySelectorAll('#sidebar-nav .nav-group').forEach((g) => g.classList.add('collapsed'));
+      });
+    }
   }
 
   const vesselSwitcher = document.getElementById('vessel-switcher');
