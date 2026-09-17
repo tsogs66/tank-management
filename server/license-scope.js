@@ -34,6 +34,13 @@ function parseScopedEntitlement(req, res) {
   if (!emailHdr && !masterHdr) {
     return { email: null, master: false, actAs: null };
   }
+  const secret = signingSecret();
+  /* Without a real signing secret we cannot verify scope claims — ignore the
+   * headers (unscoped access) instead of 401 "Invalid entitlement signature",
+   * which broke peer sync / Backup on portable and unset-secret installs. */
+  if (!secret || secret === 'dev-only-change-me-cheng-aio-license') {
+    return { email: null, master: false, actAs: null };
+  }
   const raw = req.get('x-license-entitlement');
   if (!raw) {
     res.status(401).json({ error: 'Signed X-License-Entitlement required for scoped access' });

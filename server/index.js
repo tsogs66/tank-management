@@ -1067,17 +1067,10 @@ function describePeerFetchError(err, url) {
 }
 
 function peerScopeFromRequest(req) {
-  if (!req || !req.get) return {};
-  const out = {};
-  const email = (req.get('x-license-email') || '').trim();
-  const master = req.get('x-license-master') === '1';
-  const actAs = (req.get('x-act-as-user') || '').trim();
-  const ent = req.get('x-license-entitlement');
-  if (email) out.licenseEmail = email;
-  if (master) out.licenseMaster = true;
-  if (actAs) out.actAsUser = actAs;
-  if (ent) out.licenseEntitlement = ent;
-  return out;
+  /* Peer Tank/AIO authenticates with SYNC_API_TOKEN only. Do not forward
+   * license entitlement headers — the peer may use a different signing secret
+   * and answers "Invalid entitlement signature", which blocked peer sync. */
+  return {};
 }
 
 function peerAuthHeadersFromBody(body) {
