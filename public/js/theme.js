@@ -1,15 +1,17 @@
 /**
- * Shared theme cycle: Night → Bright → Sailor → Astrolabe → Night.
- * Storage: marine_theme (night|bright|sailor|astrolabe); legacy marine_bright / vm_bright kept in sync.
+ * Shared theme cycle: Night → Bright → Prism → Astrolabe → Night.
+ * Storage: marine_theme (night|bright|prism|astrolabe).
+ * Legacy: sailor → prism; marine_bright / vm_bright kept in sync for Bright.
  */
 (function (global) {
   const KEY = 'marine_theme';
   const BRIGHT_KEY = 'marine_bright';
   const LEGACY = 'vm_bright';
-  const MODES = ['night', 'bright', 'sailor', 'astrolabe'];
+  const MODES = ['night', 'bright', 'prism', 'astrolabe'];
 
   function normalizeMode(raw) {
     const m = String(raw || '').toLowerCase();
+    if (m === 'sailor') return 'prism'; /* design option 3 replaced Sailor */
     return MODES.includes(m) ? m : 'night';
   }
 
@@ -29,7 +31,7 @@
 
   function themeColorFor(mode) {
     if (mode === 'bright') return '#efebe3';
-    if (mode === 'sailor') return '#071824';
+    if (mode === 'prism') return '#041618';
     if (mode === 'astrolabe') return '#0a0c16';
     return '#0a1420';
   }
@@ -37,15 +39,15 @@
   function labelFor(mode) {
     /* Button shows the *next* mode you will switch to. */
     if (mode === 'night') return 'Bright';
-    if (mode === 'bright') return 'Sailor';
-    if (mode === 'sailor') return 'Astrolabe';
+    if (mode === 'bright') return 'Prism';
+    if (mode === 'prism') return 'Astrolabe';
     return 'Night';
   }
 
   function titleFor(mode) {
     if (mode === 'night') return 'Day / bright mode for sunlight';
-    if (mode === 'bright') return 'Sailor — crystal sea / chartroom theme';
-    if (mode === 'sailor') return 'Astrolabe — chart-ink indigo with copper engraving';
+    if (mode === 'bright') return 'Prism — nautical emerald prism / brass refraction';
+    if (mode === 'prism') return 'Astrolabe — chart-ink indigo with copper engraving';
     return 'Night / dark bridge mode';
   }
 
@@ -55,8 +57,9 @@
     else mode = normalizeMode(modeOrBright);
 
     document.documentElement.classList.toggle('bright', mode === 'bright');
-    document.documentElement.classList.toggle('sailor', mode === 'sailor');
+    document.documentElement.classList.toggle('prism', mode === 'prism');
     document.documentElement.classList.toggle('astrolabe', mode === 'astrolabe');
+    document.documentElement.classList.remove('sailor'); /* retired → prism */
     document.documentElement.setAttribute('data-theme', mode);
 
     if (!opts || opts.persist !== false) {
@@ -100,7 +103,7 @@
   try {
     const m = readMode();
     if (m === 'bright') document.documentElement.classList.add('bright');
-    if (m === 'sailor') document.documentElement.classList.add('sailor');
+    if (m === 'prism') document.documentElement.classList.add('prism');
     if (m === 'astrolabe') document.documentElement.classList.add('astrolabe');
     document.documentElement.setAttribute('data-theme', m);
   } catch { /* ignore */ }

@@ -56,33 +56,46 @@ html.bright {
   color-scheme: light;
 }
 
-/* Sailor — crystal sea / chartroom (third theme) */
-html.sailor {
-  --bg: #071824;
-  --bg-panel: #0e3348;
-  --bg-panel-2: #0a2436;
-  --bg-card: #0c2f42;
-  --border: rgba(180, 230, 240, 0.16);
-  --border-soft: rgba(180, 230, 240, 0.10);
-  --text: #e8f4f8;
-  --text-dim: #8fb8c8;
-  --text-faint: #6a98a8;
-  --input: #0a2436;
-  --accent: #d4a84b;
-  --accent-2: #3db8c5;
+/* Prism — nautical emerald prism / brass refraction (design option 3) */
+html.prism {
+  --bg: #041618;
+  --bg-panel: #0a2c30;
+  --bg-panel-2: #061820;
+  --bg-card: #0c3034;
+  --border: rgba(120, 240, 220, 0.18);
+  --border-soft: rgba(120, 240, 220, 0.10);
+  --text: #e6fff8;
+  --text-dim: #7eb8ae;
+  --text-faint: #5a9890;
+  --input: #061820;
+  --accent: #e8c070;
+  --accent-2: #2fd4b8;
   --good: #4cb88a;
-  --warn: #d4a84b;
+  --warn: #e8c070;
   --bad: #e0705c;
-  --fuel: #d4a84b;
-  --lube: #3db8c5;
-  --misc: #8fb8c8;
-  --water: #4cb8d4;
-  --brass: #d4a84b;
-  --shadow: 0 18px 48px rgba(0, 12, 24, 0.45);
-  --nav-item-bg: rgba(14, 51, 72, 0.9);
-  --nav-active-bg: rgba(61, 184, 197, 0.14);
+  --fuel: #e8a040;
+  --lube: #2fd4b8;
+  --misc: #7eb8ae;
+  --water: #40c8e8;
+  --brass: #e8c070;
+  --shadow: 0 18px 44px rgba(0, 20, 24, 0.5);
+  --nav-item-bg: rgba(8, 44, 48, 0.92);
+  --nav-active-bg: rgba(47, 212, 184, 0.14);
   color-scheme: dark;
 }
+html.prism body {
+  background:
+    conic-gradient(from 210deg at 85% 15%, rgba(47, 212, 184, 0.15), transparent 40%, rgba(232, 192, 112, 0.1), transparent 70%),
+    linear-gradient(170deg, #041618 0%, #0a2c30 48%, #061820 100%);
+}
+html.prism .panel,
+html.prism .card,
+html.prism .bn-more-panel {
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 8px;
+}
+
 
 * { box-sizing: border-box; }
 html, body {
@@ -96,18 +109,6 @@ html, body {
 }
 html.bright body {
   background: linear-gradient(180deg, #efebe3 0%, #f7f5ef 40%, #ffffff 100%);
-}
-html.sailor body {
-  background:
-    radial-gradient(900px 480px at 12% -8%, rgba(61, 184, 197, 0.22) 0%, transparent 55%),
-    radial-gradient(700px 420px at 88% 0%, rgba(212, 168, 75, 0.12) 0%, transparent 50%),
-    linear-gradient(165deg, #071824 0%, #0a2436 48%, #071824 100%);
-}
-html.sailor .panel,
-html.sailor .card,
-html.sailor .bn-more-panel {
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
 }
 
 /* Astrolabe — chart-ink indigo / copper engraving (fourth theme) */
@@ -198,7 +199,7 @@ body.nav-open {
 .nav-btn:hover { background: var(--bg-card); color: var(--text); }
 .nav-btn.active { background: var(--accent); color: #0a1420; font-weight: 600; }
 html.bright .nav-btn.active { color: #fff8ee; }
-html.sailor .nav-btn.active { color: #071824; }
+html.prism .nav-btn.active { color: #041618; }
 html.astrolabe .nav-btn.active { color: #0a0c16; }
 .nav-btn .ic { width: 22px; font-size: 18px; text-align: center; opacity: .85; }
 .nav-group-label {

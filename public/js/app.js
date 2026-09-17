@@ -490,9 +490,16 @@ function renderMoreNav() {
   themeBtn.type = 'button';
   themeBtn.className = 'theme-toggle no-print';
   themeBtn.setAttribute('data-theme-toggle', '');
-  const mode = window.MarineTheme?.readMode?.() || (document.documentElement.classList.contains('bright') ? 'bright' : document.documentElement.classList.contains('sailor') ? 'sailor' : document.documentElement.classList.contains('astrolabe') ? 'astrolabe' : 'night');
-  themeBtn.textContent = mode === 'night' ? 'Bright' : mode === 'bright' ? 'Sailor' : mode === 'sailor' ? 'Astrolabe' : 'Night';
-  themeBtn.title = mode === 'night' ? 'Day / bright mode for sunlight' : mode === 'bright' ? 'Sailor — crystal sea / chartroom theme' : mode === 'sailor' ? 'Astrolabe — chart-ink indigo with copper engraving' : 'Night / dark bridge mode';
+  const mode = window.MarineTheme?.readMode?.()
+    || (document.documentElement.classList.contains('bright') ? 'bright'
+      : document.documentElement.classList.contains('prism') ? 'prism'
+      : document.documentElement.classList.contains('astrolabe') ? 'astrolabe'
+      : 'night');
+  themeBtn.textContent = mode === 'night' ? 'Bright' : mode === 'bright' ? 'Prism' : mode === 'prism' ? 'Astrolabe' : 'Night';
+  themeBtn.title = mode === 'night' ? 'Day / bright mode for sunlight'
+    : mode === 'bright' ? 'Prism — nautical emerald prism / brass refraction'
+    : mode === 'prism' ? 'Astrolabe — chart-ink indigo with copper engraving'
+    : 'Night / dark bridge mode';
   host.appendChild(themeBtn);
   if (window.MarineTheme) {
     MarineTheme.apply(MarineTheme.readMode(), { persist: false });
@@ -657,9 +664,16 @@ function renderNav() {
   themeBtn.type = 'button';
   themeBtn.className = 'theme-toggle no-print';
   themeBtn.setAttribute('data-theme-toggle', '');
-  const mode = window.MarineTheme?.readMode?.() || (document.documentElement.classList.contains('bright') ? 'bright' : document.documentElement.classList.contains('sailor') ? 'sailor' : document.documentElement.classList.contains('astrolabe') ? 'astrolabe' : 'night');
-  themeBtn.textContent = mode === 'night' ? 'Bright' : mode === 'bright' ? 'Sailor' : mode === 'sailor' ? 'Astrolabe' : 'Night';
-  themeBtn.title = mode === 'night' ? 'Day / bright mode for sunlight' : mode === 'bright' ? 'Sailor — crystal sea / chartroom theme' : mode === 'sailor' ? 'Astrolabe — chart-ink indigo with copper engraving' : 'Night / dark bridge mode';
+  const mode = window.MarineTheme?.readMode?.()
+    || (document.documentElement.classList.contains('bright') ? 'bright'
+      : document.documentElement.classList.contains('prism') ? 'prism'
+      : document.documentElement.classList.contains('astrolabe') ? 'astrolabe'
+      : 'night');
+  themeBtn.textContent = mode === 'night' ? 'Bright' : mode === 'bright' ? 'Prism' : mode === 'prism' ? 'Astrolabe' : 'Night';
+  themeBtn.title = mode === 'night' ? 'Day / bright mode for sunlight'
+    : mode === 'bright' ? 'Prism — nautical emerald prism / brass refraction'
+    : mode === 'prism' ? 'Astrolabe — chart-ink indigo with copper engraving'
+    : 'Night / dark bridge mode';
   nav.appendChild(themeBtn);
   if (window.MarineTheme) {
     MarineTheme.apply(MarineTheme.readMode(), { persist: false });
