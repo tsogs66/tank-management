@@ -15,6 +15,7 @@
   const ENFORCE_CACHE_KEY = 'chengAioLicenseEnforce';
   const LICENSE_API_KEY = 'chengLicenseApi';
   const SERVER_BASE_KEY = 'apiServerBase';
+  const SERVER_BASE_ALIAS_KEY = 'chengAioLicenseServerUrl';
 
   function readStorage(key) {
     try {
@@ -121,6 +122,7 @@
     if (!raw) {
       writeStorage(LICENSE_API_KEY, null);
       writeStorage(SERVER_BASE_KEY, null);
+      writeStorage(SERVER_BASE_ALIAS_KEY, null);
       try { delete global.CHENG_LICENSE_API; } catch { /* ignore */ }
       return '';
     }
@@ -132,6 +134,7 @@
       throw new Error('Server URL must start with http:// or https://');
     }
     writeStorage(SERVER_BASE_KEY, base);
+    writeStorage(SERVER_BASE_ALIAS_KEY, base);
     writeStorage(LICENSE_API_KEY, null);
     const api = `${base}/api/license`;
     try { global.CHENG_LICENSE_API = api; } catch { /* ignore */ }
@@ -140,7 +143,7 @@
 
   function getLicenseServerUrl() {
     try {
-      const base = readStorage(SERVER_BASE_KEY);
+      const base = readStorage(SERVER_BASE_KEY) || readStorage(SERVER_BASE_ALIAS_KEY);
       if (base && base.trim()) return base.trim().replace(/\/$/, '');
     } catch { /* ignore */ }
     const api = apiBase();
