@@ -1,12 +1,12 @@
 /**
- * Shared theme cycle: Night → Bright → Sailor → Night.
- * Storage: marine_theme (night|bright|sailor); legacy marine_bright / vm_bright kept in sync.
+ * Shared theme cycle: Night → Bright → Sailor → Astrolabe → Night.
+ * Storage: marine_theme (night|bright|sailor|astrolabe); legacy marine_bright / vm_bright kept in sync.
  */
 (function (global) {
   const KEY = 'marine_theme';
   const BRIGHT_KEY = 'marine_bright';
   const LEGACY = 'vm_bright';
-  const MODES = ['night', 'bright', 'sailor'];
+  const MODES = ['night', 'bright', 'sailor', 'astrolabe'];
 
   function normalizeMode(raw) {
     const m = String(raw || '').toLowerCase();
@@ -30,6 +30,7 @@
   function themeColorFor(mode) {
     if (mode === 'bright') return '#efebe3';
     if (mode === 'sailor') return '#071824';
+    if (mode === 'astrolabe') return '#0a0c16';
     return '#0a1420';
   }
 
@@ -37,12 +38,14 @@
     /* Button shows the *next* mode you will switch to. */
     if (mode === 'night') return 'Bright';
     if (mode === 'bright') return 'Sailor';
+    if (mode === 'sailor') return 'Astrolabe';
     return 'Night';
   }
 
   function titleFor(mode) {
     if (mode === 'night') return 'Day / bright mode for sunlight';
     if (mode === 'bright') return 'Sailor — crystal sea / chartroom theme';
+    if (mode === 'sailor') return 'Astrolabe — chart-ink indigo with copper engraving';
     return 'Night / dark bridge mode';
   }
 
@@ -53,6 +56,7 @@
 
     document.documentElement.classList.toggle('bright', mode === 'bright');
     document.documentElement.classList.toggle('sailor', mode === 'sailor');
+    document.documentElement.classList.toggle('astrolabe', mode === 'astrolabe');
     document.documentElement.setAttribute('data-theme', mode);
 
     if (!opts || opts.persist !== false) {
@@ -97,6 +101,7 @@
     const m = readMode();
     if (m === 'bright') document.documentElement.classList.add('bright');
     if (m === 'sailor') document.documentElement.classList.add('sailor');
+    if (m === 'astrolabe') document.documentElement.classList.add('astrolabe');
     document.documentElement.setAttribute('data-theme', m);
   } catch { /* ignore */ }
 

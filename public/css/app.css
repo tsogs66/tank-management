@@ -109,6 +109,47 @@ html.sailor .bn-more-panel {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
+
+/* Astrolabe — chart-ink indigo / copper engraving (fourth theme) */
+html.astrolabe {
+  --bg: #0a0c16;
+  --bg-panel: #14182c;
+  --bg-panel-2: #101428;
+  --bg-card: #161a2e;
+  --border: rgba(200, 170, 120, 0.18);
+  --border-soft: rgba(200, 170, 120, 0.10);
+  --text: #f4efe4;
+  --text-dim: #a89a82;
+  --text-faint: #8a7a62;
+  --input: #101428;
+  --accent: #c9985a;
+  --accent-2: #6ab0c8;
+  --good: #5f9e6e;
+  --warn: #c9985a;
+  --bad: #e0705c;
+  --fuel: #c9985a;
+  --lube: #6ab0c8;
+  --misc: #a89a82;
+  --water: #5898b8;
+  --brass: #c9985a;
+  --shadow: 0 18px 46px rgba(4, 6, 16, 0.5);
+  --nav-item-bg: rgba(22, 26, 44, 0.94);
+  --nav-active-bg: rgba(201, 152, 90, 0.14);
+  color-scheme: dark;
+}
+html.astrolabe body {
+  background:
+    radial-gradient(circle at 70% 20%, rgba(201, 152, 90, 0.14), transparent 42%),
+    radial-gradient(circle at 20% 80%, rgba(106, 176, 200, 0.12), transparent 45%),
+    linear-gradient(160deg, #0a0c16 0%, #12162a 50%, #080a12 100%);
+}
+html.astrolabe .panel,
+html.astrolabe .card,
+html.astrolabe .bn-more-panel {
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 7px;
+}
 button, input, select, textarea { font: inherit; color: inherit; }
 a { color: var(--accent); }
 
@@ -158,6 +199,7 @@ body.nav-open {
 .nav-btn.active { background: var(--accent); color: #0a1420; font-weight: 600; }
 html.bright .nav-btn.active { color: #fff8ee; }
 html.sailor .nav-btn.active { color: #071824; }
+html.astrolabe .nav-btn.active { color: #0a0c16; }
 .nav-btn .ic { width: 22px; font-size: 18px; text-align: center; opacity: .85; }
 .nav-group-label {
   font-family: 'Oswald', sans-serif;
