@@ -46,8 +46,16 @@ function bundledPython() {
   const home = process.env.TMS_PYTHON_HOME;
   if (!home) return [];
   const names = process.platform === 'win32'
-    ? [path.join(home, 'python', 'python.exe')]
-    : [path.join(home, 'python', 'bin', 'python3'), path.join(home, 'python', 'bin', 'python')];
+    ? [
+        path.join(home, 'python.exe'),
+        path.join(home, 'python', 'python.exe'),
+      ]
+    : [
+        path.join(home, 'bin', 'python3'),
+        path.join(home, 'bin', 'python'),
+        path.join(home, 'python', 'bin', 'python3'),
+        path.join(home, 'python', 'bin', 'python'),
+      ];
   return names.filter(existing);
 }
 
@@ -127,4 +135,69 @@ function spawnPython(args, opts = {}) {
   });
 }
 
-module.exports = { spawnPython, enrichedEnv, pythonCandidates };
+/**
+ * Spawn a long-running Python process (e.g. the voyage sync server).
+ * Tries each candidate until spawn succeeds; rejects only when none work.
+ * Always attaches an 'error' listener so ENOENT cannot crash Electron's main process.
+ */
+function spawnPythonProcess(args, opts = {}) {
+  const candidates = pythonCandidates();
+  const env = { ...enrichedEnv(), ...(opts.env || {}) };
+  const tried = [];
+
+  return new Promise((resolve, reject) => {
+    let idx = 0;
+
+    function tryNext(lastErr) {
+      if (idx >= candidates.length) {
+        return reject(lastErr || new Error(
+          'No working Python found (tried: ' + tried.join(', ') + '). '
+          + (process.env.TMS_PYTHON_HOME
+            ? 'The interpreter bundled with this installation could not be run.'
+            : 'Install Python 3.11+ (Windows: `python` or the `py` launcher).')
+        ));
+      }
+      const cmd = candidates[idx++];
+      tried.push(cmd);
+      const spawnArgs = cmd === 'py' ? ['-3', ...args] : args;
+      let settled = false;
+      let child;
+      try {
+        child = spawn(cmd, spawnArgs, {
+          cwd: opts.cwd,
+          env,
+          stdio: opts.stdio || ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
+          shell: false,
+        });
+      } catch (e) {
+        return tryNext(e);
+      }
+
+      const fail = (err) => {
+        if (settled) return;
+        settled = true;
+        try { child.kill(); } catch { /* ignore */ }
+        tryNext(err);
+      };
+      const ok = () => {
+        if (settled) return;
+        settled = true;
+        child.removeListener('error', fail);
+        child.removeListener('spawn', ok);
+        resolve(child);
+      };
+
+      child.once('error', fail);
+      if (typeof child.on === 'function') child.once('spawn', ok);
+      /* Node without a reliable 'spawn' event: resolve once we have a pid. */
+      setImmediate(() => {
+        if (!settled && child.pid) ok();
+      });
+    }
+
+    tryNext();
+  });
+}
+
+module.exports = { spawnPython, spawnPythonProcess, enrichedEnv, pythonCandidates };

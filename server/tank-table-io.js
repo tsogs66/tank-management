@@ -1,36 +1,27 @@
 /**
  * Per-tank calibration table export/import (CSV + Excel).
  */
-const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const tableIo = require('./table-io');
+const { spawnPython } = require('./python-run');
 
-function runPython(args, stdinText) {
-  return new Promise((resolve, reject) => {
-    const script = path.join(__dirname, '..', 'scripts', 'tank-table-xlsx.py');
-    const py = spawn('python3', [script, ...args], { maxBuffer: 64 * 1024 * 1024 });
-    let out = '';
-    let err = '';
-    py.stdout.on('data', (d) => { out += d; });
-    py.stderr.on('data', (d) => { err += d; });
-    py.on('close', (code) => {
-      if (code !== 0) {
-        try {
-          const parsed = JSON.parse(out);
-          if (parsed.error) return reject(new Error(parsed.error));
-        } catch (_) { /* ignore */ }
-        return reject(new Error(err || out || `tank-table-xlsx failed (exit ${code})`));
-      }
+function runPython(args) {
+  const script = path.join(__dirname, '..', 'scripts', 'tank-table-xlsx.py');
+  return spawnPython([script, ...args]).then(({ code, out, err }) => {
+    if (code !== 0) {
       try {
-        resolve(JSON.parse(out));
-      } catch (e) {
-        reject(new Error('Failed to parse xlsx tool JSON: ' + e.message));
-      }
-    });
-    if (stdinText != null) py.stdin.end(stdinText);
-    else py.stdin.end();
+        const parsed = JSON.parse(out);
+        if (parsed.error) return Promise.reject(new Error(parsed.error));
+      } catch (_) { /* ignore */ }
+      return Promise.reject(new Error(err || out || `tank-table-xlsx failed (exit ${code})`));
+    }
+    try {
+      return JSON.parse(out);
+    } catch (e) {
+      return Promise.reject(new Error('Failed to parse xlsx tool JSON: ' + e.message));
+    }
   });
 }
 
