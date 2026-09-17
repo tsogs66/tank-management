@@ -30,9 +30,16 @@
       } catch (_e) {}
     })();
     try {
-      if (localStorage.getItem('marine_bright') === '1' || localStorage.getItem('vm_bright') === '1') {
-        document.documentElement.classList.add('bright');
+      var tm = localStorage.getItem('marine_theme');
+      var mode = 'night';
+      if (tm === 'bright' || tm === 'prism' || tm === 'sailor' || tm === 'astrolabe' || tm === 'night') {
+        mode = (tm === 'sailor') ? 'prism' : tm;
       }
+      else if (localStorage.getItem('marine_bright') === '1' || localStorage.getItem('vm_bright') === '1') mode = 'bright';
+      if (mode === 'bright') document.documentElement.classList.add('bright');
+      if (mode === 'prism') document.documentElement.classList.add('prism');
+      if (mode === 'astrolabe') document.documentElement.classList.add('astrolabe');
+      document.documentElement.setAttribute('data-theme', mode);
     } catch (_e) {}
 
     /* Mobile/Android: always bottom nav (portrait + landscape). Windows desktop keeps sidebar. */
@@ -99,7 +106,7 @@
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="fonts/fonts.css">
-  <link rel="stylesheet" href="css/app.css?v=90">
+  <link rel="stylesheet" href="css/app.css?v=93">
   <link rel="stylesheet" href="css/print-voyage.css?v=7">
 </head>
 <body>
@@ -147,7 +154,7 @@
       }
     } catch (_e) {}
   </script>
-  <script src="js/theme.js?v=75"></script>
+  <script src="js/theme.js?v=78"></script>
   <script src="js/license.js?v=75"></script>
   <script src="js/branding.js?v=80"></script>
   <script src="js/save-file.js?v=75"></script>
