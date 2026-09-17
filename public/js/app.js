@@ -416,7 +416,7 @@ function applyBunkerPlanNavVisibility() {
       el.hidden = !show;
       el.style.display = show ? '' : 'none';
     });
-    document.querySelectorAll('#sidebar-nav .nav-btn, #bn-more-nav .nav-btn').forEach((el) => {
+    document.querySelectorAll('#sidebar-nav .nav-btn, #bn-more-nav .nav-btn, #bn-more-nav .bn-more-item').forEach((el) => {
       const own = (el.querySelector('span:last-child')?.textContent || el.textContent || '').trim();
       if (own !== entry.label) return;
       el.hidden = !show;
@@ -455,54 +455,49 @@ function renderMoreNav() {
     </select>`;
   host.appendChild(brand);
 
+  const grid = document.createElement('div');
+  grid.className = 'bn-more-grid';
+
   const mk = (page, label, icon) => {
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'nav-btn' + (STATE.route.page === page ? ' active' : '');
-    b.innerHTML = `<span class="ic">${icon}</span><span>${label}</span>`;
+    b.className = 'bn-more-item' + (STATE.route.page === page ? ' active' : '');
+    b.dataset.page = page;
+    b.setAttribute('aria-label', label);
+    b.innerHTML = `<span class="bn-ic" aria-hidden="true">${icon}</span><span>${label}</span>`;
     b.onclick = () => { closeMoreSheet(); navigate(page); };
     return b;
   };
 
-  let   g = document.createElement('div');
-  g.className = 'nav-group-label'; g.textContent = 'Tanks';
-  host.appendChild(g);
-  for (const c of CATS) host.appendChild(mk(c.id, c.label, c.icon));
-  host.appendChild(mk('add-tank', 'Add Tank', '+'));
-  host.appendChild(mk('calibration', 'Calibration DB', '☰'));
-
-  g = document.createElement('div');
-  g.className = 'nav-group-label'; g.textContent = 'Fuel Management';
-  host.appendChild(g);
-  if (bunkerPlanNavAllowed()) host.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
-  host.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
+  for (const c of CATS) grid.appendChild(mk(c.id, c.label, c.icon));
+  grid.appendChild(mk('add-tank', 'Add Tank', '+'));
+  grid.appendChild(mk('calibration', 'Calibration', '☰'));
+  if (bunkerPlanNavAllowed()) grid.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
+  grid.appendChild(mk('bunker-summary', 'Summary', '📑'));
   if (bunkerConsumptionNavAllowed()) {
-    host.appendChild(mk('bunker-consumption', 'Bunker Consumption', '📊'));
+    grid.appendChild(mk('bunker-consumption', 'Cons.', '📊'));
   }
-  host.appendChild(mk('sounding-card', 'Sounding Card', '📇'));
-  host.appendChild(mk('report', 'Voyage Report', '📋'));
-
-  g = document.createElement('div');
-  g.className = 'nav-group-label'; g.textContent = 'Reference';
-  host.appendChild(g);
-  host.appendChild(mk('vcf-wcf', 'VCF / WCF Calc', 'Σ'));
-  host.appendChild(mk('iso8217', 'ISO 8217 Specs', '▤'));
-
-  g = document.createElement('div');
-  g.className = 'nav-group-label'; g.textContent = 'System';
-  host.appendChild(g);
-  if (!isAioEmbedded()) host.appendChild(mk('setup', 'Vessel Setup', '⚙'));
-  host.appendChild(mk('settings', 'Backup / Sync', '⇅'));
-  host.appendChild(mk('about', 'About', 'ℹ'));
+  grid.appendChild(mk('sounding-card', 'Sounding', '📇'));
+  grid.appendChild(mk('report', 'Report', '📋'));
+  grid.appendChild(mk('vcf-wcf', 'VCF/WCF', 'Σ'));
+  grid.appendChild(mk('iso8217', 'ISO 8217', '▤'));
+  if (!isAioEmbedded()) grid.appendChild(mk('setup', 'Setup', '⚙'));
+  grid.appendChild(mk('settings', 'Backup', '⇅'));
+  grid.appendChild(mk('about', 'About', 'ℹ'));
+  host.appendChild(grid);
 
   const themeBtn = document.createElement('button');
   themeBtn.type = 'button';
   themeBtn.className = 'theme-toggle no-print';
   themeBtn.setAttribute('data-theme-toggle', '');
-  themeBtn.textContent = document.documentElement.classList.contains('bright') ? 'Night' : 'Bright';
-  themeBtn.title = 'Day / bright mode for sunlight';
+  const mode = window.MarineTheme?.readMode?.() || (document.documentElement.classList.contains('bright') ? 'bright' : document.documentElement.classList.contains('sailor') ? 'sailor' : 'night');
+  themeBtn.textContent = mode === 'night' ? 'Bright' : mode === 'bright' ? 'Sailor' : 'Night';
+  themeBtn.title = mode === 'night' ? 'Day / bright mode for sunlight' : mode === 'bright' ? 'Sailor — crystal sea / chartroom theme' : 'Night / dark bridge mode';
   host.appendChild(themeBtn);
-  if (window.MarineTheme) MarineTheme.bind(host);
+  if (window.MarineTheme) {
+    MarineTheme.apply(MarineTheme.readMode(), { persist: false });
+    MarineTheme.bind(host);
+  }
 
   const sw = document.getElementById('bn-vessel-switcher');
   if (sw) {
@@ -662,10 +657,14 @@ function renderNav() {
   themeBtn.type = 'button';
   themeBtn.className = 'theme-toggle no-print';
   themeBtn.setAttribute('data-theme-toggle', '');
-  themeBtn.textContent = document.documentElement.classList.contains('bright') ? 'Night' : 'Bright';
-  themeBtn.title = 'Day / bright mode for sunlight';
+  const mode = window.MarineTheme?.readMode?.() || (document.documentElement.classList.contains('bright') ? 'bright' : document.documentElement.classList.contains('sailor') ? 'sailor' : 'night');
+  themeBtn.textContent = mode === 'night' ? 'Bright' : mode === 'bright' ? 'Sailor' : 'Night';
+  themeBtn.title = mode === 'night' ? 'Day / bright mode for sunlight' : mode === 'bright' ? 'Sailor — crystal sea / chartroom theme' : 'Night / dark bridge mode';
   nav.appendChild(themeBtn);
-  if (window.MarineTheme) MarineTheme.bind(nav);
+  if (window.MarineTheme) {
+    MarineTheme.apply(MarineTheme.readMode(), { persist: false });
+    MarineTheme.bind(nav);
+  }
 
   const vesselSwitcher = document.getElementById('vessel-switcher');
   if (vesselSwitcher) {
@@ -4277,7 +4276,7 @@ function renderAbout(main) {
   const ver = (typeof Branding !== 'undefined' && Branding.APP_VERSION)
     ? Branding.APP_VERSION
     : (document.querySelector('meta[name="app-version"]')?.content || '');
-  const pkgVer = ver || '2.1.64';
+  const pkgVer = ver || '2.1.72';
   main.innerHTML += `<div class="page-head"><div>
     <h1>About</h1>
     <div class="desc">${Branding.APP_NAME} · v${pkgVer}</div>
@@ -4354,7 +4353,7 @@ function isNewerVersion(latest, current) {
 async function checkTankAppUpdate() {
   const status = document.getElementById('about-update-status');
   const link = document.getElementById('about-update-link');
-  const current = '2.1.64';
+  const current = '2.1.72';
   if (status) status.textContent = 'Checking GitHub for the latest Tank Chief release…';
   if (link) link.style.display = 'none';
   try {
