@@ -1098,6 +1098,7 @@ async function fetchPeerSync(url, apiPath, init) {
   reqInit.headers = { ...(reqInit.headers || {}), ...auth };
   let lastErr = null;
   let lastResp = null;
+  let lastHtml = false;
   for (const base of bases) {
     try {
       const resp = await fetch(`${base}${apiPath}`, reqInit);
@@ -1105,10 +1106,13 @@ async function fetchPeerSync(url, apiPath, init) {
         lastResp = resp;
         continue;
       }
-      const ct = String(resp.headers.get('content-type') || '').toLowerCase();
-      /* Wrong mount (SPA HTML 200) — try the other base before giving up. */
-      if (resp.ok && ct.includes('text/html')) {
+      let bodyText = '';
+      try { bodyText = await resp.clone().text(); } catch { /* ignore */ }
+      const html = peerResponseLooksLikeHtml(resp, bodyText);
+      /* Wrong mount (SPA HTML) — try the other base before giving up. */
+      if (html) {
         lastResp = resp;
+        lastHtml = true;
         continue;
       }
       if (resp.ok || resp.status !== 404) return resp;
@@ -1118,8 +1122,31 @@ async function fetchPeerSync(url, apiPath, init) {
       lastErr.peerUrl = base;
     }
   }
+  if (lastHtml && lastResp) {
+    throw new Error(
+      'Peer returned an HTML page (HTTP ' + lastResp.status + ') — use the ChEng AIO or Tank Chief API root '
+      + '(e.g. http://192.168.x.x:8080 or :3080), not a login page or web app URL.'
+    );
+  }
   if (lastResp) return lastResp;
   throw new Error(describePeerFetchError(lastErr, bases[0]));
+}
+
+async function readPeerSyncJson(resp, url) {
+  const bodyText = await resp.text();
+  if (peerResponseLooksLikeHtml(resp, bodyText)) {
+    throw new Error(
+      'Peer returned an HTML page (HTTP ' + resp.status + ') — check sync URL points at ChEng AIO (:8080) '
+      + 'or Tank Chief (:3080), not a login page or wrong path.'
+    );
+  }
+  let payload = null;
+  try { payload = bodyText ? JSON.parse(bodyText) : null; } catch { /* below */ }
+  if (!resp.ok) {
+    const detail = (payload && payload.error) || ('HTTP ' + resp.status);
+    throw new Error('Remote sync failed: ' + detail + ' from ' + url);
+  }
+  return payload;
 }
 
 app.get('/api/sync/ping', (req, res) => {
@@ -1219,8 +1246,7 @@ app.post('/api/sync/pull', asyncHandler(async (req, res) => {
     ...peerScopeFromRequest(req),
   };
   const resp = await fetchPeerSync(url, '/api/sync/export', { authBody });
-  if (!resp.ok) throw new Error('Remote sync failed: HTTP ' + resp.status + ' from ' + url);
-  const payload = await resp.json();
+  const payload = await readPeerSyncJson(resp, url);
   if (!payload || payload.format !== 'vessel-fuel-tms-sync') {
     throw new Error('Peer did not return a Tank sync bundle — check URL (AIO :8080, Tank :3080) and token');
   }
@@ -1256,8 +1282,7 @@ app.post('/api/sync/push', asyncHandler(async (req, res) => {
     body: JSON.stringify(payload),
     authBody,
   });
-  if (!resp.ok) throw new Error('Remote sync push failed: HTTP ' + resp.status + ' from ' + url);
-  const result = await resp.json();
+  const result = await readPeerSyncJson(resp, url);
   res.json({ ok: true, remote: result, to: url });
 }));
 

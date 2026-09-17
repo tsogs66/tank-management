@@ -81,13 +81,15 @@ function parseScopedEntitlement(req, res) {
 
 function requireSyncAuth(req, res, next) {
   const token = (process.env.SYNC_API_TOKEN || process.env.TMS_SYNC_TOKEN || '').trim();
-  const must = process.env.NODE_ENV === 'production'
-    || process.env.TMS_REQUIRE_SYNC_AUTH === '1'
-    || !!token;
-  if (!must) return next();
-  if (!token) {
-    return res.status(503).json({ error: 'SYNC_API_TOKEN / TMS_SYNC_TOKEN not configured' });
+  /* Open sync when no token is configured — including production portable/LAN
+   * installs. Requiring auth in NODE_ENV=production with no token returned 503
+   * on /api/sync/export and broke Backup → Pull from peer. */
+  if (process.env.TMS_REQUIRE_SYNC_AUTH === '1' && !token) {
+    return res.status(503).json({
+      error: 'TMS_REQUIRE_SYNC_AUTH=1 but SYNC_API_TOKEN / TMS_SYNC_TOKEN not configured',
+    });
   }
+  if (!token) return next();
   const auth = req.get('authorization') || '';
   if (auth !== `Bearer ${token}`) {
     return res.status(401).json({ error: 'Unauthorized' });
