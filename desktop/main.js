@@ -18,7 +18,7 @@
  */
 const path = require('path');
 const fs = require('fs');
-const { app, BrowserWindow, shell, dialog, Menu } = require('electron');
+const { app, BrowserWindow, shell, dialog, Menu, ipcMain } = require('electron');
 
 function portableBaseDir() {
   if (process.env.PORTABLE_EXECUTABLE_DIR) {
@@ -105,6 +105,53 @@ if (app.isPackaged) {
 let win = null;
 let httpServer = null;
 
+function filtersForName(filename, mime) {
+  const lower = String(filename || '').toLowerCase();
+  if (lower.endsWith('.json') || /json/i.test(mime || '')) {
+    return [
+      { name: 'JSON', extensions: ['json'] },
+      { name: 'All files', extensions: ['*'] },
+    ];
+  }
+  if (lower.endsWith('.csv')) {
+    return [
+      { name: 'CSV', extensions: ['csv'] },
+      { name: 'All files', extensions: ['*'] },
+    ];
+  }
+  if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
+    return [
+      { name: 'Excel', extensions: ['xlsx', 'xls'] },
+      { name: 'All files', extensions: ['*'] },
+    ];
+  }
+  const ext = path.extname(lower).replace(/^\./, '');
+  if (ext) {
+    return [
+      { name: ext.toUpperCase(), extensions: [ext] },
+      { name: 'All files', extensions: ['*'] },
+    ];
+  }
+  return [{ name: 'All files', extensions: ['*'] }];
+}
+
+/* File System Access write crashes Electron — backups go through this dialog. */
+ipcMain.handle('cheng-save-text', async (event, payload = {}) => {
+  const filename = String(payload.filename || `tank-chief-backup-${Date.now()}.json`)
+    .replace(/[\\/:*?"<>|]+/g, '-');
+  const text = String(payload.text ?? '');
+  const mime = String(payload.mime || 'application/json');
+  const host = BrowserWindow.fromWebContents(event.sender) || win;
+  const result = await dialog.showSaveDialog(host || undefined, {
+    title: 'Save file',
+    defaultPath: filename,
+    filters: filtersForName(filename, mime),
+  });
+  if (result.canceled || !result.filePath) return '';
+  await fs.promises.writeFile(result.filePath, text, 'utf8');
+  return result.filePath;
+});
+
 async function boot() {
   const { start } = require('../server/index.js');
   const started = await start({ port: 0, host: '127.0.0.1' });
@@ -123,8 +170,7 @@ function createWindow(url) {
     title: 'Tank Chief',
     icon: path.join(__dirname, 'build', 'icon.png'),
     webPreferences: {
-      // The page is our own, served from loopback, and needs no privileged
-      // bridge — it talks to the server over HTTP exactly as in a browser.
+      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       spellcheck: false,
@@ -136,8 +182,19 @@ function createWindow(url) {
   // Anything aiming off the application opens in the real browser rather than
   // in a chromeless window with no address bar.
   win.webContents.setWindowOpenHandler(({ url: target }) => {
-    shell.openExternal(target);
+    if (/^(blob:|data:)/i.test(target)) return { action: 'allow' };
+    if (/^https?:/i.test(target)) shell.openExternal(target);
     return { action: 'deny' };
+  });
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[desktop] render-process-gone', details);
+    try { if (win && !win.isDestroyed()) win.reload(); } catch (_) { /* ignore */ }
+  });
+  win.webContents.session.on('will-download', (_event, item) => {
+    item.setSaveDialogOptions({
+      title: 'Save download',
+      defaultPath: item.getFilename(),
+    });
   });
   win.on('closed', () => { win = null; });
 }

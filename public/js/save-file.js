@@ -9,10 +9,13 @@
  *               has no download manager at all, so a blob anchor there is a
  *               no-op that reports success — this is the only path that
  *               actually writes a file on the phone.
+ *   desktop     Electron preload IPC → native Save dialog + fs.writeFile.
+ *               File System Access (showSaveFilePicker) crashes Electron's
+ *               renderer on write, so desktop never uses the picker.
  *   parent      Voyage / Tank running inside the ChEng AIO shell: the shell
- *               owns the native bridge, so the embed asks it, the same way
- *               printing already works.
- *   picker      desktop Chromium / Electron: the user chooses the folder.
+ *               owns the native/desktop bridge, so the embed asks it, the same
+ *               way printing already works.
+ *   picker      desktop Chromium (not Electron): the user chooses the folder.
  *   share       mobile browsers: Save to Files / Drive / USB.
  *   anchor      everything else, with a delayed revoke because a WebView
  *               needs a beat to start reading the blob.
@@ -39,9 +42,25 @@
     return base || `cheng-backup-${Date.now()}.json`;
   }
 
+  function isElectron() {
+    try {
+      return /Electron/i.test((root.navigator && root.navigator.userAgent) || '');
+    } catch (_) {
+      return false;
+    }
+  }
+
   function nativeBridge() {
     try {
       const b = root.ChengAndroidFiles;
+      if (b && typeof b.saveText === 'function') return b;
+    } catch (_) { /* ignore */ }
+    return null;
+  }
+
+  function desktopBridge() {
+    try {
+      const b = root.ChengDesktopFiles;
       if (b && typeof b.saveText === 'function') return b;
     } catch (_) { /* ignore */ }
     return null;
@@ -69,6 +88,24 @@
     }
     if (!where) return null;
     return { method: 'native', filename, where };
+  }
+
+  async function saveViaDesktop(bridge, filename, text, mime) {
+    let where;
+    try {
+      where = await Promise.resolve(bridge.saveText(filename, text, mime || 'application/json'));
+    } catch (err) {
+      console.warn('Desktop file bridge failed', err);
+      return null;
+    }
+    /* IPC returns '' when the user cancels the Save dialog. */
+    if (where === '' || where === false) {
+      const err = new Error('Save cancelled — nothing was written');
+      err.name = 'AbortError';
+      throw err;
+    }
+    if (!where) return null;
+    return { method: 'desktop', filename, where: String(where) };
   }
 
   function saveViaParent(filename, text, mime) {
@@ -104,6 +141,8 @@
   }
 
   async function saveViaPicker(blob, filename) {
+    /* Electron's File System Access write crashes the renderer — never use it. */
+    if (isElectron()) return null;
     if (typeof root.showSaveFilePicker !== 'function') return null;
     const handle = await root.showSaveFilePicker({
       suggestedName: filename,
@@ -160,6 +199,12 @@
       if (saved) return saved;
     }
 
+    const desk = desktopBridge();
+    if (desk) {
+      const saved = await saveViaDesktop(desk, filename, text, mime);
+      if (saved) return saved;
+    }
+
     if (hasParentShell()) {
       const saved = await saveViaParent(filename, text, mime);
       if (saved) return saved;
@@ -193,6 +238,9 @@
     if (saved.method === 'native') {
       return saved.where ? `saved to ${saved.where}` : 'saved to your Downloads folder';
     }
+    if (saved.method === 'desktop') {
+      return saved.where ? `saved to ${saved.where}` : 'saved to the folder you chose';
+    }
     if (saved.method === 'picker') return 'saved to the folder you chose';
     if (saved.method === 'share') return 'shared — use Save to Files / Drive / USB';
     return `started — check Downloads for ${saved.filename}`;
@@ -211,13 +259,24 @@
         }, ev.origin || '*');
       } catch (_) { /* ignore */ }
     };
+    const desk = desktopBridge();
+    const native = nativeBridge();
     /* Decline at once when this window can do no better than the embed could
        on its own — waiting out the timeout would only delay its own picker. */
-    if (!nativeBridge()) { reply(null); return; }
+    if (!desk && !native) { reply(null); return; }
     try {
-      reply(saveViaNative(nativeBridge(), safeFileName(msg.filename),
+      if (desk) {
+        reply(await saveViaDesktop(desk, safeFileName(msg.filename),
+          String(msg.text || ''), msg.mime));
+        return;
+      }
+      reply(saveViaNative(native, safeFileName(msg.filename),
         String(msg.text || ''), msg.mime));
-    } catch (_) {
+    } catch (err) {
+      if (err && err.name === 'AbortError') {
+        reply(null);
+        return;
+      }
       reply(null);
     }
   });
