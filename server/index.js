@@ -50,8 +50,16 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '50mb' }));
 
-/* Per-request license email scope — requires signed entitlement when scoped. */
+/* Per-request license email scope — requires signed entitlement when scoped.
+ * Peer sync orchestration (probe/pull/push) is local UI → this device → peer
+ * with SYNC_API_TOKEN only. Do not require license entitlement on these routes
+ * or Backup peer sync fails with "Invalid entitlement signature" when the
+ * browser still attaches X-License-* from a licensed session. */
 app.use((req, res, next) => {
+  const p = String(req.path || '');
+  if (p === '/api/sync/probe' || p === '/api/sync/pull' || p === '/api/sync/push') {
+    return store.runWithUserScope({ email: null, master: false, actAs: null }, () => next());
+  }
   const scope = parseScopedEntitlement(req, res);
   if (scope === null) return;
   store.runWithUserScope({
@@ -1074,16 +1082,10 @@ function peerScopeFromRequest(req) {
 }
 
 function peerAuthHeadersFromBody(body) {
+  /* Token only — never forward license entitlement to a peer. */
   const headers = {};
   const token = String(body?.syncApiToken || body?.apiToken || '').trim();
   if (token) headers.Authorization = 'Bearer ' + token;
-  const email = String(body?.licenseEmail || '').trim();
-  if (email) headers['X-License-Email'] = email;
-  if (body?.licenseMaster) headers['X-License-Master'] = '1';
-  const actAs = String(body?.actAsUser || '').trim();
-  if (actAs) headers['X-Act-As-User'] = actAs;
-  const ent = String(body?.licenseEntitlement || '').trim();
-  if (ent) headers['X-License-Entitlement'] = ent;
   return headers;
 }
 
