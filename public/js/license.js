@@ -237,14 +237,16 @@
   function authHeaders(ent) {
     const e = ent || loadEntitlement();
     const headers = {};
+    /* Only send scope headers when a signature is present. Email/master alone
+     * triggers "Signed X-License-Entitlement required" / invalid signature on
+     * servers with LICENSE_SIGNING_SECRET — and broke Backup peer sync. */
+    if (!(e && e.sig)) return headers;
     const email = licenseEmail(e);
     if (email) headers['X-License-Email'] = email;
     if (isMaster(e)) headers['X-License-Master'] = '1';
-    if (e && e.sig) {
-      try {
-        headers['X-License-Entitlement'] = btoa(unescape(encodeURIComponent(JSON.stringify(e))));
-      } catch { /* ignore */ }
-    }
+    try {
+      headers['X-License-Entitlement'] = btoa(unescape(encodeURIComponent(JSON.stringify(e))));
+    } catch { /* ignore */ }
     return headers;
   }
 
