@@ -7,6 +7,8 @@
   'use strict';
 
   const STYLE_ID = 'cheng-clock-picker-css';
+  const NUM_R = 78;
+  const TICK_R = 98;
   let active = null;
 
   function ensureCss() {
@@ -15,19 +17,20 @@
     s.id = STYLE_ID;
     s.textContent = `
 .ccp-overlay{position:fixed;inset:0;z-index:12000;background:rgba(4,10,18,.62);display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(3px)}
-.ccp-dialog{width:min(340px,96vw);background:linear-gradient(160deg,rgba(18,34,56,.98),rgba(10,20,32,.98));border:1px solid rgba(201,154,83,.4);border-radius:18px;box-shadow:0 24px 60px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.1);padding:16px 16px 14px;color:#e9e4d6;font-family:Segoe UI,Helvetica Neue,sans-serif}
+.ccp-dialog{width:min(340px,96vw);background:linear-gradient(160deg,rgba(18,34,56,.98),rgba(10,20,32,.98));border:1px solid rgba(201,154,83,.4);border-radius:18px;box-shadow:0 24px 60px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.1);padding:16px 16px 14px;color:#e9e4d6;font-family:Segoe UI,Helvetica Neue,sans-serif;overflow:hidden}
 html.bright .ccp-dialog{background:linear-gradient(160deg,#fff,#f4f1ea);color:#122238;border-color:rgba(110,72,20,.35)}
 .ccp-title{font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.7;margin-bottom:8px}
-.ccp-face{position:relative;width:220px;height:220px;margin:8px auto 12px;border-radius:50%;background:radial-gradient(circle at 35% 30%,rgba(87,179,171,.18),transparent 45%),radial-gradient(circle at 50% 50%,rgba(18,34,56,.9),rgba(8,14,22,1));border:2px solid rgba(201,154,83,.45);box-shadow:inset 0 0 30px rgba(0,0,0,.45),0 0 24px rgba(87,179,171,.15);touch-action:none;cursor:crosshair}
+.ccp-face{position:relative;width:220px;height:220px;margin:8px auto 12px;border-radius:50%;overflow:hidden;background:radial-gradient(circle at 35% 30%,rgba(87,179,171,.18),transparent 45%),radial-gradient(circle at 50% 50%,rgba(18,34,56,.9),rgba(8,14,22,1));border:2px solid rgba(201,154,83,.45);box-shadow:inset 0 0 30px rgba(0,0,0,.45),0 0 24px rgba(87,179,171,.15);touch-action:none;cursor:crosshair}
 html.bright .ccp-face{background:radial-gradient(circle at 35% 30%,rgba(23,102,95,.1),transparent 45%),#f7f5ef}
 .ccp-center{position:absolute;left:50%;top:50%;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;background:#c99a53;z-index:3;pointer-events:none}
-.ccp-hand{position:absolute;left:50%;top:50%;width:2px;height:70px;margin-top:-70px;margin-left:-1px;background:#57b3ab;transform-origin:bottom center;border-radius:2px;z-index:2;transition:transform .12s ease;pointer-events:none}
+.ccp-hand{position:absolute;left:50%;top:50%;width:2px;height:70px;margin-top:-70px;margin-left:-1px;background:#57b3ab;transform-origin:bottom center;border-radius:2px;z-index:2;transition:transform .12s ease,opacity .12s ease;pointer-events:none}
 .ccp-hand.min{height:90px;margin-top:-90px;background:#c99a53;width:1.5px}
 .ccp-hand.dragging{transition:none}
-.ccp-num{position:absolute;left:50%;top:50%;width:36px;height:36px;margin:-18px 0 0 -18px;display:flex;align-items:center;justify-content:center;border-radius:50%;font-weight:700;font-size:13px;cursor:pointer;user-select:none;color:inherit;opacity:.85;z-index:4}
+.ccp-hand.dim{opacity:.22}
+.ccp-num{position:absolute;left:50%;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;display:flex;align-items:center;justify-content:center;border-radius:50%;font-weight:700;font-size:11px;cursor:pointer;user-select:none;color:inherit;opacity:.9;z-index:4;-webkit-tap-highlight-color:transparent}
 .ccp-num:hover,.ccp-num.active{background:rgba(201,154,83,.28);opacity:1;box-shadow:0 0 0 1px rgba(201,154,83,.5)}
-.ccp-tick{position:absolute;left:50%;top:50%;width:2px;height:8px;margin:-4px 0 0 -1px;background:rgba(233,228,214,.28);transform-origin:center 94px;pointer-events:none;z-index:1}
-.ccp-tick.major{height:12px;margin-top:-6px;background:rgba(201,154,83,.55)}
+.ccp-tick{position:absolute;left:50%;top:50%;width:2px;height:7px;margin:-3.5px 0 0 -1px;background:rgba(233,228,214,.35);transform-origin:center center;pointer-events:none;z-index:1}
+.ccp-tick.major{height:11px;margin-top:-5.5px;background:rgba(201,154,83,.65)}
 .ccp-readout{text-align:center;font-variant-numeric:tabular-nums;font-size:1.6rem;font-weight:700;letter-spacing:.06em;margin-bottom:10px;user-select:none}
 .ccp-readout .ccp-part{display:inline-block;min-width:1.4em;padding:2px 6px;border-radius:8px;cursor:ns-resize;border:1px solid transparent}
 .ccp-readout .ccp-part:hover{background:rgba(201,154,83,.15)}
@@ -187,7 +190,8 @@ input.ccp-bound{cursor:pointer}
       for (let i = 0; i < 60; i++) {
         const tick = document.createElement('div');
         tick.className = 'ccp-tick' + (i % 5 === 0 ? ' major' : '');
-        tick.style.transform = `rotate(${i * 6}deg)`;
+        /* rotate around face center, then push out — same geometry as the hands */
+        tick.style.transform = `rotate(${i * 6}deg) translateY(-${TICK_R}px)`;
         face.appendChild(tick);
       }
     }
@@ -201,8 +205,7 @@ input.ccp-bound{cursor:pointer}
         btn.className = 'ccp-num';
         btn.textContent = label;
         const angle = (i / count) * Math.PI * 2 - Math.PI / 2;
-        const r = 82;
-        btn.style.transform = `translate(${Math.cos(angle) * r}px, ${Math.sin(angle) * r}px)`;
+        btn.style.transform = `translate(${Math.cos(angle) * NUM_R}px, ${Math.sin(angle) * NUM_R}px)`;
         btn.dataset.val = String(val);
         face.appendChild(btn);
       }
@@ -210,7 +213,6 @@ input.ccp-bound{cursor:pointer}
 
     function setFromAngle(deg, { advance } = {}) {
       if (state.step === 'hour' || state.step === 'ampm') {
-        // 30° per hour; snap to nearest hour
         let h = Math.round(deg / 30) % 12;
         if (h === 0) h = 12;
         state.h12 = h;
@@ -228,12 +230,16 @@ input.ccp-bound{cursor:pointer}
       partM.textContent = pad(m);
       partH.classList.toggle('active', state.step === 'hour' || state.step === 'ampm');
       partM.classList.toggle('active', state.step === 'minute');
-      const hAngle = ((state.h12 % 12) / 12) * 360;
-      const mAngle = (state.m / 60) * 360;
+      /* Hour hand advances with minutes so it stays true to the readout. */
+      const hAngle = ((state.h12 % 12) / 12) * 360 + (state.m / 60) * 30;
+      const mAngle = state.m * 6;
       handH.style.transform = `rotate(${hAngle}deg)`;
       handM.style.transform = `rotate(${mAngle}deg)`;
       handH.classList.toggle('dragging', dragging && (state.step === 'hour' || state.step === 'ampm'));
       handM.classList.toggle('dragging', dragging && state.step === 'minute');
+      /* Dim the idle hand so minute selection is not read off the hour hand. */
+      handH.classList.toggle('dim', state.step === 'minute');
+      handM.classList.toggle('dim', state.step === 'hour' || state.step === 'ampm');
 
       if (!keepNums || lastStep !== state.step) {
         lastStep = state.step;
@@ -255,7 +261,7 @@ input.ccp-bound{cursor:pointer}
           });
         } else if (state.step === 'minute') {
           stepEl.textContent = 'Select minutes (0–59)';
-          hintEl.textContent = '5-minute marks for quick pick — drag, scroll, or edit MM for any minute';
+          hintEl.textContent = 'Small 5-min labels — tap face / drag between them for any minute';
           ampmRow.hidden = true;
           ampmRow.style.display = 'none';
           placeMinuteTicks();
@@ -314,7 +320,6 @@ input.ccp-bound{cursor:pointer}
         state.m = clampMinute(state.m + delta);
         if (state.step !== 'minute') state.step = 'minute';
       } else {
-        // Hour in 24h display space via h12 + isPm
         const cur = to24(state.h12, state.m, state.isPm);
         let next = (cur.h + delta) % 24;
         if (next < 0) next += 24;
@@ -375,9 +380,6 @@ input.ccp-bound{cursor:pointer}
       handM.classList.remove('dragging');
       if (state.step === 'hour') {
         state.step = 'minute';
-        refresh();
-      } else if (state.step === 'minute' && ev && ev.type === 'mouseup') {
-        /* Keep minute step so user can fine-tune; OK advances to AM/PM via Set or tap 5-min mark */
         refresh();
       } else {
         refresh();
