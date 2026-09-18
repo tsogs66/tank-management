@@ -710,8 +710,13 @@ function renderNav() {
     + Branding.AUTHORS.map((a) => `<b>${a}</b>`).join('');
   nav.appendChild(credit);
 
-  /* Windows / AIO top menubar: theme lives on AIO chrome — no duplicate here. */
-  if (!topNav && !isAioEmbedded()) {
+  /* Inside ChEng AIO the theme button is on the AIO's own strip, so a second
+     one here would be a duplicate. Standalone it must exist whatever the
+     layout: the top-nav layout has no bottom nav and no More sheet, which are
+     the two places it lives on a phone, so excluding it here left Tank Chief
+     on Windows and on a landscape tablet with no way to reach Bright mode at
+     all. The CSS lays it out along the bar rather than down a column. */
+  if (!isAioEmbedded()) {
     const themeBtn = document.createElement('button');
     themeBtn.type = 'button';
     themeBtn.className = 'theme-toggle no-print';

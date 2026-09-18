@@ -2554,9 +2554,29 @@ html.tc-top-nav:not(.is-mobile-chrome) .sidebar {
   flex-shrink: 0;
 }
 html.tc-top-nav:not(.is-mobile-chrome) .sidebar .brand,
-html.tc-top-nav:not(.is-mobile-chrome) .sidebar .nav-credit,
-html.tc-top-nav:not(.is-mobile-chrome) .sidebar .theme-toggle {
+html.tc-top-nav:not(.is-mobile-chrome) .sidebar .nav-credit {
   display: none !important;
+}
+/* Day/night belongs on the top bar here, and used to be hidden with the rest
+ * of the sidebar's column furniture.
+ *
+ * On this layout there is no bottom nav and no More sheet, which are the two
+ * places the toggle lives on a phone — so hiding it here left Tank Chief with
+ * no way at all to reach Bright mode on Windows or a landscape tablet.
+ * Measured: no reachable toggle at 1180x820 or 1920x1080 by any route,
+ * including opening the More sheet by hand.
+ *
+ * It has to be un-column-ised as well as unhidden: the base rule sizes it for
+ * a vertical sidebar (full width, stacked margins), which in a horizontal bar
+ * would push the navigation off the screen. */
+html.tc-top-nav:not(.is-mobile-chrome) .sidebar .theme-toggle {
+  display: inline-flex !important;
+  align-items: center;
+  width: auto !important;
+  margin: 0 0 0 auto !important;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 6px 12px;
 }
 html.tc-top-nav:not(.is-mobile-chrome) #sidebar-nav {
   display: flex;
