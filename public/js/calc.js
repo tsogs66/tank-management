@@ -336,14 +336,19 @@ function fromTableReading(tank, tableReading, entryMethod) {
 /**
  * Full double-interpolation calculation for one tank + one reading.
  *
- * Two calibration approaches (tank.calcType):
+ * Three calibration approaches (tank.calcType):
  *
  *   'correction' — direct sounding correction
  *     Heel/list table is a length correction (mm / cm / m). Apply it to the
- *     sounding (add when positive, subtract when negative — sign is already in
- *     the table value), then either:
- *       • length trim correction + volume curve (Veniamis Tank1 style), or
+ *     sounding first (sign already in the table), then either:
+ *       • length trim correction + volume curve, or
  *       • trim × volume grid at the heel-corrected sounding (m³ final).
+ *
+ *   'trimHeel' — trim-heel correction
+ *     Interpolate trim length correction on the original table sounding and
+ *     add/subtract it; interpolate heel length correction on that new sounding
+ *     and add/subtract it; look up the capacity / volume table at the final
+ *     corrected sounding.
  *
  *   'direct' — direct volume correction
  *     Heel/list table is a volume correction (m³). Interpolate heel volume and
@@ -365,6 +370,18 @@ function fromTableReading(tank, tableReading, entryMethod) {
  *     settling/service tanks are logged as a direct volume-gauge reading rather
  *     than a meter/ullage figure) and skips interpolation entirely.
  */
+function calcApproachOf(calcType) {
+  const t = String(calcType || 'direct');
+  if (t === 'correction') return 'sounding-correction';
+  if (t === 'trimHeel' || t === 'trim-heel' || t === 'trim_heel') return 'trim-heel-correction';
+  return 'volume-correction';
+}
+
+function isTrimHeelType(calcType) {
+  const t = String(calcType || '');
+  return t === 'trimHeel' || t === 'trim-heel' || t === 'trim_heel';
+}
+
 function computeTank(tank, inputs) {
   const {
     reading: readingIn,
@@ -382,6 +399,7 @@ function computeTank(tank, inputs) {
 
   const { soundingInc, heelInc, soundingUnit } = resolveIncrements(tank);
   const method = entryMethod || tank.soundingMethod || 'sounding';
+  const approach = calcApproachOf(tank.calcType);
 
   // UI enters centimetres; stored / API readings are already table-native.
   let reading = readingIn;
@@ -429,6 +447,40 @@ function computeTank(tank, inputs) {
     var soundingBottomOut = tablesUseSounding(tank)
       ? corrected
       : ((Number(tank.pipeHeight) || 0) > 0 ? (Number(tank.pipeHeight) - corrected) : corrected);
+  } else if (isTrimHeelType(tank.calcType)) {
+    // Trim-heel correction:
+    //   1) table-scale reading
+    //   2) trim length correction on original sounding → new sounding
+    //   3) heel length correction on that new sounding → final sounding
+    //   4) capacity / volume table at the final sounding
+    const tableReading = toTableReading(tank, reading, method);
+    corrected = tableReading;
+
+    trimCorr = bilinearInterpInc(
+      tank.trimAxis, tank.trimVals, tank.trimGrid, corrected, tableTrim, soundingInc
+    );
+    corrected = corrected + trimCorr / divisor;
+
+    if (tank.listAxis && tank.listAxis.length) {
+      listCorr = bilinearInterpInc(
+        tank.listAxis, tank.listVals, tank.listGrid, corrected, list, heelInc
+      );
+      corrected = corrected + listCorr / divisor;
+    }
+
+    if (tank.volumeCurve && Array.isArray(tank.volumeCurve.x) && tank.volumeCurve.x.length) {
+      volumeObserved = linearInterp(tank.volumeCurve.x, tank.volumeCurve.v, corrected);
+    } else {
+      // No dedicated capacity curve — fall back to trim×volume at final sounding.
+      volumeObserved = bilinearInterpInc(
+        tank.trimAxis, tank.trimVals, tank.trimGrid, corrected, tableTrim, soundingInc
+      );
+      trimVolume = volumeObserved;
+    }
+    correctedReadingOut = fromTableReading(tank, corrected, method);
+    soundingBottomOut = tablesUseSounding(tank)
+      ? corrected
+      : ((Number(tank.pipeHeight) || 0) > 0 ? (Number(tank.pipeHeight) - corrected) : corrected);
   } else {
     // Direct volume correction: heel m³ and trim m³ at the same table sounding,
     // final observed volume = trimVolume − heelVolume.
@@ -467,7 +519,7 @@ function computeTank(tank, inputs) {
 
   return {
     gaugeType,
-    calcApproach: tank.calcType === 'correction' ? 'sounding-correction' : 'volume-correction',
+    calcApproach: approach,
     soundingUnit,
     soundingIncrement: soundingInc,
     heelIncrement: heelInc,
@@ -485,6 +537,7 @@ function computeTank(tank, inputs) {
     weightMT,
   };
 }
+
 
 function volumeFromMT(mt, density15, tempC = 15) {
   const dens = Number(density15);
