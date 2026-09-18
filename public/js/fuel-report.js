@@ -1425,6 +1425,12 @@ const FuelReport = (() => {
   /* ---- Mobile / tablet sheet popups (Actual + SG) ---- */
   function sheetPopupWanted() {
     try {
+      /* Windows desktop / mouse: type in the grid. Coarse/touch or narrow
+         viewports keep the sheet popup so fat fingers are not fighting cells. */
+      if (window.matchMedia('(hover: hover) and (pointer: fine)').matches
+        && window.matchMedia('(min-width: 1101px)').matches) {
+        return false;
+      }
       return window.matchMedia('(max-width: 1100px), (pointer: coarse)').matches;
     } catch (_) {
       return window.innerWidth <= 1100;
