@@ -232,23 +232,76 @@ function wcf56(density15) {
 }
 
 /**
+ * True when trim/volume tables are sounding-from-bottom (volume rises with the
+ * axis). False for ullage-indexed tables (volume falls as the axis rises).
+ * Veniamis correction tanks are sounding tables even when the user enters ullage.
+ */
+function tablesUseSounding(tank) {
+  const vc = tank && tank.volumeCurve;
+  if (!vc || !Array.isArray(vc.v) || vc.v.length < 2) return true;
+  return Number(vc.v[vc.v.length - 1]) >= Number(vc.v[0]);
+}
+
+/**
+ * Map a user sounding into the calibration table's axis units (Excel Setup!F).
+ * entryMethod: 'ullage' | 'dip' | 'sounding' — how `reading` was taken.
+ * Trim/heel interpolation must see this table-scale value, never a scaled trim.
+ */
+function toTableReading(tank, reading, entryMethod) {
+  const pipe = Number(tank && tank.pipeHeight) || 0;
+  const method = String(entryMethod || tank && tank.soundingMethod || 'sounding').toLowerCase();
+  const ullageEntry = method === 'ullage';
+  if (tablesUseSounding(tank)) {
+    return ullageEntry && pipe > 0 ? pipe - reading : reading;
+  }
+  return !ullageEntry && pipe > 0 ? pipe - reading : reading;
+}
+
+/** Inverse of toTableReading — table-scale value back to the entry method. */
+function fromTableReading(tank, tableReading, entryMethod) {
+  const pipe = Number(tank && tank.pipeHeight) || 0;
+  const method = String(entryMethod || tank && tank.soundingMethod || 'sounding').toLowerCase();
+  const ullageEntry = method === 'ullage';
+  if (tablesUseSounding(tank)) {
+    return ullageEntry && pipe > 0 ? pipe - tableReading : tableReading;
+  }
+  return !ullageEntry && pipe > 0 ? pipe - tableReading : tableReading;
+}
+
+/**
  * Full double-interpolation calculation for one tank + one reading.
  * tank: extracted tank definition (see tanks-data.js)
- * inputs: { reading, trim, list, tempC, density15, gaugeType }
- *   reading: raw sounding/ullage/dip/depth/gauge value, in the tank's native unit
+ * inputs: { reading, trim, list, tempC, density15, gaugeType, entryMethod }
+ *   reading: raw sounding/ullage/dip/depth/gauge value, in entryMethod units
  *     (or a volume in m3 directly, when gaugeType === 'volume')
+ *   trim: DIRECT table trim in metres (by the stern). Must not be scaled or
+ *     multiplied — only used as the column key against trimVals (Excel
+ *     Data!AG9 / trimDraft = 1×trim by stern).
+ *   entryMethod: how `reading` was taken ('ullage'|'dip'|'sounding'). Defaults
+ *     to tank.soundingMethod. Converted to table scale before trim/heel.
  *   gaugeType: 'meter' (default) reads `reading` through the calibration table/grid.
  *     'volume' treats `reading` as an already-known volume in m3 (some small
  *     settling/service tanks are logged as a direct volume-gauge reading rather
  *     than a meter/ullage figure) and skips interpolation entirely.
  */
 function computeTank(tank, inputs) {
-  const { reading, trim = 0, list = 0, tempC = 15, density15 = null, gaugeType = 'meter' } = inputs;
+  const {
+    reading,
+    trim = 0,
+    list = 0,
+    tempC = 15,
+    density15 = null,
+    gaugeType = 'meter',
+    entryMethod,
+  } = inputs;
   const divisor = tank.correctionDivisor || 1;
+  // Trim is the direct table column key — never scale/multiply it for lookup.
+  const tableTrim = Number(trim) || 0;
 
   let trimCorr = 0, listCorr = 0, corrected = reading;
 
   const { soundingInc, heelInc } = resolveIncrements(tank);
+  const method = entryMethod || tank.soundingMethod || 'sounding';
 
   if (gaugeType === 'volume') {
     // Volume gauge: the reading IS the observed volume already -- no interpolation.
@@ -256,31 +309,37 @@ function computeTank(tank, inputs) {
     var correctedReadingOut = reading;
     var soundingBottomOut = reading;
   } else if (tank.calcType === 'correction') {
-    // Stage 1: trim correction — Excel-style double interp at sounding increment
-    trimCorr = bilinearInterpInc(
-      tank.trimAxis, tank.trimVals, tank.trimGrid, reading, trim, soundingInc
-    );
-    corrected = reading + trimCorr / divisor;
-    // Stage 2: list/heel correction at heel/list increment
+    // Excel Tank1 order (Setup!F → heel → trim → volume):
+    //   1) convert entry reading to table scale (sounding-from-bottom for Veniamis)
+    //   2) heel/list correction at that sounding
+    //   3) trim correction with the DIRECT table trim (no multiply/scale of trim)
+    //   4) volume curve at the corrected table sounding
+    const tableReading = toTableReading(tank, reading, method);
+    corrected = tableReading;
+
+    // Stage 1: list/heel first (Excel AE6 before trim)
     if (tank.listAxis && tank.listAxis.length) {
       listCorr = bilinearInterpInc(
         tank.listAxis, tank.listVals, tank.listGrid, corrected, list, heelInc
       );
       corrected = corrected + listCorr / divisor;
     }
-    // Convert ullage -> sounding-from-bottom if this tank is read by ullage
-    let soundingFromBottom = corrected;
-    if (tank.soundingMethod && tank.soundingMethod.toLowerCase() === 'ullage' && tank.pipeHeight) {
-      soundingFromBottom = tank.pipeHeight - corrected;
-    }
-    // Volume curve is usually 1 cm steps; linearInterp handles any increment
+    // Stage 2: trim — Interp2 against trimVals using tableTrim directly
+    trimCorr = bilinearInterpInc(
+      tank.trimAxis, tank.trimVals, tank.trimGrid, corrected, tableTrim, soundingInc
+    );
+    corrected = corrected + trimCorr / divisor;
+
     var volumeObserved = tank.volumeCurve
-      ? linearInterp(tank.volumeCurve.x, tank.volumeCurve.v, soundingFromBottom)
+      ? linearInterp(tank.volumeCurve.x, tank.volumeCurve.v, corrected)
       : 0;
-    var correctedReadingOut = corrected;
-    var soundingBottomOut = soundingFromBottom;
+    var correctedReadingOut = fromTableReading(tank, corrected, method);
+    var soundingBottomOut = tablesUseSounding(tank)
+      ? corrected
+      : ((Number(tank.pipeHeight) || 0) > 0 ? (Number(tank.pipeHeight) - corrected) : corrected);
   } else {
-    // Direct type: heel correction first, then trim×volume grid (both stepped)
+    // Direct type: heel correction first, then trim×volume grid (both stepped).
+    // Trim column key is the direct table trim.
     if (tank.listAxis && tank.listAxis.length) {
       listCorr = bilinearInterpInc(
         tank.listAxis, tank.listVals, tank.listGrid, reading, list, heelInc
@@ -288,7 +347,7 @@ function computeTank(tank, inputs) {
       corrected = reading + listCorr / divisor;
     }
     volumeObserved = bilinearInterpInc(
-      tank.trimAxis, tank.trimVals, tank.trimGrid, corrected, trim, soundingInc
+      tank.trimAxis, tank.trimVals, tank.trimGrid, corrected, tableTrim, soundingInc
     );
     correctedReadingOut = corrected;
     soundingBottomOut = corrected;
@@ -536,6 +595,9 @@ module.exports = {
   excelFloor,
   excelCeiling,
   resolveIncrements,
+  tablesUseSounding,
+  toTableReading,
+  fromTableReading,
   PREFERRED_INCREMENTS,
   alpha54B,
   vcfDetail54B,

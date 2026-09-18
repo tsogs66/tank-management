@@ -131,7 +131,14 @@ function applyReceivedToReadings(vesselId, op, receivedMT) {
 
     const inputs = {
       reading: newVol,
-      trim: bundle.voyage?.trim || 0,
+      // Direct table trim (by stern). Prefer drafts; do not scale the value.
+      trim: (() => {
+        const v = bundle.voyage || {};
+        const fwd = Number(v.draftFwd);
+        const aft = Number(v.draftAft);
+        if (Number.isFinite(fwd) && Number.isFinite(aft)) return aft - fwd;
+        return Number(v.trim) || 0;
+      })(),
       list: bundle.voyage?.heel || 0,
       tempC,
       density15: useDens,

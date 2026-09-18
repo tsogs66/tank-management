@@ -1381,6 +1381,18 @@ function renderTankDetail(main, tankId) {
   grid.className = 'detail-grid';
   const gaugeChoice = tank.calcType === 'direct' && /SETT|SERVICE/i.test(tank.name || '');
   const initialGT = existing.gaugeType || 'meter';
+  // Trim for tables is by the stern (Excel Data!AG9 = 1×(aft−fwd)). Prefer a
+  // saved table trim, else drafts, else the voyage trim field only when drafts
+  // are absent — never multiply/scale the value used for interpolation.
+  const voy = STATE.bundle.voyage || {};
+  const draftFwd = Number(voy.draftFwd);
+  const draftAft = Number(voy.draftAft);
+  const trimFromDrafts = Number.isFinite(draftFwd) && Number.isFinite(draftAft)
+    ? (draftAft - draftFwd)
+    : null;
+  const defaultTrim = existing.trim != null
+    ? existing.trim
+    : (trimFromDrafts != null ? trimFromDrafts : (voy.trim ?? 0));
 
   grid.innerHTML = `
     <div class="form-panel">
@@ -1392,7 +1404,7 @@ function renderTankDetail(main, tankId) {
       <div class="form-row"><label id="reading-label">${initialGT==='volume'?'Volume m³':((tank.soundingMethod||'Reading') + ' (cm)')}</label>
         <input type="number" step="any" id="in-reading" value="${existing.reading != null && existing.reading !== '' ? (Number(existing.reading) / 10) : ''}"></div>
       <div class="form-row-2" id="trimlist-row" style="${initialGT==='volume'?'display:none':''}">
-        <div class="form-row"><label>Trim (m)</label><input type="number" step="any" id="in-trim" value="${existing.trim ?? STATE.bundle.voyage?.trim ?? 0}"></div>
+        <div class="form-row"><label>Trim by stern (m)</label><input type="number" step="any" id="in-trim" value="${defaultTrim}" title="Direct table trim — same value as the calibration trim columns"></div>
         <div class="form-row"><label>List / Heel (°)</label><input type="number" step="any" id="in-list" value="${existing.list ?? STATE.bundle.voyage?.heel ?? 0}"></div>
       </div>
     <div class="form-row-2">
@@ -1457,6 +1469,8 @@ function renderTankDetail(main, tankId) {
       tempC: parseFloat(document.getElementById('in-temp').value) || 15,
       density15: document.getElementById('in-density').value === '' ? null : parseFloat(document.getElementById('in-density').value),
       gaugeType,
+      // Trim field is the direct table trim (by the stern), matching Excel Data!AG9.
+      entryMethod: tank.soundingMethod || 'sounding',
     };
     let result;
     try {
@@ -1582,12 +1596,12 @@ function renderResultSteps(panel, tank, r, inputs) {
   } else if (tank.calcType === 'correction') {
     defs.push({
       label: 'Trim correction',
-      formula: `Interp2 FLOOR/CEILING inc=${r.soundingIncrement ?? '?'} ÷ ${tank.correctionDivisor}`,
+      formula: `direct table trim → Interp2 FLOOR/CEILING inc=${r.soundingIncrement ?? '?'} ÷ ${tank.correctionDivisor}`,
       value: fmt((r.trimCorrection||0)/(tank.correctionDivisor||1),3),
     });
     defs.push({
       label: 'List correction',
-      formula: `Interp2 FLOOR/CEILING inc=${r.heelIncrement ?? '?'} ÷ ${tank.correctionDivisor}`,
+      formula: `heel first → Interp2 FLOOR/CEILING inc=${r.heelIncrement ?? '?'} ÷ ${tank.correctionDivisor}`,
       value: fmt((r.listCorrection||0)/(tank.correctionDivisor||1),3),
     });
     defs.push({ label: 'Corrected reading', formula: 'reading + corrections', value: fmt(r.correctedReading,2) });

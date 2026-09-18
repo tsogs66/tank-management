@@ -29,7 +29,7 @@
 }(typeof globalThis !== 'undefined' ? globalThis : this, function (calc) {
 'use strict';
 
-const { computeTank, vcfDetail54B, wcf56, lerpLookup } = calc;
+const { computeTank, vcfDetail54B, wcf56, lerpLookup, toTableReading } = calc;
 
 /** Report types — workbook Data!Y3:Y9 / Data!U28. */
 const REPORT_TYPES = [
@@ -330,11 +330,13 @@ function computeRow(tank, rowForm, ctx) {
 
   const nativeMethod = normalizeMethod(tank.soundingMethod);
   const pipeHeight = soundingPipeHeight(tank);
-  // The calibration grid is indexed in the tank's own method. A reading taken
-  // the other way round is flipped through the sounding-pipe height first
-  // (workbook Setup!E/F).
-  const flipped = reading != null && method !== nativeMethod && pipeHeight > 0;
-  const nativeReading = flipped ? pipeHeight - reading : reading;
+  // Calibration tables are sounding-from-bottom on Veniamis correction tanks even
+  // when the user enters ullage. computeTank converts entry → table scale (Excel
+  // Setup!F) before trim; trim itself stays the direct by-stern value.
+  const tableReading = (typeof toTableReading === 'function' && reading != null)
+    ? toTableReading(tank, reading, method)
+    : (reading != null && method !== nativeMethod && pipeHeight > 0 ? pipeHeight - reading : reading);
+  const flipped = reading != null && tableReading != null && Math.abs(tableReading - reading) > 1e-9;
 
   const pair = soundingPair(method, reading, pipeHeight);
   const out = {
@@ -380,7 +382,7 @@ function computeRow(tank, rowForm, ctx) {
       nativeMethod,
       pipeHeight: pipeHeight || null,
       flipped,
-      nativeReading: nativeReading != null ? round(nativeReading, 3) : null,
+      nativeReading: tableReading != null ? round(tableReading, 3) : null,
       trimUsed: ctx.trimByStern,
       heelUsed: ctx.heel,
     },
@@ -393,12 +395,13 @@ function computeRow(tank, rowForm, ctx) {
   if (flipped && pipeHeight <= 0) out.warnings.push('no sounding-pipe height to convert dip/ullage');
 
   const result = computeTank(tank, {
-    reading: nativeReading,
+    reading,
     trim: ctx.trimByStern,
     list: ctx.heel,
     tempC,
     density15,
     gaugeType: 'meter',
+    entryMethod: method,
   });
 
   out.measuredM3 = round(result.volumeObserved, 3);
@@ -589,12 +592,13 @@ function readingsFromReport(bundle, computed) {
     for (const row of section.rows) {
       if (row.measuredM3 == null) continue;
       readings[row.tankId] = {
-        reading: num(row.trace.nativeReading),
+        reading: num(row.reading),
         trim: computed.header.trimByStern,
         list: computed.header.heel,
         tempC: num(row.tempC, 15),
         density15: row.density15,
         gaugeType: 'meter',
+        entryMethod: row.method,
         source: 'fuel-report',
         result: {
           soundingIncrement: row.trace.soundingIncrement,
