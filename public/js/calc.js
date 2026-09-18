@@ -305,6 +305,31 @@ function bilinearInterpInc(xAxis, yAxis, grid, x, y, xInc) {
   return linearInterp([xLo, xHi], [vLo, vHi], x);
 }
 
+/**
+ * Put back the upright column the booklets leave out.
+ *
+ * A heeling table prints -4 -3 -2 -1 1 2 3 4 and no zero: upright there is no
+ * correction, so the column would be all zeros and the page saved the width.
+ * Reading straight from -1 to +1 across that gap invents a correction for an
+ * upright ship, because the two sides are not mirror images. On the FLAG EVI
+ * book it reaches 20 mm, and where the heel table is a volume correction that
+ * lands in the answer whole: NO.1 H.F.O. TK (P) at ullage 1080 came out 1.175
+ * m3 over the figure the same table gives by hand.
+ */
+function insertUprightColumn(vals, grid) {
+  if (!vals || vals.length < 2 || !grid || !grid.length) return { vals, grid };
+  if (vals.some((v) => Number(v) === 0)) return { vals, grid };
+  let at = -1;
+  for (let i = 1; i < vals.length; i++) {
+    if ((Number(vals[i - 1]) < 0) !== (Number(vals[i]) < 0)) { at = i; break; }
+  }
+  if (at < 0) return { vals, grid };
+  return {
+    vals: vals.slice(0, at).concat(0, vals.slice(at)),
+    grid: grid.map((row) => row.slice(0, at).concat(0, row.slice(at))),
+  };
+}
+
 /** Resolve sounding / heel increments from tank metadata or axis spacing. */
 function resolveIncrements(tank) {
   const unit = detectSoundingUnit(tank);
@@ -488,6 +513,7 @@ function computeTank(tank, inputs) {
   const tableTrim = Number(trim) || 0;
 
   const { soundingInc, heelInc, soundingUnit, correctionUnit } = resolveIncrements(tank);
+  const heel = insertUprightColumn(tank.listVals, tank.listGrid);
   const method = entryMethod || tank.soundingMethod || 'sounding';
   const approach = calcApproachOf(tank.calcType);
 
@@ -514,7 +540,7 @@ function computeTank(tank, inputs) {
 
     if (tank.listAxis && tank.listAxis.length) {
       listCorr = bilinearInterpInc(
-        tank.listAxis, tank.listVals, tank.listGrid, corrected, list, heelInc
+        tank.listAxis, heel.vals, heel.grid, corrected, list, heelInc
       );
       heelCorrApplied = lengthToUnit(listCorr / divisor, correctionUnit, soundingUnit);
       corrected = applyLengthCorrection(corrected, listCorr, divisor, correctionUnit, soundingUnit);
@@ -550,7 +576,7 @@ function computeTank(tank, inputs) {
 
     if (tank.listAxis && tank.listAxis.length) {
       listCorr = bilinearInterpInc(
-        tank.listAxis, tank.listVals, tank.listGrid, tableReading, list, heelInc
+        tank.listAxis, heel.vals, heel.grid, tableReading, list, heelInc
       );
       heelCorrApplied = lengthToUnit(listCorr / divisor, correctionUnit, soundingUnit);
     } else {
@@ -584,7 +610,7 @@ function computeTank(tank, inputs) {
 
     if (tank.listAxis && tank.listAxis.length) {
       listCorr = bilinearInterpInc(
-        tank.listAxis, tank.listVals, tank.listGrid, tableReading, list, heelInc
+        tank.listAxis, heel.vals, heel.grid, tableReading, list, heelInc
       );
       heelVolume = listCorr / divisor;
     } else {
