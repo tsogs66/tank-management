@@ -1003,7 +1003,7 @@ const BunkerReports = (() => {
     if (c.header.density15 == null) advice.push('no density — enter density @15 °C to get quantities in MT');
     set('[data-bp-head="advice"]', advice.length
       ? `Check: ${advice.join('; ')}.`
-      : `Trim ${n(c.header.trim, 2)} m (tables read at ${signed(c.header.trimByStern, 2)} by the stern) · `
+      : `Trim ${signed(c.header.trim, 2)} m ${FRCore.trimSense(c.header.trim)} · `
         + `density ${n(c.header.density15, 4, '—')} @ ${n(c.header.tempC, 0)} °C`);
 
     for (const row of c.rows) {
@@ -1885,7 +1885,7 @@ const BunkerReports = (() => {
     set('[data-ba-head="trim"]', n(c.header.trim, 2));
     set('[data-ba-head="attitude"]',
       `Trim ${c.header.trimLabel} · heel ${c.header.heelLabel} — tables read at trim `
-      + `${signed(c.header.trimByStern, 2)} m by the stern.`);
+      + `${signed(c.header.trim, 2)} m ${FRCore.trimSense(c.header.trim)}.`);
     UI.paintSectionCells(c.sections);
     for (const g of c.grades) {
       set(`[data-ba-grade="${g.id}.addedMT"]`, g.addedMT != null ? `${signed(g.addedMT, 3)}` : '—');

@@ -593,7 +593,7 @@ const FuelReport = (() => {
     setCell('[data-fr-head="trim"]', n(c.header.trim, 2));
     setCell('[data-fr-head="attitude"]',
       `Trim ${c.header.trimLabel} · heel ${c.header.heelLabel} — calibration tables are read at trim `
-      + `${signed(c.header.trimByStern, 2)} m by the stern.`);
+      + `${signed(c.header.trim, 2)} m ${Core.trimSense(c.header.trim)}.`);
 
     paintSectionCells(c.sections);
     for (const section of c.sections) {
@@ -1282,7 +1282,7 @@ const FuelReport = (() => {
           <td>${esc(r.methodLabel)} ${n(Core.mmToCm(r.reading, { soundingUnit: r.soundingUnit }), 1)}</td>
           <td>${t.flipped ? `${esc(t.nativeMethod)} ${n(t.nativeReading, 0)} (pipe ${n(t.pipeHeight, 0)})` : 'as read'}</td>
           <td>${esc(r.calcType)} · step ${n(t.soundingIncrement, 0)}</td>
-          <td>${signed(t.trimUsed, 2)} m</td>
+          <td>${signed(t.trimUsed, 2)} m ${esc(Core.trimSense(t.trimUsed))}</td>
           <td>${corrCell(r, t.trimCorrection)}</td>
           <td>${signed(t.heelUsed, 1)}°</td>
           <td>${corrCell(r, t.listCorrection)}</td>

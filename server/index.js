@@ -385,7 +385,7 @@ app.put('/api/vessels/:id/fuel-report', (req, res) => {
       time: form.header.time,
       draftFwd: computed.header.draftFwd,
       draftAft: computed.header.draftAft,
-      trim: computed.header.trimByStern,
+      trim: computed.header.trim,
       heel: computed.header.heel,
       seaTemp: form.header.seaTemp,
       engineRoomTemp: form.header.engineRoomTemp,

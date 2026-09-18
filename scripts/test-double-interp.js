@@ -18,6 +18,7 @@
 'use strict';
 const assert = require('assert');
 const calc = require('../server/calc.js');
+const FRCore = require('../public/js/fuel-report-core.js');
 
 const ULLAGE = [950, 1000, 1050, 1100, 1150, 1200];
 const TRIM_VALS = [1, 0, -0.5, -1, -1.5, -2, -3, -4];          // stem +, stern -
@@ -83,5 +84,23 @@ const put = calc.insertUprightColumn([-4, -1, 1, 4], [[10, 20, 30, 40]]);
 assert.deepStrictEqual(put.vals, [-4, -1, 0, 1, 4], 'zero goes in where the sign turns');
 assert.deepStrictEqual(put.grid[0], [10, 20, 0, 30, 40], 'and the row gains a zero to match');
 pass += 4;
+
+/* Trim carries one sign across the whole program: fwd - aft, the way the
+   monitoring page shows it and the way the book heads its columns. M/V FLAG
+   EVI on 14/09: 8.08 forward, 7.67 aft, so 0.41 m down by the bow. */
+const draftFwd = 8.08, draftAft = 7.67;
+near(draftFwd - draftAft, 0.41, 1e-9, 'trim from the drafts');
+assert.strictEqual(FRCore.trimSense(draftFwd - draftAft), 'by bow', 'down by the head reads as by bow');
+assert.strictEqual(FRCore.trimSense(draftAft - draftFwd), 'by stern', 'the other sign reads as by stern');
+assert.strictEqual(FRCore.trimSense(0), 'even keel', 'no trim reads as even keel');
+assert.strictEqual(FRCore.trimSense(0.004), 'even keel', 'a hair of trim still reads as even keel');
+assert.strictEqual(FRCore.trimLabel(-1.2), '1.20 m by stern', 'the label spells the sense out');
+pass += 5;
+
+/* And that sign is the one the trim columns want: 0.41 by the bow sits
+   between the book's TRIM BY STEM 1 m column and EVEN KEEL, not between
+   EVEN KEEL and TRIM BY STERN 0.5 m. */
+near(calc.bilinearInterpInc(ULLAGE, TRIM_VALS, TRIM_GRID, 1080, draftFwd - draftAft, 50),
+     374.3814, 0.0005, 'the drafts drive the trim table to the hand figure');
 
 console.log(`double interpolation: ${pass} checks passed`);

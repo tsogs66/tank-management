@@ -308,6 +308,20 @@ function getReading(id) {
   return STATE.bundle?.readings?.[id] || null;
 }
 
+/**
+ * Which way the ship is down, from the signed trim.
+ *
+ * The calibration book heads its columns TRIM BY STEM on the positive side and
+ * TRIM BY STERN on the negative, and the monitoring page shows the same signed
+ * figure (draft fwd - draft aft). Spelling the sense out beside the number is
+ * what keeps a -0.41 from being read as 0.41 the other way.
+ */
+function trimSenseLabel(trim) {
+  const t = Number(trim);
+  if (!Number.isFinite(t) || Math.abs(t) < 0.005) return 'even keel';
+  return `${fmt(Math.abs(t), 2)} m by the ${t > 0 ? 'bow' : 'stern'}`;
+}
+
 function fillStatusClass(pct) {
   if (pct == null) return 'neutral';
   if (pct >= 95) return 'bad';
@@ -1383,14 +1397,16 @@ function renderTankDetail(main, tankId) {
   grid.className = 'detail-grid';
   const gaugeChoice = tank.calcType === 'direct' && /SETT|SERVICE/i.test(tank.name || '');
   const initialGT = existing.gaugeType || 'meter';
-  // Trim for tables is by the stern (Excel Data!AG9 = 1×(aft−fwd)). Prefer a
-  // saved table trim, else drafts, else the voyage trim field only when drafts
-  // are absent — never multiply/scale the value used for interpolation.
+  // One signed trim, the same number the monitoring page shows and the same
+  // sign the calibration book heads its columns with: fwd − aft, positive
+  // down by the bow (TRIM BY STEM), negative down by the stern (TRIM BY
+  // STERN). Prefer a saved table trim, else drafts, else the voyage trim
+  // field — never multiply or scale the value used for interpolation.
   const voy = STATE.bundle.voyage || {};
   const draftFwd = Number(voy.draftFwd);
   const draftAft = Number(voy.draftAft);
   const trimFromDrafts = Number.isFinite(draftFwd) && Number.isFinite(draftAft)
-    ? (draftAft - draftFwd)
+    ? (draftFwd - draftAft)
     : null;
   const defaultTrim = existing.trim != null
     ? existing.trim
@@ -1406,7 +1422,9 @@ function renderTankDetail(main, tankId) {
       <div class="form-row"><label id="reading-label">${initialGT==='volume'?'Volume m³':((tank.soundingMethod||'Reading') + ' (cm)')}</label>
         <input type="number" step="any" id="in-reading" value="${existing.reading != null && existing.reading !== '' ? tableUnitsToCm(Number(existing.reading), tank) : ''}"></div>
       <div class="form-row-2" id="trimlist-row" style="${initialGT==='volume'?'display:none':''}">
-        <div class="form-row"><label>Trim by stern (m)</label><input type="number" step="any" id="in-trim" value="${defaultTrim}" title="Direct table trim — same value as the calibration trim columns"></div>
+        <div class="form-row"><label>Trim (m)</label>
+          <input type="number" step="any" id="in-trim" value="${defaultTrim}" title="Signed table trim: positive down by the bow (TRIM BY STEM), negative down by the stern (TRIM BY STERN)">
+          <div class="hint" id="trim-sense">${trimSenseLabel(defaultTrim)}</div></div>
         <div class="form-row"><label>List / Heel (°)</label><input type="number" step="any" id="in-list" value="${existing.list ?? STATE.bundle.voyage?.heel ?? 0}"></div>
       </div>
     <div class="form-row-2">
@@ -1458,6 +1476,14 @@ function renderTankDetail(main, tankId) {
     };
   }
 
+  const trimInput = document.getElementById('in-trim');
+  if (trimInput) {
+    trimInput.addEventListener('input', () => {
+      const sense = document.getElementById('trim-sense');
+      if (sense) sense.textContent = trimSenseLabel(trimInput.value);
+    });
+  }
+
   async function doCalc() {
     let reading = parseFloat(document.getElementById('in-reading').value);
     if (Number.isNaN(reading)) { showToast('Enter a reading'); return; }
@@ -1472,7 +1498,8 @@ function renderTankDetail(main, tankId) {
       tempC: parseFloat(document.getElementById('in-temp').value) || 15,
       density15: document.getElementById('in-density').value === '' ? null : parseFloat(document.getElementById('in-density').value),
       gaugeType,
-      // Trim field is the direct table trim (by the stern), matching Excel Data!AG9.
+      // The trim field is the signed table trim: positive down by the bow,
+      // which is the side the book heads TRIM BY STEM.
       entryMethod: tank.soundingMethod || 'sounding',
     };
     let result;
@@ -1593,6 +1620,15 @@ function renderResultSteps(panel, tank, r, inputs) {
   const steps = document.createElement('div');
   steps.className = 'steps';
   const defs = [];
+  if (r.gaugeType !== 'volume') {
+    // Which way the ship was down, spelled out: the sign alone has been read
+    // backwards often enough to be worth a word.
+    defs.push({
+      label: 'Trim applied',
+      formula: 'signed table trim · + by the bow, − by the stern',
+      value: trimSenseLabel(inputs && inputs.trim),
+    });
+  }
   if (r.gaugeType === 'volume') {
     defs.push({ label: 'Volume gauge', formula: 'direct reading', value: fmt(inputs.reading,3)+' m³' });
     defs.push({ label: 'Observed volume', formula: 'clamped to capacity', value: fmt(r.volumeObserved,3)+' m³', highlight: true });
