@@ -31,6 +31,12 @@ jobs:
 
       - run: npm ci
 
+      - name: Check asar Python script path rewrite
+        run: node scripts/test-python-asar-path.js
+
+      - name: Check FLAG EVI dual-sheet importer
+        run: node scripts/test-flag-evi-xlsx.js
+
       # No bundler: public/js is hand-edited and loaded straight by the page,
       # so a parse error would otherwise ship.
       - name: Check every script parses
