@@ -1,7 +1,6 @@
 /**
- * Analog-style clock time picker — hours, then minutes (any of 0–59), then AM/PM.
- * Top HH:MM readout is clickable / scrollable for free editing.
- * Stored values remain 24-hour (HH:MM or datetime-local YYYY-MM-DDTHH:MM).
+ * Analog-style clock time picker — hours, then minutes (0–59), then AM/PM.
+ * HH:MM readout accepts typing, click, and scroll. Values stay 24-hour.
  */
 (function (global) {
   'use strict';
@@ -31,8 +30,9 @@ html.bright .ccp-face{background:radial-gradient(circle at 35% 30%,rgba(23,102,9
 .ccp-num:hover,.ccp-num.active{background:rgba(201,154,83,.28);opacity:1;box-shadow:0 0 0 1px rgba(201,154,83,.5)}
 .ccp-tick{position:absolute;left:50%;top:50%;width:2px;height:7px;margin:-3.5px 0 0 -1px;background:rgba(233,228,214,.35);transform-origin:center center;pointer-events:none;z-index:1}
 .ccp-tick.major{height:11px;margin-top:-5.5px;background:rgba(201,154,83,.65)}
-.ccp-readout{text-align:center;font-variant-numeric:tabular-nums;font-size:1.6rem;font-weight:700;letter-spacing:.06em;margin-bottom:10px;user-select:none}
-.ccp-readout .ccp-part{display:inline-block;min-width:1.4em;padding:2px 6px;border-radius:8px;cursor:ns-resize;border:1px solid transparent}
+.ccp-readout{text-align:center;font-variant-numeric:tabular-nums;font-size:1.6rem;font-weight:700;letter-spacing:.06em;margin-bottom:10px}
+.ccp-readout .ccp-part{display:inline-block;width:2.2em;min-width:2.2em;padding:4px 6px;border-radius:8px;cursor:text;border:1px solid transparent;background:rgba(0,0,0,.18);color:inherit;font:inherit;font-weight:700;font-variant-numeric:tabular-nums;text-align:center;box-sizing:border-box;-moz-appearance:textfield}
+.ccp-readout .ccp-part::-webkit-outer-spin-button,.ccp-readout .ccp-part::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .ccp-readout .ccp-part:hover{background:rgba(201,154,83,.15)}
 .ccp-readout .ccp-part.active{background:rgba(87,179,171,.28);border-color:rgba(87,179,171,.55);box-shadow:0 0 0 1px rgba(87,179,171,.25)}
 .ccp-readout .ccp-colon{opacity:.55;padding:0 2px}
@@ -119,10 +119,32 @@ input.ccp-bound{cursor:pointer}
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
+  function detachActiveListeners() {
+    if (!active || !active.listeners) return;
+    const L = active.listeners;
+    try {
+      if (L.pointerMove) {
+        window.removeEventListener('mousemove', L.pointerMove);
+        window.removeEventListener('touchmove', L.pointerMove);
+      }
+      if (L.pointerUp) {
+        window.removeEventListener('mouseup', L.pointerUp);
+        window.removeEventListener('touchend', L.pointerUp);
+      }
+      if (L.onKey) window.removeEventListener('keydown', L.onKey, true);
+    } catch (_) { /* ignore */ }
+    active.listeners = null;
+  }
+
   function close() {
+    detachActiveListeners();
     if (active && active.overlay && active.overlay.parentNode) {
       active.overlay.parentNode.removeChild(active.overlay);
     }
+    /* Orphans from a failed close / remount must not keep blocking the page. */
+    try {
+      document.querySelectorAll('.ccp-overlay').forEach((n) => n.remove());
+    } catch (_) { /* ignore */ }
     active = null;
   }
 
@@ -146,10 +168,12 @@ input.ccp-bound{cursor:pointer}
     const overlay = document.createElement('div');
     overlay.className = 'ccp-overlay';
     overlay.innerHTML = `
-      <div class="ccp-dialog" role="dialog" aria-label="Time picker">
+      <div class="ccp-dialog" role="dialog" aria-modal="true" aria-label="Time picker">
         <div class="ccp-title">Ship clock</div>
         <div class="ccp-readout" data-ccp-readout>
-          <span class="ccp-part" data-ccp-part="hour" title="Click or scroll to set hour">00</span><span class="ccp-colon">:</span><span class="ccp-part" data-ccp-part="minute" title="Click or scroll to set minutes">00</span>
+          <input class="ccp-part" data-ccp-part="hour" type="text" inputmode="numeric" maxlength="2" aria-label="Hour" title="Type hour or scroll">
+          <span class="ccp-colon">:</span>
+          <input class="ccp-part" data-ccp-part="minute" type="text" inputmode="numeric" maxlength="2" aria-label="Minutes" title="Type minutes or scroll">
         </div>
         <div class="ccp-step" data-ccp-step></div>
         <div class="ccp-hint" data-ccp-hint></div>
@@ -181,6 +205,7 @@ input.ccp-bound{cursor:pointer}
 
     let dragging = false;
     let lastStep = null;
+    let suppressReadout = false;
 
     function clearDecor() {
       face.querySelectorAll('.ccp-num, .ccp-tick').forEach((n) => n.remove());
@@ -190,7 +215,6 @@ input.ccp-bound{cursor:pointer}
       for (let i = 0; i < 60; i++) {
         const tick = document.createElement('div');
         tick.className = 'ccp-tick' + (i % 5 === 0 ? ' major' : '');
-        /* rotate around face center, then push out — same geometry as the hands */
         tick.style.transform = `rotate(${i * 6}deg) translateY(-${TICK_R}px)`;
         face.appendChild(tick);
       }
@@ -226,18 +250,18 @@ input.ccp-bound{cursor:pointer}
     function refresh(opts) {
       const keepNums = opts && opts.keepNums;
       const { h, m } = to24(state.h12, state.m, state.isPm);
-      partH.textContent = pad(h);
-      partM.textContent = pad(m);
+      suppressReadout = true;
+      if (document.activeElement !== partH) partH.value = pad(h);
+      if (document.activeElement !== partM) partM.value = pad(m);
+      suppressReadout = false;
       partH.classList.toggle('active', state.step === 'hour' || state.step === 'ampm');
       partM.classList.toggle('active', state.step === 'minute');
-      /* Hour hand advances with minutes so it stays true to the readout. */
       const hAngle = ((state.h12 % 12) / 12) * 360 + (state.m / 60) * 30;
       const mAngle = state.m * 6;
       handH.style.transform = `rotate(${hAngle}deg)`;
       handM.style.transform = `rotate(${mAngle}deg)`;
       handH.classList.toggle('dragging', dragging && (state.step === 'hour' || state.step === 'ampm'));
       handM.classList.toggle('dragging', dragging && state.step === 'minute');
-      /* Dim the idle hand so minute selection is not read off the hour hand. */
       handH.classList.toggle('dim', state.step === 'minute');
       handM.classList.toggle('dim', state.step === 'hour' || state.step === 'ampm');
 
@@ -246,7 +270,7 @@ input.ccp-bound{cursor:pointer}
         clearDecor();
         if (state.step === 'hour') {
           stepEl.textContent = 'Select hour';
-          hintEl.textContent = 'Tap a number, drag the hand, or scroll the hour above';
+          hintEl.textContent = 'Type HH above, tap a number, drag the hand, or scroll';
           ampmRow.hidden = true;
           ampmRow.style.display = 'none';
           placeNums(12, (i) => (i === 0 ? 12 : i));
@@ -261,7 +285,7 @@ input.ccp-bound{cursor:pointer}
           });
         } else if (state.step === 'minute') {
           stepEl.textContent = 'Select minutes (0–59)';
-          hintEl.textContent = 'Small 5-min labels — tap face / drag between them for any minute';
+          hintEl.textContent = 'Type MM above, or tap / drag the face for any minute';
           ampmRow.hidden = true;
           ampmRow.style.display = 'none';
           placeMinuteTicks();
@@ -277,42 +301,35 @@ input.ccp-bound{cursor:pointer}
             };
           });
         } else {
-          stepEl.textContent = 'Select AM / PM';
-          hintEl.textContent = 'Scroll or click HH:MM above anytime to fine-tune';
+          stepEl.textContent = 'AM or PM';
+          hintEl.textContent = 'Confirm morning or afternoon, then Set';
           ampmRow.hidden = false;
-          ampmRow.style.display = 'flex';
+          ampmRow.style.display = '';
           placeNums(12, (i) => (i === 0 ? 12 : i));
           face.querySelectorAll('.ccp-num').forEach((n) => {
             n.classList.toggle('active', Number(n.dataset.val) === state.h12);
             n.onclick = (ev) => {
               ev.stopPropagation();
               state.h12 = Number(n.dataset.val);
-              refresh();
-            };
-          });
-          ampmRow.querySelectorAll('button').forEach((b) => {
-            const pm = b.dataset.ampm === 'pm';
-            b.classList.toggle('active', pm === state.isPm);
-            b.onclick = () => {
-              state.isPm = pm;
-              refresh();
+              refresh({ keepNums: true });
             };
           });
         }
-      } else if (state.step === 'minute') {
+      } else if (state.step === 'minute' || state.step === 'hour') {
         face.querySelectorAll('.ccp-num').forEach((n) => {
-          n.classList.toggle('active', Number(n.dataset.val) === state.m);
+          const v = Number(n.dataset.val);
+          n.classList.toggle('active', state.step === 'minute' ? v === state.m : v === state.h12);
         });
-      } else {
-        face.querySelectorAll('.ccp-num').forEach((n) => {
-          n.classList.toggle('active', Number(n.dataset.val) === state.h12);
-        });
-        if (state.step === 'ampm') {
-          ampmRow.querySelectorAll('button').forEach((b) => {
-            b.classList.toggle('active', (b.dataset.ampm === 'pm') === state.isPm);
-          });
-        }
       }
+
+      ampmRow.querySelectorAll('button').forEach((b) => {
+        const pm = b.getAttribute('data-ampm') === 'pm';
+        b.classList.toggle('active', pm === state.isPm);
+        b.onclick = () => {
+          state.isPm = pm;
+          refresh({ keepNums: true });
+        };
+      });
     }
 
     function nudge(part, delta) {
@@ -332,15 +349,61 @@ input.ccp-bound{cursor:pointer}
       refresh();
     }
 
-    partH.addEventListener('click', (ev) => {
-      ev.stopPropagation();
+    function applyHourTyped() {
+      const raw = String(partH.value || '').replace(/\D/g, '');
+      if (!raw) return;
+      let h = Number(raw);
+      if (!Number.isFinite(h)) return;
+      if (h >= 0 && h <= 23) {
+        state.isPm = h >= 12;
+        let h12 = h % 12;
+        if (h12 === 0) h12 = 12;
+        state.h12 = h12;
+      } else {
+        state.h12 = clampHour12(h);
+      }
+      refresh({ keepNums: true });
+    }
+
+    function applyMinuteTyped() {
+      const raw = String(partM.value || '').replace(/\D/g, '');
+      if (raw === '') return;
+      state.m = clampMinute(Number(raw));
+      refresh({ keepNums: true });
+    }
+
+    partH.addEventListener('focus', () => {
       state.step = 'hour';
-      refresh();
+      refresh({ keepNums: true });
+      try { partH.select(); } catch (_) {}
     });
-    partM.addEventListener('click', (ev) => {
-      ev.stopPropagation();
+    partM.addEventListener('focus', () => {
       state.step = 'minute';
-      refresh();
+      refresh({ keepNums: true });
+      try { partM.select(); } catch (_) {}
+    });
+    partH.addEventListener('input', () => {
+      if (suppressReadout) return;
+      applyHourTyped();
+    });
+    partM.addEventListener('input', () => {
+      if (suppressReadout) return;
+      applyMinuteTyped();
+    });
+    partH.addEventListener('change', applyHourTyped);
+    partM.addEventListener('change', applyMinuteTyped);
+    partH.addEventListener('keydown', (ev) => {
+      if (ev.key === 'ArrowUp') { ev.preventDefault(); nudge('hour', -1); }
+      if (ev.key === 'ArrowDown') { ev.preventDefault(); nudge('hour', 1); }
+      if (ev.key === 'Enter') { ev.preventDefault(); partM.focus(); }
+    });
+    partM.addEventListener('keydown', (ev) => {
+      if (ev.key === 'ArrowUp') { ev.preventDefault(); nudge('minute', -1); }
+      if (ev.key === 'ArrowDown') { ev.preventDefault(); nudge('minute', 1); }
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        if (state.step === 'minute') { state.step = 'ampm'; refresh(); }
+      }
     });
 
     function onWheel(ev, part) {
@@ -373,7 +436,7 @@ input.ccp-bound{cursor:pointer}
       setFromAngle(angleFromEvent(face, ev));
       ev.preventDefault();
     }
-    function pointerUp(ev) {
+    function pointerUp() {
       if (!dragging) return;
       dragging = false;
       handH.classList.remove('dragging');
@@ -392,26 +455,32 @@ input.ccp-bound{cursor:pointer}
     window.addEventListener('mouseup', pointerUp);
     window.addEventListener('touchend', pointerUp);
 
-    overlay.addEventListener('click', (ev) => {
-      if (ev.target === overlay) {
-        window.removeEventListener('mousemove', pointerMove);
-        window.removeEventListener('touchmove', pointerMove);
-        window.removeEventListener('mouseup', pointerUp);
-        window.removeEventListener('touchend', pointerUp);
-        close();
-      }
-    });
-    overlay.querySelector('[data-ccp-cancel]').onclick = () => {
-      window.removeEventListener('mousemove', pointerMove);
-      window.removeEventListener('touchmove', pointerMove);
-      window.removeEventListener('mouseup', pointerUp);
-      window.removeEventListener('touchend', pointerUp);
+    function finish(commit) {
+      if (commit) writeValue(el, state);
       close();
-    };
+      try { el.blur(); } catch (_) {}
+    }
+
+    function onKey(ev) {
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        ev.stopPropagation();
+        finish(false);
+      }
+    }
+    window.addEventListener('keydown', onKey, true);
+
+    overlay.addEventListener('click', (ev) => {
+      if (ev.target === overlay) finish(false);
+    });
+    overlay.querySelector('[data-ccp-cancel]').onclick = () => finish(false);
     overlay.querySelector('[data-ccp-ok]').onclick = () => {
+      applyHourTyped();
+      applyMinuteTyped();
       if (state.step === 'hour') {
         state.step = 'minute';
         refresh();
+        try { partM.focus(); } catch (_) {}
         return;
       }
       if (state.step === 'minute') {
@@ -419,22 +488,24 @@ input.ccp-bound{cursor:pointer}
         refresh();
         return;
       }
-      writeValue(el, state);
-      window.removeEventListener('mousemove', pointerMove);
-      window.removeEventListener('touchmove', pointerMove);
-      window.removeEventListener('mouseup', pointerUp);
-      window.removeEventListener('touchend', pointerUp);
-      close();
+      finish(true);
     };
 
-    active = { overlay, el };
+    active = {
+      overlay,
+      el,
+      listeners: { pointerMove, pointerUp, onKey },
+    };
     refresh();
+    try { partH.focus(); partH.select(); } catch (_) {}
   }
 
   function bindInput(el) {
     if (!el || el.dataset.ccpBound === '1') return;
     el.dataset.ccpBound = '1';
     el.classList.add('ccp-bound');
+    /* Keep native field read-only so the OS time popup does not fight the ship clock.
+       Typing happens in the dialog HH:MM boxes. */
     el.setAttribute('readonly', 'readonly');
     el.addEventListener('click', (ev) => {
       ev.preventDefault();
@@ -455,6 +526,15 @@ input.ccp-bound{cursor:pointer}
   function install() {
     ensureCss();
     enhance(document);
+    if (!document.documentElement._ccpEscBound) {
+      document.documentElement._ccpEscBound = true;
+      /* Safety net: Escape always clears a stuck overlay even if active was lost. */
+      window.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Escape') return;
+        if (!document.querySelector('.ccp-overlay')) return;
+        close();
+      }, true);
+    }
     const mo = new MutationObserver((muts) => {
       for (const m of muts) {
         m.addedNodes && m.addedNodes.forEach((n) => {
@@ -468,5 +548,5 @@ input.ccp-bound{cursor:pointer}
     mo.observe(document.documentElement, { childList: true, subtree: true });
   }
 
-  global.ChengClockPicker = { open, bindInput, enhance, install, to24, parseValue };
+  global.ChengClockPicker = { install, enhance, open, close, bindInput };
 })(typeof window !== 'undefined' ? window : globalThis);
