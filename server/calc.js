@@ -107,11 +107,33 @@ const PREFERRED_INCREMENTS = PREFERRED_INCREMENTS_MM;
  *
  * Explicit `tank.soundingUnit` ('mm' | 'm' | 'cm') always wins.
  */
+function normalizeLengthUnit(unit) {
+  const u = String(unit == null ? '' : unit).trim().toLowerCase();
+  if (u === 'mm' || u === 'millimetre' || u === 'millimeter' || u === 'millimeters') return 'mm';
+  if (u === 'cm' || u === 'centimetre' || u === 'centimeter' || u === 'centimeters') return 'cm';
+  if (u === 'm' || u === 'metre' || u === 'meter' || u === 'meters' || u === 'metres') return 'm';
+  return null;
+}
+
+/** Millimetres per named length unit — for converting trim/heel ↔ sounding axes. */
+const MM_PER_UNIT = { mm: 1, cm: 10, m: 1000 };
+
+/**
+ * Convert a length between mm / cm / m.
+ * Example: lengthToUnit(9, 'mm', 'm') → 0.009; lengthToUnit(120, 'cm', 'm') → 1.2
+ */
+function lengthToUnit(value, fromUnit, toUnit) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return v;
+  const from = normalizeLengthUnit(fromUnit) || 'mm';
+  const to = normalizeLengthUnit(toUnit) || 'mm';
+  if (from === to) return v;
+  return (v * MM_PER_UNIT[from]) / MM_PER_UNIT[to];
+}
+
 function detectSoundingUnit(tank) {
-  const explicit = tank && tank.soundingUnit != null
-    ? String(tank.soundingUnit).trim().toLowerCase()
-    : '';
-  if (explicit === 'mm' || explicit === 'm' || explicit === 'cm') return explicit;
+  const explicit = normalizeLengthUnit(tank && tank.soundingUnit);
+  if (explicit) return explicit;
 
   const nums = [];
   for (const axis of [tank && tank.trimAxis, tank && tank.listAxis, tank && tank.volumeCurve && tank.volumeCurve.x]) {
@@ -134,13 +156,74 @@ function detectSoundingUnit(tank) {
 }
 
 /**
+ * Detect the unit of trim/heel *length correction values* (may differ from the
+ * sounding axis). E.g. sounding table in metres while heel/trim corrections
+ * are tabulated in millimetres.
+ *
+ * Explicit `tank.correctionUnit` (or trimCorrectionUnit / heelCorrectionUnit)
+ * always wins. Otherwise infer from correction-grid magnitudes vs sounding unit.
+ */
+function detectCorrectionUnit(tank, soundingUnit) {
+  const explicit = normalizeLengthUnit(tank && tank.correctionUnit)
+    || normalizeLengthUnit(tank && tank.trimCorrectionUnit)
+    || normalizeLengthUnit(tank && tank.heelCorrectionUnit);
+  if (explicit) return explicit;
+
+  const su = normalizeLengthUnit(soundingUnit) || detectSoundingUnit(tank);
+  const samples = [];
+  for (const grid of [tank && tank.trimGrid, tank && tank.listGrid]) {
+    if (!Array.isArray(grid)) continue;
+    for (let i = 0; i < grid.length; i++) {
+      const row = grid[i];
+      if (!Array.isArray(row)) continue;
+      for (let j = 0; j < row.length; j++) {
+        const n = Number(row[j]);
+        if (Number.isFinite(n) && Math.abs(n) > 1e-9) samples.push(Math.abs(n));
+      }
+    }
+  }
+  if (!samples.length) return su;
+
+  samples.sort((a, b) => a - b);
+  const maxAbs = samples[samples.length - 1];
+  const median = samples[Math.floor(samples.length / 2)];
+
+  // Sounding in metres: corrections that look like whole millimetres (9, 14, 120…)
+  // must be converted (÷1000) before adding to the metre sounding.
+  if (su === 'm') {
+    if (median >= 0.5 || maxAbs > 1) return 'mm';
+    return 'm';
+  }
+  // Sounding in cm: large integer corrections are often mm sticks.
+  if (su === 'cm') {
+    if (median >= 10 && maxAbs >= 50) return 'mm';
+    return 'cm';
+  }
+  // Sounding in mm — corrections share mm (Veniamis-style, often with a divisor).
+  return 'mm';
+}
+
+/**
+ * Apply a signed length correction onto a sounding, converting correction-table
+ * units into the sounding-table unit. Sign is already in `corrRaw` (positive
+ * adds, negative subtracts). `divisor` scales raw table values (Excel ×10 books).
+ */
+function applyLengthCorrection(sounding, corrRaw, divisor, correctionUnit, soundingUnit) {
+  const raw = Number(corrRaw);
+  if (!Number.isFinite(raw) || raw === 0) return Number(sounding) || 0;
+  const native = raw / (Number(divisor) > 0 ? Number(divisor) : 1);
+  const delta = lengthToUnit(native, correctionUnit, soundingUnit);
+  return (Number(sounding) || 0) + delta;
+}
+
+/**
  * UI soundings are entered in centimetres. Convert cm → native table units.
  */
 function cmToTableUnits(cm, unitOrTank) {
   const v = Number(cm);
   if (!Number.isFinite(v)) return v;
   const unit = typeof unitOrTank === 'string'
-    ? unitOrTank
+    ? (normalizeLengthUnit(unitOrTank) || unitOrTank)
     : detectSoundingUnit(unitOrTank);
   if (unit === 'm') return v / 100;
   if (unit === 'cm') return v;
@@ -152,7 +235,7 @@ function tableUnitsToCm(tableVal, unitOrTank) {
   const v = Number(tableVal);
   if (!Number.isFinite(v)) return v;
   const unit = typeof unitOrTank === 'string'
-    ? unitOrTank
+    ? (normalizeLengthUnit(unitOrTank) || unitOrTank)
     : detectSoundingUnit(unitOrTank);
   if (unit === 'm') return v * 100;
   if (unit === 'cm') return v;
@@ -228,6 +311,7 @@ function bilinearInterpInc(xAxis, yAxis, grid, x, y, xInc) {
 /** Resolve sounding / heel increments from tank metadata or axis spacing. */
 function resolveIncrements(tank) {
   const unit = detectSoundingUnit(tank);
+  const correctionUnit = detectCorrectionUnit(tank, unit);
   const soundingInc = Number(tank.soundingIncrement) > 0
     ? Number(tank.soundingIncrement)
     : detectIncrement(tank.trimAxis, unit);
@@ -236,7 +320,7 @@ function resolveIncrements(tank) {
     : (tank.listAxis && tank.listAxis.length
       ? detectIncrement(tank.listAxis, unit)
       : soundingInc);
-  return { soundingInc, heelInc, soundingUnit: unit };
+  return { soundingInc, heelInc, soundingUnit: unit, correctionUnit };
 }
 
 /**
@@ -343,15 +427,21 @@ function fromTableReading(tank, tableReading, entryMethod) {
  *
  *   'correction' — direct sounding correction
  *     Heel/list table is a length correction (mm / cm / m). Apply it to the
- *     sounding first (sign already in the table), then either:
+ *     sounding first (sign already in the table, converted into sounding-table
+ *     units), then either:
  *       • length trim correction + volume curve, or
  *       • trim × volume grid at the heel-corrected sounding (m³ final).
  *
  *   'trimHeel' — trim-heel correction
- *     Interpolate trim length correction on the original table sounding and
- *     add/subtract it; interpolate heel length correction on that new sounding
- *     and add/subtract it; look up the capacity / volume table at the final
- *     corrected sounding.
+ *     Interpolate trim AND heel length corrections both at the original table
+ *     sounding, convert each into sounding-table units, then
+ *       corrected = original ± trim ± heel
+ *     (sign already in the interpolated values). Look up the capacity / volume
+ *     table at that corrected sounding.
+ *     Sounding input is always centimetres; sounding / correction tables may
+ *     independently be mm, cm, or m — e.g.
+ *       1.207 m = 120 cm + 9 mm − 2 mm
+ *              = 1.2 m + 0.009 m − 0.002 m
  *
  *   'direct' — direct volume correction
  *     Heel/list table is a volume correction (m³). Interpolate heel volume and
@@ -400,7 +490,7 @@ function computeTank(tank, inputs) {
   // Trim is the direct table column key — never scale/multiply it for lookup.
   const tableTrim = Number(trim) || 0;
 
-  const { soundingInc, heelInc, soundingUnit } = resolveIncrements(tank);
+  const { soundingInc, heelInc, soundingUnit, correctionUnit } = resolveIncrements(tank);
   const method = entryMethod || tank.soundingMethod || 'sounding';
   const approach = calcApproachOf(tank.calcType);
 
@@ -412,6 +502,7 @@ function computeTank(tank, inputs) {
 
   let trimCorr = 0, listCorr = 0, corrected = reading;
   let trimVolume = null, heelVolume = null;
+  let trimCorrApplied = null, heelCorrApplied = null;
 
   if (gaugeType === 'volume') {
     // Volume gauge: the reading IS the observed volume already -- no interpolation.
@@ -420,10 +511,7 @@ function computeTank(tank, inputs) {
     var soundingBottomOut = reading;
   } else if (tank.calcType === 'correction') {
     // Direct sounding correction (length heel → corrected sounding → volume):
-    //   1) convert entry reading to table scale (sounding-from-bottom when needed)
-    //   2) heel/list length correction at that sounding (÷ divisor)
-    //   3a) with volume curve: length trim correction, then volume curve
-    //   3b) without: trim × volume grid at the heel-corrected sounding (m³)
+    // Length corrections are converted into sounding-table units before adding.
     const tableReading = toTableReading(tank, reading, method);
     corrected = tableReading;
 
@@ -431,14 +519,16 @@ function computeTank(tank, inputs) {
       listCorr = bilinearInterpInc(
         tank.listAxis, tank.listVals, tank.listGrid, corrected, list, heelInc
       );
-      corrected = corrected + listCorr / divisor;
+      heelCorrApplied = lengthToUnit(listCorr / divisor, correctionUnit, soundingUnit);
+      corrected = applyLengthCorrection(corrected, listCorr, divisor, correctionUnit, soundingUnit);
     }
 
     if (tank.volumeCurve && Array.isArray(tank.volumeCurve.x) && tank.volumeCurve.x.length) {
       trimCorr = bilinearInterpInc(
         tank.trimAxis, tank.trimVals, tank.trimGrid, corrected, tableTrim, soundingInc
       );
-      corrected = corrected + trimCorr / divisor;
+      trimCorrApplied = lengthToUnit(trimCorr / divisor, correctionUnit, soundingUnit);
+      corrected = applyLengthCorrection(corrected, trimCorr, divisor, correctionUnit, soundingUnit);
       var volumeObserved = linearInterp(tank.volumeCurve.x, tank.volumeCurve.v, corrected);
     } else {
       volumeObserved = bilinearInterpInc(
@@ -451,34 +541,39 @@ function computeTank(tank, inputs) {
       ? corrected
       : ((Number(tank.pipeHeight) || 0) > 0 ? (Number(tank.pipeHeight) - corrected) : corrected);
   } else if (isTrimHeelType(tank.calcType)) {
-    // Trim-heel correction:
-    //   1) table-scale reading
-    //   2) trim length correction on original sounding → new sounding
-    //   3) heel length correction on that new sounding → final sounding
-    //   4) capacity / volume table at the final sounding
+    // Trim-heel correction — both length corrections at the ORIGINAL sounding,
+    // converted into sounding-table units, then capacity/volume lookup:
+    //   corrected = original ± trim ± heel
     const tableReading = toTableReading(tank, reading, method);
-    corrected = tableReading;
 
     trimCorr = bilinearInterpInc(
-      tank.trimAxis, tank.trimVals, tank.trimGrid, corrected, tableTrim, soundingInc
+      tank.trimAxis, tank.trimVals, tank.trimGrid, tableReading, tableTrim, soundingInc
     );
-    corrected = corrected + trimCorr / divisor;
+    trimCorrApplied = lengthToUnit(trimCorr / divisor, correctionUnit, soundingUnit);
 
     if (tank.listAxis && tank.listAxis.length) {
       listCorr = bilinearInterpInc(
-        tank.listAxis, tank.listVals, tank.listGrid, corrected, list, heelInc
+        tank.listAxis, tank.listVals, tank.listGrid, tableReading, list, heelInc
       );
-      corrected = corrected + listCorr / divisor;
+      heelCorrApplied = lengthToUnit(listCorr / divisor, correctionUnit, soundingUnit);
+    } else {
+      heelCorrApplied = 0;
     }
+
+    corrected = tableReading
+      + (trimCorrApplied || 0)
+      + (heelCorrApplied || 0);
 
     if (tank.volumeCurve && Array.isArray(tank.volumeCurve.x) && tank.volumeCurve.x.length) {
       volumeObserved = linearInterp(tank.volumeCurve.x, tank.volumeCurve.v, corrected);
-    } else {
-      // No dedicated capacity curve — fall back to trim×volume at final sounding.
+    } else if (tank.trimGrid && tank.trimAxis) {
+      // No dedicated capacity curve — treat trim grid as volume at corrected sounding.
       volumeObserved = bilinearInterpInc(
         tank.trimAxis, tank.trimVals, tank.trimGrid, corrected, tableTrim, soundingInc
       );
       trimVolume = volumeObserved;
+    } else {
+      volumeObserved = 0;
     }
     correctedReadingOut = fromTableReading(tank, corrected, method);
     soundingBottomOut = tablesUseSounding(tank)
@@ -524,10 +619,13 @@ function computeTank(tank, inputs) {
     gaugeType,
     calcApproach: approach,
     soundingUnit,
+    correctionUnit,
     soundingIncrement: soundingInc,
     heelIncrement: heelInc,
     trimCorrection: trimCorr,
     listCorrection: listCorr,
+    trimCorrectionApplied: trimCorrApplied,
+    heelCorrectionApplied: heelCorrApplied,
     trimVolume,
     heelVolume,
     correctedReading: correctedReadingOut,
@@ -754,6 +852,10 @@ module.exports = {
   bilinearInterpInc,
   detectIncrement,
   detectSoundingUnit,
+  detectCorrectionUnit,
+  normalizeLengthUnit,
+  lengthToUnit,
+  applyLengthCorrection,
   cmToTableUnits,
   tableUnitsToCm,
   calcApproachOf,

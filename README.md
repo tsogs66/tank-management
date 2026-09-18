@@ -9,7 +9,7 @@ Multi-vessel web app for fuel tank sounding (double interpolation + ASTM 54B), e
 ## Features
 
 - **Multi-vessel database** — each vessel stored under `data/vessels/<id>/`
-- **Tank sounding calculator** — three approaches: sounding correction (heel → volume), trim-heel correction (trim → heel → volume table), and volume correction (trim m³ − heel m³); auto-detects mm vs metre table axes; ASTM Table 54B VCF + WCF
+- **Tank sounding calculator** — three approaches: sounding correction (heel → volume), trim-heel correction (trim+heel at original → volume table, mm/cm/m aware), and volume correction (trim m³ − heel m³); auto-detects table axis units; ASTM Table 54B VCF + WCF
 - **Editable calibration DB** — correct trim/list grids and volume curves manually
 - **PDF table import** — extract sounding / trim tables from capacity-book PDFs into a tank’s calibration grid
 - **Add tanks** — storage, settling, service (also overflow/other); CSV import template included
