@@ -6,6 +6,7 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 const WIN_EXTRA_PATHS = [
   'C:\\Program Files\\Tesseract-OCR',
@@ -75,9 +76,45 @@ function pythonCandidates() {
   return [...bundled, ...abs, 'python', 'py'];
 }
 
+/**
+ * Electron packs the app into app.asar. asarUnpack copies Python scripts to
+ * app.asar.unpacked, but __dirname still points inside the archive. Node can
+ * read asar paths; a spawned Python cannot. Rewrite to the unpacked twin, or
+ * copy the script to a real temp file as a last resort.
+ */
+function resolveChildProcessPath(filePath) {
+  if (typeof filePath !== 'string' || !filePath) return filePath;
+  /* Path segment app.asar → app.asar.unpacked (keep leading separator). */
+  const unpacked = filePath.replace(/(^|[/\\])app\.asar(?=[/\\]|$)/g, '$1app.asar.unpacked');
+  if (unpacked !== filePath && existing(unpacked)) return unpacked;
+  if (!/(^|[/\\])app\.asar(?=[/\\]|$)/.test(filePath)) return filePath;
+  /* Still an asar virtual path — materialize for the child process. */
+  try {
+    if (!existing(filePath) && !existing(unpacked)) return unpacked !== filePath ? unpacked : filePath;
+    const src = existing(unpacked) ? unpacked : filePath;
+    const dest = path.join(
+      os.tmpdir(),
+      `cheng-py-${path.basename(src).replace(/[^a-zA-Z0-9._-]+/g, '-')}`
+    );
+    fs.copyFileSync(src, dest);
+    return dest;
+  } catch {
+    return unpacked !== filePath ? unpacked : filePath;
+  }
+}
+
+function rewriteSpawnArgs(args) {
+  return (args || []).map((arg) => {
+    if (typeof arg !== 'string') return arg;
+    if (!/\.(py|xlsx|xlsm|pdf)$/i.test(arg) && !arg.includes('app.asar')) return arg;
+    return resolveChildProcessPath(arg);
+  });
+}
+
 function spawnPython(args, opts = {}) {
   const candidates = pythonCandidates();
   const onStderrLine = typeof opts.onStderrLine === 'function' ? opts.onStderrLine : null;
+  const resolvedArgs = rewriteSpawnArgs(args);
 
   return new Promise((resolve, reject) => {
     const env = enrichedEnv();
@@ -96,7 +133,7 @@ function spawnPython(args, opts = {}) {
       const cmd = candidates[idx++];
       tried.push(cmd);
       let settled = false;
-      const spawnArgs = cmd === 'py' ? ['-3', ...args] : args;
+      const spawnArgs = cmd === 'py' ? ['-3', ...resolvedArgs] : resolvedArgs;
       const child = spawn(cmd, spawnArgs, {
         env,
         maxBuffer: opts.maxBuffer || 64 * 1024 * 1024,
@@ -144,6 +181,7 @@ function spawnPythonProcess(args, opts = {}) {
   const candidates = pythonCandidates();
   const env = { ...enrichedEnv(), ...(opts.env || {}) };
   const tried = [];
+  const resolvedArgs = rewriteSpawnArgs(args);
 
   return new Promise((resolve, reject) => {
     let idx = 0;
@@ -159,7 +197,7 @@ function spawnPythonProcess(args, opts = {}) {
       }
       const cmd = candidates[idx++];
       tried.push(cmd);
-      const spawnArgs = cmd === 'py' ? ['-3', ...args] : args;
+      const spawnArgs = cmd === 'py' ? ['-3', ...resolvedArgs] : resolvedArgs;
       let settled = false;
       let child;
       try {
@@ -200,4 +238,11 @@ function spawnPythonProcess(args, opts = {}) {
   });
 }
 
-module.exports = { spawnPython, spawnPythonProcess, enrichedEnv, pythonCandidates };
+module.exports = {
+  spawnPython,
+  spawnPythonProcess,
+  enrichedEnv,
+  pythonCandidates,
+  resolveChildProcessPath,
+  rewriteSpawnArgs,
+};

@@ -2021,20 +2021,36 @@ app.post('/api/vessels/:id/tanks/import-csv', upload.single('file'), asyncHandle
       }
 
       /* FLAG EVI dual-sheet (Trim Correction + Heeling Correction) first. */
+      let flagErrLast = null;
       try {
         const flagParsed = await flagEviXlsx.parseFlagEviXlsx(req.file.buffer);
         if (flagParsed?.format === 'flag-evi-xlsx' && (flagParsed.tanks || []).length) {
           return res.json(applyWorkbookTanks(flagParsed, { defaultFormat: 'flag-evi-xlsx' }));
         }
       } catch (flagErr) {
-        /* Not FLAG EVI — fall through to Giorgis lube parser. */
-        if (/FLAG EVI|Trim Correction|Heeling Correction/i.test(String(flagErr.message || ''))) {
-          /* keep message only when clearly the wrong shape and lube also fails */
+        flagErrLast = flagErr;
+        /* Not FLAG EVI — fall through to Giorgis lube parser unless the file
+           clearly is a Trim+Heeling workbook (or named like one). Masking that
+           as a lube parse error hid empty/asar Python failures on Windows. */
+        const hint = `${filename} ${flagErr && flagErr.message ? flagErr.message : ''}`;
+        if (/flag\s*evi|trim\s*correction|heeling\s*correction|fo\s*tanks?/i.test(hint)) {
+          return res.status(400).json({
+            error: flagErr.message || 'FLAG EVI workbook import failed',
+          });
         }
       }
 
-      const parsed = await giorgisLubeXlsx.parseGiorgisLubeXlsx(req.file.buffer);
-      return res.json(applyWorkbookTanks(parsed, { forceCategory: 'lube', defaultFormat: 'giorgis-lube-xlsx' }));
+      try {
+        const parsed = await giorgisLubeXlsx.parseGiorgisLubeXlsx(req.file.buffer);
+        return res.json(applyWorkbookTanks(parsed, { forceCategory: 'lube', defaultFormat: 'giorgis-lube-xlsx' }));
+      } catch (lubeErr) {
+        if (flagErrLast) {
+          return res.status(400).json({
+            error: flagErrLast.message || lubeErr.message || 'Workbook import failed',
+          });
+        }
+        throw lubeErr;
+      }
     }
 
     const text = req.file

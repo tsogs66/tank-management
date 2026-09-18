@@ -23,6 +23,11 @@ async function parseFlagEviXlsx(buffer) {
     });
     let parsed;
     try {
+      if (!String(out || '').trim()) {
+        throw new Error(err && String(err).trim()
+          ? String(err).trim().split('\n').slice(-3).join(' ')
+          : 'Importer produced no output (Python script missing or not readable outside the app package)');
+      }
       parsed = JSON.parse(out);
     } catch (e) {
       throw new Error(`Failed to parse FLAG EVI workbook output: ${e.message}`);
