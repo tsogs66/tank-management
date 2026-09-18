@@ -192,20 +192,37 @@ function fuelTanks(bundle) {
 }
 
 /**
- * UI soundings are entered in centimetres; calibration tables and stored
- * readings stay in millimetres (the native table axis).
+ * UI soundings are entered in centimetres. Calibration tables and stored
+ * readings use the table's native axis units (mm common; metres when the
+ * depth/ullage column has decimals). Helpers accept an optional tank so the
+ * conversion matches detectSoundingUnit().
  */
 const SOUNDING_MM_PER_CM = 10;
-function mmToCm(mm) {
+function soundingUnitOf(tank) {
+  if (typeof detectSoundingUnit === 'function') return detectSoundingUnit(tank);
+  if (calc && typeof calc.detectSoundingUnit === 'function') return calc.detectSoundingUnit(tank);
+  return 'mm';
+}
+function mmToCm(mm, tank) {
   const v = num(mm);
-  return v == null ? null : round(v / SOUNDING_MM_PER_CM, 2);
+  if (v == null) return null;
+  if (tank != null && typeof tableUnitsToCm === 'function') return round(tableUnitsToCm(v, tank), 4);
+  if (tank != null && calc && typeof calc.tableUnitsToCm === 'function') {
+    return round(calc.tableUnitsToCm(v, tank), 4);
+  }
+  return round(v / SOUNDING_MM_PER_CM, 2);
 }
-function cmToMm(cm) {
+function cmToMm(cm, tank) {
   const v = num(cm);
-  return v == null ? null : round(v * SOUNDING_MM_PER_CM, 1);
+  if (v == null) return null;
+  if (tank != null && typeof cmToTableUnits === 'function') return round(cmToTableUnits(v, tank), 4);
+  if (tank != null && calc && typeof calc.cmToTableUnits === 'function') {
+    return round(calc.cmToTableUnits(v, tank), 4);
+  }
+  return round(v * SOUNDING_MM_PER_CM, 1);
 }
-function formatCm(mm) {
-  const cm = mmToCm(mm);
+function formatCm(mm, tank) {
+  const cm = mmToCm(mm, tank);
   return cm == null ? '' : String(cm);
 }
 
@@ -345,6 +362,7 @@ function computeRow(tank, rowForm, ctx) {
     side: tank.side || '',
     fuelRole: tank.fuelRole || '',
     calcType: tank.calcType || 'direct',
+    soundingUnit: soundingUnitOf(tank),
     tankGrade: tank.fuelGrade || '',
     section,
     homeSection: sectionForTank(tank),
@@ -665,6 +683,7 @@ return {
   sectionForRow,
   densityFromUnit,
   SOUNDING_MM_PER_CM,
+  soundingUnitOf,
   mmToCm,
   cmToMm,
   formatCm,

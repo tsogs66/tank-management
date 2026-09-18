@@ -222,7 +222,7 @@ const FuelReport = (() => {
       return `<tr data-tank="${esc(row.tankId)}">
         <th class="fr-tank-name">${esc(row.name)}<span class="fr-move" data-fr-move="${esc(row.tankId)}"></span></th>
         <td><select data-row="${esc(row.tankId)}" data-field="fuelType">${typeOpts}</select></td>
-        <td><input type="number" step="any" data-row="${esc(row.tankId)}" data-field="reading" data-sheet-popup="actual" value="${esc(Core.formatCm(row.reading))}"></td>
+        <td><input type="number" step="any" data-row="${esc(row.tankId)}" data-field="reading" data-sheet-popup="actual" value="${esc(Core.formatCm(row.reading, { soundingUnit: row.soundingUnit }))}"></td>
         <td><select data-row="${esc(row.tankId)}" data-field="method">${methodOpts}</select></td>
         <td><input type="number" step="any" class="fr-narrow" data-row="${esc(row.tankId)}" data-field="tempC" value="${esc(f.tempC)}"></td>
         <td><input type="number" step="any" class="fr-wide" data-row="${esc(row.tankId)}" data-field="unitValue" data-sheet-popup="sg" value="${esc(f.unitValue)}"></td>
@@ -672,7 +672,9 @@ const FuelReport = (() => {
         const moves = el.dataset.field === 'fuelType'
           && sectionWouldChange(view.computed, row, el.dataset.row, el.value);
         if (el.dataset.field === 'reading') {
-          row.reading = Core.cmToMm(el.value);
+          const hint = { soundingUnit: (view.computed?.sections || [])
+            .flatMap((s) => s.rows).find((r) => r.tankId === el.dataset.row)?.soundingUnit || 'mm' };
+          row.reading = Core.cmToMm(el.value, hint);
           row.unit = 'den15';
         } else if (el.dataset.field === 'unitValue') {
           row.unitValue = el.value;
@@ -919,7 +921,7 @@ const FuelReport = (() => {
     const rows = section.rows.map((r) => `<tr>
       <td class="fr-print-name">${esc(r.name)}${r.moved ? ' *' : ''}</td>
       <td class="fr-print-label">${esc(r.fuelTypeLabel)}</td>
-      <td>${n(Core.mmToCm(r.reading), 1)}</td>
+      <td>${n(Core.mmToCm(r.reading, { soundingUnit: r.soundingUnit }), 1)}</td>
       <td class="fr-print-label">${esc(r.methodLabel)}</td>
       <td>${n(r.tempC, 1)}</td>
       <td>${n(r.capacity100M3, 1)}</td>
@@ -1017,7 +1019,7 @@ const FuelReport = (() => {
     const rows = section.rows.map((r) => `<tr>
       <td class="fr-print-name">${esc(r.name)}${r.moved ? ' *' : ''}</td>
       <td class="fr-print-label">${esc(r.fuelTypeLabel)}</td>
-      <td>${n(Core.mmToCm(r.reading), 1)}</td>
+      <td>${n(Core.mmToCm(r.reading, { soundingUnit: r.soundingUnit }), 1)}</td>
       <td class="fr-print-label">${esc(r.methodLabel)}</td>
       <td>${n(r.tempC, 1)}</td>
       <td>${n(r.capacity100M3, 1)}</td>
@@ -1241,7 +1243,7 @@ const FuelReport = (() => {
         const t = r.trace;
         rows.push(`<tr>
           <td class="fr-print-name">${esc(r.name)}</td>
-          <td>${esc(r.methodLabel)} ${n(Core.mmToCm(r.reading), 1)}</td>
+          <td>${esc(r.methodLabel)} ${n(Core.mmToCm(r.reading, { soundingUnit: r.soundingUnit }), 1)}</td>
           <td>${t.flipped ? `${esc(t.nativeMethod)} ${n(t.nativeReading, 0)}` : 'as read'}</td>
           <td>${corrCell(r, t.trimCorrection)}</td>
           <td>${corrCell(r, t.listCorrection)}</td>
@@ -1277,7 +1279,7 @@ const FuelReport = (() => {
         const t = r.trace;
         rows.push(`<tr>
           <td class="fr-print-name">${esc(r.name)}</td>
-          <td>${esc(r.methodLabel)} ${n(Core.mmToCm(r.reading), 1)}</td>
+          <td>${esc(r.methodLabel)} ${n(Core.mmToCm(r.reading, { soundingUnit: r.soundingUnit }), 1)}</td>
           <td>${t.flipped ? `${esc(t.nativeMethod)} ${n(t.nativeReading, 0)} (pipe ${n(t.pipeHeight, 0)})` : 'as read'}</td>
           <td>${esc(r.calcType)} · step ${n(t.soundingIncrement, 0)}</td>
           <td>${signed(t.trimUsed, 2)} m</td>
@@ -1461,7 +1463,7 @@ const FuelReport = (() => {
       return `<div class="tsp-row" data-tsp-tank="${esc(r.tankId)}">
         <div class="tsp-name">${esc(r.name)}</div>
         <label class="tsp-field"><span>Actual (cm)</span>
-          <input type="number" step="any" inputmode="decimal" data-tsp="reading" value="${esc(Core.formatCm(fr.reading))}"></label>
+          <input type="number" step="any" inputmode="decimal" data-tsp="reading" value="${esc(Core.formatCm(fr.reading, { soundingUnit: r.soundingUnit }))}"></label>
         <label class="tsp-field"><span>Temp (°C)</span>
           <input type="number" step="any" inputmode="decimal" data-tsp="tempC" value="${esc(fr.tempC)}"></label>
       </div>`;
@@ -1497,7 +1499,10 @@ const FuelReport = (() => {
           fr.unitValue = rowEl.querySelector('[data-tsp="unitValue"]')?.value ?? '';
           fr.unit = 'den15';
         } else {
-          fr.reading = Core.cmToMm(rowEl.querySelector('[data-tsp="reading"]')?.value);
+          fr.reading = Core.cmToMm(rowEl.querySelector('[data-tsp="reading"]')?.value, {
+            soundingUnit: (view.computed?.sections || [])
+              .flatMap((s) => s.rows).find((x) => x.tankId === id)?.soundingUnit || 'mm',
+          });
           fr.tempC = rowEl.querySelector('[data-tsp="tempC"]')?.value ?? '';
           fr.unit = 'den15';
         }
@@ -1508,7 +1513,11 @@ const FuelReport = (() => {
           } else {
             const rd = host.querySelector(`input[data-row="${CSS.escape(id)}"][data-field="reading"]`);
             const tp = host.querySelector(`input[data-row="${CSS.escape(id)}"][data-field="tempC"]`);
-            if (rd) rd.value = Core.formatCm(fr.reading);
+            const unitHint = {
+              soundingUnit: (view.computed?.sections || [])
+                .flatMap((s) => s.rows).find((x) => x.tankId === id)?.soundingUnit || 'mm',
+            };
+            if (rd) rd.value = Core.formatCm(fr.reading, unitHint);
             if (tp) tp.value = fr.tempC ?? '';
           }
         }
