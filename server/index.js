@@ -26,6 +26,7 @@ const pdfImport = require('./pdf-import');
 const tankTableIo = require('./tank-table-io');
 const giorgisFuelCsv = require('./giorgis-fuel-csv');
 const giorgisLubeXlsx = require('./giorgis-lube-xlsx');
+const flagEviXlsx = require('./flag-evi-xlsx');
 const bunkerLive = require('./bunker-live');
 const fuelReport = require('../public/js/fuel-report-core');
 const bunkeringCore = require('../public/js/bunkering-core');
@@ -1292,8 +1293,74 @@ app.post('/api/sync/push', asyncHandler(async (req, res) => {
   res.json({ ok: true, remote: result, to: url });
 }));
 
-/* ---------- Excel workbook import (Tank1–Tank4) ---------- */
+/* ---------- Excel workbook import (Tank1–Tank4 or FLAG EVI dual-sheet) ---------- */
 app.post('/api/vessels/:id/import-excel', upload.single('file'), asyncHandler(async (req, res) => {
+  /* FLAG EVI Trim + Heeling Correction workbooks share this endpoint from Calibration. */
+  if (req.file && flagEviXlsx.looksLikeFlagEviName(req.file.originalname)) {
+    try {
+      const flagParsed = await flagEviXlsx.parseFlagEviXlsx(req.file.buffer);
+      if (flagParsed?.format === 'flag-evi-xlsx' && (flagParsed.tanks || []).length) {
+        const createMissing = req.body?.createMissing !== false && req.body?.createMissing !== 'false';
+        const replaceExisting = req.body?.replaceExisting !== false && req.body?.replaceExisting !== 'false';
+        const bundle = store.getVesselBundle(req.params.id);
+        const norm = (s) => String(s || '').toUpperCase().replace(/TANK/g, 'TK').replace(/[^A-Z0-9]/g, '');
+        function findExisting(name) {
+          const n = norm(name);
+          for (const cat of Object.keys(bundle.tanks || {})) {
+            const hit = (bundle.tanks[cat] || []).find((t) => {
+              const tn = norm(t.name);
+              return tn === n || (n.length > 6 && (tn.includes(n) || n.includes(tn)));
+            });
+            if (hit) return hit;
+          }
+          return null;
+        }
+        let updated = 0;
+        let created = 0;
+        let skipped = 0;
+        const existingTanks = [];
+        for (const incoming of flagParsed.tanks) {
+          const existing = findExisting(incoming.name);
+          if (existing) {
+            existingTanks.push({
+              sheetName: incoming.name,
+              id: existing.id,
+              name: existing.name,
+              category: existing.category,
+            });
+            if (!replaceExisting) {
+              skipped++;
+              continue;
+            }
+            store.upsertTank(req.params.id, {
+              ...incoming,
+              id: existing.id,
+              category: incoming.category || existing.category || 'fuel',
+            });
+            updated++;
+          } else if (createMissing) {
+            store.upsertTank(req.params.id, incoming);
+            created++;
+          } else {
+            skipped++;
+          }
+        }
+        return res.json({
+          ok: true,
+          format: 'flag-evi-xlsx',
+          found: flagParsed.tanks.map((t) => t.name),
+          updated,
+          created,
+          skipped,
+          existingTanks,
+          warnings: flagParsed.warnings || [],
+        });
+      }
+    } catch {
+      /* fall through to Tank1–Tank4 importer */
+    }
+  }
+
   let result;
   if (req.file) {
     result = await excelImport.importWorkbookBuffer(req.file.buffer, req.file.originalname || 'upload.xlsm');
@@ -1815,8 +1882,10 @@ app.post('/api/vessels/:id/tanks/import-csv', upload.single('file'), asyncHandle
     }
     const vesselId = req.params.id;
     const updateExisting = req.body?.updateExisting !== false && req.body?.updateExisting !== 'false';
+    const replaceExisting = req.body?.replaceExisting === true || req.body?.replaceExisting === 'true';
+    const previewOnly = req.body?.preview === true || req.body?.preview === 'true';
     const bundle = store.getVesselBundle(vesselId);
-    const norm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const norm = (s) => String(s || '').toUpperCase().replace(/TANK/g, 'TK').replace(/[^A-Z0-9]/g, '');
     function findByName(name, { exact = false, category = null } = {}) {
       const n = norm(name);
       const cats = category ? [category] : Object.keys(bundle.tanks || {});
@@ -1836,51 +1905,136 @@ app.post('/api/vessels/:id/tanks/import-csv', upload.single('file'), asyncHandle
       return null;
     }
 
+    function summarizeIncoming(tank, existing) {
+      return {
+        name: tank.name,
+        category: tank.category || 'fuel',
+        calcType: tank.calcType || 'direct',
+        capacity: tank.capacity,
+        fuelRole: tank.fuelRole,
+        side: tank.side,
+        tankNo: tank.tankNo,
+        soundingMethod: tank.soundingMethod,
+        trimRows: (tank.trimAxis || []).length,
+        listRows: (tank.listAxis || []).length,
+        existing: existing
+          ? {
+              id: existing.id,
+              name: existing.name,
+              category: existing.category,
+              capacity: existing.capacity,
+              calcType: existing.calcType,
+            }
+          : null,
+      };
+    }
+
+    function applyWorkbookTanks(parsed, { forceCategory = null, defaultFormat = 'workbook' } = {}) {
+      const created = [];
+      const updated = [];
+      const replaced = [];
+      const skipped = [];
+      const preview = [];
+      for (const tank of parsed.tanks || []) {
+        const existing = findByName(tank.name, { category: tank.category || forceCategory })
+          || findByName(tank.name);
+        preview.push(summarizeIncoming(tank, existing));
+        if (previewOnly) continue;
+        if (existing) {
+          if (replaceExisting || updateExisting) {
+            const saved = store.upsertTank(vesselId, {
+              ...tank,
+              id: existing.id,
+              category: forceCategory || tank.category || existing.category || 'fuel',
+            });
+            if (replaceExisting) replaced.push(saved);
+            else updated.push(saved);
+          } else {
+            skipped.push({ name: tank.name, reason: 'exists', existingId: existing.id, existingName: existing.name });
+          }
+        } else {
+          created.push(store.upsertTank(vesselId, {
+            ...tank,
+            category: forceCategory || tank.category || 'fuel',
+          }));
+        }
+      }
+      if (previewOnly) {
+        const existingList = preview.filter((t) => t.existing);
+        return {
+          ok: true,
+          preview: true,
+          format: parsed.format || defaultFormat,
+          tankCount: preview.length,
+          existingCount: existingList.length,
+          newCount: preview.length - existingList.length,
+          warnings: parsed.warnings || [],
+          sheets: parsed.sheets || [],
+          tanks: preview,
+          existingTanks: existingList.map((t) => ({
+            sheetName: t.name,
+            id: t.existing.id,
+            name: t.existing.name,
+            category: t.existing.category,
+            capacity: t.existing.capacity,
+            calcType: t.existing.calcType,
+            trimRows: t.trimRows,
+            listRows: t.listRows,
+          })),
+        };
+      }
+      return {
+        ok: true,
+        format: parsed.format || defaultFormat,
+        imported: created.length + updated.length + replaced.length,
+        created: created.length,
+        updated: updated.length,
+        replaced: replaced.length,
+        skipped: skipped.length,
+        skippedTanks: skipped,
+        warnings: parsed.warnings || [],
+        sheets: parsed.sheets || [],
+        existingTanks: preview.filter((t) => t.existing).map((t) => ({
+          sheetName: t.name,
+          id: t.existing.id,
+          name: t.existing.name,
+          category: t.existing.category,
+        })),
+        tanks: [...replaced, ...updated, ...created].map((t) => ({
+          id: t.id,
+          name: t.name,
+          category: t.category,
+          capacity: t.capacity,
+          fuelRole: t.fuelRole,
+          calcType: t.calcType,
+          trimRows: (t.trimAxis || []).length,
+          listRows: (t.listAxis || []).length,
+        })),
+      };
+    }
+
     const filename = String(req.file?.originalname || '').toLowerCase();
     const isWorkbook = /\.(xlsx|xlsm|xls)$/.test(filename);
     if (isWorkbook) {
       if (filename.endsWith('.xls')) {
         return res.status(400).json({ error: 'Legacy .xls is not supported; save it as .xlsx first' });
       }
-      const parsed = await giorgisLubeXlsx.parseGiorgisLubeXlsx(req.file.buffer);
-      const created = [];
-      const updated = [];
-      const skipped = [];
-      for (const tank of parsed.tanks || []) {
-        const existing = findByName(tank.name);
-        if (existing) {
-          if (!updateExisting) {
-            skipped.push({ name: tank.name, reason: 'exists' });
-            continue;
-          }
-          const saved = store.upsertTank(vesselId, {
-            ...tank,
-            id: existing.id,
-            category: 'lube',
-          });
-          updated.push(saved);
-        } else {
-          created.push(store.upsertTank(vesselId, { ...tank, category: 'lube' }));
+
+      /* FLAG EVI dual-sheet (Trim Correction + Heeling Correction) first. */
+      try {
+        const flagParsed = await flagEviXlsx.parseFlagEviXlsx(req.file.buffer);
+        if (flagParsed?.format === 'flag-evi-xlsx' && (flagParsed.tanks || []).length) {
+          return res.json(applyWorkbookTanks(flagParsed, { defaultFormat: 'flag-evi-xlsx' }));
+        }
+      } catch (flagErr) {
+        /* Not FLAG EVI — fall through to Giorgis lube parser. */
+        if (/FLAG EVI|Trim Correction|Heeling Correction/i.test(String(flagErr.message || ''))) {
+          /* keep message only when clearly the wrong shape and lube also fails */
         }
       }
-      return res.json({
-        ok: true,
-        format: parsed.format || 'giorgis-lube-xlsx',
-        imported: created.length + updated.length,
-        created: created.length,
-        updated: updated.length,
-        skipped: skipped.length,
-        warnings: parsed.warnings || [],
-        tanks: [...updated, ...created].map((t) => ({
-          id: t.id,
-          name: t.name,
-          category: t.category,
-          capacity: t.capacity,
-          fuelRole: t.fuelRole,
-          trimRows: (t.trimAxis || []).length,
-          listRows: (t.listAxis || []).length,
-        })),
-      });
+
+      const parsed = await giorgisLubeXlsx.parseGiorgisLubeXlsx(req.file.buffer);
+      return res.json(applyWorkbookTanks(parsed, { forceCategory: 'lube', defaultFormat: 'giorgis-lube-xlsx' }));
     }
 
     const text = req.file
@@ -1891,49 +2045,7 @@ app.post('/api/vessels/:id/tanks/import-csv', upload.single('file'), asyncHandle
     // Giorgis multi-tank workbook CSV (fuel / lube / misc / fresh water)
     if (giorgisFuelCsv.looksLikeGiorgisWorkbookCsv(text)) {
       const parsed = giorgisFuelCsv.parseGiorgisWorkbookCsv(text, { filename });
-      const created = [];
-      const updated = [];
-      const skipped = [];
-      for (const tank of parsed.tanks) {
-        const existing = findByName(tank.name, { exact: true, category: tank.category })
-          || findByName(tank.name, { exact: true });
-        if (existing) {
-          if (!updateExisting) {
-            skipped.push({ name: tank.name, reason: 'exists' });
-            continue;
-          }
-          const saved = store.upsertTank(vesselId, {
-            ...tank,
-            id: existing.id,
-            category: tank.category || existing.category || 'fuel',
-          });
-          updated.push(saved);
-        } else {
-          const saved = store.upsertTank(vesselId, tank);
-          created.push(saved);
-        }
-      }
-      return res.json({
-        ok: true,
-        format: parsed.format || 'giorgis-workbook-csv',
-        imported: created.length + updated.length,
-        created: created.length,
-        updated: updated.length,
-        skipped: skipped.length,
-        warnings: parsed.warnings || [],
-        categories: parsed.categories || [],
-        tanks: [...updated, ...created].map((t) => ({
-          id: t.id,
-          name: t.name,
-          category: t.category,
-          capacity: t.capacity,
-          fuelGrade: t.fuelGrade,
-          fuelRole: t.fuelRole,
-          side: t.side,
-          trimRows: (t.trimAxis || []).length,
-          listRows: (t.listAxis || []).length,
-        })),
-      });
+      return res.json(applyWorkbookTanks(parsed, { defaultFormat: parsed.format || 'giorgis-workbook-csv' }));
     }
 
     const rows = parseCsv(text);

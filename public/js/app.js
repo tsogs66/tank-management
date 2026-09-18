@@ -1805,12 +1805,32 @@ function renderAddTank(main) {
       </div>
     </div>
     <div class="section-title">Import / edit tanks from CSV or Excel</div>
-    <p class="hint">Accepts tank-list CSV, Giorgis <b>fuel / lube / misc / fresh-water CSV</b>, or <b>lube-oil XLSX</b>. Multi-tank files import depth/ullage × trim volumes and heel corrections. Matching names update calibration tables.</p>
-    <label class="hint" style="display:flex;align-items:center;gap:6px;margin:0 0 8px">
-      <input type="checkbox" id="csv-update-existing" checked> Update existing tanks with same name
-    </label>
+    <p class="hint">Accepts tank-list CSV, Giorgis <b>fuel / lube / misc / fresh-water CSV</b>, lube-oil XLSX, or <b>FLAG EVI dual-sheet</b> workbooks (<i>Trim Correction</i> + <i>Heeling Correction</i> → direct volume tables). Matching names can be replaced or skipped after preview.</p>
     <input type="file" id="csv-file" accept=".csv,.xlsx,.xlsm,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
-    <button class="btn" id="btn-import-csv" style="margin-top:8px">Import CSV / Excel</button>`;
+    <div class="btn-row" style="margin-top:8px;flex-wrap:wrap;gap:8px">
+      <button class="btn" id="btn-import-csv">Preview CSV / Excel</button>
+    </div>
+    <div id="csv-import-panel" class="pdf-import-panel" style="display:none;margin-top:12px">
+      <div id="csv-import-summary" class="hint" style="margin:0 0 10px"></div>
+      <div id="csv-import-existing" style="display:none;margin:0 0 10px">
+        <div class="help-box" style="margin:0 0 8px">
+          <b>Existing tanks found</b> — same name already in this vessel. Choose whether to <b>replace</b> their calibration tables or leave them unchanged.
+        </div>
+        <div class="scroll-x"><table class="data-table" id="csv-existing-table"><thead><tr>
+          <th>Sheet tank</th><th>Existing name</th><th>Cat</th><th>Cap m³</th><th>Trim</th><th>Heel</th>
+        </tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="scroll-x"><table class="data-table" id="csv-preview-table"><thead><tr>
+        <th>Tank in file</th><th>Status</th><th>Cat</th><th>Type</th><th>Cap m³</th><th>Trim rows</th><th>Heel rows</th>
+      </tr></thead><tbody></tbody></table></div>
+      <div class="btn-row" style="margin-top:10px;flex-wrap:wrap;gap:8px;align-items:center">
+        <label class="hint" style="display:flex;align-items:center;gap:6px;margin:0">
+          <input type="checkbox" id="csv-replace-existing" checked> Replace existing tanks (update calibration)
+        </label>
+        <button class="btn primary" id="btn-csv-apply" disabled>Import selected</button>
+        <button class="btn" id="btn-csv-cancel">Cancel</button>
+      </div>
+    </div>`;
   main.appendChild(form);
 
   const exportTanks = document.getElementById('btn-export-tanks-csv');
@@ -1996,35 +2016,138 @@ function renderAddTank(main) {
   document.getElementById('btn-import-csv').onclick = async () => {
     const file = document.getElementById('csv-file').files[0];
     if (!file) { showToast('Choose a CSV or Excel file'); return; }
-    const updateExisting = document.getElementById('csv-update-existing')?.checked !== false;
     const fd = new FormData();
     fd.append('file', file);
-    fd.append('updateExisting', updateExisting ? 'true' : 'false');
+    fd.append('preview', 'true');
     Progress.start(document.getElementById('btn-import-csv').closest('.form-panel'),
-      `Uploading ${file.name}…`);
+      `Reading ${file.name}…`);
     let res;
     try {
       res = await Api.upload(`/api/vessels/${STATE.activeVesselId}/tanks/import-csv`, fd,
         (pct, phase) => Progress.set(pct, phase === 'uploading'
           ? `Uploading… ${pct == null ? '' : pct + '%'}`
-          : 'Reading the file on the server…'));
+          : 'Parsing tanks on the server…'));
+    } catch (err) {
+      Progress.done();
+      showToast(err.message);
+      return;
+    }
+    Progress.done('Preview ready');
+
+    const panel = document.getElementById('csv-import-panel');
+    const summary = document.getElementById('csv-import-summary');
+    const existingWrap = document.getElementById('csv-import-existing');
+    const existingBody = document.querySelector('#csv-existing-table tbody');
+    const previewBody = document.querySelector('#csv-preview-table tbody');
+    const applyBtn = document.getElementById('btn-csv-apply');
+    const replaceCb = document.getElementById('csv-replace-existing');
+
+    STATE._csvImportFile = file;
+    STATE._csvImportPreview = res;
+
+    const fmtLabel = res.format === 'flag-evi-xlsx' ? 'FLAG EVI trim+heel workbook'
+      : res.format === 'giorgis-fuel-csv' ? 'Giorgis fuel workbook'
+        : res.format === 'giorgis-misc-csv' ? 'Giorgis misc workbook'
+          : res.format === 'giorgis-water-csv' ? 'Giorgis fresh-water workbook'
+            : res.format === 'giorgis-lube-csv' || res.format === 'giorgis-lube-xlsx' ? 'Giorgis lube workbook'
+              : res.format === 'giorgis-workbook-csv' ? 'Giorgis workbook'
+                : 'Tanks CSV';
+    const existingCount = res.existingCount ?? (res.existingTanks || []).length;
+    const newCount = res.newCount ?? Math.max(0, (res.tankCount || 0) - existingCount);
+    summary.innerHTML = `<b>${fmtLabel}</b>: ${res.tankCount || 0} tank(s) in file`
+      + (existingCount ? ` — <span style="color:var(--warn,#c90)">${existingCount} already on this vessel</span>` : '')
+      + (newCount ? ` — ${newCount} new` : '')
+      + ((res.warnings || []).length ? `<br><span class="hint">${escapeHtml((res.warnings || []).slice(0, 4).join(' · '))}</span>` : '');
+
+    existingBody.innerHTML = '';
+    if (existingCount) {
+      existingWrap.style.display = '';
+      for (const row of (res.existingTanks || [])) {
+        existingBody.innerHTML += `<tr>
+          <td class="tname">${escapeHtml(row.sheetName || row.name || '')}</td>
+          <td class="tname">${escapeHtml(row.name || '')}</td>
+          <td>${escapeHtml(row.category || '')}</td>
+          <td>${fmt(row.capacity, 1)}</td>
+          <td>${row.trimRows ?? '—'}</td>
+          <td>${row.listRows ?? '—'}</td>
+        </tr>`;
+      }
+      replaceCb.checked = true;
+      replaceCb.disabled = false;
+    } else {
+      existingWrap.style.display = 'none';
+      replaceCb.checked = false;
+      replaceCb.disabled = true;
+    }
+
+    previewBody.innerHTML = '';
+    for (const t of (res.tanks || [])) {
+      const status = t.existing
+        ? `<span class="pill warn">exists → ${escapeHtml(t.existing.name)}</span>`
+        : '<span class="pill good">new</span>';
+      previewBody.innerHTML += `<tr>
+        <td class="tname">${escapeHtml(t.name || '')}</td>
+        <td>${status}</td>
+        <td>${escapeHtml(t.category || '')}</td>
+        <td>${escapeHtml(t.calcType || '')}</td>
+        <td>${fmt(t.capacity, 1)}</td>
+        <td>${t.trimRows ?? 0}</td>
+        <td>${t.listRows ?? 0}</td>
+      </tr>`;
+    }
+
+    panel.style.display = '';
+    applyBtn.disabled = !(res.tanks || []).length;
+    if (existingCount) {
+      showToast(`${existingCount} tank(s) already exist — choose Replace or leave unchecked to skip them`);
+    }
+  };
+
+  document.getElementById('btn-csv-cancel').onclick = () => {
+    document.getElementById('csv-import-panel').style.display = 'none';
+    STATE._csvImportFile = null;
+    STATE._csvImportPreview = null;
+  };
+
+  document.getElementById('btn-csv-apply').onclick = async () => {
+    const file = STATE._csvImportFile || document.getElementById('csv-file').files[0];
+    if (!file) { showToast('Choose a CSV or Excel file'); return; }
+    const replaceExisting = document.getElementById('csv-replace-existing')?.checked === true;
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('preview', 'false');
+    fd.append('replaceExisting', replaceExisting ? 'true' : 'false');
+    fd.append('updateExisting', replaceExisting ? 'true' : 'false');
+    Progress.start(document.getElementById('btn-csv-apply').closest('.form-panel'),
+      `Importing ${file.name}…`);
+    let res;
+    try {
+      res = await Api.upload(`/api/vessels/${STATE.activeVesselId}/tanks/import-csv`, fd,
+        (pct, phase) => Progress.set(pct, phase === 'uploading'
+          ? `Uploading… ${pct == null ? '' : pct + '%'}`
+          : 'Writing tanks…'));
     } catch (err) {
       Progress.done();
       showToast(err.message);
       return;
     }
     Progress.done('Imported');
+    document.getElementById('csv-import-panel').style.display = 'none';
+    STATE._csvImportFile = null;
+    STATE._csvImportPreview = null;
     await reloadBundle();
     const c = res.created ?? 0;
-    const u = res.updated ?? 0;
-    const total = res.imported ?? (c + u);
-    const fmt = res.format === 'giorgis-fuel-csv' ? 'Giorgis fuel workbook'
-      : res.format === 'giorgis-misc-csv' ? 'Giorgis misc workbook'
-        : res.format === 'giorgis-water-csv' ? 'Giorgis fresh-water workbook'
-          : res.format === 'giorgis-lube-csv' || res.format === 'giorgis-lube-xlsx' ? 'Giorgis lube workbook'
-            : res.format === 'giorgis-workbook-csv' ? 'Giorgis workbook'
-              : 'Tanks CSV';
-    showToast(`${fmt}: ${u} updated, ${c} created${total ? ` (${total} tanks)` : ''}`);
+    const u = (res.replaced ?? 0) || (res.updated ?? 0);
+    const skipped = res.skipped ?? 0;
+    const fmt = res.format === 'flag-evi-xlsx' ? 'FLAG EVI workbook'
+      : res.format === 'giorgis-fuel-csv' ? 'Giorgis fuel workbook'
+        : res.format === 'giorgis-misc-csv' ? 'Giorgis misc workbook'
+          : res.format === 'giorgis-water-csv' ? 'Giorgis fresh-water workbook'
+            : res.format === 'giorgis-lube-csv' || res.format === 'giorgis-lube-xlsx' ? 'Giorgis lube workbook'
+              : res.format === 'giorgis-workbook-csv' ? 'Giorgis workbook'
+                : 'Tanks CSV';
+    showToast(`${fmt}: ${u} replaced, ${c} created${skipped ? `, ${skipped} skipped` : ''}`);
+    if (c + u > 0) navigate('calibration');
   };
 }
 
@@ -2035,7 +2158,7 @@ function renderCalibrationList(main) {
   const head = document.createElement('div');
   head.className = 'page-head no-print';
   head.innerHTML = `<div><h1>Calibration Database</h1>
-    <div class="desc">Excel-style sounding tables: edit in-app, or export/import CSV &amp; Excel per tank. Workbook import refreshes Tank1–Tank4 style sheets.</div></div>
+    <div class="desc">Excel-style sounding tables: edit in-app, or export/import CSV &amp; Excel per tank. Workbook import refreshes Tank1–Tank4 sheets or FLAG EVI Trim+Heeling Correction workbooks.</div></div>
     <div class="btn-row">
       <button class="btn primary" id="btn-print-fuel-book">Print all fuel calibration</button>
       <label class="btn">Import workbook<input type="file" id="excel-import" accept=".xlsm,.xlsx" hidden></label>
