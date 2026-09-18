@@ -1381,6 +1381,18 @@ function renderTankDetail(main, tankId) {
   grid.className = 'detail-grid';
   const gaugeChoice = tank.calcType === 'direct' && /SETT|SERVICE/i.test(tank.name || '');
   const initialGT = existing.gaugeType || 'meter';
+  // Trim for tables is by the stern (Excel Data!AG9 = 1×(aft−fwd)). Prefer a
+  // saved table trim, else drafts, else the voyage trim field only when drafts
+  // are absent — never multiply/scale the value used for interpolation.
+  const voy = STATE.bundle.voyage || {};
+  const draftFwd = Number(voy.draftFwd);
+  const draftAft = Number(voy.draftAft);
+  const trimFromDrafts = Number.isFinite(draftFwd) && Number.isFinite(draftAft)
+    ? (draftAft - draftFwd)
+    : null;
+  const defaultTrim = existing.trim != null
+    ? existing.trim
+    : (trimFromDrafts != null ? trimFromDrafts : (voy.trim ?? 0));
 
   grid.innerHTML = `
     <div class="form-panel">
@@ -1390,9 +1402,9 @@ function renderTankDetail(main, tankId) {
           <option value="volume" ${initialGT==='volume'?'selected':''}>Volume gauge (m³ direct)</option>
         </select></div>` : ''}
       <div class="form-row"><label id="reading-label">${initialGT==='volume'?'Volume m³':((tank.soundingMethod||'Reading') + ' (cm)')}</label>
-        <input type="number" step="any" id="in-reading" value="${existing.reading != null && existing.reading !== '' ? (Number(existing.reading) / 10) : ''}"></div>
+        <input type="number" step="any" id="in-reading" value="${existing.reading != null && existing.reading !== '' ? tableUnitsToCm(Number(existing.reading), tank) : ''}"></div>
       <div class="form-row-2" id="trimlist-row" style="${initialGT==='volume'?'display:none':''}">
-        <div class="form-row"><label>Trim (m)</label><input type="number" step="any" id="in-trim" value="${existing.trim ?? STATE.bundle.voyage?.trim ?? 0}"></div>
+        <div class="form-row"><label>Trim by stern (m)</label><input type="number" step="any" id="in-trim" value="${defaultTrim}" title="Direct table trim — same value as the calibration trim columns"></div>
         <div class="form-row"><label>List / Heel (°)</label><input type="number" step="any" id="in-list" value="${existing.list ?? STATE.bundle.voyage?.heel ?? 0}"></div>
       </div>
     <div class="form-row-2">
@@ -1448,8 +1460,9 @@ function renderTankDetail(main, tankId) {
     let reading = parseFloat(document.getElementById('in-reading').value);
     if (Number.isNaN(reading)) { showToast('Enter a reading'); return; }
     const gaugeType = gaugeChoice ? document.getElementById('in-gaugetype').value : 'meter';
-    /* Sounding/ullage inputs are centimetres; calibration stays millimetres. */
-    if (gaugeType !== 'volume') reading = reading * 10;
+    /* Sounding/ullage inputs are centimetres; convert to the table's native
+       units (mm common, metres when the depth column has decimals). */
+    if (gaugeType !== 'volume') reading = cmToTableUnits(reading, tank);
     const inputs = {
       reading,
       trim: gaugeType === 'volume' ? 0 : (parseFloat(document.getElementById('in-trim').value) || 0),
@@ -1457,6 +1470,8 @@ function renderTankDetail(main, tankId) {
       tempC: parseFloat(document.getElementById('in-temp').value) || 15,
       density15: document.getElementById('in-density').value === '' ? null : parseFloat(document.getElementById('in-density').value),
       gaugeType,
+      // Trim field is the direct table trim (by the stern), matching Excel Data!AG9.
+      entryMethod: tank.soundingMethod || 'sounding',
     };
     let result;
     try {
@@ -1580,22 +1595,58 @@ function renderResultSteps(panel, tank, r, inputs) {
     defs.push({ label: 'Volume gauge', formula: 'direct reading', value: fmt(inputs.reading,3)+' m³' });
     defs.push({ label: 'Observed volume', formula: 'clamped to capacity', value: fmt(r.volumeObserved,3)+' m³', highlight: true });
   } else if (tank.calcType === 'correction') {
+    const unit = r.soundingUnit || (typeof detectSoundingUnit === 'function' ? detectSoundingUnit(tank) : 'mm');
+    const cUnit = r.correctionUnit || unit;
+    defs.push({
+      label: 'Heel / list correction',
+      formula: `sounding correction (${cUnit}→${unit}) → Interp2 inc=${r.heelIncrement ?? '?'} ÷ ${tank.correctionDivisor}`,
+      value: fmt(r.heelCorrectionApplied != null ? r.heelCorrectionApplied : (r.listCorrection||0)/(tank.correctionDivisor||1),4)+' '+unit,
+    });
     defs.push({
       label: 'Trim correction',
-      formula: `Interp2 FLOOR/CEILING inc=${r.soundingIncrement ?? '?'} ÷ ${tank.correctionDivisor}`,
-      value: fmt((r.trimCorrection||0)/(tank.correctionDivisor||1),3),
+      formula: r.trimVolume != null
+        ? `heel-corrected sounding → trim volume grid inc=${r.soundingIncrement ?? '?'}`
+        : `direct table trim (${cUnit}→${unit}) → Interp2 inc=${r.soundingIncrement ?? '?'} ÷ ${tank.correctionDivisor}`,
+      value: r.trimVolume != null
+        ? fmt(r.trimVolume,3)+' m³'
+        : fmt(r.trimCorrectionApplied != null ? r.trimCorrectionApplied : (r.trimCorrection||0)/(tank.correctionDivisor||1),4)+' '+unit,
+    });
+    defs.push({ label: 'Corrected sounding', formula: 'reading ± heel (± trim length)', value: fmt(r.correctedReading,2)+' '+unit });
+    defs.push({ label: 'Observed volume', formula: 'volume at corrected sounding', value: fmt(r.volumeObserved,3)+' m³', highlight: true });
+  } else if (tank.calcType === 'trimHeel' || tank.calcType === 'trim-heel' || tank.calcType === 'trim_heel'
+             || r.calcApproach === 'trim-heel-correction') {
+    const unit = r.soundingUnit || (typeof detectSoundingUnit === 'function' ? detectSoundingUnit(tank) : 'mm');
+    const cUnit = r.correctionUnit || unit;
+    defs.push({
+      label: 'Trim correction',
+      formula: `at original sounding (${cUnit}→${unit}) · inc=${r.soundingIncrement ?? '?'} ÷ ${tank.correctionDivisor}`,
+      value: fmt(r.trimCorrectionApplied != null ? r.trimCorrectionApplied : (r.trimCorrection||0)/(tank.correctionDivisor||1),4)+' '+unit,
     });
     defs.push({
-      label: 'List correction',
-      formula: `Interp2 FLOOR/CEILING inc=${r.heelIncrement ?? '?'} ÷ ${tank.correctionDivisor}`,
-      value: fmt((r.listCorrection||0)/(tank.correctionDivisor||1),3),
+      label: 'Heel / list correction',
+      formula: `at original sounding (${cUnit}→${unit}) · inc=${r.heelIncrement ?? '?'} ÷ ${tank.correctionDivisor}`,
+      value: fmt(r.heelCorrectionApplied != null ? r.heelCorrectionApplied : (r.listCorrection||0)/(tank.correctionDivisor||1),4)+' '+unit,
     });
-    defs.push({ label: 'Corrected reading', formula: 'reading + corrections', value: fmt(r.correctedReading,2) });
-    defs.push({ label: 'Observed volume', formula: 'volume curve interp', value: fmt(r.volumeObserved,3)+' m³', highlight: true });
+    defs.push({
+      label: 'Corrected sounding',
+      formula: `original ± trim ± heel (${unit})`,
+      value: fmt(r.correctedReading,4)+' '+unit,
+    });
+    defs.push({ label: 'Observed volume', formula: 'capacity / volume table at corrected sounding', value: fmt(r.volumeObserved,3)+' m³', highlight: true });
   } else {
     defs.push({
+      label: 'Heel volume',
+      formula: `direct volume correction · heel grid inc=${r.heelIncrement ?? '?'}`,
+      value: fmt(r.heelVolume != null ? r.heelVolume : 0,3)+' m³',
+    });
+    defs.push({
+      label: 'Trim volume',
+      formula: `direct table trim → volume grid inc=${r.soundingIncrement ?? '?'}`,
+      value: fmt(r.trimVolume != null ? r.trimVolume : r.volumeObserved,3)+' m³',
+    });
+    defs.push({
       label: 'Observed volume',
-      formula: `trim×heel grid · sounding inc=${r.soundingIncrement ?? '?'} · heel inc=${r.heelIncrement ?? '?'}`,
+      formula: 'trim volume − heel volume',
       value: fmt(r.volumeObserved,3)+' m³',
       highlight: true,
     });
@@ -1692,7 +1743,11 @@ function renderAddTank(main) {
     </div>
     <div class="form-row-3">
       <div class="form-row"><label>Calc type</label>
-        <select id="t-calc"><option value="correction">Correction (trim+list + curve)</option><option value="direct">Direct volume grid</option></select></div>
+        <select id="t-calc">
+          <option value="correction">Direct sounding correction (heel → trim/volume)</option>
+          <option value="trimHeel">Trim-heel correction (trim+heel at original → volume table)</option>
+          <option value="direct">Direct volume correction (trim m³ − heel m³)</option>
+        </select></div>
       <div class="form-row"><label>Sounding method</label>
         <select id="t-method"><option value="ullage">Ullage</option><option value="sounding">Sounding</option></select></div>
       <div class="form-row"><label>Pipe height mm <span class="hint-inline">override</span></label>
@@ -2070,7 +2125,12 @@ function renderCalibrationEditor(main, tankId) {
   const head = document.createElement('div');
   head.className = 'page-head no-print';
   head.innerHTML = `<div><h1>${escapeHtml(tank.name)}</h1>
-    <div class="desc">Excel Tank-sheet layout · ${isDirect ? 'Depth × trim volume grid + heel table' : 'SOUNDING ullage × trim correction + volume curve + list/heel'} · 100% ${fmt(tank.capacity,2)} m³ · 85% ${fmt((tank.capacity||0)*0.85,2)} m³</div></div>
+    <div class="desc">Excel Tank-sheet layout · ${
+      isDirect ? 'Direct volume correction (trim m³ − heel m³)'
+        : (tank.calcType === 'trimHeel' || tank.calcType === 'trim-heel'
+          ? 'Trim-heel correction (trim+heel at original → volume table)'
+          : 'Direct sounding correction (heel → trim/volume)')
+    } · 100% ${fmt(tank.capacity,2)} m³ · 85% ${fmt((tank.capacity||0)*0.85,2)} m³</div></div>
     <div class="btn-row">
       <button class="btn small" id="btn-back-tank">Back to tank</button>
       <button class="btn small primary" id="btn-print-tank-calib">Print / PDF</button>
@@ -2324,12 +2384,27 @@ function renderCalibrationEditor(main, tankId) {
     `<option value="${n}" ${Number(selected) === n ? 'selected' : ''}>${n}</option>`
   ).join('');
 
+  const detectedSoundUnit = (typeof detectSoundingUnit === 'function')
+    ? detectSoundingUnit(tank) : 'mm';
+  const detectedCorrUnit = (typeof detectCorrectionUnit === 'function')
+    ? detectCorrectionUnit(tank, detectedSoundUnit) : detectedSoundUnit;
+  const unitOpts = (selected, autoLabel) => {
+    const cur = selected || '';
+    return [
+      `<option value="" ${!cur ? 'selected' : ''}>Auto (${autoLabel})</option>`,
+      `<option value="mm" ${cur === 'mm' ? 'selected' : ''}>mm</option>`,
+      `<option value="cm" ${cur === 'cm' ? 'selected' : ''}>cm</option>`,
+      `<option value="m" ${cur === 'm' ? 'selected' : ''}>m</option>`,
+    ].join('');
+  };
+
   meta.innerHTML = `
     <div class="form-row-3">
       <div class="form-row"><label>Calc type</label>
         <select id="c-type">
-          <option value="correction" ${!isDirect?'selected':''}>correction (Tank1 style)</option>
-          <option value="direct" ${isDirect?'selected':''}>direct (Tank2–4 style)</option>
+          <option value="correction" ${tank.calcType==='correction'?'selected':''}>sounding correction (heel → volume)</option>
+          <option value="trimHeel" ${tank.calcType==='trimHeel'||tank.calcType==='trim-heel'?'selected':''}>trim-heel (trim+heel at original → volume)</option>
+          <option value="direct" ${tank.calcType==='direct'||!tank.calcType?'selected':''}>volume correction (trim m³ − heel m³)</option>
         </select></div>
       <div class="form-row"><label>Capacity 100% m³</label><input id="c-cap" type="number" step="any" value="${tank.capacity||0}"></div>
       <div class="form-row"><label>Correction divisor</label><input id="c-div" type="number" step="any" value="${tank.correctionDivisor|| (isDirect?1:10)}"></div>
@@ -2346,6 +2421,17 @@ function renderCalibrationEditor(main, tankId) {
           <option value="sounding" ${tank.soundingMethod==='sounding'?'selected':''}>sounding</option>
         </select></div>
       <div class="form-row"><label>85% volume (ref)</label><input value="${fmt((tank.capacity||0)*0.85,2)}" disabled></div>
+    </div>
+    <div class="form-row-3">
+      <div class="form-row"><label>Sounding table unit</label>
+        <select id="c-sound-unit">${unitOpts(tank.soundingUnit, detectedSoundUnit)}</select>
+        <div class="hint">Depth/ullage axis — UI input is always cm</div></div>
+      <div class="form-row"><label>Trim/heel correction unit</label>
+        <select id="c-corr-unit">${unitOpts(tank.correctionUnit, detectedCorrUnit)}</select>
+        <div class="hint">May differ from sounding (e.g. mm corrs on a metre table)</div></div>
+      <div class="form-row"><label>Detected</label>
+        <input value="sounding ${detectedSoundUnit} · corr ${detectedCorrUnit}" disabled>
+        <div class="hint">Used when Auto is selected</div></div>
     </div>
     <div class="form-row-3">
       <div class="form-row"><label>Sounding table increment</label>
@@ -2378,6 +2464,8 @@ function renderCalibrationEditor(main, tankId) {
       correctionDivisor: parseFloat(document.getElementById('c-div').value) || 10,
       pipeHeight: parseFloat(document.getElementById('c-pipe').value) || 0,
       soundingMethod: document.getElementById('c-method').value,
+      soundingUnit: document.getElementById('c-sound-unit').value || null,
+      correctionUnit: document.getElementById('c-corr-unit').value || null,
       soundingIncrement: parseFloat(document.getElementById('c-sound-inc').value) || 1,
       heelIncrement: parseFloat(document.getElementById('c-heel-inc').value) || 1,
       ...parsed,
@@ -2430,8 +2518,14 @@ function buildExcelCalibrationTable(tank) {
   const volMap = new Map(volX.map((x, i) => [Number(x), volV[i]]));
 
   const rowLabel = isDirect ? 'Depth' : 'SOUNDING ullage';
-  const trimLabel = isDirect ? 'Trim → volume m³' : 'Trim (m) → correction';
-  const listLabel = isDirect ? 'Heel (deg) → correction' : 'List / heel (deg) → correction';
+  const trimLabel = isDirect ? 'Trim → volume m³'
+    : (tank.calcType === 'trimHeel' || tank.calcType === 'trim-heel'
+      ? 'Trim (m) → length correction (at original)'
+      : 'Trim (m) → sounding correction');
+  const listLabel = isDirect ? 'Heel (deg) → volume m³'
+    : (tank.calcType === 'trimHeel' || tank.calcType === 'trim-heel'
+      ? 'List / heel (deg) → length correction (at original)'
+      : 'List / heel (deg) → length correction');
 
   // Header row 1: section labels
   let head1 = `<th class="excel-corner">${escapeHtml(rowLabel)}</th>`;
@@ -2805,8 +2899,10 @@ function renderCalibPrintTankBlock(tank, indexLabel) {
       <p class="calib-print-note">
         Calculation: <strong>${escapeHtml(tank.calcType || 'direct')}</strong>
         ${isDirect
-          ? ' — tabulated values are absolute volumes (m³) at the stated trim/heel.'
-          : ' — trim/list tables are corrections applied with the volume curve and divisor.'}
+          ? ' — direct volume correction: trim m³ − heel m³ at the sounding.'
+          : (tank.calcType === 'trimHeel' || tank.calcType === 'trim-heel'
+            ? ' — trim-heel correction: trim and heel at original sounding (unit-aware), then capacity/volume table.'
+            : ' — direct sounding correction: heel length adjusts sounding, then trim/volume.')}
       </p>
       ${typeof FuelReport !== 'undefined' ? FuelReport.printSignatureBlock() : ''}
       ${calibPrintFooter(`${tank.name} · Identity`)}
@@ -4391,8 +4487,10 @@ function renderAbout(main) {
     <p><a id="about-update-link" href="https://github.com/tsogs66/tank-management/releases/latest" target="_blank" rel="noopener" style="display:none;">Open latest release</a></p>
 
     <h2>Tank sounding</h2>
-    <p>Enter ullage or dip with trim and heel. <b>Correction tanks</b> interpolate trim, then list, then read
-      a volume curve. <b>Direct tanks</b> read a trim × heel volume grid. Weight uses ASTM Table 54B VCF and
+    <p>Enter ullage or dip with trim and heel. <b>Sounding-correction</b> applies heel then trim/volume.
+      <b>Trim-heel correction</b> takes trim and heel at the original sounding (converting mm/cm/m as needed), then the capacity/volume table.
+      <b>Volume-correction</b> uses trim m³ − heel m³.
+      Weight uses ASTM Table 54B VCF and
       Table 56 WCF. Specific gravity and density @15°C convert both ways on the sounding and bunkering pages.</p>
 
     <h2>Fuel Report (TANK CONDITION)</h2>

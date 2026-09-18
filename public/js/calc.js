@@ -87,21 +87,170 @@ function bilinearInterp(xAxis, yAxis, grid, x, y) {
   return fxy;
 }
 
-/** Preferred sounding-table increments (cm), matching ship calibration books. */
-const PREFERRED_INCREMENTS = [1, 2, 5, 10, 20, 25, 50];
+/** Preferred sounding-table increments for millimetre / centimetre axes. */
+const PREFERRED_INCREMENTS_MM = [1, 2, 5, 10, 20, 25, 50, 100];
+/** Preferred increments for metre-scale sounding/ullage/depth axes. */
+const PREFERRED_INCREMENTS_M = [0.01, 0.02, 0.05, 0.1, 0.2, 0.25, 0.5, 1];
+/** @deprecated use PREFERRED_INCREMENTS_MM — kept for callers that import the old name */
+const PREFERRED_INCREMENTS = PREFERRED_INCREMENTS_MM;
+
+/**
+ * Detect calibration sounding / ullage / depth axis units.
+ *
+ * Common books tabulate millimetres (integer steps: 0, 50, 100, …).
+ * When the depth column contains decimal steps (0.10, 0.25, 1.50, …) the
+ * table is in metres. A single fractional tip (pipe-height endpoint) on an
+ * otherwise integer mm axis does not flip the unit.
+ *
+ * Explicit `tank.soundingUnit` ('mm' | 'm' | 'cm') always wins.
+ */
+function normalizeLengthUnit(unit) {
+  const u = String(unit == null ? '' : unit).trim().toLowerCase();
+  if (u === 'mm' || u === 'millimetre' || u === 'millimeter' || u === 'millimeters') return 'mm';
+  if (u === 'cm' || u === 'centimetre' || u === 'centimeter' || u === 'centimeters') return 'cm';
+  if (u === 'm' || u === 'metre' || u === 'meter' || u === 'meters' || u === 'metres') return 'm';
+  return null;
+}
+
+/** Millimetres per named length unit — for converting trim/heel ↔ sounding axes. */
+const MM_PER_UNIT = { mm: 1, cm: 10, m: 1000 };
+
+/**
+ * Convert a length between mm / cm / m.
+ * Example: lengthToUnit(9, 'mm', 'm') → 0.009; lengthToUnit(120, 'cm', 'm') → 1.2
+ */
+function lengthToUnit(value, fromUnit, toUnit) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return v;
+  const from = normalizeLengthUnit(fromUnit) || 'mm';
+  const to = normalizeLengthUnit(toUnit) || 'mm';
+  if (from === to) return v;
+  return (v * MM_PER_UNIT[from]) / MM_PER_UNIT[to];
+}
+
+function detectSoundingUnit(tank) {
+  const explicit = normalizeLengthUnit(tank && tank.soundingUnit);
+  if (explicit) return explicit;
+
+  const nums = [];
+  for (const axis of [tank && tank.trimAxis, tank && tank.listAxis, tank && tank.volumeCurve && tank.volumeCurve.x]) {
+    if (!Array.isArray(axis)) continue;
+    for (const v of axis) {
+      const n = Number(v);
+      if (Number.isFinite(n)) nums.push(n);
+    }
+  }
+  if (nums.length < 2) return 'mm';
+
+  // Drop a solitary trailing tip (often the pipe height, e.g. 781.2 on an mm table).
+  const body = nums.length > 3 ? nums.slice(0, -1) : nums;
+  const fractional = body.filter((v) => Math.abs(v - Math.round(v)) > 1e-6);
+  const maxAbs = Math.max(...body.map((v) => Math.abs(v)));
+
+  if (fractional.length >= 2) return 'm';
+  if (fractional.length >= 1 && maxAbs <= 40) return 'm';
+  return 'mm';
+}
+
+/**
+ * Detect the unit of trim/heel *length correction values* (may differ from the
+ * sounding axis). E.g. sounding table in metres while heel/trim corrections
+ * are tabulated in millimetres.
+ *
+ * Explicit `tank.correctionUnit` (or trimCorrectionUnit / heelCorrectionUnit)
+ * always wins. Otherwise infer from correction-grid magnitudes vs sounding unit.
+ */
+function detectCorrectionUnit(tank, soundingUnit) {
+  const explicit = normalizeLengthUnit(tank && tank.correctionUnit)
+    || normalizeLengthUnit(tank && tank.trimCorrectionUnit)
+    || normalizeLengthUnit(tank && tank.heelCorrectionUnit);
+  if (explicit) return explicit;
+
+  const su = normalizeLengthUnit(soundingUnit) || detectSoundingUnit(tank);
+  const samples = [];
+  for (const grid of [tank && tank.trimGrid, tank && tank.listGrid]) {
+    if (!Array.isArray(grid)) continue;
+    for (let i = 0; i < grid.length; i++) {
+      const row = grid[i];
+      if (!Array.isArray(row)) continue;
+      for (let j = 0; j < row.length; j++) {
+        const n = Number(row[j]);
+        if (Number.isFinite(n) && Math.abs(n) > 1e-9) samples.push(Math.abs(n));
+      }
+    }
+  }
+  if (!samples.length) return su;
+
+  samples.sort((a, b) => a - b);
+  const maxAbs = samples[samples.length - 1];
+  const median = samples[Math.floor(samples.length / 2)];
+
+  // Sounding in metres: corrections that look like whole millimetres (9, 14, 120…)
+  // must be converted (÷1000) before adding to the metre sounding.
+  if (su === 'm') {
+    if (median >= 0.5 || maxAbs > 1) return 'mm';
+    return 'm';
+  }
+  // Sounding in cm: large integer corrections are often mm sticks.
+  if (su === 'cm') {
+    if (median >= 10 && maxAbs >= 50) return 'mm';
+    return 'cm';
+  }
+  // Sounding in mm — corrections share mm (Veniamis-style, often with a divisor).
+  return 'mm';
+}
+
+/**
+ * Apply a signed length correction onto a sounding, converting correction-table
+ * units into the sounding-table unit. Sign is already in `corrRaw` (positive
+ * adds, negative subtracts). `divisor` scales raw table values (Excel ×10 books).
+ */
+function applyLengthCorrection(sounding, corrRaw, divisor, correctionUnit, soundingUnit) {
+  const raw = Number(corrRaw);
+  if (!Number.isFinite(raw) || raw === 0) return Number(sounding) || 0;
+  const native = raw / (Number(divisor) > 0 ? Number(divisor) : 1);
+  const delta = lengthToUnit(native, correctionUnit, soundingUnit);
+  return (Number(sounding) || 0) + delta;
+}
+
+/**
+ * UI soundings are entered in centimetres. Convert cm → native table units.
+ */
+function cmToTableUnits(cm, unitOrTank) {
+  const v = Number(cm);
+  if (!Number.isFinite(v)) return v;
+  const unit = typeof unitOrTank === 'string'
+    ? (normalizeLengthUnit(unitOrTank) || unitOrTank)
+    : detectSoundingUnit(unitOrTank);
+  if (unit === 'm') return v / 100;
+  if (unit === 'cm') return v;
+  return v * 10; // mm (default)
+}
+
+/** Inverse of cmToTableUnits — table-native value → centimetres for the UI. */
+function tableUnitsToCm(tableVal, unitOrTank) {
+  const v = Number(tableVal);
+  if (!Number.isFinite(v)) return v;
+  const unit = typeof unitOrTank === 'string'
+    ? (normalizeLengthUnit(unitOrTank) || unitOrTank)
+    : detectSoundingUnit(unitOrTank);
+  if (unit === 'm') return v * 100;
+  if (unit === 'cm') return v;
+  return v / 10; // mm
+}
 
 /**
  * Detect the dominant step of a sounding/depth axis.
- * Prefers 1, 2, 5, 10 (also accepts 20/25/50 as used in some HFO tables).
+ * Prefers ship-book increments for the detected unit (mm or m).
  */
-function detectIncrement(axis) {
-  if (!axis || axis.length < 2) return 1;
+function detectIncrement(axis, unit) {
+  if (!axis || axis.length < 2) return unit === 'm' ? 0.01 : 1;
   const diffs = [];
   for (let i = 1; i < axis.length; i++) {
     const d = Math.abs(axis[i] - axis[i - 1]);
     if (d > 0) diffs.push(Math.round(d * 1000) / 1000);
   }
-  if (!diffs.length) return 1;
+  if (!diffs.length) return unit === 'm' ? 0.01 : 1;
 
   // Mode of diffs
   const counts = new Map();
@@ -111,9 +260,10 @@ function detectIncrement(axis) {
     if (n > bestN) { best = d; bestN = n; }
   }
 
-  // Snap to a preferred increment when very close
-  for (const p of PREFERRED_INCREMENTS) {
-    if (Math.abs(best - p) < 1e-6) return p;
+  const preferred = unit === 'm' ? PREFERRED_INCREMENTS_M : PREFERRED_INCREMENTS_MM;
+  const tol = unit === 'm' ? 1e-9 : 1e-6;
+  for (const p of preferred) {
+    if (Math.abs(best - p) < tol) return p;
   }
   return best;
 }
@@ -157,15 +307,17 @@ function bilinearInterpInc(xAxis, yAxis, grid, x, y, xInc) {
 
 /** Resolve sounding / heel increments from tank metadata or axis spacing. */
 function resolveIncrements(tank) {
+  const unit = detectSoundingUnit(tank);
+  const correctionUnit = detectCorrectionUnit(tank, unit);
   const soundingInc = Number(tank.soundingIncrement) > 0
     ? Number(tank.soundingIncrement)
-    : detectIncrement(tank.trimAxis);
+    : detectIncrement(tank.trimAxis, unit);
   const heelInc = Number(tank.heelIncrement) > 0
     ? Number(tank.heelIncrement)
     : (tank.listAxis && tank.listAxis.length
-      ? detectIncrement(tank.listAxis)
+      ? detectIncrement(tank.listAxis, unit)
       : soundingInc);
-  return { soundingInc, heelInc };
+  return { soundingInc, heelInc, soundingUnit: unit, correctionUnit };
 }
 
 /**
@@ -229,23 +381,125 @@ function wcf56(density15) {
 }
 
 /**
+ * True when trim/volume tables are sounding-from-bottom (volume rises with the
+ * axis). False for ullage-indexed tables (volume falls as the axis rises).
+ * Veniamis correction tanks are sounding tables even when the user enters ullage.
+ */
+function tablesUseSounding(tank) {
+  const vc = tank && tank.volumeCurve;
+  if (!vc || !Array.isArray(vc.v) || vc.v.length < 2) return true;
+  return Number(vc.v[vc.v.length - 1]) >= Number(vc.v[0]);
+}
+
+/**
+ * Map a user sounding into the calibration table's axis units (Excel Setup!F).
+ * entryMethod: 'ullage' | 'dip' | 'sounding' — how `reading` was taken.
+ * Trim/heel interpolation must see this table-scale value, never a scaled trim.
+ */
+function toTableReading(tank, reading, entryMethod) {
+  const pipe = Number(tank && tank.pipeHeight) || 0;
+  const method = String(entryMethod || tank && tank.soundingMethod || 'sounding').toLowerCase();
+  const ullageEntry = method === 'ullage';
+  if (tablesUseSounding(tank)) {
+    return ullageEntry && pipe > 0 ? pipe - reading : reading;
+  }
+  return !ullageEntry && pipe > 0 ? pipe - reading : reading;
+}
+
+/** Inverse of toTableReading — table-scale value back to the entry method. */
+function fromTableReading(tank, tableReading, entryMethod) {
+  const pipe = Number(tank && tank.pipeHeight) || 0;
+  const method = String(entryMethod || tank && tank.soundingMethod || 'sounding').toLowerCase();
+  const ullageEntry = method === 'ullage';
+  if (tablesUseSounding(tank)) {
+    return ullageEntry && pipe > 0 ? pipe - tableReading : tableReading;
+  }
+  return !ullageEntry && pipe > 0 ? pipe - tableReading : tableReading;
+}
+
+/**
  * Full double-interpolation calculation for one tank + one reading.
+ *
+ * Three calibration approaches (tank.calcType):
+ *
+ *   'correction' — direct sounding correction
+ *     Heel/list table is a length correction (mm / cm / m). Apply it to the
+ *     sounding first (sign already in the table, converted into sounding-table
+ *     units), then either:
+ *       • length trim correction + volume curve, or
+ *       • trim × volume grid at the heel-corrected sounding (m³ final).
+ *
+ *   'trimHeel' — trim-heel correction
+ *     Interpolate trim AND heel length corrections both at the original table
+ *     sounding, convert each into sounding-table units, then
+ *       corrected = original ± trim ± heel
+ *     (sign already in the interpolated values). Look up the capacity / volume
+ *     table at that corrected sounding.
+ *     Sounding input is always centimetres; sounding / correction tables may
+ *     independently be mm, cm, or m — e.g.
+ *       1.207 m = 120 cm + 9 mm − 2 mm
+ *              = 1.2 m + 0.009 m − 0.002 m
+ *
+ *   'direct' — direct volume correction
+ *     Heel/list table is a volume correction (m³). Interpolate heel volume and
+ *     trim volume independently at the table sounding, then
+ *       observed m³ = trimVolume − heelVolume.
+ *
  * tank: extracted tank definition (see tanks-data.js)
- * inputs: { reading, trim, list, tempC, density15, gaugeType }
- *   reading: raw sounding/ullage/dip/depth/gauge value, in the tank's native unit
- *     (or a volume in m3 directly, when gaugeType === 'volume')
+ * inputs: { reading, trim, list, tempC, density15, gaugeType, entryMethod, readingUnit }
+ *   reading: raw sounding/ullage/dip/depth/gauge value. When readingUnit is
+ *     'cm' (UI default), converted to the table's detected mm/m/cm units first.
+ *     Otherwise treated as already in table-native units (stored readings).
+ *   trim: DIRECT table trim in metres (by the stern). Must not be scaled or
+ *     multiplied — only used as the column key against trimVals (Excel
+ *     Data!AG9 / trimDraft = 1×trim by stern).
+ *   entryMethod: how `reading` was taken ('ullage'|'dip'|'sounding'). Defaults
+ *     to tank.soundingMethod. Converted to table scale before trim/heel.
  *   gaugeType: 'meter' (default) reads `reading` through the calibration table/grid.
  *     'volume' treats `reading` as an already-known volume in m3 (some small
  *     settling/service tanks are logged as a direct volume-gauge reading rather
  *     than a meter/ullage figure) and skips interpolation entirely.
  */
+function calcApproachOf(calcType) {
+  const t = String(calcType || 'direct');
+  if (t === 'correction') return 'sounding-correction';
+  if (t === 'trimHeel' || t === 'trim-heel' || t === 'trim_heel') return 'trim-heel-correction';
+  return 'volume-correction';
+}
+
+function isTrimHeelType(calcType) {
+  const t = String(calcType || '');
+  return t === 'trimHeel' || t === 'trim-heel' || t === 'trim_heel';
+}
+
 function computeTank(tank, inputs) {
-  const { reading, trim = 0, list = 0, tempC = 15, density15 = null, gaugeType = 'meter' } = inputs;
+  const {
+    reading: readingIn,
+    trim = 0,
+    list = 0,
+    tempC = 15,
+    density15 = null,
+    gaugeType = 'meter',
+    entryMethod,
+    readingUnit,
+  } = inputs;
   const divisor = tank.correctionDivisor || 1;
+  // Trim is the direct table column key — never scale/multiply it for lookup.
+  const tableTrim = Number(trim) || 0;
+
+  const { soundingInc, heelInc, soundingUnit, correctionUnit } = resolveIncrements(tank);
+  const method = entryMethod || tank.soundingMethod || 'sounding';
+  const approach = calcApproachOf(tank.calcType);
+
+  // UI enters centimetres; stored / API readings are already table-native.
+  let reading = readingIn;
+  if (gaugeType !== 'volume' && String(readingUnit || '').toLowerCase() === 'cm') {
+    reading = cmToTableUnits(readingIn, soundingUnit);
+  }
 
   let trimCorr = 0, listCorr = 0, corrected = reading;
-
-  const { soundingInc, heelInc } = resolveIncrements(tank);
+  let trimVolume = null, heelVolume = null;
+  let trimCorrApplied = null, heelCorrApplied = null;
 
   if (gaugeType === 'volume') {
     // Volume gauge: the reading IS the observed volume already -- no interpolation.
@@ -253,42 +507,99 @@ function computeTank(tank, inputs) {
     var correctedReadingOut = reading;
     var soundingBottomOut = reading;
   } else if (tank.calcType === 'correction') {
-    // Stage 1: trim correction — Excel-style double interp at sounding increment
-    trimCorr = bilinearInterpInc(
-      tank.trimAxis, tank.trimVals, tank.trimGrid, reading, trim, soundingInc
-    );
-    corrected = reading + trimCorr / divisor;
-    // Stage 2: list/heel correction at heel/list increment
+    // Direct sounding correction (length heel → corrected sounding → volume):
+    // Length corrections are converted into sounding-table units before adding.
+    const tableReading = toTableReading(tank, reading, method);
+    corrected = tableReading;
+
     if (tank.listAxis && tank.listAxis.length) {
       listCorr = bilinearInterpInc(
         tank.listAxis, tank.listVals, tank.listGrid, corrected, list, heelInc
       );
-      corrected = corrected + listCorr / divisor;
+      heelCorrApplied = lengthToUnit(listCorr / divisor, correctionUnit, soundingUnit);
+      corrected = applyLengthCorrection(corrected, listCorr, divisor, correctionUnit, soundingUnit);
     }
-    // Convert ullage -> sounding-from-bottom if this tank is read by ullage
-    let soundingFromBottom = corrected;
-    if (tank.soundingMethod && tank.soundingMethod.toLowerCase() === 'ullage' && tank.pipeHeight) {
-      soundingFromBottom = tank.pipeHeight - corrected;
+
+    if (tank.volumeCurve && Array.isArray(tank.volumeCurve.x) && tank.volumeCurve.x.length) {
+      trimCorr = bilinearInterpInc(
+        tank.trimAxis, tank.trimVals, tank.trimGrid, corrected, tableTrim, soundingInc
+      );
+      trimCorrApplied = lengthToUnit(trimCorr / divisor, correctionUnit, soundingUnit);
+      corrected = applyLengthCorrection(corrected, trimCorr, divisor, correctionUnit, soundingUnit);
+      var volumeObserved = linearInterp(tank.volumeCurve.x, tank.volumeCurve.v, corrected);
+    } else {
+      volumeObserved = bilinearInterpInc(
+        tank.trimAxis, tank.trimVals, tank.trimGrid, corrected, tableTrim, soundingInc
+      );
+      trimVolume = volumeObserved;
     }
-    // Volume curve is usually 1 cm steps; linearInterp handles any increment
-    var volumeObserved = tank.volumeCurve
-      ? linearInterp(tank.volumeCurve.x, tank.volumeCurve.v, soundingFromBottom)
-      : 0;
-    var correctedReadingOut = corrected;
-    var soundingBottomOut = soundingFromBottom;
-  } else {
-    // Direct type: heel correction first, then trim×volume grid (both stepped)
+    var correctedReadingOut = fromTableReading(tank, corrected, method);
+    var soundingBottomOut = tablesUseSounding(tank)
+      ? corrected
+      : ((Number(tank.pipeHeight) || 0) > 0 ? (Number(tank.pipeHeight) - corrected) : corrected);
+  } else if (isTrimHeelType(tank.calcType)) {
+    // Trim-heel correction — both length corrections at the ORIGINAL sounding,
+    // converted into sounding-table units, then capacity/volume lookup:
+    //   corrected = original ± trim ± heel
+    const tableReading = toTableReading(tank, reading, method);
+
+    trimCorr = bilinearInterpInc(
+      tank.trimAxis, tank.trimVals, tank.trimGrid, tableReading, tableTrim, soundingInc
+    );
+    trimCorrApplied = lengthToUnit(trimCorr / divisor, correctionUnit, soundingUnit);
+
     if (tank.listAxis && tank.listAxis.length) {
       listCorr = bilinearInterpInc(
-        tank.listAxis, tank.listVals, tank.listGrid, reading, list, heelInc
+        tank.listAxis, tank.listVals, tank.listGrid, tableReading, list, heelInc
       );
-      corrected = reading + listCorr / divisor;
+      heelCorrApplied = lengthToUnit(listCorr / divisor, correctionUnit, soundingUnit);
+    } else {
+      heelCorrApplied = 0;
     }
-    volumeObserved = bilinearInterpInc(
-      tank.trimAxis, tank.trimVals, tank.trimGrid, corrected, trim, soundingInc
+
+    corrected = tableReading
+      + (trimCorrApplied || 0)
+      + (heelCorrApplied || 0);
+
+    if (tank.volumeCurve && Array.isArray(tank.volumeCurve.x) && tank.volumeCurve.x.length) {
+      volumeObserved = linearInterp(tank.volumeCurve.x, tank.volumeCurve.v, corrected);
+    } else if (tank.trimGrid && tank.trimAxis) {
+      // No dedicated capacity curve — treat trim grid as volume at corrected sounding.
+      volumeObserved = bilinearInterpInc(
+        tank.trimAxis, tank.trimVals, tank.trimGrid, corrected, tableTrim, soundingInc
+      );
+      trimVolume = volumeObserved;
+    } else {
+      volumeObserved = 0;
+    }
+    correctedReadingOut = fromTableReading(tank, corrected, method);
+    soundingBottomOut = tablesUseSounding(tank)
+      ? corrected
+      : ((Number(tank.pipeHeight) || 0) > 0 ? (Number(tank.pipeHeight) - corrected) : corrected);
+  } else {
+    // Direct volume correction: heel m³ and trim m³ at the same table sounding,
+    // final observed volume = trimVolume − heelVolume.
+    const tableReading = toTableReading(tank, reading, method);
+    corrected = tableReading;
+
+    if (tank.listAxis && tank.listAxis.length) {
+      listCorr = bilinearInterpInc(
+        tank.listAxis, tank.listVals, tank.listGrid, tableReading, list, heelInc
+      );
+      heelVolume = listCorr / divisor;
+    } else {
+      heelVolume = 0;
+    }
+
+    trimVolume = bilinearInterpInc(
+      tank.trimAxis, tank.trimVals, tank.trimGrid, tableReading, tableTrim, soundingInc
     );
-    correctedReadingOut = corrected;
-    soundingBottomOut = corrected;
+    trimCorr = trimVolume;
+    volumeObserved = trimVolume - heelVolume;
+    correctedReadingOut = fromTableReading(tank, tableReading, method);
+    soundingBottomOut = tablesUseSounding(tank)
+      ? tableReading
+      : ((Number(tank.pipeHeight) || 0) > 0 ? (Number(tank.pipeHeight) - tableReading) : tableReading);
   }
 
   volumeObserved = Math.max(0, Math.min(volumeObserved, tank.capacity * 1.02));
@@ -303,10 +614,17 @@ function computeTank(tank, inputs) {
 
   return {
     gaugeType,
+    calcApproach: approach,
+    soundingUnit,
+    correctionUnit,
     soundingIncrement: soundingInc,
     heelIncrement: heelInc,
     trimCorrection: trimCorr,
     listCorrection: listCorr,
+    trimCorrectionApplied: trimCorrApplied,
+    heelCorrectionApplied: heelCorrApplied,
+    trimVolume,
+    heelVolume,
     correctedReading: correctedReadingOut,
     soundingFromBottom: soundingBottomOut,
     volumeObserved,
@@ -317,6 +635,7 @@ function computeTank(tank, inputs) {
     weightMT,
   };
 }
+
 
 function volumeFromMT(mt, density15, tempC = 15) {
   const dens = Number(density15);
