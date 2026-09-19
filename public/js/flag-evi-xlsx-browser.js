@@ -303,7 +303,7 @@
       side: sideFromTitle(name),
       tankNo: tankNoFromTitle(name),
       calcType: 'correction',
-      trimAxisSense: 'stern',
+      trimAxisSense: 'bow',
       capacity: robustCapacity(trimVals, trimGrid),
       pipeHeight: pipe != null ? pipe : 0,
       soundingMethod: method,
@@ -374,8 +374,9 @@
       }
       let count = 0;
       for (const block of blockRanges(rows)) {
+        // Keep printed +/−; calib UI / trimAxisSense handle sense.
         const parsed = parseBlock(
-          rows, block.start, block.end, block.name, headers, valueStart, kind === 'trim'
+          rows, block.start, block.end, block.name, headers, valueStart, false
         );
         if (!parsed) {
           warnings.push(sheetName + ': ' + block.name + ' — no usable rows');
@@ -408,7 +409,7 @@
     return {
       format: 'flag-evi-xlsx',
       calcType: 'correction',
-      trimAxisSense: 'stern',
+      trimAxisSense: 'bow',
       tankCount: tanks.length,
       sheets: sheetsMeta,
       warnings,
