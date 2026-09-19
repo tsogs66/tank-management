@@ -6,28 +6,40 @@
   'use strict';
 
   const STYLE_ID = 'cheng-clock-picker-css';
-  const NUM_R = 78;
-  const TICK_R = 98;
+  /* Phone default face 220px (r=110). Tablet/Windows CSS grows the face;
+     placeNums/placeMinuteTicks read clientWidth so radii stay proportional. */
   let active = null;
 
+  function faceRadii(face) {
+    const half = Math.max(80, ((face && face.clientWidth) || 220) / 2);
+    return {
+      numR: Math.round(half * 0.745),
+      tickR: Math.round(half * 0.891),
+    };
+  }
+
   function ensureCss() {
-    if (document.getElementById(STYLE_ID)) return;
-    const s = document.createElement('style');
-    s.id = STYLE_ID;
+    let s = document.getElementById(STYLE_ID);
+    if (!s) {
+      s = document.createElement('style');
+      s.id = STYLE_ID;
+      document.head.appendChild(s);
+    }
     s.textContent = `
-.ccp-overlay{position:fixed;inset:0;z-index:12000;background:rgba(4,10,18,.62);display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(3px)}
-.ccp-dialog{width:min(340px,96vw);background:linear-gradient(160deg,rgba(18,34,56,.98),rgba(10,20,32,.98));border:1px solid rgba(201,154,83,.4);border-radius:18px;box-shadow:0 24px 60px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.1);padding:16px 16px 14px;color:#e9e4d6;font-family:Segoe UI,Helvetica Neue,sans-serif;overflow:hidden}
+.ccp-overlay{position:fixed;inset:0;z-index:12000;background:rgba(4,10,18,.62);display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(3px);overflow:auto;-webkit-overflow-scrolling:touch}
+html.keyboard-open .ccp-overlay{align-items:flex-start;padding-top:max(8px,env(safe-area-inset-top,0px))}
+.ccp-dialog{width:min(340px,96vw);max-height:min(96vh,96dvh);background:linear-gradient(160deg,rgba(18,34,56,.98),rgba(10,20,32,.98));border:1px solid rgba(201,154,83,.4);border-radius:18px;box-shadow:0 24px 60px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.1);padding:16px 16px 14px;color:#e9e4d6;font-family:Segoe UI,Helvetica Neue,sans-serif;overflow:auto;box-sizing:border-box}
 html.bright .ccp-dialog{background:linear-gradient(160deg,#fff,#f4f1ea);color:#122238;border-color:rgba(110,72,20,.35)}
 .ccp-title{font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.7;margin-bottom:8px}
-.ccp-face{position:relative;width:220px;height:220px;margin:8px auto 12px;border-radius:50%;overflow:hidden;background:radial-gradient(circle at 35% 30%,rgba(87,179,171,.18),transparent 45%),radial-gradient(circle at 50% 50%,rgba(18,34,56,.9),rgba(8,14,22,1));border:2px solid rgba(201,154,83,.45);box-shadow:inset 0 0 30px rgba(0,0,0,.45),0 0 24px rgba(87,179,171,.15);touch-action:none;cursor:crosshair}
+.ccp-face{position:relative;width:220px;height:220px;margin:8px auto 12px;border-radius:50%;overflow:hidden;background:radial-gradient(circle at 35% 30%,rgba(87,179,171,.18),transparent 45%),radial-gradient(circle at 50% 50%,rgba(18,34,56,.9),rgba(8,14,22,1));border:2px solid rgba(201,154,83,.45);box-shadow:inset 0 0 30px rgba(0,0,0,.45),0 0 24px rgba(87,179,171,.15);touch-action:none;cursor:crosshair;flex-shrink:0;--ccp-hand-h:70px;--ccp-hand-m:90px}
 html.bright .ccp-face{background:radial-gradient(circle at 35% 30%,rgba(23,102,95,.1),transparent 45%),#f7f5ef}
 .ccp-center{position:absolute;left:50%;top:50%;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;background:#c99a53;z-index:3;pointer-events:none}
-.ccp-hand{position:absolute;left:50%;top:50%;width:2px;height:70px;margin-top:-70px;margin-left:-1px;background:#57b3ab;transform-origin:bottom center;border-radius:2px;z-index:2;transition:transform .12s ease,opacity .12s ease;pointer-events:none}
-.ccp-hand.min{height:90px;margin-top:-90px;background:#c99a53;width:1.5px}
+.ccp-hand{position:absolute;left:50%;top:50%;width:2px;height:var(--ccp-hand-h);margin-top:calc(-1 * var(--ccp-hand-h));margin-left:-1px;background:#57b3ab;transform-origin:bottom center;border-radius:2px;z-index:2;transition:transform .12s ease,opacity .12s ease;pointer-events:none}
+.ccp-hand.min{height:var(--ccp-hand-m);margin-top:calc(-1 * var(--ccp-hand-m));background:#c99a53;width:1.5px}
 .ccp-hand.dragging{transition:none}
 .ccp-hand.dim{opacity:.22}
-.ccp-num{position:absolute;left:50%;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;display:flex;align-items:center;justify-content:center;border-radius:50%;font-weight:700;font-size:11px;cursor:pointer;user-select:none;color:inherit;opacity:.9;z-index:4;-webkit-tap-highlight-color:transparent}
-.ccp-num:hover,.ccp-num.active{background:rgba(201,154,83,.28);opacity:1;box-shadow:0 0 0 1px rgba(201,154,83,.5)}
+.ccp-num{position:absolute;left:50%;top:50%;width:28px;height:28px;margin:-14px 0 0 -14px;padding:0 !important;min-width:0;min-height:0;border:none !important;background:transparent;color:inherit;font:inherit;letter-spacing:normal;text-transform:none;display:flex;align-items:center;justify-content:center;border-radius:50%;font-weight:700;font-size:12px;line-height:1;cursor:pointer;user-select:none;opacity:.9;z-index:4;-webkit-tap-highlight-color:transparent;box-sizing:border-box;box-shadow:none}
+.ccp-num:hover,.ccp-num.active{background:rgba(201,154,83,.28);opacity:1;box-shadow:0 0 0 1px rgba(201,154,83,.5);border:none !important;color:inherit}
 .ccp-tick{position:absolute;left:50%;top:50%;width:2px;height:7px;margin:-3.5px 0 0 -1px;background:rgba(233,228,214,.35);transform-origin:center center;pointer-events:none;z-index:1}
 .ccp-tick.major{height:11px;margin-top:-5.5px;background:rgba(201,154,83,.65)}
 .ccp-readout{text-align:center;font-variant-numeric:tabular-nums;font-size:1.6rem;font-weight:700;letter-spacing:.06em;margin-bottom:10px}
@@ -39,14 +51,36 @@ html.bright .ccp-face{background:radial-gradient(circle at 35% 30%,rgba(23,102,9
 .ccp-step{text-align:center;font-size:11px;letter-spacing:.08em;text-transform:uppercase;opacity:.65;margin-bottom:8px}
 .ccp-hint{text-align:center;font-size:10px;opacity:.5;margin:-4px 0 8px}
 .ccp-ampm{display:flex;gap:8px;justify-content:center;margin-bottom:12px}
-.ccp-ampm button{min-width:72px;padding:8px 12px;border-radius:10px;border:1px solid rgba(201,154,83,.35);background:rgba(0,0,0,.2);color:inherit;font-weight:700;cursor:pointer}
+.ccp-ampm button{min-width:72px;padding:8px 12px;border-radius:10px;border:1px solid rgba(201,154,83,.35);background:rgba(0,0,0,.2);color:inherit;font-weight:700;cursor:pointer;letter-spacing:normal;text-transform:none}
 .ccp-ampm button.active{background:rgba(87,179,171,.25);border-color:#57b3ab}
 .ccp-actions{display:flex;gap:8px;justify-content:flex-end}
-.ccp-actions button{padding:8px 14px;border-radius:10px;border:1px solid rgba(233,228,214,.2);background:rgba(0,0,0,.25);color:inherit;cursor:pointer;font-weight:600}
+.ccp-actions button{padding:8px 14px;border-radius:10px;border:1px solid rgba(233,228,214,.2);background:rgba(0,0,0,.25);color:inherit;cursor:pointer;font-weight:600;letter-spacing:normal;text-transform:none}
 .ccp-actions .ccp-ok{background:linear-gradient(180deg,rgba(87,179,171,.45),rgba(87,179,171,.2));border-color:#57b3ab}
 input.ccp-bound{cursor:pointer}
+/* Tablet + Windows / desktop: larger dial and hit targets */
+@media (min-width:721px) and (min-height:480px), (min-width:900px) and (hover:hover) and (pointer:fine){
+  .ccp-dialog{width:min(520px,94vw);padding:22px 24px 20px;border-radius:22px}
+  .ccp-title{font-size:14px;margin-bottom:12px}
+  .ccp-face{width:340px;height:340px;margin:14px auto 18px;--ccp-hand-h:110px;--ccp-hand-m:142px}
+  .ccp-center{width:14px;height:14px;margin:-7px 0 0 -7px}
+  .ccp-num{width:40px;height:40px;margin:-20px 0 0 -20px;font-size:16px}
+  .ccp-tick{height:10px;margin-top:-5px}
+  .ccp-tick.major{height:15px;margin-top:-7.5px}
+  .ccp-readout{font-size:2.4rem;margin-bottom:14px}
+  .ccp-readout .ccp-part{padding:8px 10px;border-radius:10px}
+  .ccp-step{font-size:14px;margin-bottom:10px}
+  .ccp-hint{font-size:13px;margin:-2px 0 12px}
+  .ccp-ampm button{min-width:96px;min-height:48px;padding:12px 18px;font-size:16px;border-radius:12px}
+  .ccp-actions button{min-height:48px;padding:12px 20px;font-size:16px;border-radius:12px}
+}
+@media (min-width:1100px) and (min-height:700px){
+  .ccp-dialog{width:min(600px,90vw);padding:24px 28px 22px}
+  .ccp-face{width:400px;height:400px;margin:16px auto 20px;--ccp-hand-h:128px;--ccp-hand-m:166px}
+  .ccp-num{width:46px;height:46px;margin:-23px 0 0 -23px;font-size:18px}
+  .ccp-readout{font-size:2.7rem}
+  .ccp-title{font-size:15px}
+}
 `;
-    document.head.appendChild(s);
   }
 
   function pad(n) { return String(n).padStart(2, '0'); }
@@ -212,15 +246,17 @@ input.ccp-bound{cursor:pointer}
     }
 
     function placeMinuteTicks() {
+      const { tickR } = faceRadii(face);
       for (let i = 0; i < 60; i++) {
         const tick = document.createElement('div');
         tick.className = 'ccp-tick' + (i % 5 === 0 ? ' major' : '');
-        tick.style.transform = `rotate(${i * 6}deg) translateY(-${TICK_R}px)`;
+        tick.style.transform = `rotate(${i * 6}deg) translateY(-${tickR}px)`;
         face.appendChild(tick);
       }
     }
 
     function placeNums(count, mapLabel, mapVal) {
+      const { numR } = faceRadii(face);
       for (let i = 0; i < count; i++) {
         const label = mapLabel(i);
         const val = mapVal ? mapVal(i) : label;
@@ -229,7 +265,7 @@ input.ccp-bound{cursor:pointer}
         btn.className = 'ccp-num';
         btn.textContent = label;
         const angle = (i / count) * Math.PI * 2 - Math.PI / 2;
-        btn.style.transform = `translate(${Math.cos(angle) * NUM_R}px, ${Math.sin(angle) * NUM_R}px)`;
+        btn.style.transform = `translate(${Math.cos(angle) * numR}px, ${Math.sin(angle) * numR}px)`;
         btn.dataset.val = String(val);
         face.appendChild(btn);
       }
