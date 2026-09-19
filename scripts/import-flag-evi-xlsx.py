@@ -16,10 +16,9 @@ Shared header near the top:
 
 Output tanks are left for the app to classify: its detectCalcType reads what
 the two sheets actually hold (capacities vs a correction in millimetres).
-Trim columns are stored by-stern (the sheet's stem-positive headers are
-negated), which is how every other importer here stores them, and the tank
-says so with trimAxisSense so the app can turn the engineer's bow-positive
-trim into the right column.
+Trim column +/− signs are kept exactly as printed. FLAG EVI books are
+stem/bow-positive, so tanks are tagged trimAxisSense=bow. Calibration UI
+can flip headers or change sense later if a book needs correction.
 """
 from __future__ import annotations
 
@@ -379,7 +378,7 @@ def merge_tank(name, trim_block, heel_block):
         "side": side_from_title(name),
         "tankNo": tank_no_from_title(name),
         "calcType": "correction",
-        "trimAxisSense": "stern",
+        "trimAxisSense": "bow",
         "capacity": robust_capacity(trim_vals, trim_grid),
         "pipeHeight": pipe if pipe is not None else 0,
         "soundingMethod": method,
@@ -446,7 +445,8 @@ def extract(path: str):
                 name,
                 headers,
                 value_start,
-                negate_trim=(kind == "trim"),
+                # Keep printed +/−; calib UI / trimAxisSense handle sense.
+                negate_trim=False,
             )
             if not block:
                 warnings.append(f"{ws.title}: {name} — no usable rows")
@@ -480,7 +480,7 @@ def extract(path: str):
     return {
         "format": "flag-evi-xlsx",
         "calcType": "correction",
-        "trimAxisSense": "stern",
+        "trimAxisSense": "bow",
         "tankCount": len(tanks),
         "sheets": sheets_meta,
         "warnings": warnings,

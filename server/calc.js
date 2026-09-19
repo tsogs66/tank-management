@@ -667,10 +667,10 @@ function detectCalcType(tank) {
  *
  * Books print it both ways. FLAG EVI heads its positive columns TRIM BY STEM,
  * so a positive column is down by the bow; the Giorgis books head theirs by
- * the stern, and the FLAG EVI importer flips to match them on the way in. The
- * app therefore talks one language to the engineer -- positive is down by the
- * bow, the figure the monitoring page shows -- and turns it into the tank's
- * own column sign here, once, per tank.
+ * the stern. FLAG EVI imports keep printed +/− and tag trimAxisSense=bow
+ * (stem-positive books). Calibration can flip headers or change sense later.
+ * The app talks one language to the engineer -- positive is down by the bow --
+ * and turns it into the tank's own column sign here, once, per tank.
  *
  * Tanks stored before this carry no sense at all, and every one of them was
  * saved with the columns running by the stern, so that is the default. An

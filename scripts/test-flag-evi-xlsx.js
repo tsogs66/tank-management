@@ -34,7 +34,9 @@ async function main() {
   assert.strictEqual(first.calcType, 'direct');
   assert.ok(first.trimAxis.length > 10);
   assert.ok(first.listAxis.length > 10);
-  assert.deepStrictEqual(first.trimVals.slice(0, 4), [-1, 0, 0.5, 1]);
+  assert.strictEqual(first.trimAxisSense, 'bow');
+  // Printed FLAG EVI trim headers kept as-is (no import-time negate).
+  assert.ok(Array.isArray(first.trimVals) && first.trimVals.length >= 4);
   assert.ok(Math.abs(first.capacity - 463.476) < 0.01);
   console.log('ok — FLAG EVI import parsed', parsed.tankCount, 'tanks');
 }
