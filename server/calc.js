@@ -445,6 +445,126 @@ function fromTableReading(tank, tableReading, entryMethod) {
   return !ullageEntry && pipe > 0 ? pipe - tableReading : tableReading;
 }
 
+/** Smallest, largest and sign spread of every figure in a grid. */
+function gridStats(grid) {
+  let min = Infinity, max = -Infinity, neg = 0, n = 0;
+  for (const row of grid || []) {
+    for (const v of row || []) {
+      const x = Number(v);
+      if (!Number.isFinite(x)) continue;
+      n += 1;
+      if (x < min) min = x;
+      if (x > max) max = x;
+      if (x < 0) neg += 1;
+    }
+  }
+  return n ? { min, max, neg, n, span: max - min, mag: Math.max(Math.abs(min), Math.abs(max)) } : null;
+}
+
+/** How steadily one column climbs or falls down the sounding axis, 0..1. */
+function columnMonotonicity(grid, col) {
+  let up = 0, down = 0, n = 0;
+  for (let i = 1; i < (grid || []).length; i += 1) {
+    const a = Number(grid[i - 1][col]), b = Number(grid[i][col]);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || a === b) continue;
+    n += 1;
+    if (b > a) up += 1; else down += 1;
+  }
+  return n ? Math.max(up, down) / n : 0;
+}
+
+/**
+ * Does this grid hold the tank's capacity, or a correction to the sounding?
+ *
+ * A capacity table never goes negative, reaches the tank's own size, runs all
+ * the way from empty to full, and climbs steadily as the tank fills. A
+ * correction table does none of those: it stays small, changes sign across the
+ * columns, and wanders.
+ */
+function looksLikeCapacityTable(grid, vals, capacity) {
+  const s = gridStats(grid);
+  if (!s || (grid || []).length < 4) return false;
+  if (s.neg > s.n * 0.02) return false;
+  const cap = Number(capacity) > 0 ? Number(capacity) : s.max;
+  if (!(cap > 0) || s.max < cap * 0.5 || s.span < cap * 0.5) return false;
+  const mid = Math.max(0, Math.floor(((vals || []).length || 1) / 2));
+  return columnMonotonicity(grid, mid) >= 0.9;
+}
+
+/**
+ * Which of the three arrangements a tank's calibration tables are in.
+ *
+ * Every book lays this out differently, so the tables are asked what they
+ * hold rather than the file being trusted to say:
+ *
+ *   trim grid is a capacity table, heel grid is a correction in millimetres
+ *     -> 'correction': heel the sounding, then read the capacity grid
+ *        (FLAG EVI, one sheet of capacities and one of heel corrections)
+ *
+ *   trim and heel are both corrections and a capacity curve is stored
+ *     -> 'trimHeel': both corrections at the sounding as read, then the curve
+ *        (the TAB.1 / TAB.2 / TAB.3 books)
+ *
+ *   trim grid is a capacity table and the heel grid is in cubic metres
+ *     -> 'direct': trim volume minus heel volume
+ *
+ * The third is the one that cannot be told apart from the first by size
+ * alone on a large tank, so it is never asserted: a heel grid small enough to
+ * be either comes back unsure, with the stored setting left alone.
+ */
+function detectCalcType(tank) {
+  const t = tank || {};
+  const cap = Number(t.capacity) || 0;
+  const hasCurve = !!(t.volumeCurve && Array.isArray(t.volumeCurve.x) && t.volumeCurve.x.length);
+  const heel = gridStats(t.listGrid);
+  const unsure = (reason) => ({ calcType: t.calcType || null, confident: false, reason, hasCurve });
+
+  if (!t.trimGrid || !t.trimGrid.length) return unsure('no trim table to read');
+  const trimIsCapacity = looksLikeCapacityTable(t.trimGrid, t.trimVals, cap);
+
+  if (trimIsCapacity) {
+    if (!heel) {
+      return { calcType: 'correction', confident: true, hasCurve,
+        reason: 'the trim table holds capacities and there is no heel table' };
+    }
+    const share = cap > 0 ? heel.mag / cap : 0;
+    if (share > 0.05) {
+      return { calcType: 'correction', confident: true, hasCurve,
+        reason: `the trim table holds capacities, and the heel table reaches `
+          + `${heel.mag.toFixed(0)} against a ${cap.toFixed(0)} m³ tank, so it is `
+          + 'a correction to the sounding, not a volume' };
+    }
+    return unsure('the trim table holds capacities, but the heel figures are small '
+      + 'enough to be either millimetres or cubic metres — say which in the tank');
+  }
+
+  if (hasCurve) {
+    return { calcType: 'trimHeel', confident: true, hasCurve,
+      reason: 'trim and heel are both corrections and the capacity comes from its own curve' };
+  }
+  return unsure('neither the trim table nor a capacity curve gives a volume');
+}
+
+/**
+ * Which way a tank's trim columns run.
+ *
+ * Books print it both ways. FLAG EVI heads its positive columns TRIM BY STEM,
+ * so a positive column is down by the bow; the Giorgis books head theirs by
+ * the stern, and the FLAG EVI importer flips to match them on the way in. The
+ * app therefore talks one language to the engineer -- positive is down by the
+ * bow, the figure the monitoring page shows -- and turns it into the tank's
+ * own column sign here, once, per tank.
+ *
+ * Tanks stored before this carry no sense at all, and every one of them was
+ * saved with the columns running by the stern, so that is the default. An
+ * importer that knows better says so with `trimAxisSense`.
+ */
+function trimAxisSign(tank) {
+  const sense = String((tank && tank.trimAxisSense) || '').toLowerCase();
+  if (sense === 'bow' || sense === 'stem' || sense === 'head' || sense === 'fore') return 1;
+  return -1;
+}
+
 /**
  * Full double-interpolation calculation for one tank + one reading.
  *
@@ -512,8 +632,9 @@ function computeTank(tank, inputs) {
     readingUnit,
   } = inputs;
   const divisor = tank.correctionDivisor || 1;
-  // Trim is the direct table column key — never scale/multiply it for lookup.
-  const tableTrim = Number(trim) || 0;
+  // `trim` arrives the way the ship is read: positive down by the bow. Turn it
+  // into this tank's column sign — never scale or multiply it beyond that.
+  const tableTrim = (Number(trim) || 0) * trimAxisSign(tank);
 
   const { soundingInc, heelInc, soundingUnit, correctionUnit } = resolveIncrements(tank);
   const heel = insertUprightColumn(tank.listVals, tank.listGrid);
@@ -877,6 +998,10 @@ module.exports = {
   bilinearInterp,
   bilinearInterpInc,
   insertUprightColumn,
+  trimAxisSign,
+  detectCalcType,
+  looksLikeCapacityTable,
+  gridStats,
   detectIncrement,
   detectSoundingUnit,
   detectCorrectionUnit,

@@ -52,6 +52,11 @@ jobs:
       - name: Double interpolation against a real calibration book
         run: node scripts/test-double-interp.js
 
+      # Ships do not share a calibration book. This is the three arrangements
+      # the app has to tell apart from the tables themselves.
+      - name: Calibration arrangements
+        run: node scripts/test-calc-type.js
+
       # public/embedded is generated from server/ and gitignored. If the copy
       # step breaks, the on-device database silently stops matching the server.
       - name: Build the on-device route copy
