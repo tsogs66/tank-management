@@ -1,0 +1,39 @@
+:root {
+  color-scheme: light dark;
+  --bg: #fff;
+  --fg: #1b1b1b;
+  --line: #d7d7d7;
+  --accent: #14506b;
+  --hint: #666;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1e1e1e; --fg: #eee; --line: #3a3a3a; --accent: #7fc4e3; --hint: #aaa; }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 12px;
+  font: 13px/1.45 "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+}
+h1 { font-size: 16px; margin: 0 0 10px; }
+h2 { font-size: 13px; margin: 0 0 6px; }
+.card { border: 1px solid var(--line); border-radius: 6px; padding: 10px; margin-bottom: 10px; }
+label { display: block; margin: 6px 0; }
+label.check { display: flex; gap: 6px; align-items: center; }
+input, select { width: 100%; padding: 5px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--fg); }
+label.check input { width: auto; }
+.row { display: flex; gap: 6px; margin-top: 8px; }
+button {
+  flex: 1; padding: 6px 10px; border: 0; border-radius: 4px;
+  background: var(--accent); color: #fff; font: inherit; cursor: pointer;
+}
+button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+button[disabled] { opacity: .5; cursor: default; }
+.hint { color: var(--hint); font-size: 12px; }
+.report { margin-top: 8px; font-size: 12px; }
+.report table { width: 100%; border-collapse: collapse; }
+.report th, .report td { text-align: left; padding: 2px 4px; border-bottom: 1px solid var(--line); }
+.report .warn { color: #b26a00; }
+#status { min-height: 1.4em; color: var(--hint); font-size: 12px; }

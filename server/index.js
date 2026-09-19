@@ -2236,6 +2236,10 @@ app.get('/legacy', (req, res) => {
    can pick them up in development; the phone build has them in its bundle. */
 app.use('/embedded', express.static(path.join(__dirname, '..', 'public', 'embedded')));
 
+/* The Excel task pane. Office loads it from this server, and it reaches back
+   into /public for the tidy rules the browser importer also uses. */
+app.use('/addin', express.static(path.join(__dirname, '..', 'addin')));
+
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api/')) return next();
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
