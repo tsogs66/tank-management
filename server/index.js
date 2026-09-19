@@ -711,8 +711,11 @@ app.post('/api/vessels/:id/tanks/recheck-calc-type', (req, res) => {
       const was = tank.calcType || null;
       const change = !!(verdict.confident && verdict.calcType && verdict.calcType !== was);
       if (change && apply) {
+        // The whole tank goes back, not just the changed field: upsertTank
+        // fills anything absent with its own empty defaults, so a partial
+        // write would take the calibration grids with it.
         store.upsertTank(req.params.id, {
-          id: tank.id, category: tank.category, calcType: verdict.calcType,
+          ...tank, calcType: verdict.calcType,
           calcTypeReason: verdict.reason, calcTypeConfident: true,
         });
       }

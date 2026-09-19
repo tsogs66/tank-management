@@ -57,6 +57,10 @@ jobs:
       - name: Calibration arrangements
         run: node scripts/test-calc-type.js
 
+      # Repairing a tank's table type must not cost it its tables.
+      - name: Calibration repair keeps the tables
+        run: node scripts/test-recheck-calc-type.js
+
       # public/embedded is generated from server/ and gitignored. If the copy
       # step breaks, the on-device database silently stops matching the server.
       - name: Build the on-device route copy
