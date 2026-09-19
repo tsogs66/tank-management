@@ -46,6 +46,12 @@ jobs:
             node --check "$f"
           done
 
+      # The calculation the whole program exists for. The figures are a real
+      # calibration book, so a regression shows up as a wrong tonnage here
+      # rather than on a signed sheet.
+      - name: Double interpolation against a real calibration book
+        run: node scripts/test-double-interp.js
+
       # public/embedded is generated from server/ and gitignored. If the copy
       # step breaks, the on-device database silently stops matching the server.
       - name: Build the on-device route copy
