@@ -37,6 +37,13 @@ jobs:
       - name: Check FLAG EVI dual-sheet importer
         run: node scripts/test-flag-evi-xlsx.js
 
+      # Not every yard writes the book the same way. A JEWEL book splits the
+      # header over two rows, puts sounding first and works in centimetres;
+      # only the first of those fails loudly, so this checks the depths come
+      # in the right way round and in the right unit.
+      - name: Correction books written another way
+        run: node scripts/test-flag-evi-layout.js
+
       # No bundler: public/js is hand-edited and loaded straight by the page,
       # so a parse error would otherwise ship.
       - name: Check every script parses

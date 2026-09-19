@@ -10,6 +10,14 @@ Each sheet stacks tanks as:
   title row (name in col A, rest blank)
   data rows: Ullage depth (mm) | Sounded depth (mm) | value columns…
 
+Not every yard writes it that way. A JEWEL book says the same things with
+the labels on one row and the trim/heel numbers on the next, the depth
+columns the other way round, and the depths in centimetres. Only the split
+header shows up as an error; the other two would import silently and be
+wrong on the sounding board. So the layout is read from the labels — which
+column says SOUNDING, and what unit is written beside it — rather than
+assumed, and a book in the original arrangement reads exactly as before.
+
 Shared header near the top:
   Trim:  TRIM BY STEM | EVEN KEEL | TRIM BY STERN  → numeric trim (m)
   Heel:  HEEL TO PORT | HEEL TO STBD               → numeric heel (°)
@@ -160,28 +168,76 @@ def guess_category(title: str) -> str:
     return "misc"
 
 
+DEPTH_LABEL_RE = re.compile(r"\b(SOUNDING|SOUNDED|ULLAGE)\b", re.I)
+UNIT_RE = re.compile(r"\b(MM|CM|M)\b", re.I)
+UNIT_TO_MM = {"MM": 1, "CM": 10, "M": 1000}
+
+DEFAULT_LAYOUT = {"ullage": (0, 1), "sounding": (1, 1)}
+
+
+def read_depth_layout(row):
+    """Which column holds which depth, and what it is written in.
+
+    Returns {"ullage": (col, scale), "sounding": (col, scale)} where scale
+    takes the book's unit to millimetres. An empty dict means this row does
+    not name the depth columns.
+    """
+    found = {}
+    for c, value in enumerate(row[:12] if row else []):
+        if not isinstance(value, str):
+            continue
+        m = DEPTH_LABEL_RE.search(value)
+        if not m:
+            continue
+        which = "ullage" if m.group(1).upper() == "ULLAGE" else "sounding"
+        if which in found:
+            continue
+        rest = value.upper().replace(m.group(1).upper(), "")
+        unit = UNIT_RE.search(rest)
+        scale = UNIT_TO_MM.get(unit.group(1).upper(), 1) if unit else 1
+        found[which] = (c, scale)
+    return found
+
+
+def numeric_run(row, first_col=1, last_col=20):
+    """The first run of numbers on a row: (values, start column)."""
+    values, start = [], None
+    for c in range(first_col, min(len(row), last_col)):
+        n = clean_num(row[c])
+        if n is not None:
+            if start is None:
+                start = c
+            values.append(n)
+        elif start is not None and values:
+            break
+    return values, start
+
+
 def find_header_row(rows):
-    """Return (index, value_start_col) where value_start_col is 0-based index of first trim/heel number."""
+    """Where the trim/heel numbers are, and how the depth columns are laid out.
+
+    Returns (index, value_start_col, layout). The numbers are normally on the
+    same row as the depth labels; a JEWEL book puts them on the row below, so
+    the two rows under the labels are tried before giving up.
+    """
     for index, row in enumerate(rows[:40]):
         if not row:
             continue
         first = str(row[0] or "").strip().upper()
         if "ULLAGE" not in first and "SOUND" not in first and "DEPTH" not in first:
             continue
-        # Prefer a row that already has numeric trim/heel headers in cols C+
-        nums = []
-        start = None
-        for c in range(1, min(len(row), 20)):
-            n = clean_num(row[c])
-            if n is not None:
-                if start is None:
-                    start = c
-                nums.append(n)
-            elif start is not None and nums:
-                break
-        if len(nums) >= 2 and start is not None:
-            return index, start
-    return None, None
+        layout = read_depth_layout(row) or dict(DEFAULT_LAYOUT)
+
+        # The labels' own row first, then the rows under it.
+        for probe in range(index, min(index + 3, len(rows))):
+            candidate = rows[probe]
+            if not candidate:
+                continue
+            first_col = 1 if probe == index else 0
+            nums, start = numeric_run(candidate, first_col=first_col)
+            if len(nums) >= 2 and start is not None:
+                return probe, start, layout
+    return None, None, None
 
 
 def parse_axis_headers(rows, header_index, value_start):
@@ -209,7 +265,8 @@ def block_ranges(rows):
     return ranges
 
 
-def parse_block(rows, start, end, name, value_headers, value_start, *, negate_trim: bool):
+def parse_block(rows, start, end, name, value_headers, value_start, *, negate_trim: bool,
+                layout=None):
     """Parse one tank block.
 
     Default column layout (FLAG EVI and similar books):
@@ -218,6 +275,18 @@ def parse_block(rows, start, end, name, value_headers, value_start, *, negate_tr
     can switch sounding↔ullage without subtracting from pipe height. Blank
     sibling cells are filled via pipe − other when a pipe height is known.
     """
+    layout = layout or DEFAULT_LAYOUT
+    ullage_col, ullage_scale = layout.get("ullage", (None, 1))
+    sounded_col, sounded_scale = layout.get("sounding", (None, 1))
+
+    def depth(row, col, scale):
+        if col is None or col >= len(row):
+            return None
+        n = clean_num(row[col])
+        if n is None or scale == 1:
+            return n
+        return clean_num(n * scale)
+
     axis = []
     ullage_axis = []
     sounding_axis = []
@@ -229,8 +298,8 @@ def parse_block(rows, start, end, name, value_headers, value_start, *, negate_tr
         row = rows[r] if r < len(rows) else None
         if not row:
             continue
-        ullage = clean_num(row[0] if len(row) > 0 else None)
-        sounded = clean_num(row[1] if len(row) > 1 else None)
+        ullage = depth(row, ullage_col, ullage_scale)
+        sounded = depth(row, sounded_col, sounded_scale)
         if ullage is not None:
             ullage_hits += 1
         if sounded is not None:
@@ -428,7 +497,7 @@ def extract(path: str):
         if not kind:
             continue
         rows = [list(row) for row in ws.iter_rows(values_only=True)]
-        header_index, value_start = find_header_row(rows)
+        header_index, value_start, layout = find_header_row(rows)
         if header_index is None:
             warnings.append(f"{ws.title}: no ullage/sounded header row with numeric columns")
             continue
@@ -447,6 +516,7 @@ def extract(path: str):
                 value_start,
                 # Keep printed +/−; calib UI / trimAxisSense handle sense.
                 negate_trim=False,
+                layout=layout,
             )
             if not block:
                 warnings.append(f"{ws.title}: {name} — no usable rows")

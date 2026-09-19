@@ -62,24 +62,67 @@
     return diffs[Math.floor(diffs.length / 2)] || 1;
   }
 
+  const DEPTH_LABEL = /\b(SOUNDING|SOUNDED|ULLAGE)\b/i;
+  const UNIT = /\b(MM|CM|M)\b/i;
+  const UNIT_TO_MM = { MM: 1, CM: 10, M: 1000 };
+  const DEFAULT_LAYOUT = { ullage: [0, 1], sounding: [1, 1] };
+
+  /**
+   * Which column holds which depth, and what it is written in. Returns
+   * { ullage: [col, scale], sounding: [col, scale] } with the scale that
+   * takes the book's unit to millimetres.
+   */
+  function readDepthLayout(row) {
+    const found = {};
+    for (let c = 0; c < Math.min((row || []).length, 12); c++) {
+      const value = row[c];
+      if (typeof value !== 'string') continue;
+      const m = DEPTH_LABEL.exec(value);
+      if (!m) continue;
+      const which = m[1].toUpperCase() === 'ULLAGE' ? 'ullage' : 'sounding';
+      if (found[which]) continue;
+      const rest = value.toUpperCase().replace(m[1].toUpperCase(), '');
+      const unit = UNIT.exec(rest);
+      found[which] = [c, (unit && UNIT_TO_MM[unit[1].toUpperCase()]) || 1];
+    }
+    return found;
+  }
+
+  function numericRun(row, firstCol) {
+    const nums = [];
+    let start = null;
+    for (let c = firstCol; c < Math.min(row.length, 20); c++) {
+      const n = cleanNum(row[c]);
+      if (n != null) {
+        if (start == null) start = c;
+        nums.push(n);
+      } else if (start != null && nums.length) break;
+    }
+    return { nums, start };
+  }
+
+  /**
+   * Where the trim/heel numbers are, and how the depth columns are laid out.
+   * They are normally on the labels' own row; a JEWEL book puts them on the
+   * row below, so the rows under the labels are tried before giving up.
+   */
   function findHeaderRow(rows) {
     for (let index = 0; index < Math.min(rows.length, 40); index++) {
       const row = rows[index];
       if (!row) continue;
       const first = String(row[0] || '').trim().toUpperCase();
       if (!first.includes('ULLAGE') && !first.includes('SOUND') && !first.includes('DEPTH')) continue;
-      let start = null;
-      const nums = [];
-      for (let c = 1; c < Math.min(row.length, 20); c++) {
-        const n = cleanNum(row[c]);
-        if (n != null) {
-          if (start == null) start = c;
-          nums.push(n);
-        } else if (start != null && nums.length) break;
+      const found = readDepthLayout(row);
+      const layout = Object.keys(found).length ? found : DEFAULT_LAYOUT;
+
+      for (let probe = index; probe < Math.min(index + 3, rows.length); probe++) {
+        const candidate = rows[probe];
+        if (!candidate) continue;
+        const { nums, start } = numericRun(candidate, probe === index ? 1 : 0);
+        if (nums.length >= 2 && start != null) return { index: probe, start, layout };
       }
-      if (nums.length >= 2 && start != null) return { index, start };
     }
-    return { index: null, start: null };
+    return { index: null, start: null, layout: null };
   }
 
   function parseAxisHeaders(rows, headerIndex, valueStart) {
@@ -108,7 +151,7 @@
     }));
   }
 
-  function parseBlock(rows, start, end, name, valueHeaders, valueStart, negateTrim) {
+  function parseBlock(rows, start, end, name, valueHeaders, valueStart, negateTrim, layout) {
     const axis = [];
     const ullageAxis = [];
     const soundingAxis = [];
@@ -117,11 +160,23 @@
     let ullageHits = 0;
     let soundingHits = 0;
 
+    /* A book that names its columns the other way round, or writes them in
+       centimetres, is read by the layout findHeaderRow returned. */
+    const cols = layout || DEFAULT_LAYOUT;
+    const [ullageCol, ullageScale] = cols.ullage || [null, 1];
+    const [soundedCol, soundedScale] = cols.sounding || [null, 1];
+    const depthAt = (row, col, scale) => {
+      if (col == null) return null;
+      const n = cleanNum(row[col]);
+      if (n == null || scale === 1) return n;
+      return Math.round(n * scale * 1e6) / 1e6;
+    };
+
     for (let r = start + 1; r < end; r++) {
       const row = rows[r];
       if (!row) continue;
-      const ullage = cleanNum(row[0]);
-      const sounded = cleanNum(row[1]);
+      const ullage = depthAt(row, ullageCol, ullageScale);
+      const sounded = depthAt(row, soundedCol, soundedScale);
       if (ullage != null) ullageHits += 1;
       if (sounded != null) soundingHits += 1;
       let axisVal;
@@ -362,7 +417,7 @@
       const kind = sheetKind(sheetName);
       if (!kind) continue;
       const rows = sheetToRows(wb.Sheets[sheetName]);
-      const { index: headerIndex, start: valueStart } = findHeaderRow(rows);
+      const { index: headerIndex, start: valueStart, layout } = findHeaderRow(rows);
       if (headerIndex == null) {
         warnings.push(sheetName + ': no ullage/sounded header row with numeric columns');
         continue;
@@ -376,7 +431,7 @@
       for (const block of blockRanges(rows)) {
         // Keep printed +/−; calib UI / trimAxisSense handle sense.
         const parsed = parseBlock(
-          rows, block.start, block.end, block.name, headers, valueStart, false
+          rows, block.start, block.end, block.name, headers, valueStart, false, layout
         );
         if (!parsed) {
           warnings.push(sheetName + ': ' + block.name + ' — no usable rows');

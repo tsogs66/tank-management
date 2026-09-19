@@ -14,7 +14,7 @@
     "stage:runtime": "node scripts/stage-runtime.js",
     "embed": "node scripts/copy-embedded.js",
     "parity": "node scripts/parity-check.js",
-    "test": "node scripts/test-sheet-tidy.js && node scripts/test-clock-picker-input.js && node scripts/test-dual-depth.js && node scripts/test-calc-type.js && node scripts/test-double-interp.js",
+    "test": "node scripts/test-sheet-tidy.js && node scripts/test-flag-evi-layout.js && node scripts/test-clock-picker-input.js && node scripts/test-dual-depth.js && node scripts/test-calc-type.js && node scripts/test-double-interp.js",
     "android:sync": "npm run embed && npx cap sync android && node scripts/apply-android-bridges.js",
     "android:apk": "npm run android:sync && node scripts/android-release-prep.js && cd android && ./gradlew assembleRelease",
     "icons": "node scripts/render-icons.js"
