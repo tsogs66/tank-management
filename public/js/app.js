@@ -1748,7 +1748,7 @@ function pipeHeightHint(tank) {
 /** Build the same preview shape as /tanks/import-csv for browser-parsed FLAG EVI. */
 async function buildCsvImportPreviewFromParsed(parsed) {
   const vesselId = STATE.activeVesselId;
-  const bundle = await Api.getVesselBundle(vesselId);
+  const bundle = await Api.getVessel(vesselId);
   const tanksBundle = bundle.tanks || {};
   const norm = (s) => String(s || '').toUpperCase().replace(/TANK/g, 'TK').replace(/[^A-Z0-9]/g, '');
   function findByName(name) {
@@ -1801,7 +1801,7 @@ async function buildCsvImportPreviewFromParsed(parsed) {
 
 async function applyParsedWorkbookTanks(parsedTanks, { replaceExisting } = {}) {
   const vesselId = STATE.activeVesselId;
-  const bundle = await Api.getVesselBundle(vesselId);
+  const bundle = await Api.getVessel(vesselId);
   const tanksBundle = bundle.tanks || {};
   const norm = (s) => String(s || '').toUpperCase().replace(/TANK/g, 'TK').replace(/[^A-Z0-9]/g, '');
   function findByName(name) {
