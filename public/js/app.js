@@ -1745,6 +1745,100 @@ function pipeHeightHint(tank) {
       : 'Leave blank to use it; enter a value only to override.');
 }
 
+/** Build the same preview shape as /tanks/import-csv for browser-parsed FLAG EVI. */
+async function buildCsvImportPreviewFromParsed(parsed) {
+  const vesselId = STATE.activeVesselId;
+  const bundle = await Api.getVesselBundle(vesselId);
+  const tanksBundle = bundle.tanks || {};
+  const norm = (s) => String(s || '').toUpperCase().replace(/TANK/g, 'TK').replace(/[^A-Z0-9]/g, '');
+  function findByName(name) {
+    const n = norm(name);
+    for (const cat of Object.keys(tanksBundle)) {
+      const hit = (tanksBundle[cat] || []).find((t) => {
+        const tn = norm(t.name);
+        return tn === n || (n.length > 6 && (tn.includes(n) || n.includes(tn)));
+      });
+      if (hit) return hit;
+    }
+    return null;
+  }
+  const preview = (parsed.tanks || []).map((tank) => {
+    const existing = findByName(tank.name);
+    return {
+      name: tank.name,
+      category: tank.category || 'fuel',
+      calcType: tank.calcType,
+      capacity: tank.capacity,
+      trimRows: (tank.trimAxis || []).length,
+      listRows: (tank.listAxis || []).length,
+      existing: existing ? { id: existing.id, name: existing.name, category: existing.category } : null,
+    };
+  });
+  const existingList = preview.filter((t) => t.existing);
+  return {
+    ok: true,
+    preview: true,
+    format: parsed.format || 'flag-evi-xlsx',
+    tankCount: preview.length,
+    existingCount: existingList.length,
+    newCount: preview.length - existingList.length,
+    warnings: parsed.warnings || [],
+    sheets: parsed.sheets || [],
+    tanks: preview,
+    existingTanks: existingList.map((t) => ({
+      sheetName: t.name,
+      id: t.existing.id,
+      name: t.existing.name,
+      category: t.existing.category,
+      capacity: t.capacity,
+      calcType: t.calcType,
+      trimRows: t.trimRows,
+      listRows: t.listRows,
+    })),
+    _parsedTanks: parsed.tanks,
+  };
+}
+
+async function applyParsedWorkbookTanks(parsedTanks, { replaceExisting } = {}) {
+  const vesselId = STATE.activeVesselId;
+  const bundle = await Api.getVesselBundle(vesselId);
+  const tanksBundle = bundle.tanks || {};
+  const norm = (s) => String(s || '').toUpperCase().replace(/TANK/g, 'TK').replace(/[^A-Z0-9]/g, '');
+  function findByName(name) {
+    const n = norm(name);
+    for (const cat of Object.keys(tanksBundle)) {
+      const hit = (tanksBundle[cat] || []).find((t) => {
+        const tn = norm(t.name);
+        return tn === n || (n.length > 6 && (tn.includes(n) || n.includes(tn)));
+      });
+      if (hit) return hit;
+    }
+    return null;
+  }
+  let created = 0;
+  let replaced = 0;
+  let skipped = 0;
+  for (const tank of parsedTanks || []) {
+    const existing = findByName(tank.name);
+    if (existing) {
+      if (!replaceExisting) { skipped += 1; continue; }
+      await Api.upsertTank(vesselId, {
+        ...tank,
+        id: existing.id,
+        category: tank.category || existing.category || 'fuel',
+      });
+      replaced += 1;
+    } else {
+      await Api.upsertTank(vesselId, {
+        ...tank,
+        category: tank.category || 'fuel',
+      });
+      created += 1;
+    }
+  }
+  return { created, replaced, skipped, format: 'flag-evi-xlsx' };
+}
+
 function renderAddTank(main) {
   main.innerHTML += `<div class="page-head"><div><h1>Add Tank</h1>
     <div class="desc">Manually add storage, settling, or service tanks — or import tanks and sounding tables from a capacity PDF.</div></div></div>
@@ -2054,17 +2148,41 @@ function renderAddTank(main) {
   document.getElementById('btn-import-csv').onclick = async () => {
     const file = document.getElementById('csv-file').files[0];
     if (!file) { showToast('Choose a CSV or Excel file'); return; }
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('preview', 'true');
     Progress.start(document.getElementById('btn-import-csv').closest('.form-panel'),
       `Reading ${file.name}…`);
     let res;
     try {
-      res = await Api.upload(`/api/vessels/${STATE.activeVesselId}/tanks/import-csv`, fd,
-        (pct, phase) => Progress.set(pct, phase === 'uploading'
-          ? `Uploading… ${pct == null ? '' : pct + '%'}`
-          : 'Parsing tanks on the server…'));
+      /* Android / LocalApi: parse FLAG EVI dual-sheet workbooks in the browser
+         (Python importers are unavailable on-device). */
+      const native = !!(window.Capacitor && (window.Capacitor.isNativePlatform
+        ? window.Capacitor.isNativePlatform()
+        : (window.Capacitor.getPlatform && window.Capacitor.getPlatform() !== 'web')));
+      const isXlsx = /\.xlsx$/i.test(file.name || '');
+      const tryBrowser = native || isXlsx;
+      if (tryBrowser && window.FlagEviXlsxBrowser && window.XLSX
+        && (FlagEviXlsxBrowser.looksLikeFlagEviName(file.name) || isXlsx)) {
+        try {
+          const parsed = await FlagEviXlsxBrowser.parseFlagEviFile(file);
+          if (parsed?.format === 'flag-evi-xlsx' && (parsed.tanks || []).length) {
+            res = await buildCsvImportPreviewFromParsed(parsed);
+          }
+        } catch (browserErr) {
+          if (native || FlagEviXlsxBrowser.looksLikeFlagEviName(file.name)) {
+            Progress.done();
+            showToast(browserErr.message || 'FLAG EVI workbook import failed');
+            return;
+          }
+        }
+      }
+      if (!res) {
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('preview', 'true');
+        res = await Api.upload(`/api/vessels/${STATE.activeVesselId}/tanks/import-csv`, fd,
+          (pct, phase) => Progress.set(pct, phase === 'uploading'
+            ? `Uploading… ${pct == null ? '' : pct + '%'}`
+            : 'Parsing tanks on the server…'));
+      }
     } catch (err) {
       Progress.done();
       showToast(err.message);
@@ -2082,6 +2200,7 @@ function renderAddTank(main) {
 
     STATE._csvImportFile = file;
     STATE._csvImportPreview = res;
+    STATE._csvImportParsedTanks = res._parsedTanks || null;
 
     const fmtLabel = res.format === 'flag-evi-xlsx' ? 'FLAG EVI trim+heel workbook'
       : res.format === 'giorgis-fuel-csv' ? 'Giorgis fuel workbook'
@@ -2149,21 +2268,25 @@ function renderAddTank(main) {
 
   document.getElementById('btn-csv-apply').onclick = async () => {
     const file = STATE._csvImportFile || document.getElementById('csv-file').files[0];
-    if (!file) { showToast('Choose a CSV or Excel file'); return; }
     const replaceExisting = document.getElementById('csv-replace-existing')?.checked === true;
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('preview', 'false');
-    fd.append('replaceExisting', replaceExisting ? 'true' : 'false');
-    fd.append('updateExisting', replaceExisting ? 'true' : 'false');
     Progress.start(document.getElementById('btn-csv-apply').closest('.form-panel'),
-      `Importing ${file.name}…`);
+      `Importing ${file ? file.name : 'tanks'}…`);
     let res;
     try {
-      res = await Api.upload(`/api/vessels/${STATE.activeVesselId}/tanks/import-csv`, fd,
-        (pct, phase) => Progress.set(pct, phase === 'uploading'
-          ? `Uploading… ${pct == null ? '' : pct + '%'}`
-          : 'Writing tanks…'));
+      if (STATE._csvImportParsedTanks && STATE._csvImportParsedTanks.length) {
+        res = await applyParsedWorkbookTanks(STATE._csvImportParsedTanks, { replaceExisting });
+      } else {
+        if (!file) { Progress.done(); showToast('Choose a CSV or Excel file'); return; }
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('preview', 'false');
+        fd.append('replaceExisting', replaceExisting ? 'true' : 'false');
+        fd.append('updateExisting', replaceExisting ? 'true' : 'false');
+        res = await Api.upload(`/api/vessels/${STATE.activeVesselId}/tanks/import-csv`, fd,
+          (pct, phase) => Progress.set(pct, phase === 'uploading'
+            ? `Uploading… ${pct == null ? '' : pct + '%'}`
+            : 'Writing tanks…'));
+      }
     } catch (err) {
       Progress.done();
       showToast(err.message);
@@ -2173,6 +2296,7 @@ function renderAddTank(main) {
     document.getElementById('csv-import-panel').style.display = 'none';
     STATE._csvImportFile = null;
     STATE._csvImportPreview = null;
+    STATE._csvImportParsedTanks = null;
     await reloadBundle();
     const c = res.created ?? 0;
     const u = (res.replaced ?? 0) || (res.updated ?? 0);
@@ -2305,9 +2429,31 @@ function renderCalibrationList(main) {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
+      Progress.start(e.target.closest('.form-panel') || null, `Reading ${file.name}…`);
+      const native = !!(window.Capacitor && (window.Capacitor.isNativePlatform
+        ? window.Capacitor.isNativePlatform()
+        : (window.Capacitor.getPlatform && window.Capacitor.getPlatform() !== 'web')));
+      if ((native || /\.xlsx$/i.test(file.name)) && window.FlagEviXlsxBrowser && window.XLSX) {
+        try {
+          const parsed = await FlagEviXlsxBrowser.parseFlagEviFile(file);
+          if (parsed?.format === 'flag-evi-xlsx' && (parsed.tanks || []).length) {
+            const res = await applyParsedWorkbookTanks(parsed.tanks, { replaceExisting: true });
+            Progress.done('Imported');
+            await reloadBundle();
+            showToast(`Imported ${(res.created || 0) + (res.replaced || 0)} tank tables from FLAG EVI workbook`);
+            navigate('calibration');
+            return;
+          }
+        } catch (browserErr) {
+          if (native || FlagEviXlsxBrowser.looksLikeFlagEviName(file.name)) {
+            Progress.done();
+            showToast(browserErr.message || 'Workbook import failed');
+            return;
+          }
+        }
+      }
       const fd = new FormData();
       fd.append('file', file);
-      Progress.start(e.target.closest('.form-panel') || null, `Uploading ${file.name}…`);
       const res = await Api.upload(`/api/vessels/${STATE.activeVesselId}/import-excel`, fd,
         (pct, phase) => Progress.set(pct, phase === 'uploading'
           ? `Uploading… ${pct == null ? '' : pct + '%'}`
@@ -2616,6 +2762,11 @@ function renderCalibrationEditor(main, tankId) {
   };
 
   const methodNow = String(tank.soundingMethod || 'ullage').toLowerCase();
+  const trimSenseNow = String(tank.trimAxisSense || 'stern').toLowerCase();
+  const dualDepth = (typeof hasDualDepthAxes === 'function')
+    ? hasDualDepthAxes(tank)
+    : (Array.isArray(tank.ullageAxis) && Array.isArray(tank.soundingAxis)
+      && tank.ullageAxis.length >= 2 && tank.soundingAxis.length >= 2);
   meta.innerHTML = `
     <div class="form-row-3">
       <div class="form-row"><label>Calc type</label>
@@ -2638,8 +2789,25 @@ function renderCalibrationEditor(main, tankId) {
         <select id="c-method">
           <option value="ullage" ${methodNow==='ullage'?'selected':''}>ullage</option>
           <option value="sounding" ${methodNow==='sounding'?'selected':''}>sounding</option>
-        </select></div>
+        </select>
+        <div class="hint">${dualDepth
+          ? 'Dual depth columns stored — method flip uses ullage/sounding pair (no subtract)'
+          : 'Single depth axis — opposite method uses pipe − reading'}</div></div>
       <div class="form-row"><label>85% volume (ref)</label><input value="${fmt((tank.capacity||0)*0.85,2)}" disabled></div>
+    </div>
+    <div class="form-row-3">
+      <div class="form-row"><label>Trim header sense</label>
+        <select id="c-trim-sense">
+          <option value="stern" ${trimSenseNow==='stern'||trimSenseNow==='aft'?'selected':''}>+ = by stern (default)</option>
+          <option value="bow" ${trimSenseNow==='bow'||trimSenseNow==='stem'||trimSenseNow==='forward'?'selected':''}>+ = by bow / stem</option>
+        </select>
+        <div class="hint">How printed trim +/− columns are read — does not rewrite numbers</div></div>
+      <div class="form-row"><label>Trim column signs</label>
+        <button type="button" class="btn" id="c-flip-trim" style="width:100%">Negate trim headers (+/−)</button>
+        <div class="hint">Multiplies every trim column header by −1 if the book needs correction</div></div>
+      <div class="form-row"><label>Depth columns</label>
+        <input value="${dualDepth ? 'Ullage + Sounded (dual)' : 'Single axis'}" disabled>
+        <div class="hint">Import default: col1 ullage, col2 sounded, then heel/trim/volume</div></div>
     </div>
     <div class="form-row-3">
       <div class="form-row"><label>Sounding table unit</label>
@@ -2664,6 +2832,16 @@ function renderCalibrationEditor(main, tankId) {
         <div class="hint">Both −2…+2 and +2…−2 are supported</div></div>
     </div>`;
   main.appendChild(meta);
+
+  document.getElementById('c-flip-trim')?.addEventListener('click', () => {
+    const inputs = [...document.querySelectorAll('[data-excel="trimVal"]')];
+    if (!inputs.length) { showToast('No trim headers to flip'); return; }
+    inputs.forEach((el) => {
+      const n = parseFloat(el.value);
+      if (Number.isFinite(n)) el.value = String(-n);
+    });
+    showToast('Trim headers negated — Save calibration to keep');
+  });
 
   let excelPanel = buildExcelCalibrationTable(tank);
   main.appendChild(excelPanel);
@@ -2692,6 +2870,7 @@ function renderCalibrationEditor(main, tankId) {
       correctionDivisor: parseFloat(document.getElementById('c-div').value) || 10,
       pipeHeight: parseFloat(document.getElementById('c-pipe').value) || 0,
       soundingMethod: String(document.getElementById('c-method').value || 'ullage').toLowerCase(),
+      trimAxisSense: String(document.getElementById('c-trim-sense')?.value || tank.trimAxisSense || 'stern').toLowerCase(),
       soundingUnit: document.getElementById('c-sound-unit').value || null,
       correctionUnit: document.getElementById('c-corr-unit').value || null,
       soundingIncrement: parseFloat(document.getElementById('c-sound-inc').value) || 1,
@@ -2738,6 +2917,10 @@ function buildExcelCalibrationTable(tank) {
 
   const isDirect = tank.calcType === 'direct';
   const rowAxis = tank.trimAxis || [];
+  const ullageAxis = Array.isArray(tank.ullageAxis) ? tank.ullageAxis : [];
+  const soundingAxis = Array.isArray(tank.soundingAxis) ? tank.soundingAxis : [];
+  const dualDepth = ullageAxis.length >= 2 && soundingAxis.length >= 2
+    && ullageAxis.length === rowAxis.length;
   const trimVals = tank.trimVals || [];
   const trimGrid = tank.trimGrid || [];
   const listAxis = tank.listAxis || [];
@@ -2747,7 +2930,8 @@ function buildExcelCalibrationTable(tank) {
   const volV = tank.volumeCurve?.v || [];
   const volMap = new Map(volX.map((x, i) => [Number(x), volV[i]]));
 
-  const rowLabel = isDirect ? 'Depth' : 'SOUNDING ullage';
+  const rowLabel = dualDepth ? 'ULLAGE'
+    : (isDirect ? 'Depth' : 'SOUNDING ullage');
   const trimLabel = isDirect ? 'Trim → volume m³'
     : (tank.calcType === 'trimHeel' || tank.calcType === 'trim-heel'
       ? 'Trim (m) → length correction (at original)'
@@ -2759,6 +2943,7 @@ function buildExcelCalibrationTable(tank) {
 
   // Header row 1: section labels
   let head1 = `<th class="excel-corner">${escapeHtml(rowLabel)}</th>`;
+  if (dualDepth) head1 += '<th class="excel-corner">SOUNDED</th>';
   trimVals.forEach(() => { head1 += '<th class="excel-sec-trim"></th>'; });
   if (!isDirect) {
     head1 += '<th class="excel-sec-vol">SOUNDING CM</th><th class="excel-sec-vol">sounding VOLUME</th>';
@@ -2772,6 +2957,7 @@ function buildExcelCalibrationTable(tank) {
 
   // Header row 2: numeric trim / list values (editable)
   let head2 = '<th class="excel-corner-sub"></th>';
+  if (dualDepth) head2 += '<th class="excel-corner-sub"></th>';
   trimVals.forEach((v, j) => {
     head2 += `<th class="excel-trim-h"><input type="number" step="any" data-excel="trimVal" data-j="${j}" value="${v}" title="${trimLabel}"></th>`;
   });
@@ -2790,9 +2976,12 @@ function buildExcelCalibrationTable(tank) {
   const nRows = Math.max(rowAxis.length, listAxis.length, isDirect ? 0 : volX.length, 1);
   let body = '';
   for (let i = 0; i < nRows; i++) {
-    const ra = rowAxis[i];
+    const ra = dualDepth ? (ullageAxis[i] ?? rowAxis[i]) : rowAxis[i];
     body += '<tr>';
     body += `<td class="excel-rowh"><input type="number" step="any" data-excel="rowAxis" data-i="${i}" value="${ra ?? ''}"></td>`;
+    if (dualDepth) {
+      body += `<td class="excel-rowh"><input type="number" step="any" data-excel="soundAxis" data-i="${i}" value="${soundingAxis[i] ?? ''}"></td>`;
+    }
     for (let j = 0; j < trimVals.length; j++) {
       const val = trimGrid[i] && trimGrid[i][j] != null ? trimGrid[i][j] : '';
       body += `<td class="excel-trim"><input type="number" step="any" data-excel="trimGrid" data-r="${i}" data-c="${j}" value="${val}"></td>`;
@@ -2825,7 +3014,9 @@ function buildExcelCalibrationTable(tank) {
       <button type="button" class="btn small" id="btn-add-calib-row" style="margin-left:auto">+ row</button>
     </div>
     <div class="hint" style="color:var(--text-faint);font-size:12px;margin-bottom:8px">
-      Matches workbook sheets Tank1–Tank4: left = ${escapeHtml(rowLabel)} × trim${isDirect ? ' volume' : ' correction'}; 
+      Default depth layout: <b>ullage</b> then <b>sounded</b>, then heel/trim/volume.
+      ${dualDepth ? 'Dual columns stored — sounding↔ullage uses the pair (no pipe subtract). ' : ''}
+      Matches workbook sheets Tank1–Tank4 / FLAG EVI: left = ${escapeHtml(rowLabel)} × trim${isDirect ? ' volume' : ' correction'};
       ${isDirect ? '' : 'center = SOUNDING CM / VOLUME; '}right = list/heel table. Edit any cell, then Save.
     </div>
     <div class="scroll-x excel-scroll">
@@ -2869,6 +3060,8 @@ function readExcelCalibrationTable(tank) {
 
   const rowInputs = Array.from(document.querySelectorAll('input[data-excel="rowAxis"]'));
   const trimAxis = [];
+  const ullageAxis = [];
+  const soundingAxis = [];
   const trimGrid = [];
   const listAxis = [];
   const listGrid = [];
@@ -2877,6 +3070,7 @@ function readExcelCalibrationTable(tank) {
 
   rowInputs.forEach((el, i) => {
     const ra = parseFloat(el.value);
+    const soundEl = document.querySelector(`input[data-excel="soundAxis"][data-i="${i}"]`);
     const hasTrim = trimVals.some((_, j) => {
       const cell = document.querySelector(`input[data-excel="trimGrid"][data-r="${i}"][data-c="${j}"]`);
       return cell && cell.value !== '';
@@ -2888,6 +3082,9 @@ function readExcelCalibrationTable(tank) {
 
     if (!Number.isNaN(ra)) {
       trimAxis.push(ra);
+      const soundN = soundEl ? parseFloat(soundEl.value) : NaN;
+      ullageAxis.push(ra);
+      soundingAxis.push(Number.isNaN(soundN) ? ra : soundN);
       const row = trimVals.map((_, j) => {
         const cell = document.querySelector(`input[data-excel="trimGrid"][data-r="${i}"][data-c="${j}"]`);
         const n = cell ? parseFloat(cell.value) : 0;
@@ -2918,7 +3115,9 @@ function readExcelCalibrationTable(tank) {
     }
   });
 
-  return {
+  const dual = soundingAxis.length >= 2
+    && soundingAxis.some((s, i) => Number.isFinite(s) && Math.abs(s - ullageAxis[i]) > 1e-9);
+  const out = {
     trimAxis,
     trimVals,
     trimGrid,
@@ -2927,6 +3126,16 @@ function readExcelCalibrationTable(tank) {
     listGrid,
     volumeCurve: { x: volX, v: volV },
   };
+  if (dual) {
+    out.ullageAxis = ullageAxis;
+    out.soundingAxis = soundingAxis;
+    out.depthPairMode = 'dual';
+  } else {
+    out.ullageAxis = [];
+    out.soundingAxis = [];
+    out.depthPairMode = 'single';
+  }
+  return out;
 }
 
 /* ---------- Calibration print / PDF ---------- */

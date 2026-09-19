@@ -446,12 +446,37 @@ function tablesUseSounding(tank) {
  * entryMethod: 'ullage' | 'dip' | 'sounding' — how `reading` was taken.
  * Trim/heel interpolation must see this table-scale value, never a scaled trim.
  */
+/**
+ * True when the tank carries parallel ullage + sounded depth columns (same
+ * rows as trimAxis). Switching sounding↔ullage then remaps through those
+ * columns instead of subtracting from pipe height.
+ */
+function hasDualDepthAxes(tank) {
+  const u = tank && tank.ullageAxis;
+  const s = tank && tank.soundingAxis;
+  if (!Array.isArray(u) || !Array.isArray(s) || u.length < 2 || s.length < 2) return false;
+  let pairs = 0;
+  const n = Math.min(u.length, s.length);
+  for (let i = 0; i < n; i++) {
+    if (Number.isFinite(Number(u[i])) && Number.isFinite(Number(s[i]))) pairs += 1;
+  }
+  return pairs >= 2;
+}
+
 /** Pipe / table top used to convert ullage ↔ sounding. Explicit pipe wins;
- *  otherwise the top of the sounding/ullage axis (so method flips still work
- *  when pipeHeight was never filled in — common on NO.3 HFO / distillates). */
+ *  otherwise dual-axis row sums, else the top of the sounding/ullage axis. */
 function effectivePipeHeight(tank) {
   const explicit = Number(tank && tank.pipeHeight);
   if (explicit > 0) return explicit;
+  if (hasDualDepthAxes(tank)) {
+    let top = 0;
+    const n = Math.min(tank.ullageAxis.length, tank.soundingAxis.length);
+    for (let i = 0; i < n; i++) {
+      const sum = Number(tank.ullageAxis[i]) + Number(tank.soundingAxis[i]);
+      if (Number.isFinite(sum) && sum > top) top = sum;
+    }
+    if (top > 0) return top;
+  }
   const axis = (tank && (tank.trimAxis || tank.listAxis)) || [];
   let top = 0;
   for (const v of axis) {
@@ -461,10 +486,18 @@ function effectivePipeHeight(tank) {
   return top > 0 ? top : 0;
 }
 
+/**
+ * Map a user reading onto trimAxis. Dual-depth tables remap through the
+ * paired ullage/sounding columns; single-axis tables fall back to pipe − reading.
+ */
 function toTableReading(tank, reading, entryMethod) {
-  const pipe = effectivePipeHeight(tank);
   const method = String(entryMethod || tank && tank.soundingMethod || 'sounding').toLowerCase();
   const ullageEntry = method === 'ullage';
+  if (hasDualDepthAxes(tank) && Array.isArray(tank.trimAxis) && tank.trimAxis.length >= 2) {
+    const src = ullageEntry ? tank.ullageAxis : tank.soundingAxis;
+    return linearInterp(src, tank.trimAxis, reading);
+  }
+  const pipe = effectivePipeHeight(tank);
   if (tablesUseSounding(tank)) {
     return ullageEntry && pipe > 0 ? pipe - reading : reading;
   }
@@ -473,9 +506,13 @@ function toTableReading(tank, reading, entryMethod) {
 
 /** Inverse of toTableReading — table-scale value back to the entry method. */
 function fromTableReading(tank, tableReading, entryMethod) {
-  const pipe = effectivePipeHeight(tank);
   const method = String(entryMethod || tank && tank.soundingMethod || 'sounding').toLowerCase();
   const ullageEntry = method === 'ullage';
+  if (hasDualDepthAxes(tank) && Array.isArray(tank.trimAxis) && tank.trimAxis.length >= 2) {
+    const dst = ullageEntry ? tank.ullageAxis : tank.soundingAxis;
+    return linearInterp(tank.trimAxis, dst, tableReading);
+  }
+  const pipe = effectivePipeHeight(tank);
   if (tablesUseSounding(tank)) {
     return ullageEntry && pipe > 0 ? pipe - tableReading : tableReading;
   }
@@ -1098,6 +1135,7 @@ module.exports = {
   excelCeiling,
   resolveIncrements,
   tablesUseSounding,
+  hasDualDepthAxes,
   toTableReading,
   fromTableReading,
   PREFERRED_INCREMENTS,

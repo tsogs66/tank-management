@@ -211,7 +211,17 @@ def block_ranges(rows):
 
 
 def parse_block(rows, start, end, name, value_headers, value_start, *, negate_trim: bool):
+    """Parse one tank block.
+
+    Default column layout (FLAG EVI and similar books):
+      col 0 = ullage depth, col 1 = sounded depth, then heel/trim/volume values.
+    When both depth columns are present they are kept in parallel so runtime
+    can switch sounding↔ullage without subtracting from pipe height. Blank
+    sibling cells are filled via pipe − other when a pipe height is known.
+    """
     axis = []
+    ullage_axis = []
+    sounding_axis = []
     grid = []
     pipe_hint = None
     ullage_hits = 0
@@ -222,13 +232,15 @@ def parse_block(rows, start, end, name, value_headers, value_start, *, negate_tr
             continue
         ullage = clean_num(row[0] if len(row) > 0 else None)
         sounded = clean_num(row[1] if len(row) > 1 else None)
-        # Prefer ullage when present; some FLAG EVI tanks only publish sounded depth.
+        if ullage is not None:
+            ullage_hits += 1
+        if sounded is not None:
+            sounding_hits += 1
+        # Prefer ullage as the primary axis when present; else sounded depth.
         if ullage is not None:
             axis_val = ullage
-            ullage_hits += 1
         elif sounded is not None:
             axis_val = sounded
-            sounding_hits += 1
         else:
             continue
         values = []
@@ -243,13 +255,39 @@ def parse_block(rows, start, end, name, value_headers, value_start, *, negate_tr
         if not valid and ullage is None and sounded is None:
             continue
         axis.append(axis_val)
+        ullage_axis.append(ullage)
+        sounding_axis.append(sounded)
         grid.append(values)
-        if pipe_hint is None and sounded is not None and (ullage == 0 or (ullage is None and sounded > 0)):
+        if pipe_hint is None and sounded is not None and ullage is not None:
+            s = sounded + ullage
+            if s > 0:
+                pipe_hint = s
+        elif pipe_hint is None and sounded is not None and (ullage == 0 or ullage is None):
             if ullage == 0 or (ullage is None and not axis[:-1]):
                 pipe_hint = sounded
 
     if len(axis) < 2:
         return None
+
+    # Fill blank sibling depths via pipe − other when possible.
+    pipe = pipe_hint
+    if pipe is None:
+        for u, s in zip(ullage_axis, sounding_axis):
+            if u is not None and s is not None and (u + s) > 0:
+                pipe = u + s
+                break
+    if pipe is not None and pipe > 0:
+        for i in range(len(axis)):
+            u, s = ullage_axis[i], sounding_axis[i]
+            if u is None and s is not None:
+                ullage_axis[i] = round(pipe - s, 6)
+            elif s is None and u is not None:
+                sounding_axis[i] = round(pipe - u, 6)
+
+    dual = (
+        sum(1 for u, s in zip(ullage_axis, sounding_axis)
+            if u is not None and s is not None) >= 2
+    )
 
     headers = list(value_headers)
     if negate_trim:
@@ -262,15 +300,25 @@ def parse_block(rows, start, end, name, value_headers, value_start, *, negate_tr
     # If the sheet mostly used sounded depths, store as sounding tables.
     method = "ullage" if ullage_hits >= sounding_hits else "sounding"
 
-    return {
+    out = {
         "name": name,
         "axis": axis,
         "vals": headers,
         "grid": grid,
-        "pipeHint": pipe_hint,
+        "pipeHint": pipe if pipe is not None else pipe_hint,
         "increment": detect_increment(axis),
         "soundingMethod": method,
+        "dualDepth": dual,
     }
+    if dual:
+        # Replace None with axis primary so arrays stay numeric for JSON/JS.
+        out["ullageAxis"] = [
+            float(u) if u is not None else float(axis[i]) for i, u in enumerate(ullage_axis)
+        ]
+        out["soundingAxis"] = [
+            float(s) if s is not None else float(axis[i]) for i, s in enumerate(sounding_axis)
+        ]
+    return out
 
 
 def robust_capacity(trim_vals, trim_grid):
@@ -313,7 +361,17 @@ def merge_tank(name, trim_block, heel_block):
         if len(list_axis) >= len(trim_axis):
             method = "sounding"
 
-    return {
+    # Prefer dual-depth axes from trim; fall back to heel when trim is single-axis.
+    ullage_axis = trim_block.get("ullageAxis")
+    sounding_axis = trim_block.get("soundingAxis")
+    if not ullage_axis and heel_block:
+        ullage_axis = heel_block.get("ullageAxis")
+        sounding_axis = heel_block.get("soundingAxis")
+    # Align heel list axis with dual depths when heel also published both.
+    list_ullage = heel_block.get("ullageAxis") if heel_block else None
+    list_sounding = heel_block.get("soundingAxis") if heel_block else None
+
+    tank = {
         "name": name,
         "category": guess_category(name),
         "fuelRole": tank_role(name),
@@ -338,6 +396,14 @@ def merge_tank(name, trim_block, heel_block):
         "importFormat": "flag-evi-xlsx",
         "pdfSource": name,
     }
+    if ullage_axis and sounding_axis and len(ullage_axis) >= 2 and len(sounding_axis) >= 2:
+        tank["ullageAxis"] = list(ullage_axis)
+        tank["soundingAxis"] = list(sounding_axis)
+        tank["depthPairMode"] = "dual"
+    if has_list and list_ullage and list_sounding and len(list_ullage) >= 2:
+        tank["listUllageAxis"] = list(list_ullage)
+        tank["listSoundingAxis"] = list(list_sounding)
+    return tank
 
 
 def norm_key(name: str) -> str:
