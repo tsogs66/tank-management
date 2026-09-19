@@ -421,8 +421,23 @@ function tablesUseSounding(tank) {
  * entryMethod: 'ullage' | 'dip' | 'sounding' — how `reading` was taken.
  * Trim/heel interpolation must see this table-scale value, never a scaled trim.
  */
+/** Pipe / table top used to convert ullage ↔ sounding. Explicit pipe wins;
+ *  otherwise the top of the sounding/ullage axis (so method flips still work
+ *  when pipeHeight was never filled in — common on NO.3 HFO / distillates). */
+function effectivePipeHeight(tank) {
+  const explicit = Number(tank && tank.pipeHeight);
+  if (explicit > 0) return explicit;
+  const axis = (tank && (tank.trimAxis || tank.listAxis)) || [];
+  let top = 0;
+  for (const v of axis) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > top) top = n;
+  }
+  return top > 0 ? top : 0;
+}
+
 function toTableReading(tank, reading, entryMethod) {
-  const pipe = Number(tank && tank.pipeHeight) || 0;
+  const pipe = effectivePipeHeight(tank);
   const method = String(entryMethod || tank && tank.soundingMethod || 'sounding').toLowerCase();
   const ullageEntry = method === 'ullage';
   if (tablesUseSounding(tank)) {
@@ -433,7 +448,7 @@ function toTableReading(tank, reading, entryMethod) {
 
 /** Inverse of toTableReading — table-scale value back to the entry method. */
 function fromTableReading(tank, tableReading, entryMethod) {
-  const pipe = Number(tank && tank.pipeHeight) || 0;
+  const pipe = effectivePipeHeight(tank);
   const method = String(entryMethod || tank && tank.soundingMethod || 'sounding').toLowerCase();
   const ullageEntry = method === 'ullage';
   if (tablesUseSounding(tank)) {
@@ -444,7 +459,12 @@ function fromTableReading(tank, tableReading, entryMethod) {
 
 /** Smallest, largest and sign spread of every figure in a grid. */
 function gridStats(grid) {
-  let min = Infinity, max = -Infinity, neg = 0, n = 0;
+  let min = Infinity;
+  let max = -Infinity;
+  let neg = 0;
+  let n = 0;
+  let frac = 0;
+  let zeroCount = 0;
   for (const row of grid || []) {
     for (const v of row || []) {
       const x = Number(v);
@@ -453,9 +473,45 @@ function gridStats(grid) {
       if (x < min) min = x;
       if (x > max) max = x;
       if (x < 0) neg += 1;
+      if (x === 0) {
+        zeroCount += 1;
+        continue;
+      }
+      // Volume corrections are printed to ~3 decimal places (m3). Sounding
+      // corrections (mm) are whole numbers. Float noise under 1e-6 ignored.
+      // Zeros are skipped for the unit vote — empty heel cells are common.
+      if (Math.abs(x - Math.round(x)) > 1e-6) frac += 1;
     }
   }
-  return n ? { min, max, neg, n, span: max - min, mag: Math.max(Math.abs(min), Math.abs(max)) } : null;
+  if (!n) return null;
+  return {
+    min: min,
+    max: max,
+    neg: neg,
+    n: n,
+    frac: frac,
+    zeros: zeroCount,
+    nonzero: n - zeroCount,
+    span: max - min,
+    mag: Math.max(Math.abs(min), Math.abs(max)),
+  };
+}
+
+/**
+ * Heel/list table unit: millimetres (integer sounding correction) vs m³
+ * (volume correction with decimal places).
+ *
+ * Comparing magnitude to tank capacity is the wrong tell — a volume heel
+ * table can reach nearly the tank's capacity (e.g. 431 on a 463 m³ tank)
+ * and still be cubic metres. Decimals decide: no fractional values → mm;
+ * fractional values (typically ≤3 d.p.) → m³.
+ */
+function heelUnitKind(stats) {
+  if (!stats || !stats.nonzero) return 'unknown';
+  const fracShare = stats.frac / stats.nonzero;
+  if (fracShare <= 0.05) return 'mm';
+  if (fracShare >= 0.5) return 'm3';
+  return 'unknown';
 }
 
 /** How steadily one column climbs or falls down the sounding axis, 0..1. */
@@ -496,18 +552,16 @@ function looksLikeCapacityTable(grid, vals, capacity) {
  *
  *   trim grid is a capacity table, heel grid is a correction in millimetres
  *     -> 'correction': heel the sounding, then read the capacity grid
- *        (FLAG EVI, one sheet of capacities and one of heel corrections)
  *
  *   trim and heel are both corrections and a capacity curve is stored
  *     -> 'trimHeel': both corrections at the sounding as read, then the curve
- *        (the TAB.1 / TAB.2 / TAB.3 books)
  *
  *   trim grid is a capacity table and the heel grid is in cubic metres
  *     -> 'direct': trim volume minus heel volume
  *
- * The third is the one that cannot be told apart from the first by size
- * alone on a large tank, so it is never asserted: a heel grid small enough to
- * be either comes back unsure, with the stored setting left alone.
+ * Millimetres vs cubic metres is told by decimals on the heel figures —
+ * not by comparing heel magnitude to tank capacity (a volume heel table
+ * often reaches nearly the tank's own size).
  */
 function detectCalcType(tank) {
   const t = tank || {};
@@ -524,15 +578,19 @@ function detectCalcType(tank) {
       return { calcType: 'correction', confident: true, hasCurve,
         reason: 'the trim table holds capacities and there is no heel table' };
     }
-    const share = cap > 0 ? heel.mag / cap : 0;
-    if (share > 0.05) {
+    const kind = heelUnitKind(heel);
+    if (kind === 'mm') {
       return { calcType: 'correction', confident: true, hasCurve,
-        reason: `the trim table holds capacities, and the heel table reaches `
-          + `${heel.mag.toFixed(0)} against a ${cap.toFixed(0)} m³ tank, so it is `
-          + 'a correction to the sounding, not a volume' };
+        reason: 'the trim table holds capacities, and the heel table is whole '
+          + 'numbers (millimetres) — a sounding correction, not a volume' };
     }
-    return unsure('the trim table holds capacities, but the heel figures are small '
-      + 'enough to be either millimetres or cubic metres — say which in the tank');
+    if (kind === 'm3') {
+      return { calcType: 'direct', confident: true, hasCurve,
+        reason: 'the trim table holds capacities, and the heel table has '
+          + 'decimal figures (cubic metres) — a volume correction' };
+    }
+    return unsure('the trim table holds capacities, but the heel figures mix '
+      + 'whole numbers and decimals — say which unit in the tank');
   }
 
   if (hasCurve) {
