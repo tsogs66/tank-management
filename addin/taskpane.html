@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tank Chief</title>
+  <link rel="stylesheet" href="taskpane.css" />
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+</head>
+<body>
+  <main id="pane" hidden>
+    <h1>Tank Chief</h1>
+
+    <section class="card">
+      <h2>1 · Tidy the sheet</h2>
+      <p class="hint">
+        Unmerges merged cells, splits cells holding several numbers into the
+        cells beside them, squares every block off to its own header, and
+        drops blank rows.
+      </p>
+      <label>Sheet
+        <select id="sheet"></select>
+      </label>
+      <label class="check"><input type="checkbox" id="spacer" /> keep one blank row between blocks</label>
+      <div class="row">
+        <button id="btn-preview" class="secondary">Preview</button>
+        <button id="btn-tidy">Tidy sheet</button>
+      </div>
+      <div id="tidy-report" class="report"></div>
+    </section>
+
+    <section class="card">
+      <h2>2 · Send to Tank Chief</h2>
+      <label>Server
+        <input id="base-url" type="url" placeholder="http://localhost:3000" />
+      </label>
+      <label>Vessel
+        <select id="vessel"></select>
+      </label>
+      <label>Token <span class="hint">optional</span>
+        <input id="token" type="password" autocomplete="off" />
+      </label>
+      <div class="row">
+        <button id="btn-connect" class="secondary">Connect</button>
+        <button id="btn-send">Preview import</button>
+      </div>
+      <label class="check"><input type="checkbox" id="replace" /> replace tanks that already exist</label>
+      <div id="send-report" class="report"></div>
+      <button id="btn-apply" hidden>Apply import</button>
+    </section>
+
+    <p id="status" role="status"></p>
+  </main>
+
+  <!-- public/ is served at the root, so the shared rules come from /js -->
+  <script src="/js/sheet-tidy.js"></script>
+  <script src="src/sheet-clean.js"></script>
+  <script src="src/tankchief-api.js"></script>
+  <script src="taskpane.js"></script>
+</body>
+</html>
