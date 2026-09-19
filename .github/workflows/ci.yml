@@ -57,6 +57,12 @@ jobs:
       - name: Calibration arrangements
         run: node scripts/test-calc-type.js
 
+      # A book is typed by hand before it is imported. These are the shapes it
+      # arrives in — merged trim headers, "-4-1" heel pairs, blocks of
+      # different widths down one sheet — and what has to come out.
+      - name: Sheet tidying before import
+        run: node scripts/test-sheet-tidy.js
+
       # Repairing a tank's table type must not cost it its tables.
       - name: Calibration repair keeps the tables
         run: node scripts/test-recheck-calc-type.js
