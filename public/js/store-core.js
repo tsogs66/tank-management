@@ -755,6 +755,8 @@ function updateCalibration(vesselId, tankId, calibration) {
   if (!tank) throw new Error('Tank not found');
   const fields = [
     'calcType',
+    'calcTypeConfident',
+    'calcTypeReason',
     'correctionDivisor',
     'trimAxis',
     'trimVals',
@@ -766,11 +768,16 @@ function updateCalibration(vesselId, tankId, calibration) {
     'capacity',
     'pipeHeight',
     'soundingMethod',
+    'soundingUnit',
+    'correctionUnit',
     'soundingIncrement',
     'heelIncrement',
   ];
   for (const f of fields) {
     if (calibration[f] !== undefined) tank[f] = calibration[f];
+  }
+  if (tank.soundingMethod != null) {
+    tank.soundingMethod = String(tank.soundingMethod).toLowerCase();
   }
   tank.updatedAt = now();
   writeJson(vesselPath(vesselId, 'tanks.json'), tanks);
