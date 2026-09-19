@@ -59,25 +59,26 @@ html.bright .ccp-face{background:radial-gradient(circle at 35% 30%,rgba(23,102,9
 input.ccp-bound{cursor:pointer}
 /* Tablet + Windows / desktop: larger dial and hit targets */
 @media (min-width:721px) and (min-height:480px), (min-width:900px) and (hover:hover) and (pointer:fine){
-  .ccp-dialog{width:min(480px,94vw);padding:20px 22px 18px;border-radius:22px}
-  .ccp-title{font-size:13px;margin-bottom:10px}
-  .ccp-face{width:300px;height:300px;margin:12px auto 16px;--ccp-hand-h:96px;--ccp-hand-m:124px}
-  .ccp-center{width:12px;height:12px;margin:-6px 0 0 -6px}
-  .ccp-num{width:36px;height:36px;margin:-18px 0 0 -18px;font-size:15px}
-  .ccp-tick{height:9px;margin-top:-4.5px}
-  .ccp-tick.major{height:14px;margin-top:-7px}
-  .ccp-readout{font-size:2.2rem;margin-bottom:12px}
-  .ccp-readout .ccp-part{padding:6px 8px;border-radius:10px}
-  .ccp-step{font-size:13px;margin-bottom:10px}
-  .ccp-hint{font-size:12px;margin:-2px 0 10px}
-  .ccp-ampm button{min-width:88px;min-height:44px;padding:10px 16px;font-size:15px;border-radius:12px}
-  .ccp-actions button{min-height:44px;padding:10px 18px;font-size:15px;border-radius:12px}
+  .ccp-dialog{width:min(520px,94vw);padding:22px 24px 20px;border-radius:22px}
+  .ccp-title{font-size:14px;margin-bottom:12px}
+  .ccp-face{width:340px;height:340px;margin:14px auto 18px;--ccp-hand-h:110px;--ccp-hand-m:142px}
+  .ccp-center{width:14px;height:14px;margin:-7px 0 0 -7px}
+  .ccp-num{width:40px;height:40px;margin:-20px 0 0 -20px;font-size:16px}
+  .ccp-tick{height:10px;margin-top:-5px}
+  .ccp-tick.major{height:15px;margin-top:-7.5px}
+  .ccp-readout{font-size:2.4rem;margin-bottom:14px}
+  .ccp-readout .ccp-part{padding:8px 10px;border-radius:10px}
+  .ccp-step{font-size:14px;margin-bottom:10px}
+  .ccp-hint{font-size:13px;margin:-2px 0 12px}
+  .ccp-ampm button{min-width:96px;min-height:48px;padding:12px 18px;font-size:16px;border-radius:12px}
+  .ccp-actions button{min-height:48px;padding:12px 20px;font-size:16px;border-radius:12px}
 }
 @media (min-width:1100px) and (min-height:700px){
-  .ccp-dialog{width:min(540px,90vw);padding:22px 24px 20px}
-  .ccp-face{width:340px;height:340px;margin:14px auto 18px;--ccp-hand-h:110px;--ccp-hand-m:142px}
-  .ccp-num{width:40px;height:40px;margin:-20px 0 0 -20px;font-size:16px}
-  .ccp-readout{font-size:2.45rem}
+  .ccp-dialog{width:min(600px,90vw);padding:24px 28px 22px}
+  .ccp-face{width:400px;height:400px;margin:16px auto 20px;--ccp-hand-h:128px;--ccp-hand-m:166px}
+  .ccp-num{width:46px;height:46px;margin:-23px 0 0 -23px;font-size:18px}
+  .ccp-readout{font-size:2.7rem}
+  .ccp-title{font-size:15px}
 }
 `;
   }
