@@ -387,6 +387,9 @@ const Api = (() => {
     savePart: (id, part, body) => request(`/api/vessels/${id}/${part}`, { method: 'PUT', body }),
     upsertTank: (id, body) => request(`/api/vessels/${id}/tanks`, { method: 'POST', body }),
     deleteTank: (id, tankId) => request(`/api/vessels/${id}/tanks/${tankId}`, { method: 'DELETE' }),
+    recheckCalcType: (id, apply) => request(
+      `/api/vessels/${id}/tanks/recheck-calc-type${apply ? '?apply=1' : ''}`,
+      { method: 'POST', body: {} }),
     saveCalibration: (id, tankId, body) => request(`/api/vessels/${id}/tanks/${tankId}/calibration`, { method: 'PUT', body }),
     calculate: (id, body) => request(`/api/vessels/${id}/calculate`, { method: 'POST', body }),
     getFuelReport: (id) => request(`/api/vessels/${id}/fuel-report`),

@@ -21,6 +21,7 @@ const {
   wcf56,
   volumeFromMT,
 } = require('./calc');
+const calc = require('./calc');
 const excelImport = require('./excel-import');
 const pdfImport = require('./pdf-import');
 const tankTableIo = require('./tank-table-io');
@@ -683,6 +684,54 @@ app.post('/api/vessels/:id/tanks', (req, res) => {
 app.put('/api/vessels/:id/tanks/:tankId', (req, res) => {
   try {
     res.json(store.upsertTank(req.params.id, { ...req.body, id: req.params.tankId }));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+/**
+ * What arrangement each tank's calibration tables are actually in.
+ *
+ * Books differ from ship to ship, and a tank imported before the app could
+ * tell them apart carries whatever the importer guessed. This reads the
+ * stored tables and says what they hold. Nothing is written unless `apply`
+ * is set, and then only where the tables are unambiguous — anything the
+ * tables leave open is reported and left exactly as it is.
+ */
+app.post('/api/vessels/:id/tanks/recheck-calc-type', (req, res) => {
+  try {
+    const apply = String(req.query.apply || req.body?.apply || '') === '1'
+      || req.body?.apply === true;
+    const bundle = store.getVesselBundle(req.params.id);
+    const tanks = Object.values(bundle.tanks || {})
+      .filter(Array.isArray).reduce((a, b) => a.concat(b), []);
+    const report = [];
+    for (const tank of tanks) {
+      const verdict = calc.detectCalcType(tank);
+      const was = tank.calcType || null;
+      const change = !!(verdict.confident && verdict.calcType && verdict.calcType !== was);
+      if (change && apply) {
+        // The whole tank goes back, not just the changed field: upsertTank
+        // fills anything absent with its own empty defaults, so a partial
+        // write would take the calibration grids with it.
+        store.upsertTank(req.params.id, {
+          ...tank, calcType: verdict.calcType,
+          calcTypeReason: verdict.reason, calcTypeConfident: true,
+        });
+      }
+      report.push({
+        id: tank.id, name: tank.name, category: tank.category,
+        was, now: change ? verdict.calcType : was,
+        changed: change, confident: !!verdict.confident, reason: verdict.reason,
+      });
+    }
+    res.json({
+      applied: apply,
+      total: report.length,
+      changed: report.filter((r) => r.changed).length,
+      unsure: report.filter((r) => !r.confident).length,
+      tanks: report,
+    });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }

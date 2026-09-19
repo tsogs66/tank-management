@@ -14,8 +14,12 @@ Shared header near the top:
   Trim:  TRIM BY STEM | EVEN KEEL | TRIM BY STERN  → numeric trim (m)
   Heel:  HEEL TO PORT | HEEL TO STBD               → numeric heel (°)
 
-Output tanks use calcType "direct" (observed m³ = trimVolume − heelVolume).
-Trim columns are stored as by-stern (sheet stem-positive values are negated).
+Output tanks are left for the app to classify: its detectCalcType reads what
+the two sheets actually hold (capacities vs a correction in millimetres).
+Trim columns are stored by-stern (the sheet's stem-positive headers are
+negated), which is how every other importer here stores them, and the tank
+says so with trimAxisSense so the app can turn the engineer's bow-positive
+trim into the right column.
 """
 from __future__ import annotations
 
@@ -316,7 +320,8 @@ def merge_tank(name, trim_block, heel_block):
         "fuelGrade": fuel_grade(name),
         "side": side_from_title(name),
         "tankNo": tank_no_from_title(name),
-        "calcType": "direct",
+        "calcType": "correction",
+        "trimAxisSense": "stern",
         "capacity": robust_capacity(trim_vals, trim_grid),
         "pipeHeight": pipe if pipe is not None else 0,
         "soundingMethod": method,
@@ -408,7 +413,8 @@ def extract(path: str):
 
     return {
         "format": "flag-evi-xlsx",
-        "calcType": "direct",
+        "calcType": "correction",
+        "trimAxisSense": "stern",
         "tankCount": len(tanks),
         "sheets": sheets_meta,
         "warnings": warnings,

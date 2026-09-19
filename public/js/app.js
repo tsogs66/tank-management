@@ -2199,6 +2199,7 @@ function renderCalibrationList(main) {
     <div class="desc">Excel-style sounding tables: edit in-app, or export/import CSV &amp; Excel per tank. Workbook import refreshes Tank1–Tank4 sheets or FLAG EVI Trim+Heeling Correction workbooks.</div></div>
     <div class="btn-row">
       <button class="btn primary" id="btn-print-fuel-book">Print all fuel calibration</button>
+      <button class="btn" id="btn-recheck-calc">Check table types</button>
       <label class="btn">Import workbook<input type="file" id="excel-import" accept=".xlsm,.xlsx" hidden></label>
       <button class="btn" id="btn-import-repo-excel">Import repo workbook</button>
       <a class="btn" href="${apiHref('/api/templates/calibration.csv')}">Calibration CSV template</a>
@@ -2236,6 +2237,61 @@ function renderCalibrationList(main) {
   wrap.querySelectorAll('tr[data-id]').forEach((tr) => {
     tr.onclick = () => navigate('calibration', tr.dataset.id);
   });
+
+  const verdictPanel = document.createElement('div');
+  verdictPanel.className = 'form-panel no-print';
+  verdictPanel.style.display = 'none';
+  main.insertBefore(verdictPanel, wrap);
+
+  /**
+   * What each tank's tables turn out to hold, and what that makes it.
+   *
+   * Ships do not share a calibration book: one prints a sheet of capacities
+   * beside a heel table in millimetres, the next prints two correction tables
+   * and a capacity curve. A tank imported before the app could tell them apart
+   * carries whatever its importer guessed, and guessing wrong means a heel
+   * correction in millimetres being taken off as cubic metres. This reads the
+   * stored tables and reports; nothing is written until Apply.
+   */
+  async function showVerdicts(apply) {
+    const btn = document.getElementById('btn-recheck-calc');
+    btn.disabled = true;
+    btn.textContent = apply ? 'Applying…' : 'Reading tables…';
+    try {
+      const r = await Api.recheckCalcType(STATE.activeVesselId, apply);
+      const changed = r.tanks.filter((t) => t.changed);
+      const unsure = r.tanks.filter((t) => !t.confident);
+      const rows = [...changed, ...unsure.filter((t) => !t.changed)].map((t) => `<tr>
+        <td class="tname">${escapeHtml(t.name || t.id)}</td>
+        <td>${escapeHtml(t.was || '—')}</td>
+        <td>${t.changed ? `<b>${escapeHtml(t.now)}</b>` : '<span class="pill warn">unsure</span>'}</td>
+        <td style="white-space:normal">${escapeHtml(t.reason || '')}</td></tr>`).join('');
+      verdictPanel.innerHTML = `
+        <div class="page-head" style="margin:0 0 8px">
+          <div><h2 style="margin:0">${apply ? 'Table types updated' : 'What the tables say'}</h2>
+          <div class="desc">${r.total} tank(s) read · ${r.changed} ${apply ? 'changed' : 'to change'} · ${r.unsure} left as they are</div></div>
+          ${!apply && r.changed ? '<div class="btn-row"><button class="btn primary" id="btn-apply-calc">Apply the ' + r.changed + ' change(s)</button></div>' : ''}
+        </div>
+        ${rows ? `<div class="scroll-x"><table class="data-table"><thead><tr>
+          <th>Tank</th><th>Was</th><th>${apply ? 'Now' : 'Would be'}</th><th>What its tables hold</th>
+        </tr></thead><tbody>${rows}</tbody></table></div>`
+        : '<div class="empty-state">Every tank already matches its own tables.</div>'}`;
+      verdictPanel.style.display = '';
+      const applyBtn = document.getElementById('btn-apply-calc');
+      if (applyBtn) applyBtn.onclick = () => showVerdicts(true);
+      if (apply) {
+        await reloadBundle();
+        showToast(`${r.changed} tank(s) updated`);
+        navigate('calibration');
+      }
+    } catch (e) {
+      showToast(e.message || 'Could not read the calibration tables');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Check table types';
+    }
+  }
+  document.getElementById('btn-recheck-calc').onclick = () => showVerdicts(false);
 
   document.getElementById('btn-print-fuel-book').onclick = () => {
     const fuel = (STATE.bundle?.tanks?.fuel || []).filter((t) =>
