@@ -772,6 +772,12 @@ function updateCalibration(vesselId, tankId, calibration) {
     'correctionUnit',
     'soundingIncrement',
     'heelIncrement',
+    'trimAxisSense',
+    'ullageAxis',
+    'soundingAxis',
+    'listUllageAxis',
+    'listSoundingAxis',
+    'depthPairMode',
   ];
   for (const f of fields) {
     if (calibration[f] !== undefined) tank[f] = calibration[f];
