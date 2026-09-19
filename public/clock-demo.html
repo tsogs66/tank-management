@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Clock Picker Demo</title>
+  <style>
+    body { 
+      font-family: Segoe UI, sans-serif; 
+      margin: 24px; 
+      background: #0b1520; 
+      color: #e9e4d6;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .container {
+      text-align: center;
+    }
+    h1 { margin-bottom: 20px; }
+    input { font-size: 18px; padding: 8px 10px; width: 220px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Ship Clock Demo</h1>
+    <p>The clock picker should auto-open on page load</p>
+    <label>Time</label>
+    <input id="t" type="time" value="10:30">
+  </div>
+  <script src="js/clock-picker.js"></script>
+  <script>
+    ChengClockPicker.install();
+    // Auto-open the clock picker
+    setTimeout(() => {
+      const input = document.getElementById('t');
+      if (input) {
+        input.click();
+        input.focus();
+      }
+    }, 500);
+  </script>
+</body>
+</html>
