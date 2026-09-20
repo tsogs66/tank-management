@@ -54,7 +54,9 @@
           if (native || /Android|iPhone|iPad|iPod/i.test(ua)) return true;
         } catch (_e) {}
         var w = window.innerWidth || document.documentElement.clientWidth || 0;
-        return w > 0 && w <= 900;
+        var h = window.innerHeight || document.documentElement.clientHeight || 0;
+        /* Tablet landscape is often wider than 900; keep the bar up to the 1180 tablet band. */
+        return (Math.min(w, h) > 0 && Math.min(w, h) <= 900) || (w > 0 && w <= 1180);
       }
       function apply() {
         try {
@@ -106,7 +108,7 @@
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="fonts/fonts.css">
-  <link rel="stylesheet" href="css/app.css?v=93">
+  <link rel="stylesheet" href="css/app.css?v=94">
   <link rel="stylesheet" href="css/print-voyage.css?v=7">
 </head>
 <body>
@@ -128,6 +130,15 @@
     </button>
     <button type="button" class="bn-item" data-page="bunker-after" aria-label="Bunkering">
       <span class="bn-ic" aria-hidden="true">📥</span><span>Bunkering</span>
+    </button>
+    <button type="button" class="bn-item" data-page="bunker-summary" aria-label="Bunker Summary">
+      <span class="bn-ic" aria-hidden="true">📑</span><span>Summary</span>
+    </button>
+    <button type="button" class="bn-item" data-page="report" aria-label="Voyage Report">
+      <span class="bn-ic" aria-hidden="true">📋</span><span>Report</span>
+    </button>
+    <button type="button" class="bn-item" data-page="sounding-card" aria-label="Sounding Card">
+      <span class="bn-ic" aria-hidden="true">📇</span><span>Sounding</span>
     </button>
     <button type="button" class="bn-item" data-page="more" aria-label="More">
       <span class="bn-ic" aria-hidden="true">⋯</span><span>More</span>
@@ -179,7 +190,7 @@
   <script src="js/bunkering-report.js?v=81"></script>
   <script src="js/bunker-consumption.js?v=76"></script>
   <script src="js/tank-sounding-card.js?v=5"></script>
-  <script src="js/app.js?v=91"></script>
+  <script src="js/app.js?v=92"></script>
   <script src="js/clock-picker.js?v=2"></script>
   <script>try{ ChengClockPicker && ChengClockPicker.install(); }catch(_e){}</script>
 </body>

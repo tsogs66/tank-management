@@ -370,7 +370,7 @@ function apiHref(path) {
   return (typeof Api !== 'undefined' && Api.withPrefix) ? Api.withPrefix(path) : path;
 }
 
-const BOTTOM_PRIMARY = new Set(['dashboard', 'fuel-report', 'bunker-after']);
+const BOTTOM_PRIMARY = new Set(['dashboard', 'fuel-report', 'bunker-after', 'bunker-summary', 'report', 'sounding-card']);
 
 function isAioEmbedded() {
   try {
@@ -490,12 +490,9 @@ function renderMoreNav() {
   grid.appendChild(mk('add-tank', 'Add Tank', '+'));
   grid.appendChild(mk('calibration', 'Calibration', '☰'));
   if (bunkerPlanNavAllowed()) grid.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
-  grid.appendChild(mk('bunker-summary', 'Summary', '📑'));
   if (bunkerConsumptionNavAllowed()) {
     grid.appendChild(mk('bunker-consumption', 'Cons.', '📊'));
   }
-  grid.appendChild(mk('sounding-card', 'Sounding', '📇'));
-  grid.appendChild(mk('report', 'Report', '📋'));
   grid.appendChild(mk('vcf-wcf', 'VCF/WCF', 'Σ'));
   grid.appendChild(mk('iso8217', 'ISO 8217', '▤'));
   if (!isAioEmbedded()) grid.appendChild(mk('setup', 'Setup', '⚙'));
