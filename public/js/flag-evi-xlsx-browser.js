@@ -303,9 +303,12 @@
   }
 
   function fuelGrade(name) {
-    const u = String(name || '').toUpperCase();
-    if (/MGO|MDO|D\.?O|DIESEL|GAS\s*OIL/.test(u)) return 'mgo';
-    if (/LSFO|LS\s*FO/.test(u)) return 'lsfo';
+    const u = String(name || '').toUpperCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
+    if (/\bLSMGO\b|LS\s*MGO/.test(u)) return 'lsmgo';
+    if (/\bMGO\b|GAS OIL|\bDIESEL\b/.test(u)) return 'mgo';
+    if (/\bMDO\b/.test(u)) return 'mdo';
+    if (/VLSFO|ULSFO|\bLSFO\b|LS HFO|LS FO/.test(u)) return 'lsfo';
+    if (/\bHFO\b/.test(u)) return 'hfo';
     return 'hfo';
   }
 

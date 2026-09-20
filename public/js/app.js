@@ -844,8 +844,13 @@ function render() {
 /* ---------- Dashboard ---------- */
 /** Distillate grades (MDO / MGO / LSMGO) vs residual heavy fuel (HFO / VLSFO). */
 function isDistillateFuel(tank) {
+  if (typeof FuelReportCore !== 'undefined' && typeof FuelReportCore.sectionForTank === 'function') {
+    return FuelReportCore.sectionForTank(tank) === 'do';
+  }
   const g = String((tank && tank.fuelGrade) || '').toLowerCase();
-  return g === 'mdo' || g === 'mgo' || g === 'lsmgo';
+  if (g === 'mdo' || g === 'mgo' || g === 'lsmgo') return true;
+  const u = String((tank && tank.name) || '').toUpperCase().replace(/\./g, '');
+  return /\bLSMGO\b|\bMGO\b|\bMDO\b/.test(u);
 }
 
 function fuelFamilyTotals(tanks) {

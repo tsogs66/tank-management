@@ -442,6 +442,9 @@ const BunkerReports = (() => {
        eighteen. Within a group the tanks are in the chief's order, because
        that is the order the sequence is planned in. */
     const isDo = (t) => {
+      if (typeof FuelReportCore !== 'undefined' && typeof FuelReportCore.sectionForTank === 'function') {
+        return FuelReportCore.sectionForTank(t) === 'do';
+      }
       const grade = String((t && t.fuelGrade) || '').toLowerCase();
       return grade === 'mdo' || grade === 'mgo' || grade === 'lsmgo';
     };
