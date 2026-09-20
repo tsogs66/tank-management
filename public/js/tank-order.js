@@ -61,7 +61,28 @@ const TankOrder = (() => {
     return typeof fallbackSort === 'function' ? fallbackSort(tanks) : tanks;
   }
 
-  return { isOrdered, sorted, sortedOr };
+  /**
+   * Where a row being dragged belongs, given where the finger is.
+   *
+   * `midpoints` are the vertical middles of the rows the dragged one would
+   * land among — itself left out — in the order they are shown. The answer is
+   * how many of them the finger has passed, which is the index to insert at:
+   * 0 for above them all, `midpoints.length` for below them all.
+   *
+   * Kept apart from the page so the arithmetic can be read and tested without
+   * a browser; dragging is hard to be sure of by eye, and on a phone it is
+   * hard to see at all.
+   */
+  function dropIndex(midpoints, pointerY) {
+    let at = 0;
+    for (const middle of (midpoints || [])) {
+      if (pointerY > middle) at += 1;
+      else break;
+    }
+    return at;
+  }
+
+  return { isOrdered, sorted, sortedOr, dropIndex };
 })();
 
 if (typeof module === 'object' && module.exports) module.exports = TankOrder;

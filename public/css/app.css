@@ -2715,7 +2715,6 @@ html:not(.tc-top-nav) .nav-group-label::after { display: none; }
   border-radius: 8px;
   margin-bottom: 6px;
   background: var(--card, #fff);
-  cursor: grab;
 }
 
 .reorder-row::before {
@@ -2726,8 +2725,39 @@ html:not(.tc-top-nav) .nav-group-label::after { display: none; }
   font-variant-numeric: tabular-nums;
 }
 
-.reorder-row.dragging { opacity: .45; cursor: grabbing; }
-.reorder-grip { color: var(--muted, #8a8f98); cursor: grab; }
+/* The row being moved is lifted off the list rather than faded out, so a
+   thumb resting on the grip does not hide the one thing that has to stay
+   visible. */
+.reorder-row.dragging {
+  cursor: grabbing;
+  border-color: var(--accent, #14506b);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .18);
+  transform: scale(1.01);
+}
+
+/* The handle is the only part of the row that takes the gesture: a finger
+   anywhere else scrolls the page, which is what it is usually for. Without
+   touch-action:none Android scrolls instead of dragging. */
+.reorder-grip {
+  color: var(--muted, #8a8f98);
+  cursor: grab;
+  touch-action: none;
+  padding: 10px 8px;
+  margin: -10px -2px -10px -6px;   /* a target worth aiming at, not a glyph */
+  font-size: 18px;
+  line-height: 1;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.reorder-row.dragging .reorder-grip { cursor: grabbing; }
+
+/* While a row is in hand, nothing else on the page is selectable — a drag
+   that starts on a name otherwise leaves a blue smear behind it. */
+body.reorder-dragging {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .reorder-name { flex: 1; font-weight: 600; }
 .reorder-moves { display: flex; gap: 4px; }
 

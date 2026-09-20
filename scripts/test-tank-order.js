@@ -81,5 +81,30 @@ assert.ok(orderAt < tankAt,
   'PUT /tanks/order must be declared before /tanks/:tankId, or "order" is read as a tank id');
 pass += 1;
 
+/* ---- Dragging a row with a finger ----
+ *
+ * Where a dragged row lands is decided by how many neighbours the pointer has
+ * passed the middle of. It is the one piece of the drag that can be checked
+ * without a browser, and the one worth checking: on a phone the rows are
+ * under the thumb that is moving them.
+ */
+const TankOrder = require('../public/js/tank-order.js');
+
+/* Three rows 40 high at y = 0, 40, 80 — middles at 20, 60, 100. */
+const middles = [20, 60, 100];
+is(TankOrder.dropIndex(middles, 0), 0, 'above every row: first place');
+is(TankOrder.dropIndex(middles, 19), 0, 'just short of the first middle: still first');
+is(TankOrder.dropIndex(middles, 21), 1, 'past the first middle: second place');
+is(TankOrder.dropIndex(middles, 61), 2, 'past the second');
+is(TankOrder.dropIndex(middles, 400), 3, 'below every row: last place');
+is(TankOrder.dropIndex([], 50), 0, 'a list of one row has one place to be');
+
+/* Rows are not all the same height — a long tank name wraps — so the answer
+   follows the middles it is given rather than a row height. */
+is(TankOrder.dropIndex([20, 100, 260], 150), 2, 'uneven rows are read from their own middles');
+
+/* The pointer runs up the list as well as down. */
+is(TankOrder.dropIndex(middles, 100), 2, 'exactly on a middle does not count as past it');
+
 fs.rmSync(dataDir, { recursive: true, force: true });
 console.log(`tank order: ${pass} checks passed`);

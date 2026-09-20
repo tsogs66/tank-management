@@ -1486,10 +1486,20 @@ function renderCategory(main, catId) {
 /**
  * The reordering list.
  *
- * Move buttons rather than drag alone: this is used on a tablet in an engine
- * room, often one-handed and in gloves, where a long-press drag is a poor
- * way to move the eleventh tank up one place. Dragging works too where there
- * is a mouse.
+ * Move buttons as well as dragging: this is used one-handed on a tablet in an
+ * engine room, and a chief who wants the eleventh tank one place up should not
+ * have to drag it there.
+ *
+ * Dragging is one code path for finger, pen and mouse — pointer events, the
+ * same as the signature pad — rather than the HTML5 drag events, which a
+ * touchscreen never fires. Two things make it work on a phone:
+ *
+ *   - the drag starts on the grip alone, so a finger anywhere else on the row
+ *     still scrolls the page, which on a list of eighteen tanks is most of
+ *     what a finger is there to do;
+ *   - the page follows the drag near the top and bottom edges, because a
+ *     phone shows six rows and the tank being moved is usually going further
+ *     than that.
  */
 function buildReorderList(catId, section) {
   const wrap = document.createElement('div');
@@ -1500,10 +1510,9 @@ function buildReorderList(catId, section) {
   section.tanks.forEach((tank, at) => {
     const li = document.createElement('li');
     li.className = 'reorder-row';
-    li.draggable = true;
     li.dataset.tankId = tank.id;
     li.innerHTML = `
-      <span class="reorder-grip" aria-hidden="true">⋮⋮</span>
+      <span class="reorder-grip" title="Drag to move" aria-hidden="true">⋮⋮</span>
       <span class="reorder-name">${escapeHtml(tank.name || 'Tank')}</span>
       <span class="tag">${escapeHtml(tank.fuelRole || '—')}</span>
       <span class="reorder-moves">
@@ -1544,35 +1553,110 @@ function buildReorderList(catId, section) {
     render();
   };
 
-  let dragging = null;
-  list.addEventListener('dragstart', (ev) => {
-    dragging = ev.target.closest('.reorder-row');
-    if (dragging) dragging.classList.add('dragging');
-  });
-  list.addEventListener('dragover', (ev) => {
-    ev.preventDefault();
-    if (!dragging) return;
-    const over = ev.target.closest('.reorder-row');
-    if (!over || over === dragging) return;
-    const box = over.getBoundingClientRect();
-    const below = (ev.clientY - box.top) > box.height / 2;
-    list.insertBefore(dragging, below ? over.nextElementSibling : over);
-  });
-  list.addEventListener('drop', async (ev) => { ev.preventDefault(); });
-  list.addEventListener('dragend', async () => {
-    if (!dragging) return;
-    dragging.classList.remove('dragging');
-    dragging = null;
-    await save();
-    render();
-  });
+  attachReorderDrag(list, save);
 
   wrap.appendChild(list);
   const hint = document.createElement('div');
   hint.className = 'hint';
-  hint.textContent = 'This order is used on Monitoring, Bunkering, the sounding card and every other list of tanks.';
+  hint.textContent = 'Drag the ⋮⋮ handle or use ▲▼. This order is used on Monitoring, '
+    + 'Bunkering, the sounding card and every other list of tanks.';
   wrap.appendChild(hint);
   return wrap;
+}
+
+/**
+ * Dragging a row with a finger, a pen or a mouse.
+ *
+ * The row is moved in the list as the pointer passes each neighbour's middle,
+ * so what is on screen during the drag is what will be saved — there is no
+ * separate preview to disagree with the result.
+ */
+function attachReorderDrag(list, save) {
+  const EDGE = 72;        /* how near an edge the page starts following */
+  const SPEED = 14;       /* pixels a frame at the very edge */
+
+  let row = null;
+  let pointerId = null;
+  let scrolling = null;
+  let lastY = 0;
+
+  /* The rows the dragged one could land among, and their middles. */
+  const others = () => [...list.querySelectorAll('.reorder-row')].filter((li) => li !== row);
+
+  const placeAt = (y) => {
+    const rest = others();
+    const middles = rest.map((li) => {
+      const box = li.getBoundingClientRect();
+      return box.top + box.height / 2;
+    });
+    const at = TankOrder.dropIndex(middles, y);
+    const before = rest[at] || null;
+    if (before !== row.nextElementSibling || before === null) list.insertBefore(row, before);
+  };
+
+  /* A phone shows six rows; without this the eleventh tank cannot reach the
+     top of the list, because the finger is already at the edge of the glass. */
+  const follow = () => {
+    if (!row) { scrolling = null; return; }
+    const top = lastY - EDGE;
+    const bottom = lastY - (window.innerHeight - EDGE);
+    let by = 0;
+    if (top < 0) by = Math.max(-SPEED, (top / EDGE) * SPEED);
+    else if (bottom > 0) by = Math.min(SPEED, (bottom / EDGE) * SPEED);
+    if (by) {
+      window.scrollBy(0, by);
+      placeAt(lastY);
+    }
+    scrolling = requestAnimationFrame(follow);
+  };
+
+  const stop = async (ev) => {
+    if (!row) return;
+    const moved = row;
+    try {
+      if (pointerId != null && moved.hasPointerCapture && moved.hasPointerCapture(pointerId)) {
+        moved.releasePointerCapture(pointerId);
+      }
+    } catch { /* already gone */ }
+    moved.classList.remove('dragging');
+    document.body.classList.remove('reorder-dragging');
+    if (scrolling) cancelAnimationFrame(scrolling);
+    scrolling = null;
+    row = null;
+    pointerId = null;
+    if (ev) ev.preventDefault();
+    await save();
+    render();
+  };
+
+  list.addEventListener('pointerdown', (ev) => {
+    if (!ev.isPrimary || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
+    const grip = ev.target.closest('.reorder-grip');
+    if (!grip) return;                       /* elsewhere on the row: let the page scroll */
+    row = grip.closest('.reorder-row');
+    if (!row) return;
+    pointerId = ev.pointerId;
+    lastY = ev.clientY;
+    /* Capture keeps the moves coming to this row even when the finger runs
+       off it, which on a phone it immediately does. It is a convenience, not
+       the mechanism: a browser that refuses the id still drags, because the
+       moves are listened for on the list. */
+    try { row.setPointerCapture(pointerId); } catch { /* keep dragging */ }
+    row.classList.add('dragging');
+    document.body.classList.add('reorder-dragging');
+    scrolling = requestAnimationFrame(follow);
+    ev.preventDefault();
+  });
+
+  list.addEventListener('pointermove', (ev) => {
+    if (!row || ev.pointerId !== pointerId) return;
+    lastY = ev.clientY;
+    placeAt(lastY);
+    ev.preventDefault();
+  });
+
+  list.addEventListener('pointerup', stop);
+  list.addEventListener('pointercancel', stop);
 }
 
 /* ---------- Tank detail ---------- */
