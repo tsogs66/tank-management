@@ -54,7 +54,9 @@
           if (native || /Android|iPhone|iPad|iPod/i.test(ua)) return true;
         } catch (_e) {}
         var w = window.innerWidth || document.documentElement.clientWidth || 0;
-        return w > 0 && w <= 900;
+        var h = window.innerHeight || document.documentElement.clientHeight || 0;
+        /* Tablet landscape is often wider than 900; keep the bar if the short side is tablet-sized. */
+        return Math.min(w, h) > 0 && Math.min(w, h) <= 900;
       }
       function apply() {
         try {
