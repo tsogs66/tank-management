@@ -2680,3 +2680,65 @@ html:not(.tc-top-nav) .nav-group-label {
   pointer-events: none;
 }
 html:not(.tc-top-nav) .nav-group-label::after { display: none; }
+
+/* ---------- Reordering a tank list ----------
+   Rows are made for a gloved finger on a tablet in an engine room: tall
+   enough to hit, with move buttons as well as a drag handle, because a
+   long-press drag is a poor way to move the eleventh tank up one place. */
+.page-head-actions { display: flex; gap: 8px; align-items: center; }
+
+.cat-section-head {
+  margin: 18px 0 6px;
+  font-size: 14px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--muted, #8a8f98);
+}
+
+.reorder-wrap { margin-bottom: 14px; }
+
+.reorder-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: reorder;
+}
+
+.reorder-row {
+  counter-increment: reorder;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  min-height: 48px;
+  border: 1px solid var(--line, #d7d7d7);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  background: var(--card, #fff);
+  cursor: grab;
+}
+
+.reorder-row::before {
+  content: counter(reorder);
+  min-width: 1.6em;
+  text-align: right;
+  color: var(--muted, #8a8f98);
+  font-variant-numeric: tabular-nums;
+}
+
+.reorder-row.dragging { opacity: .45; cursor: grabbing; }
+.reorder-grip { color: var(--muted, #8a8f98); cursor: grab; }
+.reorder-name { flex: 1; font-weight: 600; }
+.reorder-moves { display: flex; gap: 4px; }
+
+.reorder-moves .btn.tiny {
+  min-width: 40px;
+  min-height: 36px;
+  padding: 2px 8px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+@media (max-width: 520px) {
+  .reorder-row .tag { display: none; }
+}

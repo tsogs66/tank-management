@@ -749,6 +749,73 @@ function deleteTank(vesselId, tankId) {
   return { ok: true };
 }
 
+/**
+ * The order a category's tanks are listed in.
+ *
+ * Every page that lists tanks reads the stored array in order — Monitoring,
+ * Bunkering, the sounding card, the category tables. So the order a chief
+ * wants is the order the array is in, and setting it is a matter of writing
+ * the array that way rather than teaching each page a new rule.
+ *
+ * Each tank is also stamped with its place. The array alone would be enough
+ * for the pages, but a tank list goes out to CSV and comes back, and round
+ * trips through a backup or a sync; the stamp is what survives that, and it
+ * tells the pages that sort on their own account — the fuel mock-up sorts by
+ * tank number — that a chief has since said otherwise.
+ *
+ * Ids that are not in the category are ignored, and tanks the caller did not
+ * mention keep their order at the end: an order sent from a stale page moves
+ * what it knows about and leaves the rest alone.
+ */
+function reorderTanks(vesselId, category, ids) {
+  const tanks = readJson(vesselPath(vesselId, 'tanks.json'), emptyTanks());
+  if (!Object.prototype.hasOwnProperty.call(tanks, category)) {
+    throw new Error('Unknown tank category: ' + category);
+  }
+
+  const current = tanks[category] || [];
+  const byId = new Map(current.map((t) => [t.id, t]));
+  const ordered = [];
+  const seen = new Set();
+
+  for (const id of (Array.isArray(ids) ? ids : [])) {
+    const tank = byId.get(id);
+    if (!tank || seen.has(id)) continue;
+    seen.add(id);
+    ordered.push(tank);
+  }
+  for (const tank of current) {
+    if (!seen.has(tank.id)) ordered.push(tank);
+  }
+
+  const stamped = ordered.map((tank, at) => ({ ...tank, sortIndex: at }));
+  tanks[category] = stamped;
+  writeJson(vesselPath(vesselId, 'tanks.json'), tanks);
+  touchVessel(vesselId);
+  return { ok: true, category, order: stamped.map((t) => t.id) };
+}
+
+/**
+ * Forget a category's order and go back to the list as it was built.
+ *
+ * The pages that sort on their own account do so again once the stamps are
+ * gone, which is the only way back to the arrangement the app chose.
+ */
+function clearTankOrder(vesselId, category) {
+  const tanks = readJson(vesselPath(vesselId, 'tanks.json'), emptyTanks());
+  if (!Object.prototype.hasOwnProperty.call(tanks, category)) {
+    throw new Error('Unknown tank category: ' + category);
+  }
+  tanks[category] = (tanks[category] || []).map((tank) => {
+    const out = { ...tank };
+    delete out.sortIndex;
+    return out;
+  });
+  writeJson(vesselPath(vesselId, 'tanks.json'), tanks);
+  touchVessel(vesselId);
+  return { ok: true, category };
+}
+
 function updateCalibration(vesselId, tankId, calibration) {
   const tanks = readJson(vesselPath(vesselId, 'tanks.json'), emptyTanks());
   const tank = findTankInBundle(tanks, tankId);
@@ -1508,6 +1575,8 @@ const api = {
   updateVesselDetails,
   upsertTank,
   deleteTank,
+  reorderTanks,
+  clearTankOrder,
   updateCalibration,
   exportBackup,
   exportVesselBackup,

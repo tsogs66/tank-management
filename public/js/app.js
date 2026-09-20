@@ -18,6 +18,9 @@ const STATE = {
   tankView: readPref('tankView', 'table'),
   tankGroup: readPref('tankGroup', 'all'),
   tankTabOpen: readPref('tankTabOpen', 'true') !== 'false',
+  // Which category page is in reordering mode, if any. Not remembered: it is
+  // a mode you are in for a minute, not a preference.
+  reorderCat: null,
 };
 
 function readPref(key, fallback) {
@@ -874,16 +877,21 @@ function sideRank(side) {
   return 2;
 }
 
-/** Storage tanks: tank number ascending, then P left / S right / centre. */
+/**
+ * Storage tanks: tank number ascending, then P left / S right / centre.
+ *
+ * A good default and a poor override — once a chief has set an order, that
+ * is the order the mock-up shows too, so the page agrees with every list.
+ */
 function sortStorageTanks(tanks) {
-  return tanks.slice().sort((a, b) => {
+  return TankOrder.sortedOr(tanks, (list) => list.slice().sort((a, b) => {
     const an = a.tankNo == null || a.tankNo === '' ? 1e9 : Number(a.tankNo);
     const bn = b.tankNo == null || b.tankNo === '' ? 1e9 : Number(b.tankNo);
     if (an !== bn) return an - bn;
     const sr = sideRank(a.side) - sideRank(b.side);
     if (sr) return sr;
     return String(a.name || '').localeCompare(String(b.name || ''));
-  });
+  }));
 }
 
 function categoryTotals(catId) {
@@ -1087,11 +1095,22 @@ function renderDashboard(main) {
   }
 
   for (const c of CATS) {
+    const tanks = TankOrder.sorted(STATE.bundle.tanks[c.id] || []);
     const title = document.createElement('div');
     title.className = 'section-title';
     title.innerHTML = `<span class="cat-dot cat-${c.id}"></span>${c.label}`;
     main.appendChild(title);
-    main.appendChild(buildTankTable(STATE.bundle.tanks[c.id] || []));
+    /* Fuel reads as heavy and distillate here too, so this page and the fuel
+       page show the same two lists in the same order. */
+    for (const sec of categorySections(c.id, tanks)) {
+      if (sec.title) {
+        const head = document.createElement('h2');
+        head.className = 'cat-section-head';
+        head.textContent = `${sec.title} · ${sec.tanks.length}`;
+        main.appendChild(head);
+      }
+      main.appendChild(buildTankTable(sec.tanks));
+    }
   }
 }
 
@@ -1174,24 +1193,32 @@ function tankSideKey(tank) {
  */
 function arrangeFuelSideRow(familyTanks, side) {
   const roleOf = (t) => TankGraphics.roleOf(t);
-  const numbered = familyTanks
-    .filter((t) => roleOf(t) === 'storage' && tankSideKey(t) === side)
-    .sort(byTankNoThenName);
+
+  /* The mock-up is a drawing of the engine room, so the roles stay in their
+     places — storage, then settling or service, then the rest. Inside a role
+     the chief's order wins where there is one: the drawing then reads in the
+     same order as the lists it sits above. */
+  const inOrder = (list, fallback) => TankOrder.sortedOr(list, (l) => l.slice().sort(fallback));
+
+  const numbered = inOrder(
+    familyTanks.filter((t) => roleOf(t) === 'storage' && tankSideKey(t) === side),
+    byTankNoThenName
+  );
 
   if (side === 'port') {
-    const settling = familyTanks.filter((t) => roleOf(t) === 'settling').sort(byTankName);
-    const overflow = familyTanks.filter((t) => roleOf(t) === 'overflow').sort(byTankName);
+    const settling = inOrder(familyTanks.filter((t) => roleOf(t) === 'settling'), byTankName);
+    const overflow = inOrder(familyTanks.filter((t) => roleOf(t) === 'overflow'), byTankName);
     return numbered.concat(settling, overflow);
   }
 
-  const service = familyTanks.filter((t) => roleOf(t) === 'service').sort(byTankName);
+  const service = inOrder(familyTanks.filter((t) => roleOf(t) === 'service'), byTankName);
   const claimed = new Set(numbered.concat(service).map((t) => t.id));
   for (const t of familyTanks) {
     const r = roleOf(t);
     if (r === 'settling' || r === 'overflow') claimed.add(t.id);
     if (r === 'storage' && tankSideKey(t) === 'port') claimed.add(t.id);
   }
-  const other = familyTanks.filter((t) => !claimed.has(t.id)).sort(byTankNoThenName);
+  const other = inOrder(familyTanks.filter((t) => !claimed.has(t.id)), byTankNoThenName);
   return numbered.concat(service, other);
 }
 
@@ -1370,12 +1397,182 @@ function buildTankTable(tanks) {
   return wrap;
 }
 
+/**
+ * Fuel tanks read as two lists, not one.
+ *
+ * A chief sounds the heavy fuel and the diesel/gas oil as separate rounds and
+ * reports them in separate blocks, so a single table of eighteen tanks is a
+ * table nobody reads from. Monitoring already prints them apart; this is the
+ * same division, on the page the tanks are listed from.
+ *
+ * The division follows the fuel a tank is carrying rather than the grade on
+ * its calibration sheet, so an HFO tank run on gas oil sits with the gas oil
+ * — the same answer Monitoring gives, from the same core.
+ */
+function fuelSections(tanks) {
+  const isDo = (tank) => {
+    const form = STATE.bundle && STATE.bundle.fuelReport;
+    if (form && typeof FuelReportCore !== 'undefined' && typeof FuelReportCore.sectionForRow === 'function') {
+      const rowForm = (form.rows && form.rows[tank.id]) || {};
+      return FuelReportCore.sectionForRow(tank, rowForm) === 'do';
+    }
+    return isDistillateFuel(tank);
+  };
+  return [
+    { id: 'fuel', title: 'HFO / VLSFO', tanks: tanks.filter((t) => !isDo(t)) },
+    { id: 'do', title: 'MDO / MGO / LSMGO', tanks: tanks.filter(isDo) },
+  ];
+}
+
+/**
+ * The lists a category page shows: one, or — for fuel — heavy and distillate.
+ * Each is reordered on its own, because they are sounded on their own.
+ */
+function categorySections(catId, tanks) {
+  if (catId !== 'fuel') return [{ id: catId, title: '', tanks }];
+  return fuelSections(tanks).filter((sec) => sec.tanks.length);
+}
+
 function renderCategory(main, catId) {
   const c = CATS.find((x) => x.id === catId);
   const t = categoryTotals(catId);
+  const tanks = TankOrder.sorted(STATE.bundle.tanks[catId] || []);
+  const ordered = TankOrder.isOrdered(tanks);
+  const reordering = STATE.reorderCat === catId;
+
   main.innerHTML += `<div class="page-head"><div><h1><span class="cat-dot cat-${c.id}"></span>${c.label}</h1>
-    <div class="desc">${t.count} tanks · ${fmt(t.capacity,0)} m³</div></div></div>`;
-  main.appendChild(buildTankTable(STATE.bundle.tanks[catId] || []));
+    <div class="desc">${t.count} tanks · ${fmt(t.capacity,0)} m³${ordered ? ' · custom order' : ''}</div></div>
+    <div class="page-head-actions no-print">
+      <button class="btn small${reordering ? ' primary' : ''}" id="btn-reorder">${reordering ? 'Done' : 'Reorder'}</button>
+      ${ordered && !reordering ? '<button class="btn small ghost" id="btn-reorder-clear">Reset order</button>' : ''}
+    </div></div>`;
+
+  const sections = categorySections(catId, tanks);
+  for (const sec of sections) {
+    if (sec.title) {
+      const head = document.createElement('h2');
+      head.className = 'cat-section-head';
+      head.textContent = `${sec.title} · ${sec.tanks.length}`;
+      main.appendChild(head);
+    }
+    main.appendChild(reordering
+      ? buildReorderList(catId, sec)
+      : buildTankTable(sec.tanks));
+  }
+
+  const toggle = document.getElementById('btn-reorder');
+  if (toggle) {
+    toggle.onclick = () => {
+      STATE.reorderCat = reordering ? null : catId;
+      render();
+    };
+  }
+  const reset = document.getElementById('btn-reorder-clear');
+  if (reset) {
+    reset.onclick = async () => {
+      if (!confirm('Put this list back to the order the app chooses?')) return;
+      try {
+        await Api.clearTankOrder(STATE.activeVesselId, catId);
+        await reloadBundle();
+        showToast('Order reset');
+        render();
+      } catch (err) {
+        showToast(err.message);
+      }
+    };
+  }
+}
+
+/**
+ * The reordering list.
+ *
+ * Move buttons rather than drag alone: this is used on a tablet in an engine
+ * room, often one-handed and in gloves, where a long-press drag is a poor
+ * way to move the eleventh tank up one place. Dragging works too where there
+ * is a mouse.
+ */
+function buildReorderList(catId, section) {
+  const wrap = document.createElement('div');
+  wrap.className = 'reorder-wrap';
+
+  const list = document.createElement('ol');
+  list.className = 'reorder-list';
+  section.tanks.forEach((tank, at) => {
+    const li = document.createElement('li');
+    li.className = 'reorder-row';
+    li.draggable = true;
+    li.dataset.tankId = tank.id;
+    li.innerHTML = `
+      <span class="reorder-grip" aria-hidden="true">⋮⋮</span>
+      <span class="reorder-name">${escapeHtml(tank.name || 'Tank')}</span>
+      <span class="tag">${escapeHtml(tank.fuelRole || '—')}</span>
+      <span class="reorder-moves">
+        <button class="btn tiny" data-move="up" ${at === 0 ? 'disabled' : ''} aria-label="Move up">▲</button>
+        <button class="btn tiny" data-move="down" ${at === section.tanks.length - 1 ? 'disabled' : ''} aria-label="Move down">▼</button>
+      </span>`;
+    list.appendChild(li);
+  });
+
+  const idsIn = () => [...list.querySelectorAll('.reorder-row')].map((li) => li.dataset.tankId);
+
+  /* The order that goes to the server is the whole category, not this list:
+     fuel is shown as two lists and the store keeps one array, so the heavy
+     tanks keep their places while the distillate are moved among themselves. */
+  const save = async () => {
+    const shown = idsIn();
+    const whole = TankOrder.sorted(STATE.bundle.tanks[catId] || []).map((t) => t.id);
+    const mine = new Set(shown);
+    let take = 0;
+    const merged = whole.map((id) => (mine.has(id) ? shown[take++] : id));
+    try {
+      await Api.reorderTanks(STATE.activeVesselId, catId, merged);
+      await reloadBundle();
+    } catch (err) {
+      showToast(err.message);
+    }
+  };
+
+  list.onclick = async (ev) => {
+    const button = ev.target.closest('[data-move]');
+    if (!button) return;
+    const row = button.closest('.reorder-row');
+    const to = button.dataset.move === 'up' ? row.previousElementSibling : row.nextElementSibling;
+    if (!to) return;
+    if (button.dataset.move === 'up') list.insertBefore(row, to);
+    else list.insertBefore(to, row);
+    await save();
+    render();
+  };
+
+  let dragging = null;
+  list.addEventListener('dragstart', (ev) => {
+    dragging = ev.target.closest('.reorder-row');
+    if (dragging) dragging.classList.add('dragging');
+  });
+  list.addEventListener('dragover', (ev) => {
+    ev.preventDefault();
+    if (!dragging) return;
+    const over = ev.target.closest('.reorder-row');
+    if (!over || over === dragging) return;
+    const box = over.getBoundingClientRect();
+    const below = (ev.clientY - box.top) > box.height / 2;
+    list.insertBefore(dragging, below ? over.nextElementSibling : over);
+  });
+  list.addEventListener('drop', async (ev) => { ev.preventDefault(); });
+  list.addEventListener('dragend', async () => {
+    if (!dragging) return;
+    dragging.classList.remove('dragging');
+    dragging = null;
+    await save();
+    render();
+  });
+
+  wrap.appendChild(list);
+  const hint = document.createElement('div');
+  hint.className = 'hint';
+  hint.textContent = 'This order is used on Monitoring, Bunkering, the sounding card and every other list of tanks.';
+  wrap.appendChild(hint);
+  return wrap;
 }
 
 /* ---------- Tank detail ---------- */
