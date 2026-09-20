@@ -2711,10 +2711,11 @@ html:not(.tc-top-nav) .nav-group-label::after { display: none; }
   gap: 10px;
   padding: 10px 12px;
   min-height: 48px;
-  border: 1px solid var(--line, #d7d7d7);
+  border: 1px solid var(--border, #d7d7d7);
   border-radius: 8px;
   margin-bottom: 6px;
-  background: var(--card, #fff);
+  background: var(--bg-card, #16283f);
+  color: var(--text);
 }
 
 .reorder-row::before {
@@ -2758,7 +2759,7 @@ body.reorder-dragging {
   -webkit-user-select: none;
 }
 
-.reorder-name { flex: 1; font-weight: 600; }
+.reorder-name { flex: 1; font-weight: 600; color: var(--text); }
 .reorder-moves { display: flex; gap: 4px; }
 
 .reorder-moves .btn.tiny {
