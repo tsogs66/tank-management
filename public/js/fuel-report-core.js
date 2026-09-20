@@ -48,7 +48,7 @@ const REPORT_TYPES = [
 const FUEL_TYPES = [
   { id: 'hfo', label: 'HFO', section: 'fuel', group: 'residual' },
   { id: 'lsfo', label: 'VLSFO', section: 'fuel', group: 'residual' },
-  { id: 'mdo', label: 'MO/MGO', section: 'do', group: 'distillate' },
+  { id: 'mdo', label: 'MDO/MGO', section: 'do', group: 'distillate' },
   { id: 'lsmgo', label: 'LSMGO', section: 'do', group: 'distillate' },
 ];
 
