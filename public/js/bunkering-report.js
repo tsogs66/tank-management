@@ -436,10 +436,28 @@ const BunkerReports = (() => {
 
   function planSequencePanel(c) {
     const tanks = (bundle().tanks.fuel || []);
+
+    /* Heavy fuel and distillate are bunkered as separate operations, so the
+       picker offers them as separate groups rather than one list of
+       eighteen. Within a group the tanks are in the chief's order, because
+       that is the order the sequence is planned in. */
+    const isDo = (t) => {
+      const grade = String((t && t.fuelGrade) || '').toLowerCase();
+      return grade === 'mdo' || grade === 'mgo' || grade === 'lsmgo';
+    };
+    const heavy = tanks.filter((t) => !isDo(t));
+    const distillate = tanks.filter(isDo);
+
     const rows = c.rows.map((row, i) => {
       const f = view.plan.sequence[i] || {};
-      const opts = ['<option value="">— select tank —</option>'].concat(tanks.map((t) =>
-        `<option value="${esc(t.id)}" ${row.tankId === t.id ? 'selected' : ''}>${esc(t.name)}</option>`)).join('');
+      const optionFor = (t) =>
+        `<option value="${esc(t.id)}" ${row.tankId === t.id ? 'selected' : ''}>${esc(t.name)}</option>`;
+      const group = (label, list) => (list.length
+        ? `<optgroup label="${esc(label)}">${list.map(optionFor).join('')}</optgroup>`
+        : '');
+      const opts = '<option value="">— select tank —</option>'
+        + group('HFO / VLSFO', heavy)
+        + group('MDO / MGO / LSMGO', distillate);
       const cell = (field) => `<td class="fr-calc" data-bp-cell="${i}.${field}"></td>`;
       return `<tr data-slot="${i}">
         <th class="fr-tank-name">${i + 1}. <select data-slot="${i}" data-field="tankId">${opts}</select></th>

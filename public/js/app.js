@@ -18,6 +18,9 @@ const STATE = {
   tankView: readPref('tankView', 'table'),
   tankGroup: readPref('tankGroup', 'all'),
   tankTabOpen: readPref('tankTabOpen', 'true') !== 'false',
+  // Which category page is in reordering mode, if any. Not remembered: it is
+  // a mode you are in for a minute, not a preference.
+  reorderCat: null,
 };
 
 function readPref(key, fallback) {
@@ -874,16 +877,21 @@ function sideRank(side) {
   return 2;
 }
 
-/** Storage tanks: tank number ascending, then P left / S right / centre. */
+/**
+ * Storage tanks: tank number ascending, then P left / S right / centre.
+ *
+ * A good default and a poor override — once a chief has set an order, that
+ * is the order the mock-up shows too, so the page agrees with every list.
+ */
 function sortStorageTanks(tanks) {
-  return tanks.slice().sort((a, b) => {
+  return TankOrder.sortedOr(tanks, (list) => list.slice().sort((a, b) => {
     const an = a.tankNo == null || a.tankNo === '' ? 1e9 : Number(a.tankNo);
     const bn = b.tankNo == null || b.tankNo === '' ? 1e9 : Number(b.tankNo);
     if (an !== bn) return an - bn;
     const sr = sideRank(a.side) - sideRank(b.side);
     if (sr) return sr;
     return String(a.name || '').localeCompare(String(b.name || ''));
-  });
+  }));
 }
 
 function categoryTotals(catId) {
@@ -1087,11 +1095,22 @@ function renderDashboard(main) {
   }
 
   for (const c of CATS) {
+    const tanks = TankOrder.sorted(STATE.bundle.tanks[c.id] || []);
     const title = document.createElement('div');
     title.className = 'section-title';
     title.innerHTML = `<span class="cat-dot cat-${c.id}"></span>${c.label}`;
     main.appendChild(title);
-    main.appendChild(buildTankTable(STATE.bundle.tanks[c.id] || []));
+    /* Fuel reads as heavy and distillate here too, so this page and the fuel
+       page show the same two lists in the same order. */
+    for (const sec of categorySections(c.id, tanks)) {
+      if (sec.title) {
+        const head = document.createElement('h2');
+        head.className = 'cat-section-head';
+        head.textContent = `${sec.title} · ${sec.tanks.length}`;
+        main.appendChild(head);
+      }
+      main.appendChild(buildTankTable(sec.tanks));
+    }
   }
 }
 
@@ -1174,24 +1193,32 @@ function tankSideKey(tank) {
  */
 function arrangeFuelSideRow(familyTanks, side) {
   const roleOf = (t) => TankGraphics.roleOf(t);
-  const numbered = familyTanks
-    .filter((t) => roleOf(t) === 'storage' && tankSideKey(t) === side)
-    .sort(byTankNoThenName);
+
+  /* The mock-up is a drawing of the engine room, so the roles stay in their
+     places — storage, then settling or service, then the rest. Inside a role
+     the chief's order wins where there is one: the drawing then reads in the
+     same order as the lists it sits above. */
+  const inOrder = (list, fallback) => TankOrder.sortedOr(list, (l) => l.slice().sort(fallback));
+
+  const numbered = inOrder(
+    familyTanks.filter((t) => roleOf(t) === 'storage' && tankSideKey(t) === side),
+    byTankNoThenName
+  );
 
   if (side === 'port') {
-    const settling = familyTanks.filter((t) => roleOf(t) === 'settling').sort(byTankName);
-    const overflow = familyTanks.filter((t) => roleOf(t) === 'overflow').sort(byTankName);
+    const settling = inOrder(familyTanks.filter((t) => roleOf(t) === 'settling'), byTankName);
+    const overflow = inOrder(familyTanks.filter((t) => roleOf(t) === 'overflow'), byTankName);
     return numbered.concat(settling, overflow);
   }
 
-  const service = familyTanks.filter((t) => roleOf(t) === 'service').sort(byTankName);
+  const service = inOrder(familyTanks.filter((t) => roleOf(t) === 'service'), byTankName);
   const claimed = new Set(numbered.concat(service).map((t) => t.id));
   for (const t of familyTanks) {
     const r = roleOf(t);
     if (r === 'settling' || r === 'overflow') claimed.add(t.id);
     if (r === 'storage' && tankSideKey(t) === 'port') claimed.add(t.id);
   }
-  const other = familyTanks.filter((t) => !claimed.has(t.id)).sort(byTankNoThenName);
+  const other = inOrder(familyTanks.filter((t) => !claimed.has(t.id)), byTankNoThenName);
   return numbered.concat(service, other);
 }
 
@@ -1370,12 +1397,266 @@ function buildTankTable(tanks) {
   return wrap;
 }
 
+/**
+ * Fuel tanks read as two lists, not one.
+ *
+ * A chief sounds the heavy fuel and the diesel/gas oil as separate rounds and
+ * reports them in separate blocks, so a single table of eighteen tanks is a
+ * table nobody reads from. Monitoring already prints them apart; this is the
+ * same division, on the page the tanks are listed from.
+ *
+ * The division follows the fuel a tank is carrying rather than the grade on
+ * its calibration sheet, so an HFO tank run on gas oil sits with the gas oil
+ * — the same answer Monitoring gives, from the same core.
+ */
+function fuelSections(tanks) {
+  const isDo = (tank) => {
+    const form = STATE.bundle && STATE.bundle.fuelReport;
+    if (form && typeof FuelReportCore !== 'undefined' && typeof FuelReportCore.sectionForRow === 'function') {
+      const rowForm = (form.rows && form.rows[tank.id]) || {};
+      return FuelReportCore.sectionForRow(tank, rowForm) === 'do';
+    }
+    return isDistillateFuel(tank);
+  };
+  return [
+    { id: 'fuel', title: 'HFO / VLSFO', tanks: tanks.filter((t) => !isDo(t)) },
+    { id: 'do', title: 'MDO / MGO / LSMGO', tanks: tanks.filter(isDo) },
+  ];
+}
+
+/**
+ * The lists a category page shows: one, or — for fuel — heavy and distillate.
+ * Each is reordered on its own, because they are sounded on their own.
+ */
+function categorySections(catId, tanks) {
+  if (catId !== 'fuel') return [{ id: catId, title: '', tanks }];
+  return fuelSections(tanks).filter((sec) => sec.tanks.length);
+}
+
 function renderCategory(main, catId) {
   const c = CATS.find((x) => x.id === catId);
   const t = categoryTotals(catId);
+  const tanks = TankOrder.sorted(STATE.bundle.tanks[catId] || []);
+  const ordered = TankOrder.isOrdered(tanks);
+  const reordering = STATE.reorderCat === catId;
+
   main.innerHTML += `<div class="page-head"><div><h1><span class="cat-dot cat-${c.id}"></span>${c.label}</h1>
-    <div class="desc">${t.count} tanks · ${fmt(t.capacity,0)} m³</div></div></div>`;
-  main.appendChild(buildTankTable(STATE.bundle.tanks[catId] || []));
+    <div class="desc">${t.count} tanks · ${fmt(t.capacity,0)} m³${ordered ? ' · custom order' : ''}</div></div>
+    <div class="page-head-actions no-print">
+      <button class="btn small${reordering ? ' primary' : ''}" id="btn-reorder">${reordering ? 'Done' : 'Reorder'}</button>
+      ${ordered && !reordering ? '<button class="btn small ghost" id="btn-reorder-clear">Reset order</button>' : ''}
+    </div></div>`;
+
+  const sections = categorySections(catId, tanks);
+  for (const sec of sections) {
+    if (sec.title) {
+      const head = document.createElement('h2');
+      head.className = 'cat-section-head';
+      head.textContent = `${sec.title} · ${sec.tanks.length}`;
+      main.appendChild(head);
+    }
+    main.appendChild(reordering
+      ? buildReorderList(catId, sec)
+      : buildTankTable(sec.tanks));
+  }
+
+  const toggle = document.getElementById('btn-reorder');
+  if (toggle) {
+    toggle.onclick = () => {
+      STATE.reorderCat = reordering ? null : catId;
+      render();
+    };
+  }
+  const reset = document.getElementById('btn-reorder-clear');
+  if (reset) {
+    reset.onclick = async () => {
+      if (!confirm('Put this list back to the order the app chooses?')) return;
+      try {
+        await Api.clearTankOrder(STATE.activeVesselId, catId);
+        await reloadBundle();
+        showToast('Order reset');
+        render();
+      } catch (err) {
+        showToast(err.message);
+      }
+    };
+  }
+}
+
+/**
+ * The reordering list.
+ *
+ * Move buttons as well as dragging: this is used one-handed on a tablet in an
+ * engine room, and a chief who wants the eleventh tank one place up should not
+ * have to drag it there.
+ *
+ * Dragging is one code path for finger, pen and mouse — pointer events, the
+ * same as the signature pad — rather than the HTML5 drag events, which a
+ * touchscreen never fires. Two things make it work on a phone:
+ *
+ *   - the drag starts on the grip alone, so a finger anywhere else on the row
+ *     still scrolls the page, which on a list of eighteen tanks is most of
+ *     what a finger is there to do;
+ *   - the page follows the drag near the top and bottom edges, because a
+ *     phone shows six rows and the tank being moved is usually going further
+ *     than that.
+ */
+function buildReorderList(catId, section) {
+  const wrap = document.createElement('div');
+  wrap.className = 'reorder-wrap';
+
+  const list = document.createElement('ol');
+  list.className = 'reorder-list';
+  section.tanks.forEach((tank, at) => {
+    const li = document.createElement('li');
+    li.className = 'reorder-row';
+    li.dataset.tankId = tank.id;
+    li.innerHTML = `
+      <span class="reorder-grip" title="Drag to move" aria-hidden="true">⋮⋮</span>
+      <span class="reorder-name">${escapeHtml(tank.name || 'Tank')}</span>
+      <span class="tag">${escapeHtml(tank.fuelRole || '—')}</span>
+      <span class="reorder-moves">
+        <button class="btn tiny" data-move="up" ${at === 0 ? 'disabled' : ''} aria-label="Move up">▲</button>
+        <button class="btn tiny" data-move="down" ${at === section.tanks.length - 1 ? 'disabled' : ''} aria-label="Move down">▼</button>
+      </span>`;
+    list.appendChild(li);
+  });
+
+  const idsIn = () => [...list.querySelectorAll('.reorder-row')].map((li) => li.dataset.tankId);
+
+  /* The order that goes to the server is the whole category, not this list:
+     fuel is shown as two lists and the store keeps one array, so the heavy
+     tanks keep their places while the distillate are moved among themselves. */
+  const save = async () => {
+    const shown = idsIn();
+    const whole = TankOrder.sorted(STATE.bundle.tanks[catId] || []).map((t) => t.id);
+    const mine = new Set(shown);
+    let take = 0;
+    const merged = whole.map((id) => (mine.has(id) ? shown[take++] : id));
+    try {
+      await Api.reorderTanks(STATE.activeVesselId, catId, merged);
+      await reloadBundle();
+    } catch (err) {
+      showToast(err.message);
+    }
+  };
+
+  list.onclick = async (ev) => {
+    const button = ev.target.closest('[data-move]');
+    if (!button) return;
+    const row = button.closest('.reorder-row');
+    const to = button.dataset.move === 'up' ? row.previousElementSibling : row.nextElementSibling;
+    if (!to) return;
+    if (button.dataset.move === 'up') list.insertBefore(row, to);
+    else list.insertBefore(to, row);
+    await save();
+    render();
+  };
+
+  attachReorderDrag(list, save);
+
+  wrap.appendChild(list);
+  const hint = document.createElement('div');
+  hint.className = 'hint';
+  hint.textContent = 'Drag the ⋮⋮ handle or use ▲▼. This order is used on Monitoring, '
+    + 'Bunkering, the sounding card and every other list of tanks.';
+  wrap.appendChild(hint);
+  return wrap;
+}
+
+/**
+ * Dragging a row with a finger, a pen or a mouse.
+ *
+ * The row is moved in the list as the pointer passes each neighbour's middle,
+ * so what is on screen during the drag is what will be saved — there is no
+ * separate preview to disagree with the result.
+ */
+function attachReorderDrag(list, save) {
+  const EDGE = 72;        /* how near an edge the page starts following */
+  const SPEED = 14;       /* pixels a frame at the very edge */
+
+  let row = null;
+  let pointerId = null;
+  let scrolling = null;
+  let lastY = 0;
+
+  /* The rows the dragged one could land among, and their middles. */
+  const others = () => [...list.querySelectorAll('.reorder-row')].filter((li) => li !== row);
+
+  const placeAt = (y) => {
+    const rest = others();
+    const middles = rest.map((li) => {
+      const box = li.getBoundingClientRect();
+      return box.top + box.height / 2;
+    });
+    const at = TankOrder.dropIndex(middles, y);
+    const before = rest[at] || null;
+    if (before !== row.nextElementSibling || before === null) list.insertBefore(row, before);
+  };
+
+  /* A phone shows six rows; without this the eleventh tank cannot reach the
+     top of the list, because the finger is already at the edge of the glass. */
+  const follow = () => {
+    if (!row) { scrolling = null; return; }
+    const top = lastY - EDGE;
+    const bottom = lastY - (window.innerHeight - EDGE);
+    let by = 0;
+    if (top < 0) by = Math.max(-SPEED, (top / EDGE) * SPEED);
+    else if (bottom > 0) by = Math.min(SPEED, (bottom / EDGE) * SPEED);
+    if (by) {
+      window.scrollBy(0, by);
+      placeAt(lastY);
+    }
+    scrolling = requestAnimationFrame(follow);
+  };
+
+  const stop = async (ev) => {
+    if (!row) return;
+    const moved = row;
+    try {
+      if (pointerId != null && moved.hasPointerCapture && moved.hasPointerCapture(pointerId)) {
+        moved.releasePointerCapture(pointerId);
+      }
+    } catch { /* already gone */ }
+    moved.classList.remove('dragging');
+    document.body.classList.remove('reorder-dragging');
+    if (scrolling) cancelAnimationFrame(scrolling);
+    scrolling = null;
+    row = null;
+    pointerId = null;
+    if (ev) ev.preventDefault();
+    await save();
+    render();
+  };
+
+  list.addEventListener('pointerdown', (ev) => {
+    if (!ev.isPrimary || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
+    const grip = ev.target.closest('.reorder-grip');
+    if (!grip) return;                       /* elsewhere on the row: let the page scroll */
+    row = grip.closest('.reorder-row');
+    if (!row) return;
+    pointerId = ev.pointerId;
+    lastY = ev.clientY;
+    /* Capture keeps the moves coming to this row even when the finger runs
+       off it, which on a phone it immediately does. It is a convenience, not
+       the mechanism: a browser that refuses the id still drags, because the
+       moves are listened for on the list. */
+    try { row.setPointerCapture(pointerId); } catch { /* keep dragging */ }
+    row.classList.add('dragging');
+    document.body.classList.add('reorder-dragging');
+    scrolling = requestAnimationFrame(follow);
+    ev.preventDefault();
+  });
+
+  list.addEventListener('pointermove', (ev) => {
+    if (!row || ev.pointerId !== pointerId) return;
+    lastY = ev.clientY;
+    placeAt(lastY);
+    ev.preventDefault();
+  });
+
+  list.addEventListener('pointerup', stop);
+  list.addEventListener('pointercancel', stop);
 }
 
 /* ---------- Tank detail ---------- */

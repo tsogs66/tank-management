@@ -70,6 +70,13 @@ jobs:
       - name: Sheet tidying before import
         run: node scripts/test-sheet-tidy.js
 
+      # The order a chief puts the tanks in is the order of the stored array,
+      # which every page reads. This covers what the array alone cannot: a
+      # reorder sent from a stale page, and the route that would otherwise be
+      # read as a tank called "order".
+      - name: Tank order
+        run: node scripts/test-tank-order.js
+
       # Repairing a tank's table type must not cost it its tables.
       - name: Calibration repair keeps the tables
         run: node scripts/test-recheck-calc-type.js
@@ -130,6 +137,12 @@ jobs:
             sleep 1
           done
           node scripts/parity-check.js
+
+          # The reorder list is dragged with pointer events so one code path
+          # serves finger, pen and mouse. Whether a touchscreen fires them at
+          # all is a question only a browser answers, so it is asked here,
+          # where there is one — and a server for the order to be saved to.
+          node scripts/test-reorder-touch.js
           kill "$(cat /tmp/tank-server.pid)" || true
 
       - name: Server log
