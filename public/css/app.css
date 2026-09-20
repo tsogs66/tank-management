@@ -9,6 +9,9 @@
   --text: #e9e4d6;
   --text-dim: #a9a292;
   --text-faint: #8a8376;
+  /* Alias used by the reorder list. Resolves at use time so Bright / Prism /
+     Astrolabe keep their own dim colour instead of the #8a8f98 fallback. */
+  --muted: var(--text-dim);
   --accent: #c99a53;
   --accent-2: #57b3ab;
   --good: #5f9e6e;
@@ -2692,7 +2695,7 @@ html:not(.tc-top-nav) .nav-group-label::after { display: none; }
   font-size: 14px;
   letter-spacing: .04em;
   text-transform: uppercase;
-  color: var(--muted, #8a8f98);
+  color: var(--text-dim);
 }
 
 .reorder-wrap { margin-bottom: 14px; }
@@ -2722,7 +2725,7 @@ html:not(.tc-top-nav) .nav-group-label::after { display: none; }
   content: counter(reorder);
   min-width: 1.6em;
   text-align: right;
-  color: var(--muted, #8a8f98);
+  color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2740,7 +2743,7 @@ html:not(.tc-top-nav) .nav-group-label::after { display: none; }
    anywhere else scrolls the page, which is what it is usually for. Without
    touch-action:none Android scrolls instead of dragging. */
 .reorder-grip {
-  color: var(--muted, #8a8f98);
+  color: var(--text-dim);
   cursor: grab;
   touch-action: none;
   padding: 10px 8px;
