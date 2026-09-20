@@ -24,12 +24,12 @@ const is = (got, want, what) => { assert.deepStrictEqual(got, want, what); pass 
 const vessel = store.createVessel({ name: 'MV Order Test' });
 const vesselId = vessel.id || vessel;
 
-const named = (name) => store.upsertTank(vesselId, {
-  name, category: 'fuel', capacity: 100, calcType: 'direct',
+const named = (name, id) => store.upsertTank(vesselId, {
+  name, id, category: 'fuel', capacity: 100, calcType: 'direct',
 });
-const a = named('NO.1 H.F.O. TK (P)');
-const b = named('NO.1 H.F.O. TK (S)');
-const c = named('M.D.O. SERVICE TK');
+const a = named('NO.1 H.F.O. TK (P)', 'fuel-a');
+const b = named('NO.1 H.F.O. TK (S)', 'fuel-b');
+const c = named('M.D.O. SERVICE TK', 'fuel-c');
 
 const fuelNames = () => store.getVesselBundle(vesselId).tanks.fuel.map((t) => t.name);
 const fuelIndexes = () => store.getVesselBundle(vesselId).tanks.fuel.map((t) => t.sortIndex);
@@ -56,7 +56,7 @@ is(fuelNames()[0], 'NO.1 H.F.O. TK (P)', 'the same id twice does not duplicate a
 is(store.getVesselBundle(vesselId).tanks.fuel.length, 3, 'and nothing is lost to it');
 
 /* ---- A tank added later joins the end rather than the middle ---- */
-const late = named('NO.2 H.F.O. TK (P)');
+const late = named('NO.2 H.F.O. TK (P)', 'fuel-late');
 is(fuelNames()[3], 'NO.2 H.F.O. TK (P)', 'a new tank is listed last');
 
 /* ---- Putting it back ---- */
