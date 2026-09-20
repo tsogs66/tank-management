@@ -950,6 +950,20 @@ html.bright .toast {
 }
 .fr-field .fr-unit { color: var(--text-faint); font-size: 11px; font-style: normal; }
 .fr-field-wide { grid-column: span 2; }
+/* Heel + S/W temp + E/R temp share the last two header columns so S/W temp
+   can sit between them without wrapping the sheet to a third landscape row. */
+.fr-field-triple {
+  grid-column: span 2;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 8px;
+  min-width: 0;
+}
+.fr-field-triple .fr-field input,
+.fr-field-triple .fr-field select {
+  padding-left: 6px;
+  padding-right: 6px;
+}
 .fr-header .hint { margin-top: 10px; }
 
 table.fr-sheet {
@@ -1121,6 +1135,13 @@ table.fr-sheet tfoot th { text-align: left; }
 @media (max-width: 900px) {
   .fr-header-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .fr-field-wide { grid-column: span 2; }
+  .fr-field-triple { grid-column: span 2; }
+}
+
+/* Tablet landscape: keep the six-column / two-row header. The three
+   attitude boxes stay packed in the last two columns. */
+@media (min-width: 901px) and (max-width: 1180px) and (orientation: landscape) {
+  .fr-header-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 }
 
 /* ---------- Bunkering plan / summary screens ---------- */

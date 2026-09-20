@@ -181,10 +181,14 @@ const FuelReport = (() => {
           <input type="number" step="any" data-head="draftFwd" value="${esc(h.draftFwd)}"></label>
         <label class="fr-field"><span>MEAN DRAFT</span>
           <output class="fr-out" data-fr-head="meanDraft"></output></label>
-        <label class="fr-field"><span>HEEL</span>
-          <select data-head="heel">${heels}</select></label>
-        <label class="fr-field"><span>ER TEMP.</span>
-          <input type="number" step="any" data-head="engineRoomTemp" value="${esc(h.engineRoomTemp)}"></label>
+        <div class="fr-field-triple">
+          <label class="fr-field"><span>HEEL</span>
+            <select data-head="heel">${heels}</select></label>
+          <label class="fr-field"><span>SW TEMP.</span>
+            <input type="number" step="any" data-head="seaTemp" value="${esc(h.seaTemp)}"></label>
+          <label class="fr-field"><span>ER TEMP.</span>
+            <input type="number" step="any" data-head="engineRoomTemp" value="${esc(h.engineRoomTemp)}"></label>
+        </div>
 
         <label class="fr-field"><span>DATE</span>
           <input type="date" data-head="date" value="${esc(h.date)}"></label>
@@ -196,8 +200,6 @@ const FuelReport = (() => {
           <output class="fr-out" data-fr-head="trim"></output></label>
         <label class="fr-field fr-field-wide"><span>PORT</span>
           <input data-head="port" value="${esc(h.port)}"></label>
-        <label class="fr-field"><span>SW TEMP.</span>
-          <input type="number" step="any" data-head="seaTemp" value="${esc(h.seaTemp)}"></label>
       </div>
       <div class="hint" data-fr-head="attitude"></div>
     </div>`;
