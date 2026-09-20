@@ -14,9 +14,9 @@ const BunkerConsumption = (function () {
     {
       key: 'distillate',
       title: 'MO / MGO / LSMGO',
-      grades: ['MO/MGO', 'LSMGO'],
-      aliases: ['MDO/MGO', 'MDO', 'MGO'],
-      defaultGrade: 'MO/MGO',
+      grades: ['MDO/MGO', 'LSMGO'],
+      aliases: ['MO/MGO', 'MDO', 'MGO'],
+      defaultGrade: 'MDO/MGO',
       qtyLabel: 'MO/MGO/LSMGO',
     },
   ];
@@ -66,7 +66,7 @@ const BunkerConsumption = (function () {
     };
   }
   function defaultPlan() {
-    return { voyageNo: '', date: '', residual: emptySide('HFO'), distillate: emptySide('MO/MGO') };
+    return { voyageNo: '', date: '', residual: emptySide('HFO'), distillate: emptySide('MDO/MGO') };
   }
 
   /** Keep saved plans readable after LSFO / MDO/MGO label renames. */
@@ -77,10 +77,10 @@ const BunkerConsumption = (function () {
       if (/^lsfo$/i.test(g) || /^vlsfo$/i.test(g)) return 'VLSFO';
     }
     if (meta.key === 'distillate') {
-      if (/^(mdo\/?mgo|mdo|mgo|mo\/?mgo)$/i.test(g)) return 'MO/MGO';
+      if (/^(mdo\/?mgo|mdo|mgo|mo\/?mgo)$/i.test(g)) return 'MDO/MGO';
     }
     if ((meta.aliases || []).includes(g)) {
-      return normalizeGradeLabel(meta.key === 'residual' ? 'VLSFO' : 'MO/MGO', meta);
+      return normalizeGradeLabel(meta.key === 'residual' ? 'VLSFO' : 'MDO/MGO', meta);
     }
     return meta.defaultGrade;
   }

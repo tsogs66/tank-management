@@ -24,6 +24,7 @@ assert.strictEqual(Core.defaultFuelType({ name: 'M.G.O. STORAGE TK (S)', fuelGra
 assert.strictEqual(Core.defaultFuelType({ name: 'LSMGO SERVICE TK', fuelGrade: 'hfo' }), 'lsmgo');
 assert.strictEqual(Core.defaultFuelType({ name: 'NO.3 HFO TK (S)', fuelGrade: 'hfo' }), 'hfo');
 
+assert.strictEqual(Core.FUEL_TYPES.find((t) => t.id === 'mdo').label, 'MDO/MGO');
 assert.strictEqual(Core.fuelGradeFromName('M.G.O. STORAGE TK (S)'), 'mgo');
 assert.strictEqual(Core.fuelGradeFromName('L.S.M.G.O. SERVICE'), 'lsmgo');
 assert.strictEqual(Core.fuelGradeFromName('LS H.F.O. SETTLING TK'), 'lsfo');
