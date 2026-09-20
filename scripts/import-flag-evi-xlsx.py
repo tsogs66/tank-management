@@ -143,15 +143,20 @@ def tank_no_from_title(title: str):
 
 
 def fuel_grade(title: str) -> str:
-    upper = title.upper()
-    if re.search(r"L\.?\s*S\.?|VLSFO|LSFO", upper) and re.search(r"H\.?\s*F\.?\s*O|FO", upper):
-        return "lsfo"
-    if re.search(r"H\.?\s*F\.?\s*O", upper):
-        return "hfo"
-    if "MDO" in upper or re.search(r"M\.?\s*D\.?\s*O", upper):
-        return "mdo"
-    if "MGO" in upper or re.search(r"M\.?\s*G\.?\s*O", upper):
+    upper = re.sub(r"\s+", " ", re.sub(r"\.", "", title.upper())).strip()
+    if re.search(r"\bLSMGO\b|LS\s*MGO", upper):
+        return "lsmgo"
+    if re.search(r"\bMGO\b|GAS OIL", upper):
         return "mgo"
+    if re.search(r"\bMDO\b|\bDIESEL\b", upper):
+        return "mdo"
+    if re.search(r"VLSFO|ULSFO|\bLSFO\b|LS HFO|LS FO", upper):
+        return "lsfo"
+    raw = title.upper()
+    if re.search(r"L\.?\s*S\.?|VLSFO|LSFO", raw) and re.search(r"H\.?\s*F\.?\s*O|FO", raw):
+        return "lsfo"
+    if re.search(r"\bHFO\b", upper) or re.search(r"H\.?\s*F\.?\s*O", raw):
+        return "hfo"
     return "other"
 
 
