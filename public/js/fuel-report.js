@@ -224,7 +224,7 @@ const FuelReport = (() => {
         <td><select data-row="${esc(row.tankId)}" data-field="fuelType">${typeOpts}</select></td>
         <td><input type="number" step="any" data-row="${esc(row.tankId)}" data-field="reading" data-sheet-popup="actual" value="${esc(Core.formatCm(row.reading, { soundingUnit: row.soundingUnit }))}"></td>
         <td><select data-row="${esc(row.tankId)}" data-field="method">${methodOpts}</select></td>
-        <td><input type="number" step="any" class="fr-narrow" data-row="${esc(row.tankId)}" data-field="tempC" value="${esc(f.tempC)}"></td>
+        <td><input type="number" step="any" class="fr-narrow" data-row="${esc(row.tankId)}" data-field="tempC" data-sheet-popup="temp" value="${esc(f.tempC)}"></td>
         <td><input type="number" step="any" class="fr-wide" data-row="${esc(row.tankId)}" data-field="unitValue" data-sheet-popup="sg" value="${esc(f.unitValue)}"></td>
         <td class="fr-check"><input type="checkbox" data-row="${esc(row.tankId)}" data-field="inUse" ${row.inUse ? 'checked' : ''}></td>
         ${COMPUTED_COLUMNS.map((c) =>
@@ -1422,7 +1422,7 @@ const FuelReport = (() => {
   }
 
 
-  /* ---- Mobile / tablet sheet popups (Actual + SG) ---- */
+  /* ---- Mobile / tablet sheet popups (Actual + Temp + SG) ---- */
   function sheetPopupWanted() {
     try {
       /* Windows desktop / mouse: type in the grid. Coarse/touch or narrow
@@ -1441,9 +1441,85 @@ const FuelReport = (() => {
     document.getElementById('tankSheetPopup')?.remove();
   }
 
+  /* Select the whole value so the next keystroke replaces it. type=number
+     ignores select() on Chromium/Android, so those fields are text+decimal. */
+  function selectAllPopupField(el) {
+    if (!el || el.readOnly || el.disabled) return;
+    if (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA') return;
+    const t = String(el.type || 'text').toLowerCase();
+    if (t === 'checkbox' || t === 'radio' || t === 'button' || t === 'submit'
+      || t === 'file' || t === 'hidden' || t === 'range' || t === 'color'
+      || t === 'date' || t === 'time' || t === 'datetime-local' || t === 'month' || t === 'week') {
+      return;
+    }
+    const run = () => {
+      try { el.select(); } catch (_) { /* ignore */ }
+      try {
+        const len = String(el.value ?? '').length;
+        if (typeof el.setSelectionRange === 'function') el.setSelectionRange(0, len);
+      } catch (_) { /* type=number */ }
+    };
+    run();
+    setTimeout(run, 0);
+  }
+
+  function bindPopupSelectAll(root) {
+    if (!root || root.dataset.tspSelectAll === '1') return;
+    root.dataset.tspSelectAll = '1';
+    const onFocus = (e) => {
+      const el = e.target;
+      if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) return;
+      selectAllPopupField(el);
+    };
+    const onPointer = (e) => {
+      const el = e.target;
+      if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) return;
+      if (document.activeElement === el) {
+        if (e.cancelable && e.type !== 'touchend') e.preventDefault();
+        selectAllPopupField(el);
+      }
+    };
+    root.addEventListener('focusin', onFocus);
+    root.addEventListener('mouseup', onPointer);
+    root.addEventListener('pointerup', onPointer);
+    root.addEventListener('touchend', () => {
+      const el = document.activeElement;
+      if (el && root.contains(el)) selectAllPopupField(el);
+    });
+  }
+
+  function popupModeTitle(mode, sectionTitle) {
+    if (mode === 'sg') return `${sectionTitle} — SG`;
+    if (mode === 'temp') return `${sectionTitle} — Temp`;
+    return `${sectionTitle} — Actual`;
+  }
+
+  function popupRowHtml(mode, r, fr) {
+    const name = `<div class="tsp-name">${esc(r.name)}</div>`;
+    if (mode === 'sg') {
+      return `<div class="tsp-row" data-tsp-tank="${esc(r.tankId)}">
+        ${name}
+        <label class="tsp-field"><span>SG</span>
+          <input type="text" inputmode="decimal" autocomplete="off" data-tsp="unitValue" value="${esc(fr.unitValue)}"></label>
+      </div>`;
+    }
+    if (mode === 'temp') {
+      return `<div class="tsp-row" data-tsp-tank="${esc(r.tankId)}">
+        ${name}
+        <label class="tsp-field"><span>Temp (°C)</span>
+          <input type="text" inputmode="decimal" autocomplete="off" data-tsp="tempC" value="${esc(fr.tempC)}"></label>
+      </div>`;
+    }
+    return `<div class="tsp-row" data-tsp-tank="${esc(r.tankId)}">
+      ${name}
+      <label class="tsp-field"><span>Actual (cm)</span>
+        <input type="text" inputmode="decimal" autocomplete="off" data-tsp="reading" value="${esc(Core.formatCm(fr.reading, { soundingUnit: r.soundingUnit }))}"></label>
+    </div>`;
+  }
+
   function openSheetPopup(opts) {
     const {
-      mode, /* 'actual' | 'sg' */
+      mode, /* 'actual' | 'sg' | 'temp' */
       sectionId,
       focusTankId,
       formRows,
@@ -1454,26 +1530,9 @@ const FuelReport = (() => {
     closeSheetPopup();
     const section = (computed.sections || []).find((s) => s.id === sectionId)
       || { id: sectionId, title: sectionId === 'do' ? 'MO / MGO / LSMGO' : 'HFO / VLSFO', rows: [] };
-    const title = mode === 'sg'
-      ? `${section.title} — SG`
-      : `${section.title} — Actual`;
-    const list = (section.rows || []).map((r) => {
-      const fr = formRows[r.tankId] || {};
-      if (mode === 'sg') {
-        return `<div class="tsp-row" data-tsp-tank="${esc(r.tankId)}">
-          <div class="tsp-name">${esc(r.name)}</div>
-          <label class="tsp-field"><span>SG</span>
-            <input type="number" step="any" inputmode="decimal" data-tsp="unitValue" value="${esc(fr.unitValue)}"></label>
-        </div>`;
-      }
-      return `<div class="tsp-row" data-tsp-tank="${esc(r.tankId)}">
-        <div class="tsp-name">${esc(r.name)}</div>
-        <label class="tsp-field"><span>Actual (cm)</span>
-          <input type="number" step="any" inputmode="decimal" data-tsp="reading" value="${esc(Core.formatCm(fr.reading, { soundingUnit: r.soundingUnit }))}"></label>
-        <label class="tsp-field"><span>Temp (°C)</span>
-          <input type="number" step="any" inputmode="decimal" data-tsp="tempC" value="${esc(fr.tempC)}"></label>
-      </div>`;
-    }).join('') || `<p class="hint">No tanks in this group.</p>`;
+    const title = popupModeTitle(mode, section.title);
+    const list = (section.rows || []).map((r) => popupRowHtml(mode, r, formRows[r.tankId] || {})).join('')
+      || `<p class="hint">No tanks in this group.</p>`;
 
     const overlay = document.createElement('div');
     overlay.id = 'tankSheetPopup';
@@ -1488,10 +1547,17 @@ const FuelReport = (() => {
       </div>
     </div>`;
     document.body.appendChild(overlay);
+    bindPopupSelectAll(overlay);
 
+    const focusSel = mode === 'sg' ? '[data-tsp="unitValue"]'
+      : mode === 'temp' ? '[data-tsp="tempC"]'
+      : '[data-tsp="reading"]';
     const focusRow = overlay.querySelector(`[data-tsp-tank="${CSS.escape(focusTankId || '')}"]`);
-    const focusInput = focusRow?.querySelector('input');
-    setTimeout(() => focusInput?.focus(), 40);
+    const focusInput = focusRow?.querySelector(focusSel) || overlay.querySelector('input');
+    setTimeout(() => {
+      focusInput?.focus();
+      selectAllPopupField(focusInput);
+    }, 40);
 
     const dismiss = () => closeSheetPopup();
     overlay.addEventListener('click', (e) => { if (e.target === overlay) dismiss(); });
@@ -1504,27 +1570,29 @@ const FuelReport = (() => {
         if (mode === 'sg') {
           fr.unitValue = rowEl.querySelector('[data-tsp="unitValue"]')?.value ?? '';
           fr.unit = 'den15';
+        } else if (mode === 'temp') {
+          fr.tempC = rowEl.querySelector('[data-tsp="tempC"]')?.value ?? '';
         } else {
           fr.reading = Core.cmToMm(rowEl.querySelector('[data-tsp="reading"]')?.value, {
             soundingUnit: (view.computed?.sections || [])
               .flatMap((s) => s.rows).find((x) => x.tankId === id)?.soundingUnit || 'mm',
           });
-          fr.tempC = rowEl.querySelector('[data-tsp="tempC"]')?.value ?? '';
           fr.unit = 'den15';
         }
         if (host) {
           if (mode === 'sg') {
             const uv = host.querySelector(`input[data-row="${CSS.escape(id)}"][data-field="unitValue"]`);
             if (uv) uv.value = fr.unitValue ?? '';
+          } else if (mode === 'temp') {
+            const tp = host.querySelector(`input[data-row="${CSS.escape(id)}"][data-field="tempC"]`);
+            if (tp) tp.value = fr.tempC ?? '';
           } else {
             const rd = host.querySelector(`input[data-row="${CSS.escape(id)}"][data-field="reading"]`);
-            const tp = host.querySelector(`input[data-row="${CSS.escape(id)}"][data-field="tempC"]`);
             const unitHint = {
               soundingUnit: (view.computed?.sections || [])
                 .flatMap((s) => s.rows).find((x) => x.tankId === id)?.soundingUnit || 'mm',
             };
             if (rd) rd.value = Core.formatCm(fr.reading, unitHint);
-            if (tp) tp.value = fr.tempC ?? '';
           }
         }
       });
@@ -1538,14 +1606,15 @@ const FuelReport = (() => {
       const el = e.target;
       if (!el || !el.dataset || !el.dataset.sheetPopup) return;
       if (!sheetPopupWanted()) return;
-      const fieldMode = el.dataset.sheetPopup; /* actual | sg */
+      const fieldMode = el.dataset.sheetPopup; /* actual | sg | temp */
       const tankId = el.dataset.row;
       const sectionEl = el.closest('[data-section]');
       const sectionId = sectionEl?.dataset.section || 'fuel';
       e.preventDefault();
       el.blur();
+      const mode = fieldMode === 'sg' ? 'sg' : fieldMode === 'temp' ? 'temp' : 'actual';
       openSheetPopup({
-        mode: fieldMode === 'sg' ? 'sg' : 'actual',
+        mode,
         sectionId,
         focusTankId: tankId,
         formRows: getFormRows(),

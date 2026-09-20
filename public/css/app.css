@@ -2501,11 +2501,13 @@ html.bright .tsp-dialog { background: #fff; color: #122238; border-color: rgba(1
 .tsp-head h3 { margin: 0; font-size: 16px; }
 .tsp-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 .tsp-row {
-  display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(90px, 0.9fr) minmax(80px, 0.7fr);
+  display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(110px, 0.8fr);
   gap: 8px; align-items: end;
   border: 1px solid var(--line, #2a3550); border-radius: 8px; padding: 8px 10px;
 }
-.tsp-mode-sg .tsp-row { grid-template-columns: minmax(0, 1.2fr) minmax(110px, 0.8fr); }
+.tsp-mode-sg .tsp-row,
+.tsp-mode-temp .tsp-row,
+.tsp-mode-actual .tsp-row { grid-template-columns: minmax(0, 1.2fr) minmax(110px, 0.8fr); }
 .tsp-name { font-weight: 600; font-size: 13px; padding-bottom: 6px; }
 .tsp-field { display: flex; flex-direction: column; gap: 4px; margin: 0; min-width: 0; }
 .tsp-field span {
