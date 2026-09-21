@@ -5299,6 +5299,9 @@ async function checkTankAppUpdate() {
 
 /* ---------- Boot ---------- */
 async function boot() {
+  if (window.LoadingSplash) {
+    LoadingSplash.update(LoadingSplash.BOOT_ID, 'Starting Tank Chief…');
+  }
   try {
     if (window.ChengLicense) await ChengLicense.ensureLicensed();
   } catch (e) {
@@ -5358,6 +5361,7 @@ async function boot() {
   });
 
   try {
+    if (window.LoadingSplash) LoadingSplash.update(LoadingSplash.BOOT_ID, 'Loading vessel data…');
     const st = await Api.getStatus();
     STATE.vessels = st.vessels || [];
     STATE.activeVesselId = st.activeVesselId;
@@ -5386,6 +5390,7 @@ async function boot() {
   }
 
   render();
+  if (window.LoadingSplash) LoadingSplash.endBoot();
   if (isBunkerOpsEmbed()) {
     navigate('bunker-plan');
   } else {
