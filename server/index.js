@@ -62,6 +62,12 @@ app.use((req, res, next) => {
   if (p === '/api/sync/probe' || p === '/api/sync/pull' || p === '/api/sync/push') {
     return store.runWithUserScope({ email: null, master: false, actAs: null }, () => next());
   }
+  /* Vessel library is a server-wide name/IMO catalog (all data/users/* plus root).
+   * License headers on this GET only caused 401 entitlement failures and an empty
+   * Backup vessel list even when the licensed user's ships were on disk. */
+  if (req.method === 'GET' && p === '/api/vessel-library') {
+    return store.runWithUserScope({ email: null, master: false, actAs: null }, () => next());
+  }
   const scope = parseScopedEntitlement(req, res);
   if (scope === null) return;
   store.runWithUserScope({
@@ -954,11 +960,13 @@ app.post('/api/vessels/:id/bunker-distribute', (req, res) => {
         const newVol = Math.min((tank.capacity || Infinity) * 1.02, prevVol + addObs);
         const inputs = {
           reading: newVol,
+          // The printed, bow-positive trim (fwd - aft) — computeTank flips it
+          // to the tank's own column sense itself.
           trim: (() => {
             const v = bundle.voyage || {};
             const fwd = Number(v.draftFwd);
             const aft = Number(v.draftAft);
-            if (Number.isFinite(fwd) && Number.isFinite(aft)) return aft - fwd;
+            if (Number.isFinite(fwd) && Number.isFinite(aft)) return fwd - aft;
             return Number(v.trim) || 0;
           })(),
           list: bundle.voyage?.heel || 0,

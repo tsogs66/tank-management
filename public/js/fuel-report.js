@@ -1348,10 +1348,10 @@ const FuelReport = (() => {
         <thead><tr><th>Step</th><th>Formula</th><th>Source</th></tr></thead>
         <tbody>
           <tr><td class="fr-print-name">Mean draft</td><td>(draft fwd + draft aft) ÷ 2</td><td>Report header</td></tr>
-          <tr><td class="fr-print-name">Trim</td><td>draft aft − draft fwd (direct table trim by the stern — not scaled)</td><td>Report header</td></tr>
-          <tr><td class="fr-print-name">Dip ↔ ullage</td><td>reading on table scale = sounding-pipe height − reading (before trim)</td><td>Setup sheet</td></tr>
-          <tr><td class="fr-print-name">Trim correction</td><td>double interpolation on table-scale sounding × direct trim grid ÷ correction divisor</td><td>Tank calibration table</td></tr>
-          <tr><td class="fr-print-name">Heel correction</td><td>double interpolation on table-scale sounding × heel grid ÷ correction divisor (applied before trim)</td><td>Tank calibration table</td></tr>
+          <tr><td class="fr-print-name">Trim</td><td>draft fwd − draft aft; positive is down by the bow (the book's TRIM BY STEM columns), negative down by the stern</td><td>Report header</td></tr>
+          <tr><td class="fr-print-name">Dip ↔ ullage</td><td>reading on table scale = sounding-pipe height − reading</td><td>Setup sheet</td></tr>
+          <tr><td class="fr-print-name">Trim correction</td><td>double interpolation on sounding × trim grid ÷ correction divisor</td><td>Tank calibration table</td></tr>
+          <tr><td class="fr-print-name">Heel correction</td><td>double interpolation on corrected sounding × heel grid ÷ correction divisor</td><td>Tank calibration table</td></tr>
           <tr><td class="fr-print-name">Observed volume</td><td>volume curve / trim-volume grid at the corrected sounding</td><td>Tank calibration table</td></tr>
           <tr><td class="fr-print-name">Volume %</td><td>observed volume ÷ 100% capacity × 100</td><td>Data sheet</td></tr>
           <tr><td class="fr-print-name">VCF (ASTM 54B)</td><td>exp(−α·ΔT·(1 + 0.8·α·ΔT)), ΔT = temp − 15 °C, α from the density band</td><td>ASTM Tables sheet</td></tr>

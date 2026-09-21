@@ -214,9 +214,9 @@
       <path d="${cavity}" class="tg-void"/>
 
       <g clip-path="url(#${uid}-cav)">
-        ${known && level > 0 ? `<rect x="${L - 4}" y="${levelY}" width="${R - L + 8}" height="${B - levelY + 8}"
-            fill="url(#${uid}-liq)"/>
-          <rect x="${L - 4}" y="${levelY}" width="${R - L + 8}" height="2.5" fill="#fff" opacity=".28"/>` : ''}
+        ${known && level > 0 ? `<rect class="tg-liquid" x="${L - 4}" y="${levelY}" width="${R - L + 8}" height="${B - levelY + 8}"
+            fill="url(#${uid}-liq)" style="color:${colour}"/>
+          <rect class="tg-surface" x="${L - 4}" y="${levelY}" width="${R - L + 8}" height="2.5" fill="#fff" opacity=".28"/>` : ''}
         ${settles && known && level > 0
           ? (role === 'settling'
             ? `<path d="M${L - 4} ${B - CUT - 1} L${L + CUT} ${B - 1} L${R + 4} ${B - 1} L${R + 4} ${B + 6} L${L - 4} ${B + 6} Z" fill="#000" opacity=".4"/>`

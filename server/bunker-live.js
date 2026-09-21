@@ -131,12 +131,13 @@ function applyReceivedToReadings(vesselId, op, receivedMT) {
 
     const inputs = {
       reading: newVol,
-      // Direct table trim (by stern). Prefer drafts; do not scale the value.
+      // The printed, bow-positive trim (fwd - aft), which is what computeTank
+      // takes: it flips to the tank's own column sense itself, per tank.
       trim: (() => {
         const v = bundle.voyage || {};
         const fwd = Number(v.draftFwd);
         const aft = Number(v.draftAft);
-        if (Number.isFinite(fwd) && Number.isFinite(aft)) return aft - fwd;
+        if (Number.isFinite(fwd) && Number.isFinite(aft)) return fwd - aft;
         return Number(v.trim) || 0;
       })(),
       list: bundle.voyage?.heel || 0,

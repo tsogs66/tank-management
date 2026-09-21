@@ -47,7 +47,11 @@ const BunkerConsumption = (function () {
       marginPct: (leg.marginPct == null || leg.marginPct === '') ? null : Number(leg.marginPct),
     })) : [];
     list.forEach((leg) => { if (leg.marginPct != null && isNaN(leg.marginPct)) leg.marginPct = null; });
-    while (list.length > 1 && legIsBlank(list[list.length - 1])) list.pop();
+    /* Keep one trailing blank so Add destination / stay can show a new line;
+       only collapse legacy consecutive blank padding. */
+    while (list.length > 1
+        && legIsBlank(list[list.length - 1])
+        && legIsBlank(list[list.length - 2])) list.pop();
     if (!list.length) list = [emptyLeg()];
     const anyPerLeg = list.some((l) => l.marginPct != null);
     const legacy = (legacySideMargin == null || legacySideMargin === '') ? null : Number(legacySideMargin);

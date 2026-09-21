@@ -235,32 +235,6 @@ body.nav-open .menu-toggle { opacity: 0; pointer-events: none; }
 }
 
 /* ---------- Phone bottom navigation (replaces hamburger drawer) ---------- */
-:root {
-  /* The bottom bar is a control too, and the one a chief hits most often.
-     46px is a phone's bar: it has to leave room for the page. */
-  --nav-item-h: 46px;
-  --nav-ic: 18px;
-  --nav-label: 8px;
-  --nav-pad-y: 3px;
-  /* What the page keeps clear below itself: the items, the bar's padding and
-     a little air. Derived, so a taller bar never sits over the last row. */
-  --nav-bar-h: calc(var(--nav-item-h) + (var(--nav-pad-y) * 2) + 12px);
-}
-
-/* A tablet, told from a phone by having room on both sides: a phone in
-   landscape is wide but short, and is still a phone. On the tablet the bar is
-   the program's main control, used standing up with the screen at arm's
-   length, so it gets a target that does not have to be aimed at — and the
-   label under the icon becomes readable rather than merely present. */
-@media (pointer: coarse) and (min-width: 600px) and (min-height: 600px) {
-  :root {
-    --nav-item-h: 72px;
-    --nav-ic: 26px;
-    --nav-label: 11px;
-    --nav-pad-y: 7px;
-  }
-}
-
 .bottom-nav {
   display: none;
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
@@ -1179,7 +1153,8 @@ table.fr-sheet tfoot th { text-align: left; }
 }
 
 /* ---------- Bunkering plan / summary screens ---------- */
-.bp-layout { display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: 10px; align-items: start; }
+/* Sequence then monitor (tablet portrait order) — also Windows + tablet landscape. */
+.bp-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
 table.bp-sheet thead th { min-width: 40px; }
 table.bp-sheet tbody th.fr-tank-name { min-width: 168px; }
 table.bp-sheet tbody th.fr-tank-name select { min-width: 130px; margin-left: 4px; }
@@ -1206,8 +1181,11 @@ td.bp-valve { min-width: 102px; text-align: center; padding: 3px 3px; }
 tr.bp-row-filling th.fr-tank-name { box-shadow: inset 3px 0 0 var(--good); }
 tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
 
-.bp-monitor { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.bp-monitor-stats { display: flex; flex-direction: column; gap: 10px; }
+.bp-monitor { display: flex; flex-direction: column; gap: 10px; min-width: 0; align-items: stretch; }
+.bp-monitor-stats { display: flex; flex-direction: row; flex-wrap: wrap; gap: 10px; }
+.bp-monitor-box { flex: 1 1 150px; }
+.bp-progress { flex: 1 1 100%; }
+.bp-clock { flex: 1 1 100%; width: 100%; max-width: none; }
 .bp-monitor-progress-text { margin: 0; flex: 1 1 100%; }
 .bp-clock {
   border: 1px solid var(--border); border-radius: 8px; padding: 10px;
@@ -2618,13 +2596,13 @@ html.tc-top-nav:not(.is-mobile-chrome) .sidebar .nav-credit {
   display: none !important;
 }
 /* Day/night belongs on the top bar here, and used to be hidden with the rest
- * of the sidebar's column furniture.
+   of the sidebar's column furniture.
  *
  * On this layout there is no bottom nav and no More sheet, which are the two
  * places the toggle lives on a phone — so hiding it here left Tank Chief with
  * no way at all to reach Bright mode on Windows or a landscape tablet.
- * Measured: no reachable toggle at 1180x820 or 1920x1080 by any route,
- * including opening the More sheet by hand.
+ * Verified before and after: 1180x820 and 1920x1080 had no reachable toggle,
+ * by any route, including opening the More sheet by hand.
  *
  * It has to be un-column-ised as well as unhidden: the base rule sizes it for
  * a vertical sidebar (full width, stacked margins), which in a horizontal bar
@@ -2738,6 +2716,132 @@ html:not(.tc-top-nav) .nav-group-label {
   pointer-events: none;
 }
 html:not(.tc-top-nav) .nav-group-label::after { display: none; }
+
+/* Screen only. The printed forms are laid out deliberately and a
+   column moving on a signed sheet is not a styling detail. */
+@media screen {
+  /* Numbers line up or they cannot be compared — see num-align.js, which decides
+     which columns these apply to by reading what is in them. */
+  td.num, th.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  table td, table th { font-variant-numeric: tabular-nums; }
+}
+
+
+/* One control scale for the whole suite.
+ *
+ * Measured before this existed: thirteen distinct button heights across the
+ * AIO and its two modules (27, 28, 29, 30, 34, 36, 37, 38, 39, 40, 44, 70),
+ * eleven input heights, seven border radii. Each program had a scale; they
+ * disagreed, so a button beside a field was never quite the same height.
+ *
+ * These values are duplicated in four documents that cannot share a file:
+ * apps/web/css/shell.css, modules/tanks/public/css/app.css and the <style>
+ * block in modules/voyage/www/voyage_manager.html inside the AIO, and the
+ * standalone Tank Chief's own public/css/app.css. Change one, change all
+ * four. scripts/test-suite-scale.js holds the AIO's three to each other;
+ * nothing reaches across the two repositories, so the fourth is kept by hand.
+ *
+ * The coarse-pointer step is not cosmetic: the same pages run on an engine
+ * room tablet, where a 32px control is a missed tap.
+ */
+:root {
+  --ctl-h: 38px;      /* buttons and fields, so they line up side by side */
+  --ctl-h-sm: 32px;   /* in-table actions, chips, toggles */
+  --ctl-r: 10px;
+  --ctl-r-sm: 8px;
+  --cell-pad-y: 6px;
+  --cell-pad-x: 10px;
+
+  /* The bottom bar is a control too, and the one a chief hits most often.
+     46px is a phone's bar: it has to leave room for the page. */
+  --nav-item-h: 46px;
+  --nav-ic: 18px;
+  --nav-label: 8px;
+  --nav-pad-y: 3px;
+  /* What the page keeps clear below itself: the items, the bar's padding and
+     a little air. Derived, so a taller bar never sits over the last row. */
+  --nav-bar-h: calc(var(--nav-item-h) + (var(--nav-pad-y) * 2) + 12px);
+}
+@media (pointer: coarse) {
+  :root {
+    --ctl-h: 44px;
+    --ctl-h-sm: 38px;
+  }
+}
+
+/* A tablet, told from a phone by having room on both sides: a phone in
+   landscape is wide but short, and is still a phone. On the tablet the bar is
+   the program's main control, used standing up with the screen at arm's
+   length, so it gets a target that does not have to be aimed at — and the
+   label under the icon becomes readable rather than merely present. */
+@media (pointer: coarse) and (min-width: 600px) and (min-height: 600px) {
+  :root {
+    --nav-item-h: 72px;
+    --nav-ic: 26px;
+    --nav-label: 11px;
+    --nav-pad-y: 7px;
+  }
+}
+
+
+/* The same control scale, applied to Tank Chief's own classes. */
+.btn {
+  min-height: var(--ctl-h);
+  border-radius: var(--ctl-r);
+}
+.btn.small {
+  min-height: var(--ctl-h-sm);
+  border-radius: var(--ctl-r-sm);
+}
+input, select, textarea {
+  min-height: var(--ctl-h);
+  border-radius: var(--ctl-r);
+}
+input[type="checkbox"], input[type="radio"] { min-height: 0; }
+table.data-table th, table.data-table td,
+table.tank-table th, table.tank-table td,
+table.leg-table th, table.leg-table td,
+table.calib-table th, table.calib-table td {
+  padding: var(--cell-pad-y) var(--cell-pad-x);
+}
+table .btn {
+  min-height: var(--ctl-h-sm);
+  /* The padding has to come down with it — a floor cannot shrink a
+     button that its own padding already makes taller. */
+  padding: 4px 10px;
+  border-radius: var(--ctl-r-sm);
+}
+/* A field inside a dense table row keeps the row's height, not the form's. */
+table.leg-table input, table.calib-table input { min-height: var(--ctl-h-sm); }
+
+/* Nothing in this suite is smaller than 12px — see apps/web/css/shell.css for
+ * why, and for the measurement this list came from. !important for the same
+ * reason it is used there. Screen only: the printed forms are typeset in
+ * points and are not this rule's business.
+ */
+@media screen {
+  .app-credit-name, .app-credit-authors, .app-credit-when,
+  .nav-group-label,
+  .tag, .pill,
+  .hint, p.hint, span.hint, i, b,
+  .label, .card .label, .card .sub, .card .unit,
+  table th, table td {
+    font-size: 12px !important;
+  }
+}
+
+
+/* Tank Chief was the one surface of the three with no reduced-motion block at
+ * all — the AIO shell and Voyage Chief already had theirs. Its own animation
+ * is the PDF progress bar; the shared ones live in hud-effects.css, which
+ * carries its own block. */
+@media (prefers-reduced-motion: reduce) {
+  .pdf-progress, .pdf-progress::after { animation: none !important; }
+  * { scroll-behavior: auto !important; }
+}
 
 /* ---------- Reordering a tank list ----------
    Rows are made for a gloved finger on a tablet in an engine room: tall

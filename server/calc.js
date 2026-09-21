@@ -715,9 +715,14 @@ function trimAxisSign(tank) {
  *   reading: raw sounding/ullage/dip/depth/gauge value. When readingUnit is
  *     'cm' (UI default), converted to the table's detected mm/m/cm units first.
  *     Otherwise treated as already in table-native units (stored readings).
- *   trim: DIRECT table trim in metres (by the stern). Must not be scaled or
- *     multiplied — only used as the column key against trimVals (Excel
- *     Data!AG9 / trimDraft = 1×trim by stern).
+ *   trim: the ship's trim in metres as it is read and printed — draftFwd −
+ *     draftAft, positive down by the bow (the book's TRIM BY STEM columns).
+ *     Must not be scaled or multiplied. The workbook keys its grid by trim
+ *     *by the stern* (Data!AG9 = −1 × Data!J7, and Tank1!AD7 = that), and
+ *     trimAxisSign() below does that flip per tank — so handing this the
+ *     by-stern figure negates twice and reads the wrong column. See
+ *     scripts/test-trim-sign.js, which pins it to the workbook's own worked
+ *     example.
  *   entryMethod: how `reading` was taken ('ullage'|'dip'|'sounding'). Defaults
  *     to tank.soundingMethod. Converted to table scale before trim/heel.
  *   gaugeType: 'meter' (default) reads `reading` through the calibration table/grid.
