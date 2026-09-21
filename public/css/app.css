@@ -235,17 +235,43 @@ body.nav-open .menu-toggle { opacity: 0; pointer-events: none; }
 }
 
 /* ---------- Phone bottom navigation (replaces hamburger drawer) ---------- */
+:root {
+  /* The bottom bar is a control too, and the one a chief hits most often.
+     46px is a phone's bar: it has to leave room for the page. */
+  --nav-item-h: 46px;
+  --nav-ic: 18px;
+  --nav-label: 8px;
+  --nav-pad-y: 3px;
+  /* What the page keeps clear below itself: the items, the bar's padding and
+     a little air. Derived, so a taller bar never sits over the last row. */
+  --nav-bar-h: calc(var(--nav-item-h) + (var(--nav-pad-y) * 2) + 12px);
+}
+
+/* A tablet, told from a phone by having room on both sides: a phone in
+   landscape is wide but short, and is still a phone. On the tablet the bar is
+   the program's main control, used standing up with the screen at arm's
+   length, so it gets a target that does not have to be aimed at — and the
+   label under the icon becomes readable rather than merely present. */
+@media (pointer: coarse) and (min-width: 600px) and (min-height: 600px) {
+  :root {
+    --nav-item-h: 72px;
+    --nav-ic: 26px;
+    --nav-label: 11px;
+    --nav-pad-y: 7px;
+  }
+}
+
 .bottom-nav {
   display: none;
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
   align-items: stretch; justify-content: space-around;
   gap: 1px;
-  padding: 3px 2px calc(3px + env(safe-area-inset-bottom, 0px));
+  padding: var(--nav-pad-y) 2px calc(var(--nav-pad-y) + env(safe-area-inset-bottom, 0px));
   background: rgba(10, 20, 32, 0.97);
   border-top: 1px solid var(--border);
   box-shadow: 0 -8px 24px rgba(0,0,0,.35);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
 }
 html.bright .bottom-nav { background: rgba(255,255,255,0.97); }
 .bn-item {
@@ -253,17 +279,25 @@ html.bright .bottom-nav { background: rgba(255,255,255,0.97); }
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 2px; padding: 4px 2px 3px;
   border: 0; background: transparent; color: var(--text-dim);
-  font-size: 8px; font-weight: 700; letter-spacing: 0.04em;
+  font-size: var(--nav-label); font-weight: 700; letter-spacing: 0.04em;
   text-transform: uppercase; cursor: pointer; border-radius: 6px;
-  min-height: 46px; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  min-height: var(--nav-item-h); touch-action: manipulation; -webkit-tap-highlight-color: transparent;
 }
 .bn-item {
   font-family: 'Oswald', sans-serif;
   letter-spacing: 0.05em;
 }
-.bn-item .bn-ic { font-size: 18px; line-height: 1; flex-shrink: 0; }
+.bn-item .bn-ic { font-size: var(--nav-ic); line-height: 1; flex-shrink: 0; }
 .bn-item.active { color: var(--accent); background: var(--nav-active-bg, rgba(201,154,83,0.12)); }
 html.bright .bn-item.active { background: var(--nav-active-bg, rgba(138,90,26,0.12)); }
+/* The bar answers the finger the way Voyage Chief's does: the colour eases in
+   rather than snapping, and the item dips under the press so a tap on a tablet
+   held at arm's length is felt as well as seen. */
+.bn-item { transition: color .15s ease, background .15s ease; }
+.bn-item:hover { color: var(--text); border-color: transparent; }
+.bn-item.active:hover { color: var(--accent); }
+.bn-item:active { transform: scale(0.96); }
+.bn-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .bn-more-sheet {
   display: none; position: fixed; inset: 0; z-index: 45;
   background: rgba(4,10,18,0.55);
@@ -341,7 +375,7 @@ html.use-bottom-nav .sidebar {
 }
 html.use-bottom-nav .sidebar-backdrop { display: none !important; }
 html.use-bottom-nav .main {
-  padding: calc(12px + env(safe-area-inset-top, 0px)) 10px calc(64px + env(safe-area-inset-bottom, 0px));
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 10px calc(var(--nav-bar-h) + env(safe-area-inset-bottom, 0px));
 }
 /* Room for ChEng AIO Home FAB (top-right) when embedded */
 html.chengaio-embed .main {
@@ -877,7 +911,7 @@ html.bright .toast {
     padding: calc(56px + env(safe-area-inset-top, 0px)) 14px calc(88px + env(safe-area-inset-bottom, 0px));
   }
   html.use-bottom-nav .main {
-    padding: calc(12px + env(safe-area-inset-top, 0px)) 10px calc(64px + env(safe-area-inset-bottom, 0px));
+    padding: calc(12px + env(safe-area-inset-top, 0px)) 10px calc(var(--nav-bar-h) + env(safe-area-inset-bottom, 0px));
   }
   .page-head { align-items: flex-start; }
   .page-head .btn-row { width: 100%; }
@@ -904,7 +938,7 @@ html.bright .toast {
   }
   .tg-grid.tab-collapsed { padding-right: 0 !important; }
   .tg-tab {
-    top: auto; bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+    top: auto; bottom: calc(var(--nav-bar-h) + env(safe-area-inset-bottom, 0px));
     transform: none; max-height: 42vh;
   }
   .tg-card { padding: 8px; }
