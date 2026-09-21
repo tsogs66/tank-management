@@ -1,5 +1,5 @@
 /**
- * Global loading splash — ship pulling anchor at center screen.
+ * Global loading splash — side-view ship underway toward port (Voyage overview style).
  * Reference-counted by id so boot, voyage activity, and Progress can stack safely.
  */
 const LoadingSplash = (() => {
@@ -11,38 +11,61 @@ const LoadingSplash = (() => {
   let trackBar = null;
   let hideTimer = null;
 
+  /* Bulk carrier side view — same silhouette as renderVoyageProgress / Home dashboard.
+     Ship lives at local x≈70 inside .loading-splash-voyage-ship; the group slides toward port. */
+  const y = 108;
+  const shipX = 70;
+  const waterlineY = y + 9;
+  const upperHull = `M ${shipX - 44} ${waterlineY} L ${shipX - 44} ${y + 4} L ${shipX + 24} ${y + 4} L ${shipX + 46} ${waterlineY} Z`;
+  const lowerHull = `M ${shipX - 44} ${y + 18} L ${shipX - 44} ${waterlineY} L ${shipX + 46} ${waterlineY} L ${shipX + 24} ${y + 18} Z`;
+  const x0 = 36;
+  const x1 = 444;
+  let wave1 = `M ${x0 - 12} ${y + 22}`;
+  let wave2 = `M ${x0 - 12} ${y + 34}`;
+  for (let x = x0 - 12; x <= x1 + 12; x += 24) {
+    wave1 += ` q 12 7 24 0`;
+    wave2 += ` q 12 6 24 0`;
+  }
+
   const SVG_MARKUP = `
-<svg viewBox="0 0 320 200" role="img" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="0 0 480 200" role="img" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
   <defs>
+    <clipPath id="ls-sky-clip"><rect x="0" y="0" width="480" height="${y - 8}"/></clipPath>
     <linearGradient id="ls-sky" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#1a3050"/>
       <stop offset="100%" stop-color="#0a1420"/>
     </linearGradient>
-    <linearGradient id="ls-sea" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#1e4a62"/>
-      <stop offset="100%" stop-color="#0c2230"/>
-    </linearGradient>
   </defs>
-  <rect width="320" height="200" fill="url(#ls-sky)" rx="8"/>
-  <g class="loading-splash-waves" opacity="0.55">
-    <path d="M-20 132 Q 20 124 60 132 T 140 132 T 220 132 T 300 132 T 380 132" fill="none" stroke="#3d8a9e" stroke-width="2"/>
-    <path d="M-20 142 Q 24 136 68 142 T 156 142 T 244 142 T 332 142 T 420 142" fill="none" stroke="#2a6578" stroke-width="1.5"/>
+  <rect width="480" height="200" fill="url(#ls-sky)" rx="8"/>
+  <g clip-path="url(#ls-sky-clip)" pointer-events="none">
+    <line class="voyage-wind-streak" x1="120" y1="20" x2="108" y2="52" stroke="#e0b56a" stroke-width="1.5" stroke-linecap="round" opacity="0.55"/>
+    <line class="voyage-wind-streak" x1="200" y1="12" x2="188" y2="44" stroke="#e0b56a" stroke-width="1.2" stroke-linecap="round" opacity="0.45"/>
+    <line class="voyage-wind-streak" x1="280" y1="24" x2="268" y2="56" stroke="#e0b56a" stroke-width="1.4" stroke-linecap="round" opacity="0.5"/>
+    <line class="voyage-wind-streak" x1="360" y1="16" x2="348" y2="48" stroke="#e0b56a" stroke-width="1.3" stroke-linecap="round" opacity="0.4"/>
   </g>
-  <rect x="0" y="128" width="320" height="72" fill="url(#ls-sea)"/>
-  <line x1="0" y1="128" x2="320" y2="128" stroke="#5eb8c9" stroke-width="1.2" opacity="0.5"/>
-  <g class="loading-splash-anchor">
-    <path d="M160 168 L160 152 M148 160 L172 160 M152 168 Q160 182 168 168" fill="none" stroke="#c9a227" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="160" cy="150" r="4" fill="#c9a227"/>
-  </g>
-  <line class="loading-splash-chain" x1="160" y1="150" x2="160" y2="108" stroke="#a89a82" stroke-width="2"/>
-  <g class="loading-splash-ship">
-    <path d="M118 108 L118 98 L188 98 L202 108 L188 118 L118 118 Z" fill="#243548" stroke="#c9a227" stroke-width="1.2"/>
-    <path d="M118 98 L130 88 L178 88 L188 98" fill="#1a2a3d" stroke="#122238" stroke-width="0.8"/>
-    <rect x="138" y="92" width="28" height="10" rx="1" fill="#3d5568" stroke="#122238" stroke-width="0.6"/>
-    <rect x="152" y="100" width="6" height="14" fill="#0d0d0d" stroke="#c9a227" stroke-width="0.5"/>
-    <path d="M202 108 L212 112 L202 116 Z" fill="#7a1f2b" stroke="#122238" stroke-width="0.6"/>
-    <ellipse class="loading-splash-smoke" cx="208" cy="104" rx="5" ry="3" fill="rgba(200,200,200,0.35)"/>
-    <ellipse class="loading-splash-smoke" cx="214" cy="100" rx="4" ry="2.5" fill="rgba(200,200,200,0.25)" style="animation-delay: 0.9s"/>
+  <g class="voyage-wave"><path d="${wave1}" fill="none" stroke="#5eb8c9" stroke-width="1.5" opacity="0.28"/></g>
+  <g class="voyage-wave ls-wave-2"><path d="${wave2}" fill="none" stroke="#5eb8c9" stroke-width="1.5" opacity="0.16"/></g>
+  <line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" stroke="#a9a292" stroke-width="3" stroke-dasharray="2 6" stroke-linecap="round" opacity="0.55"/>
+  <line class="ls-route-progress" x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" stroke="#c9a227" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="${x0}" cy="${y}" r="6" fill="#5eb8c9"/>
+  <circle cx="${x1}" cy="${y}" r="6" fill="none" stroke="#e9e4d6" stroke-width="2" opacity="0.85"/>
+  <text x="${x0}" y="${y - 28}" text-anchor="start" fill="#e9e4d6" font-family="Georgia,serif" font-size="11" font-weight="600">Departure</text>
+  <text x="${x1}" y="${y - 28}" text-anchor="end" fill="#e9e4d6" font-family="Georgia,serif" font-size="11" font-weight="600">Port</text>
+  <text x="${x0}" y="${y - 14}" text-anchor="start" fill="#a9a292" font-family="monospace" font-size="9">0 nm</text>
+  <g class="loading-splash-ship-run">
+    <g class="loading-splash-ship-bob">
+      <path class="voyage-wake" d="M ${shipX - 52} ${y + 12} Q ${shipX - 68} ${y + 8} ${shipX - 78} ${y + 14}"
+        fill="none" stroke="#5eb8c9" stroke-width="2" stroke-dasharray="6 8" opacity="0.35"/>
+      <path d="${upperHull}" fill="#7a1f2b" stroke="#122238" stroke-width="1"/>
+      <path d="${lowerHull}" fill="#0d0d0d" stroke="#122238" stroke-width="1"/>
+      <line x1="${shipX - 44}" y1="${waterlineY}" x2="${shipX + 46}" y2="${waterlineY}" stroke="#c9a227" stroke-width="2"/>
+      <rect x="${shipX - 40}" y="${y - 8}" width="20" height="12" fill="#e9e4d6" stroke="#122238" stroke-width="0.8"/>
+      <rect x="${shipX - 35}" y="${y - 16}" width="12" height="8" fill="#e9e4d6" stroke="#122238" stroke-width="0.8"/>
+      <rect x="${shipX - 31}" y="${y - 25}" width="6" height="9" fill="#122238"/>
+      <rect x="${shipX - 10}" y="${y}" width="9" height="4" rx="0.5" fill="#122238" opacity="0.9"/>
+      <rect x="${shipX + 2}" y="${y}" width="9" height="4" rx="0.5" fill="#122238" opacity="0.9"/>
+      <rect x="${shipX + 14}" y="${y}" width="9" height="4" rx="0.5" fill="#122238" opacity="0.9"/>
+    </g>
   </g>
 </svg>`;
 
