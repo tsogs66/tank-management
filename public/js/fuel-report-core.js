@@ -517,12 +517,6 @@ function computeFuelReport(bundle, form, conversion) {
   // (TRIM BY STEM), negative down by the stern (TRIM BY STERN). Carrying a
   // second, negated "by the stern" figure beside it is what let the tank card
   // and the monitoring page disagree by a sign on the same ship.
-  /* NOTE — the two call sites disagree on the sign of trim, and this one is
-     the odd one: server/bunker-live.js passes aft − fwd ("direct table trim by
-     the stern", which is what the calibration grids are indexed by), while the
-     report passes fwd − aft, the sign it prints. Left as found: changing it
-     moves every trim-corrected figure on the report, which is a decision about
-     the books, not a tidy-up. */
   const trim = draftFwd - draftAft;
   const heel = num(header.heel, 0) || 0;
 
