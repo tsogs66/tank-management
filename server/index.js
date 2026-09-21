@@ -62,6 +62,12 @@ app.use((req, res, next) => {
   if (p === '/api/sync/probe' || p === '/api/sync/pull' || p === '/api/sync/push') {
     return store.runWithUserScope({ email: null, master: false, actAs: null }, () => next());
   }
+  /* Vessel library is a server-wide name/IMO catalog (all data/users/* plus root).
+   * License headers on this GET only caused 401 entitlement failures and an empty
+   * Backup vessel list even when the licensed user's ships were on disk. */
+  if (req.method === 'GET' && p === '/api/vessel-library') {
+    return store.runWithUserScope({ email: null, master: false, actAs: null }, () => next());
+  }
   const scope = parseScopedEntitlement(req, res);
   if (scope === null) return;
   store.runWithUserScope({
