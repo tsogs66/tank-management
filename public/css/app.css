@@ -235,32 +235,6 @@ body.nav-open .menu-toggle { opacity: 0; pointer-events: none; }
 }
 
 /* ---------- Phone bottom navigation (replaces hamburger drawer) ---------- */
-:root {
-  /* The bottom bar is a control too, and the one a chief hits most often.
-     46px is a phone's bar: it has to leave room for the page. */
-  --nav-item-h: 46px;
-  --nav-ic: 18px;
-  --nav-label: 8px;
-  --nav-pad-y: 3px;
-  /* What the page keeps clear below itself: the items, the bar's padding and
-     a little air. Derived, so a taller bar never sits over the last row. */
-  --nav-bar-h: calc(var(--nav-item-h) + (var(--nav-pad-y) * 2) + 12px);
-}
-
-/* A tablet, told from a phone by having room on both sides: a phone in
-   landscape is wide but short, and is still a phone. On the tablet the bar is
-   the program's main control, used standing up with the screen at arm's
-   length, so it gets a target that does not have to be aimed at — and the
-   label under the icon becomes readable rather than merely present. */
-@media (pointer: coarse) and (min-width: 600px) and (min-height: 600px) {
-  :root {
-    --nav-item-h: 72px;
-    --nav-ic: 26px;
-    --nav-label: 11px;
-    --nav-pad-y: 7px;
-  }
-}
-
 .bottom-nav {
   display: none;
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
@@ -2622,13 +2596,13 @@ html.tc-top-nav:not(.is-mobile-chrome) .sidebar .nav-credit {
   display: none !important;
 }
 /* Day/night belongs on the top bar here, and used to be hidden with the rest
- * of the sidebar's column furniture.
+   of the sidebar's column furniture.
  *
  * On this layout there is no bottom nav and no More sheet, which are the two
  * places the toggle lives on a phone — so hiding it here left Tank Chief with
  * no way at all to reach Bright mode on Windows or a landscape tablet.
- * Measured: no reachable toggle at 1180x820 or 1920x1080 by any route,
- * including opening the More sheet by hand.
+ * Verified before and after: 1180x820 and 1920x1080 had no reachable toggle,
+ * by any route, including opening the More sheet by hand.
  *
  * It has to be un-column-ised as well as unhidden: the base rule sizes it for
  * a vertical sidebar (full width, stacked margins), which in a horizontal bar
@@ -2763,12 +2737,12 @@ html:not(.tc-top-nav) .nav-group-label::after { display: none; }
  * eleven input heights, seven border radii. Each program had a scale; they
  * disagreed, so a button beside a field was never quite the same height.
  *
- * This is Tank Chief's own copy. The same values live in the ChEng AIO suite,
- * in apps/web/css/shell.css, modules/tanks/public/css/app.css and the <style>
- * block in modules/voyage/www/voyage_manager.html — documents that cannot
- * share a file. Change one, change all of them; the AIO's own
- * scripts/test-suite-scale.js holds its three to each other, but nothing
- * reaches across the two repositories, so this copy is kept by hand.
+ * These values are duplicated in four documents that cannot share a file:
+ * apps/web/css/shell.css, modules/tanks/public/css/app.css and the <style>
+ * block in modules/voyage/www/voyage_manager.html inside the AIO, and the
+ * standalone Tank Chief's own public/css/app.css. Change one, change all
+ * four. scripts/test-suite-scale.js holds the AIO's three to each other;
+ * nothing reaches across the two repositories, so the fourth is kept by hand.
  *
  * The coarse-pointer step is not cosmetic: the same pages run on an engine
  * room tablet, where a 32px control is a missed tap.
@@ -2780,6 +2754,16 @@ html:not(.tc-top-nav) .nav-group-label::after { display: none; }
   --ctl-r-sm: 8px;
   --cell-pad-y: 6px;
   --cell-pad-x: 10px;
+
+  /* The bottom bar is a control too, and the one a chief hits most often.
+     46px is a phone's bar: it has to leave room for the page. */
+  --nav-item-h: 46px;
+  --nav-ic: 18px;
+  --nav-label: 8px;
+  --nav-pad-y: 3px;
+  /* What the page keeps clear below itself: the items, the bar's padding and
+     a little air. Derived, so a taller bar never sits over the last row. */
+  --nav-bar-h: calc(var(--nav-item-h) + (var(--nav-pad-y) * 2) + 12px);
 }
 @media (pointer: coarse) {
   :root {
@@ -2787,6 +2771,21 @@ html:not(.tc-top-nav) .nav-group-label::after { display: none; }
     --ctl-h-sm: 38px;
   }
 }
+
+/* A tablet, told from a phone by having room on both sides: a phone in
+   landscape is wide but short, and is still a phone. On the tablet the bar is
+   the program's main control, used standing up with the screen at arm's
+   length, so it gets a target that does not have to be aimed at — and the
+   label under the icon becomes readable rather than merely present. */
+@media (pointer: coarse) and (min-width: 600px) and (min-height: 600px) {
+  :root {
+    --nav-item-h: 72px;
+    --nav-ic: 26px;
+    --nav-label: 11px;
+    --nav-pad-y: 7px;
+  }
+}
+
 
 /* The same control scale, applied to Tank Chief's own classes. */
 .btn {
