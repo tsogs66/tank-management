@@ -1,6 +1,6 @@
 /**
- * Full-screen loading splash — ship heaving on the chain while the anchor
- * breaks out. Used at boot and for any global wait (activity stack, Progress).
+ * Full-screen loading splash — side-view voyage progress (same language as
+ * Voyage overview / AIO Home): ship underway toward port, scrolling waves, wind.
  */
 .loading-splash {
   position: fixed;
@@ -46,8 +46,8 @@ html.loading-splash-open {
 }
 
 .loading-splash-viz {
-  width: min(92vw, 340px);
-  max-height: 42vh;
+  width: min(96vw, 520px);
+  max-height: 44vh;
   flex-shrink: 0;
 }
 
@@ -56,6 +56,12 @@ html.loading-splash-open {
   width: 100%;
   height: auto;
   overflow: visible;
+  border-radius: 12px;
+  background: rgba(18, 34, 56, 0.35);
+}
+
+html.bright .loading-splash-viz svg {
+  background: rgba(18, 34, 56, 0.06);
 }
 
 .loading-splash-label {
@@ -105,71 +111,89 @@ html.bright .loading-splash-track { background: rgba(18, 34, 56, 0.12); }
   100% { transform: translateX(320%); }
 }
 
-/* --- Scene motion --- */
-.loading-splash-waves {
-  animation: loading-splash-waves 4.2s linear infinite;
+/* --- Voyage overview parity (see voyage_manager.html .voyage-wave / .voyage-ship) --- */
+.loading-splash-viz .voyage-wave {
+  animation: loading-splash-voyage-wave 5s linear infinite;
+  stroke-dasharray: 24 8;
 }
 
-@keyframes loading-splash-waves {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-48px); }
+.loading-splash-viz .voyage-wave.ls-wave-2 {
+  animation-delay: -2.5s;
 }
 
-.loading-splash-ship {
-  animation: loading-splash-ship-motion 2.8s ease-in-out infinite;
-  transform-origin: 160px 118px;
-  transform-box: fill-box;
+@keyframes loading-splash-voyage-wave {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -48; }
 }
 
-@keyframes loading-splash-ship-motion {
-  0%, 100% { transform: translate(0, 0); }
-  25% { transform: translate(-5px, -2px); }
-  50% { transform: translate(-2px, -3px); }
-  75% { transform: translate(2px, -1px); }
-}
-
-.loading-splash-chain {
-  stroke-dasharray: 4 3;
-  animation: loading-splash-chain-tension 2.6s ease-in-out infinite;
-}
-
-@keyframes loading-splash-chain-tension {
-  0%, 100% { stroke-dashoffset: 0; opacity: 0.85; }
-  40% { stroke-dashoffset: -6; opacity: 1; }
-  60% { stroke-dashoffset: 3; opacity: 0.9; }
-}
-
-.loading-splash-anchor {
-  animation: loading-splash-anchor-lift 2.6s ease-in-out infinite;
-  transform-origin: 160px 168px;
-}
-
-@keyframes loading-splash-anchor-lift {
-  0%, 100% { transform: translateY(0) rotate(0deg); }
-  45% { transform: translateY(-2px) rotate(-2deg); }
-  65% { transform: translateY(1px) rotate(1deg); }
-}
-
-.loading-splash-smoke {
-  animation: loading-splash-smoke 2.8s ease-out infinite;
+.loading-splash-viz .voyage-wind-streak {
+  animation: loading-splash-wind-streak 2.4s linear infinite;
   opacity: 0;
 }
 
-@keyframes loading-splash-smoke {
-  0% { opacity: 0; transform: translate(0, 0) scale(0.6); }
-  25% { opacity: 0.35; }
-  100% { opacity: 0; transform: translate(8px, -14px) scale(1.2); }
+.loading-splash-viz .voyage-wind-streak:nth-child(2) { animation-delay: 0.5s; }
+.loading-splash-viz .voyage-wind-streak:nth-child(3) { animation-delay: 1.1s; }
+.loading-splash-viz .voyage-wind-streak:nth-child(4) { animation-delay: 1.7s; }
+
+@keyframes loading-splash-wind-streak {
+  0% { transform: translateY(-28px); opacity: 0; }
+  20% { opacity: 0.5; }
+  100% { transform: translateY(48px); opacity: 0; }
+}
+
+.loading-splash-viz .voyage-wake {
+  animation: loading-splash-wake 2.2s ease-out infinite;
+}
+
+@keyframes loading-splash-wake {
+  0% { opacity: 0.35; stroke-dashoffset: 0; }
+  100% { opacity: 0.05; stroke-dashoffset: -40; }
+}
+
+.loading-splash-ship-run {
+  animation: loading-splash-ship-run 14s linear infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.loading-splash-ship-bob {
+  animation: loading-splash-ship-bob 3.5s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes loading-splash-ship-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+@keyframes loading-splash-ship-run {
+  0% { transform: translate(48px, 0); }
+  100% { transform: translate(328px, 0); }
+}
+
+.loading-splash-viz .ls-route-progress {
+  animation: loading-splash-route-grow 14s linear infinite;
+  stroke-dasharray: 400;
+  stroke-dashoffset: 400;
+}
+
+@keyframes loading-splash-route-grow {
+  0% { stroke-dashoffset: 400; }
+  100% { stroke-dashoffset: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .loading-splash-waves,
-  .loading-splash-ship,
-  .loading-splash-chain,
-  .loading-splash-anchor,
-  .loading-splash-smoke,
+  .loading-splash-viz .voyage-wave,
+  .loading-splash-viz .voyage-wind-streak,
+  .loading-splash-viz .voyage-wake,
+  .loading-splash-ship-run,
+  .loading-splash-ship-bob,
+  .loading-splash-viz .ls-route-progress,
   .loading-splash-track-bar {
     animation: none !important;
   }
-  .loading-splash-ship { transform: none; }
+  .loading-splash-ship-run { transform: translate(180px, 0); }
+  .loading-splash-viz .ls-route-progress { stroke-dashoffset: 200; }
   .loading-splash-track-bar { width: 45%; margin: 0 auto; opacity: 0.6; }
 }
