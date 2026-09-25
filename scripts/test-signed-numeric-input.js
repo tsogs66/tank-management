@@ -19,6 +19,8 @@ assert(src.includes('[data-survey-corr]'), 'must target voyage bunker survey cor
 assert(src.includes('tms-signed-accessory'), 'must render minus accessory bar');
 assert(src.includes('coerceSignedNumericInput'), 'must coerce signed typing');
 assert(src.includes("inputmode', touchLike() ? 'decimal' : 'text'"), 'touch keeps decimal pad');
+assert(src.includes('lastSignedInput'), 'must keep target field when Insert is tapped');
+assert(src.includes('applyAccessoryChar'), 'must insert via accessory buttons');
 
 const fuelReport = path.join(__dirname, '..', 'public', 'js', 'fuel-report.js');
 const fr = fs.readFileSync(fuelReport, 'utf8');
