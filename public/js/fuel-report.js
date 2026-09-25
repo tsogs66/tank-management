@@ -180,7 +180,7 @@ const FuelReport = (() => {
           <output class="fr-out" data-fr-head="meanDraft"></output></label>
         <div class="fr-field-triple">
           <label class="fr-field"><span>HEEL (°)</span>
-            <input type="number" step="any" data-head="heel" value="${esc(heelVal)}" title="Negative = port · positive = starboard"></label>
+            <input type="number" step="any" data-head="heel" data-signed="1" value="${esc(heelVal)}" title="Negative = port · positive = starboard"></label>
           <label class="fr-field"><span>SW TEMP.</span>
             <input type="number" step="any" data-head="seaTemp" value="${esc(h.seaTemp)}"></label>
           <label class="fr-field"><span>ER TEMP.</span>
