@@ -619,7 +619,7 @@ function looksLikeCapacityTable(grid, vals, capacity) {
  *     -> 'trimHeel': both corrections at the sounding as read, then the curve
  *
  *   trim grid is a capacity table and the heel grid is in cubic metres
- *     -> 'direct': trim volume minus heel volume
+ *     -> 'direct': trim volume plus signed heel volume correction
  *
  * Millimetres vs cubic metres is told by decimals on the heel figures —
  * not by comparing heel magnitude to tank capacity (a volume heel table
@@ -706,9 +706,9 @@ function trimAxisSign(tank) {
  *              = 1.2 m + 0.009 m − 0.002 m
  *
  *   'direct' — direct volume correction
- *     Heel/list table is a volume correction (m³). Interpolate heel volume and
- *     trim volume independently at the table sounding, then
- *       observed m³ = trimVolume − heelVolume.
+ *     Heel/list table is a signed volume correction (m³). Interpolate trim and
+ *     heel independently at the table sounding, then add heel to trim:
+ *       observed m³ = trimVolume + heelVolume.
  *
  * tank: extracted tank definition (see tanks-data.js)
  * inputs: { reading, trim, list, tempC, density15, gaugeType, entryMethod, readingUnit }
@@ -927,8 +927,8 @@ function computeTank(tank, inputs) {
       ? corrected
       : ((Number(tank.pipeHeight) || 0) > 0 ? (Number(tank.pipeHeight) - corrected) : corrected);
   } else {
-    // Direct volume correction: heel m³ and trim m³ at the same table sounding,
-    // final observed volume = trimVolume − heelVolume.
+    // Direct volume correction: trim capacity m³ plus signed heel correction m³
+    // (heel table cells already carry − / +; always add the interpolated value).
     const tableReading = toTableReading(tank, reading, method);
     corrected = tableReading;
 
@@ -945,7 +945,7 @@ function computeTank(tank, inputs) {
       tank.trimAxis, tank.trimVals, tank.trimGrid, tableReading, tableTrim, soundingInc
     );
     trimCorr = trimVolume;
-    volumeObserved = trimVolume - heelVolume;
+    volumeObserved = trimVolume + heelVolume;
     correctedReadingOut = fromTableReading(tank, tableReading, method);
     soundingBottomOut = tablesUseSounding(tank)
       ? tableReading
