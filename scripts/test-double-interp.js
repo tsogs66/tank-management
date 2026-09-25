@@ -97,6 +97,11 @@ near(heeled.listCorrection, -55.2636, 0.0005, 'heel correction at 1 deg to starb
 near(heeled.correctedReading, 1024.7364, 0.0005, 'ullage after the heel correction');
 near(heeled.volumeObserved, 384.1973, 0.0005, 'volume at 1 deg to starboard');
 
+/* Direct volume path must add the signed heel table value, not subtract it. */
+const directHeeled = read('direct', 1, 'stem');
+near(directHeeled.volumeObserved, directHeeled.trimVolume + directHeeled.heelVolume,
+  1e-6, 'direct: observed = trim volume + signed heel correction');
+
 /* Half a degree now interpolates 0 -> 1 deg, not -1 -> +1 deg. */
 near(read('correction', 0.5, 'stem').listCorrection, -27.6318, 0.0005, 'heel correction at half a degree');
 

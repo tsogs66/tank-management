@@ -442,6 +442,11 @@ function tablesUseSounding(tank) {
 }
 
 /**
+ * Map a user sounding into the calibration table's axis units (Excel Setup!F).
+ * entryMethod: 'ullage' | 'dip' | 'sounding' — how `reading` was taken.
+ * Trim/heel interpolation must see this table-scale value, never a scaled trim.
+ */
+/**
  * True when the tank carries parallel ullage + sounded depth columns (same
  * rows as trimAxis). Switching sounding↔ullage then remaps through those
  * columns instead of subtracting from pipe height.
@@ -458,11 +463,6 @@ function hasDualDepthAxes(tank) {
   return pairs >= 2;
 }
 
-/**
- * Map a user sounding into the calibration table's axis units (Excel Setup!F).
- * entryMethod: 'ullage' | 'dip' | 'sounding' — how `reading` was taken.
- * Trim/heel interpolation must see this table-scale value, never a scaled trim.
- */
 /** Pipe / table top used to convert ullage ↔ sounding. Explicit pipe wins;
  *  otherwise dual-axis row sums, else the top of the sounding/ullage axis. */
 function effectivePipeHeight(tank) {
@@ -619,7 +619,7 @@ function looksLikeCapacityTable(grid, vals, capacity) {
  *     -> 'trimHeel': both corrections at the sounding as read, then the curve
  *
  *   trim grid is a capacity table and the heel grid is in cubic metres
- *     -> 'direct': trim volume minus heel volume
+ *     -> 'direct': trim volume plus signed heel volume correction
  *
  * Millimetres vs cubic metres is told by decimals on the heel figures —
  * not by comparing heel magnitude to tank capacity (a volume heel table
@@ -706,18 +706,23 @@ function trimAxisSign(tank) {
  *              = 1.2 m + 0.009 m − 0.002 m
  *
  *   'direct' — direct volume correction
- *     Heel/list table is a volume correction (m³). Interpolate heel volume and
- *     trim volume independently at the table sounding, then
- *       observed m³ = trimVolume − heelVolume.
+ *     Heel/list table is a signed volume correction (m³). Interpolate trim and
+ *     heel independently at the table sounding, then add heel to trim:
+ *       observed m³ = trimVolume + heelVolume.
  *
  * tank: extracted tank definition (see tanks-data.js)
  * inputs: { reading, trim, list, tempC, density15, gaugeType, entryMethod, readingUnit }
  *   reading: raw sounding/ullage/dip/depth/gauge value. When readingUnit is
  *     'cm' (UI default), converted to the table's detected mm/m/cm units first.
  *     Otherwise treated as already in table-native units (stored readings).
- *   trim: DIRECT table trim in metres (by the stern). Must not be scaled or
- *     multiplied — only used as the column key against trimVals (Excel
- *     Data!AG9 / trimDraft = 1×trim by stern).
+ *   trim: the ship's trim in metres as it is read and printed — draftFwd −
+ *     draftAft, positive down by the bow (the book's TRIM BY STEM columns).
+ *     Must not be scaled or multiplied. The workbook keys its grid by trim
+ *     *by the stern* (Data!AG9 = −1 × Data!J7, and Tank1!AD7 = that), and
+ *     trimAxisSign() below does that flip per tank — so handing this the
+ *     by-stern figure negates twice and reads the wrong column. See
+ *     scripts/test-trim-sign.js, which pins it to the workbook's own worked
+ *     example.
  *   entryMethod: how `reading` was taken ('ullage'|'dip'|'sounding'). Defaults
  *     to tank.soundingMethod. Converted to table scale before trim/heel.
  *   gaugeType: 'meter' (default) reads `reading` through the calibration table/grid.
@@ -825,7 +830,6 @@ function computeTank(tank, inputs) {
     readingUnit,
   } = inputs;
   const divisor = tank.correctionDivisor || 1;
-  // Trim is the direct table column key — never scale/multiply it for lookup.
   // `trim` arrives the way the ship is read: positive down by the bow. Turn it
   // into this tank's column sign — never scale or multiply it beyond that.
   const tableTrim = (Number(trim) || 0) * trimAxisSign(tank);
@@ -923,8 +927,8 @@ function computeTank(tank, inputs) {
       ? corrected
       : ((Number(tank.pipeHeight) || 0) > 0 ? (Number(tank.pipeHeight) - corrected) : corrected);
   } else {
-    // Direct volume correction: heel m³ and trim m³ at the same table sounding,
-    // final observed volume = trimVolume − heelVolume.
+    // Direct volume correction: trim capacity m³ plus signed heel correction m³
+    // (heel table cells already carry − / +; always add the interpolated value).
     const tableReading = toTableReading(tank, reading, method);
     corrected = tableReading;
 
@@ -941,7 +945,7 @@ function computeTank(tank, inputs) {
       tank.trimAxis, tank.trimVals, tank.trimGrid, tableReading, tableTrim, soundingInc
     );
     trimCorr = trimVolume;
-    volumeObserved = trimVolume - heelVolume;
+    volumeObserved = trimVolume + heelVolume;
     correctedReadingOut = fromTableReading(tank, tableReading, method);
     soundingBottomOut = tablesUseSounding(tank)
       ? tableReading
