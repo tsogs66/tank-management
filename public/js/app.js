@@ -1711,9 +1711,9 @@ function renderTankDetail(main, tankId) {
         </div></div>
       <div class="form-row-2" id="trimlist-row" style="${initialGT==='volume'?'display:none':''}">
         <div class="form-row"><label>Trim (m)</label>
-          <input type="number" step="any" id="in-trim" value="${defaultTrim}" title="Signed table trim: positive down by the bow (TRIM BY STEM), negative down by the stern (TRIM BY STERN)">
+          <input type="number" step="any" id="in-trim" data-signed="1" value="${defaultTrim}" title="Signed table trim: positive down by the bow (TRIM BY STEM), negative down by the stern (TRIM BY STERN)">
           <div class="hint" id="trim-sense">${trimSenseLabel(defaultTrim)}</div></div>
-        <div class="form-row"><label>List / Heel (°)</label><input type="number" step="any" id="in-list" value="${existing.list ?? STATE.bundle.voyage?.heel ?? 0}"></div>
+        <div class="form-row"><label>List / Heel (°)</label><input type="number" step="any" id="in-list" data-signed="1" value="${existing.list ?? STATE.bundle.voyage?.heel ?? 0}"></div>
       </div>
     <div class="form-row-2">
       <div class="form-row"><label>Temp (°C)</label><input type="number" step="any" id="in-temp" value="${existing.tempC ?? 15}"></div>
@@ -4095,8 +4095,8 @@ function renderReport(main) {
         <div class="form-row"><label>Date</label><input id="v-date" type="date" value="${escapeHtml(v.date || '')}"></div>
       </div>
       <div class="form-row-2">
-        <div class="form-row"><label>Trim (m)</label><input id="v-trim" type="number" step="any" value="${v.trim ?? 0}"></div>
-        <div class="form-row"><label>Heel (°)</label><input id="v-heel" type="number" step="any" value="${v.heel ?? 0}"></div>
+        <div class="form-row"><label>Trim (m)</label><input id="v-trim" type="number" step="any" data-signed="1" value="${v.trim ?? 0}"></div>
+        <div class="form-row"><label>Heel (°)</label><input id="v-heel" type="number" step="any" data-signed="1" value="${v.heel ?? 0}"></div>
       </div>
       <div class="form-row-2">
         <div class="form-row"><label>Draft Fwd</label><input id="v-dfwd" type="number" step="any" value="${v.draftFwd ?? 0}"></div>
