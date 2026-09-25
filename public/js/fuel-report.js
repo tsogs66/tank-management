@@ -204,7 +204,7 @@ const FuelReport = (() => {
   }
 
   function tankById(tankId) {
-    const b = bundle();
+    const b = currentBundle();
     for (const list of Object.values(b.tanks || {})) {
       const t = (list || []).find((x) => x.id === tankId);
       if (t) return t;
