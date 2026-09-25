@@ -91,8 +91,9 @@ const asDirect = calc.computeTank({ ...soundingHeel, calcType: 'direct' },
   { reading: 1075, trim: 0, list: 2, entryMethod: 'ullage' });
 const asCorrection = calc.computeTank({ ...soundingHeel, calcType: 'correction' },
   { reading: 1075, trim: 0, list: 2, entryMethod: 'ullage' });
-assert.ok(Math.abs(asDirect.volumeObserved - asCorrection.volumeObserved) > 10,
-  'reading a millimetre heel table as cubic metres moves the answer a long way');
+/* Both paths clamp negative m³ to zero; compare corrected soundings instead. */
+assert.ok(Math.abs(asDirect.correctedReading - asCorrection.correctedReading) > 10,
+  'reading a millimetre heel table as cubic metres moves the corrected sounding a long way');
 pass += 1;
 
 /* ---- Pipe fallback: method flip works when pipeHeight was never set ---- */
