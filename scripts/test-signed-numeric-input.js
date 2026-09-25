@@ -15,6 +15,7 @@ assert.ok(fs.existsSync(file), 'signed-numeric-input.js missing');
 const src = fs.readFileSync(file, 'utf8');
 
 assert(src.includes('data-head="heel"'), 'must target heel header fields');
+assert(src.includes('[data-survey-corr]'), 'must target voyage bunker survey correction');
 assert(src.includes('tms-signed-accessory'), 'must render minus accessory bar');
 assert(src.includes('coerceSignedNumericInput'), 'must coerce signed typing');
 assert(src.includes("inputmode', touchLike() ? 'decimal' : 'text'"), 'touch keeps decimal pad');

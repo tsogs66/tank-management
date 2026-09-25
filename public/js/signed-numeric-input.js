@@ -25,6 +25,7 @@
     '[data-excel="listAxis"]',
     '[data-excel="trimGrid"]',
     '[data-excel="listGrid"]',
+    '[data-survey-corr]',
   ].join(',');
 
   let accessoryEl = null;
@@ -65,6 +66,8 @@
   /** Optional leading +/−, digits, one decimal separator while typing. */
   function coerceSignedNumericInput(el) {
     if (!el || el.dataset.signed !== '1') return;
+    /* Voyage log entry runs its own coerceSurveyCorrectionInput (+/− semantics). */
+    if (el.dataset.surveyCorr != null) return;
     const raw = String(el.value ?? '');
     let out = '';
     let i = 0;
@@ -138,6 +141,7 @@ html.bright .tms-signed-accessory button{background:#fff;color:#122238;}
     bar.setAttribute('role', 'toolbar');
     bar.setAttribute('aria-label', 'Signed number keys');
     bar.innerHTML = `<span class="tms-sa-label">Insert</span>
+      <button type="button" data-tms-ins="+" aria-label="Plus">+</button>
       <button type="button" data-tms-ins="−" aria-label="Minus">−</button>
       <button type="button" data-tms-ins="." aria-label="Decimal point">.</button>`;
     bar.addEventListener('mousedown', (e) => { e.preventDefault(); });
