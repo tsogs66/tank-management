@@ -166,10 +166,7 @@ const FuelReport = (() => {
     const h = view.form.header;
     const types = Core.REPORT_TYPES.map((t) =>
       `<option value="${esc(t)}" ${h.reportType === t ? 'selected' : ''}>${esc(t)}</option>`).join('');
-    const heels = Core.HEEL_OPTIONS.map((v) => {
-      const label = v === 0 ? '0' : `${Math.abs(v)} ${v < 0 ? 'Port' : 'Stbd'}`;
-      return `<option value="${v}" ${Number(h.heel) === v ? 'selected' : ''}>${label}</option>`;
-    }).join('');
+    const heelVal = h.heel === '' || h.heel == null ? 0 : h.heel;
 
     return `<div class="form-panel fr-header no-print">
       <div class="fr-header-grid">
@@ -182,8 +179,8 @@ const FuelReport = (() => {
         <label class="fr-field"><span>MEAN DRAFT</span>
           <output class="fr-out" data-fr-head="meanDraft"></output></label>
         <div class="fr-field-triple">
-          <label class="fr-field"><span>HEEL</span>
-            <select data-head="heel">${heels}</select></label>
+          <label class="fr-field"><span>HEEL (°)</span>
+            <input type="number" step="any" data-head="heel" value="${esc(heelVal)}" title="Negative = port · positive = starboard"></label>
           <label class="fr-field"><span>SW TEMP.</span>
             <input type="number" step="any" data-head="seaTemp" value="${esc(h.seaTemp)}"></label>
           <label class="fr-field"><span>ER TEMP.</span>
@@ -201,8 +198,18 @@ const FuelReport = (() => {
         <label class="fr-field fr-field-wide"><span>PORT</span>
           <input data-head="port" value="${esc(h.port)}"></label>
       </div>
+      <div class="hint">Heel: enter decimals if needed. <b>Negative</b> values = heel to <b>port</b>; <b>positive</b> = heel to <b>starboard</b>. Default 0 when left blank.</div>
       <div class="hint" data-fr-head="attitude"></div>
     </div>`;
+  }
+
+  function tankById(tankId) {
+    const b = bundle();
+    for (const list of Object.values(b.tanks || {})) {
+      const t = (list || []).find((x) => x.id === tankId);
+      if (t) return t;
+    }
+    return null;
   }
 
   /**
@@ -221,11 +228,21 @@ const FuelReport = (() => {
         `<option value="${u.id}" ${row.unit === u.id ? 'selected' : ''}>${esc(u.label)}</option>`).join('');
       const methodOpts = Core.METHODS.map((m) =>
         `<option value="${m.id}" ${row.method === m.id ? 'selected' : ''}>${esc(m.label)}</option>`).join('');
+      const tank = tankById(row.tankId);
+      const actualVal = tank
+        ? Core.formatActualInput(f.reading !== undefined && f.reading !== '' ? f.reading : row.reading, tank)
+        : Core.formatCm(row.reading, { soundingUnit: row.soundingUnit });
+      const methodCell = row.directM3Input
+        ? `<span class="hint">${row.doubleInterpManual ? 'Double interp.' : 'Gauge m³'}</span>`
+        : `<select data-row="${esc(row.tankId)}" data-field="method">${methodOpts}</select>`;
+      const diBtn = row.doubleInterpManual
+        ? `<button type="button" class="btn ghost small fr-di-btn" data-double-interp="${esc(row.tankId)}" title="Manual double interpolation">Double interp…</button>`
+        : '';
       return `<tr data-tank="${esc(row.tankId)}">
         <th class="fr-tank-name">${esc(row.name)}<span class="fr-move" data-fr-move="${esc(row.tankId)}"></span></th>
         <td><select data-row="${esc(row.tankId)}" data-field="fuelType">${typeOpts}</select></td>
-        <td><input type="number" step="any" data-row="${esc(row.tankId)}" data-field="reading" data-sheet-popup="actual" value="${esc(Core.formatCm(row.reading, { soundingUnit: row.soundingUnit }))}"></td>
-        <td><select data-row="${esc(row.tankId)}" data-field="method">${methodOpts}</select></td>
+        <td class="fr-actual-cell"><input type="number" step="any" data-row="${esc(row.tankId)}" data-field="reading" data-sheet-popup="actual" value="${esc(actualVal)}">${diBtn}</td>
+        <td>${methodCell}</td>
         <td><input type="number" step="any" class="fr-narrow" data-row="${esc(row.tankId)}" data-field="tempC" data-sheet-popup="temp" value="${esc(f.tempC)}"></td>
         <td><input type="number" step="any" class="fr-wide" data-row="${esc(row.tankId)}" data-field="unitValue" data-sheet-popup="sg" value="${esc(f.unitValue)}"></td>
         <td class="fr-check"><input type="checkbox" data-row="${esc(row.tankId)}" data-field="inUse" ${row.inUse ? 'checked' : ''}></td>
@@ -240,7 +257,7 @@ const FuelReport = (() => {
         <table class="fr-sheet">
           <thead>
             <tr>
-              <th>TANK</th><th>FUEL TYPE</th><th>ACTUAL (CM)</th><th>METHOD</th><th>TEMP. (°C)</th>
+              <th>TANK</th><th>FUEL TYPE</th><th>ACTUAL (CM / M³)</th><th>METHOD</th><th>TEMP. (°C)</th>
               <th>SG</th><th>TANK IN USE</th>
               ${COMPUTED_COLUMNS.map((c) => `<th class="fr-calc-head">${esc(c.label)}</th>`).join('')}
             </tr>
@@ -261,6 +278,7 @@ const FuelReport = (() => {
         </table>
       </div>
       <div class="hint" data-fr-section-note="${esc(section.id)}"></div>
+      <div class="hint">Gauge / double-interpolation tanks: enter <b>actual volume in m³</b> — measured vol. matches actual (no calibration table).</div>
     </div>`;
   }
 
@@ -666,6 +684,34 @@ const FuelReport = (() => {
     });
     const mark = () => { view.dirty = true; };
 
+    wrap.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-double-interp]');
+      if (!btn || !window.TankDoubleInterpManual) return;
+      const tankId = btn.dataset.doubleInterp;
+      const tank = tankById(tankId);
+      const row = view.form.rows[tankId];
+      if (!tank || !row) return;
+      const h = view.form.header || {};
+      const draftFwd = Number(h.draftFwd);
+      const draftAft = Number(h.draftAft);
+      const trimByStern = Number.isFinite(draftFwd) && Number.isFinite(draftAft)
+        ? (draftAft - draftFwd) : (Number(h.trim) || 0);
+      const heel = h.heel === '' || h.heel == null ? 0 : Number(h.heel);
+      window.TankDoubleInterpManual.open({
+        tankName: tank.name,
+        initialVolumeM3: row.reading !== '' && row.reading != null ? Number(row.reading) : null,
+        trimByStern,
+        heelDeg: Number.isFinite(heel) ? heel : 0,
+        onApply: (m3) => {
+          row.reading = m3;
+          const inp = wrap.querySelector(`input[data-row="${CSS.escape(tankId)}"][data-field="reading"]`);
+          if (inp) inp.value = String(m3);
+          view.dirty = true;
+          refreshComputed();
+        },
+      });
+    });
+
     wrap.addEventListener('input', (e) => {
       const el = e.target;
       if (el.dataset.row && el.dataset.field) {
@@ -674,9 +720,14 @@ const FuelReport = (() => {
         const moves = el.dataset.field === 'fuelType'
           && sectionWouldChange(view.computed, row, el.dataset.row, el.value);
         if (el.dataset.field === 'reading') {
-          const hint = { soundingUnit: (view.computed?.sections || [])
-            .flatMap((s) => s.rows).find((r) => r.tankId === el.dataset.row)?.soundingUnit || 'mm' };
-          row.reading = Core.cmToMm(el.value, hint);
+          const computedRow = (view.computed?.sections || [])
+            .flatMap((s) => s.rows).find((r) => r.tankId === el.dataset.row);
+          if (computedRow?.directM3Input) {
+            row.reading = el.value === '' ? '' : Number(el.value);
+          } else {
+            const hint = { soundingUnit: computedRow?.soundingUnit || 'mm' };
+            row.reading = Core.cmToMm(el.value, hint);
+          }
           row.unit = 'den15';
         } else if (el.dataset.field === 'unitValue') {
           row.unitValue = el.value;

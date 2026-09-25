@@ -1678,8 +1678,10 @@ function renderTankDetail(main, tankId) {
 
   const grid = document.createElement('div');
   grid.className = 'detail-grid';
-  const gaugeChoice = tank.calcType === 'direct' && /SETT|SERVICE/i.test(tank.name || '');
-  const initialGT = existing.gaugeType || 'meter';
+  const directM3Tank = typeof usesDirectM3Input === 'function' && usesDirectM3Input(tank);
+  const doubleInterp = typeof isDoubleInterpManualTank === 'function' && isDoubleInterpManualTank(tank);
+  const gaugeChoice = !directM3Tank && tank.calcType === 'direct' && /SETT|SERVICE/i.test(tank.name || '');
+  const initialGT = directM3Tank ? 'volume' : (existing.gaugeType || 'meter');
   // One signed trim, the same number the monitoring page shows and the same
   // sign the calibration book heads its columns with: fwd − aft, positive
   // down by the bow (TRIM BY STEM), negative down by the stern (TRIM BY
@@ -1702,8 +1704,11 @@ function renderTankDetail(main, tankId) {
           <option value="meter" ${initialGT==='meter'?'selected':''}>Meter / ullage (calibration)</option>
           <option value="volume" ${initialGT==='volume'?'selected':''}>Volume gauge (m³ direct)</option>
         </select></div>` : ''}
-      <div class="form-row"><label id="reading-label">${initialGT==='volume'?'Volume m³':((tank.soundingMethod||'Reading') + ' (cm)')}</label>
-        <input type="number" step="any" id="in-reading" value="${existing.reading != null && existing.reading !== '' ? tableUnitsToCm(Number(existing.reading), tank) : ''}"></div>
+      <div class="form-row"><label id="reading-label">${initialGT==='volume'?'Actual volume (m³)':((tank.soundingMethod||'Reading') + ' (cm)')}</label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="number" step="any" id="in-reading" value="${existing.reading != null && existing.reading !== '' ? (initialGT==='volume' ? Number(existing.reading) : tableUnitsToCm(Number(existing.reading), tank)) : ''}">
+        ${doubleInterp ? '<button type="button" class="btn small" id="btn-double-interp">Double interpolation…</button>' : ''}
+        </div></div>
       <div class="form-row-2" id="trimlist-row" style="${initialGT==='volume'?'display:none':''}">
         <div class="form-row"><label>Trim (m)</label>
           <input type="number" step="any" id="in-trim" value="${defaultTrim}" title="Signed table trim: positive down by the bow (TRIM BY STEM), negative down by the stern (TRIM BY STERN)">
@@ -1759,6 +1764,21 @@ function renderTankDetail(main, tankId) {
     };
   }
 
+  document.getElementById('btn-double-interp')?.addEventListener('click', () => {
+    if (!window.TankDoubleInterpManual) return;
+    const trim = parseFloat(document.getElementById('in-trim')?.value) || 0;
+    const list = parseFloat(document.getElementById('in-list')?.value) || 0;
+    const cur = parseFloat(document.getElementById('in-reading')?.value);
+    window.TankDoubleInterpManual.open({
+      tankName: tank.name,
+      initialVolumeM3: Number.isFinite(cur) ? cur : null,
+      trimByStern: trim,
+      heelDeg: list,
+      onApply: (m3) => {
+        document.getElementById('in-reading').value = String(m3);
+      },
+    });
+  });
   const trimInput = document.getElementById('in-trim');
   if (trimInput) {
     trimInput.addEventListener('input', () => {
@@ -1770,7 +1790,7 @@ function renderTankDetail(main, tankId) {
   async function doCalc() {
     let reading = parseFloat(document.getElementById('in-reading').value);
     if (Number.isNaN(reading)) { showToast('Enter a reading'); return; }
-    const gaugeType = gaugeChoice ? document.getElementById('in-gaugetype').value : 'meter';
+    const gaugeType = directM3Tank ? 'volume' : (gaugeChoice ? document.getElementById('in-gaugetype').value : 'meter');
     /* Sounding/ullage inputs are centimetres; convert to the table's native
        units (mm common, metres when the depth column has decimals). */
     if (gaugeType !== 'volume') reading = cmToTableUnits(reading, tank);
@@ -2162,9 +2182,16 @@ function renderAddTank(main) {
           <option value="correction">Direct sounding correction (heel → trim/volume)</option>
           <option value="trimHeel">Trim-heel correction (trim+heel at original → volume table)</option>
           <option value="direct">Direct volume correction (trim m³ − heel m³)</option>
+          <option value="gaugeDirect">Gauge sounding (direct m³)</option>
+          <option value="doubleInterpManual">Double interpolation (manual)</option>
         </select></div>
       <div class="form-row"><label>Sounding method</label>
-        <select id="t-method"><option value="ullage">Ullage</option><option value="sounding">Sounding</option></select></div>
+        <select id="t-method">
+          <option value="ullage">Ullage</option>
+          <option value="sounding">Sounding</option>
+          <option value="gaugeDirectM3">Gauge sounding (direct m³)</option>
+          <option value="doubleInterpManual">Double interpolation (manual)</option>
+        </select></div>
       <div class="form-row"><label>Pipe height mm <span class="hint-inline">override</span></label>
         <input id="t-pipe" type="number" step="any" placeholder="from the table"
           title="Leave blank: the height is taken from the top of the calibration table once one is imported."></div>
@@ -2248,6 +2275,22 @@ function renderAddTank(main) {
     </div>`;
   main.appendChild(form);
 
+  const syncAddTankCalcMethod = () => {
+    const calc = document.getElementById('t-calc')?.value;
+    const meth = document.getElementById('t-method');
+    if (!meth) return;
+    if (calc === 'gaugeDirect') meth.value = 'gaugeDirectM3';
+    if (calc === 'doubleInterpManual') meth.value = 'doubleInterpManual';
+  };
+  document.getElementById('t-calc')?.addEventListener('change', syncAddTankCalcMethod);
+  document.getElementById('t-method')?.addEventListener('change', () => {
+    const meth = document.getElementById('t-method')?.value;
+    const calc = document.getElementById('t-calc');
+    if (!calc) return;
+    if (meth === 'gaugeDirectM3') calc.value = 'gaugeDirect';
+    if (meth === 'doubleInterpManual') calc.value = 'doubleInterpManual';
+  });
+
   const exportTanks = document.getElementById('btn-export-tanks-csv');
   if (exportTanks && STATE.activeVesselId) {
     exportTanks.href = apiHref(`/api/vessels/${STATE.activeVesselId}/tanks.csv`);
@@ -2274,8 +2317,9 @@ function renderAddTank(main) {
     };
     await Api.upsertTank(STATE.activeVesselId, tank);
     await reloadBundle();
-    showToast('Tank added — open Calibration DB to enter tables');
-    navigate('calibration');
+    const direct = tank.calcType === 'gaugeDirect' || tank.calcType === 'doubleInterpManual';
+    showToast(direct ? 'Tank added — enter volume in m³ on monitoring / bunkering' : 'Tank added — open Calibration DB to enter tables');
+    navigate(direct ? tank.category : 'calibration');
   };
 
   let addPdfFile = null;
@@ -3057,6 +3101,8 @@ function renderCalibrationEditor(main, tankId) {
           <option value="correction" ${tank.calcType==='correction'?'selected':''}>sounding correction (heel → volume)</option>
           <option value="trimHeel" ${tank.calcType==='trimHeel'||tank.calcType==='trim-heel'?'selected':''}>trim-heel (trim+heel at original → volume)</option>
           <option value="direct" ${tank.calcType==='direct'||!tank.calcType?'selected':''}>volume correction (trim m³ − heel m³)</option>
+          <option value="gaugeDirect" ${tank.calcType==='gaugeDirect'?'selected':''}>gauge sounding (direct m³)</option>
+          <option value="doubleInterpManual" ${tank.calcType==='doubleInterpManual'?'selected':''}>double interpolation (manual)</option>
         </select>
         <div class="hint">Changing type rebuilds the grid layout — Save to keep it</div></div>
       <div class="form-row"><label>Capacity 100% m³</label><input id="c-cap" type="number" step="any" value="${tank.capacity||0}"></div>
@@ -3072,6 +3118,8 @@ function renderCalibrationEditor(main, tankId) {
         <select id="c-method">
           <option value="ullage" ${methodNow==='ullage'?'selected':''}>ullage</option>
           <option value="sounding" ${methodNow==='sounding'?'selected':''}>sounding</option>
+          <option value="gaugeDirectM3" ${methodNow==='gaugeDirectM3'?'selected':''}>gauge sounding (direct m³)</option>
+          <option value="doubleInterpManual" ${methodNow==='doubleInterpManual'?'selected':''}>double interpolation (manual)</option>
         </select>
         <div class="hint">${dualDepth
           ? 'Dual depth columns stored — method flip uses ullage/sounding pair (no subtract)'
