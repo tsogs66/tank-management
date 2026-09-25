@@ -2523,6 +2523,15 @@ html.bright .tsp-dialog { background: #fff; color: #122238; border-color: rgba(1
   }
 }
 
+.fr-actual-cell { display: flex; flex-direction: column; gap: 4px; min-width: 7rem; }
+.fr-actual-cell .fr-di-btn { align-self: flex-start; font-size: 11px; padding: 2px 6px; }
+.dim-interp-dialog { width: min(720px, 100%); }
+.dim-grid { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 13px; }
+.dim-grid th, .dim-grid td { border: 1px solid var(--line, #2a3550); padding: 4px 6px; text-align: center; }
+.dim-grid input.dim-axis { font-size: 12px; padding: 4px; }
+.dim-result-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
+.dim-targets { margin-bottom: 8px; }
+
 /* ---- Windows / desktop: fixed top menubar with click dropdowns ---- */
 html.tc-top-nav:not(.is-mobile-chrome) {
   --sidebar-w: 0px;

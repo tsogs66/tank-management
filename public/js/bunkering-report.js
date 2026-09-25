@@ -29,6 +29,14 @@ const BunkerReports = (() => {
     return STATE.bundle;
   }
 
+  function tankById(tankId) {
+    for (const list of Object.values(bundle().tanks || {})) {
+      const t = (list || []).find((x) => x.id === tankId);
+      if (t) return t;
+    }
+    return null;
+  }
+
   async function loadConversion() {
     if (view.conversion) return view.conversion;
     if (STATE.conversionTable) {
@@ -383,10 +391,7 @@ const BunkerReports = (() => {
     const h = view.plan.header;
     const fuelOpts = FRCore.FUEL_TYPES.map((f) =>
       `<option value="${f.id}" ${h.fuelType === f.id ? 'selected' : ''}>${esc(f.label)}</option>`).join('');
-    const heels = FRCore.HEEL_OPTIONS.map((v) => {
-      const label = v === 0 ? '0' : `${Math.abs(v)} ${v < 0 ? 'Port' : 'Stbd'}`;
-      return `<option value="${v}" ${Number(h.heel) === v ? 'selected' : ''}>${label}</option>`;
-    }).join('');
+    const heelVal = h.heel === '' || h.heel == null ? 0 : h.heel;
     const grades = Core.COMMON_FUEL_GRADES.map((g) => `<option value="${esc(g)}"></option>`).join('');
 
     return `<div class="form-panel fr-header no-print">
@@ -399,8 +404,8 @@ const BunkerReports = (() => {
           <input type="number" step="any" data-head="draftFwd" value="${esc(h.draftFwd)}"></label>
         <label class="fr-field"><span>MEAN DRAFT</span>
           <output class="fr-out" data-bp-head="meanDraft"></output></label>
-        <label class="fr-field"><span>HEEL</span>
-          <select data-head="heel">${heels}</select></label>
+        <label class="fr-field"><span>HEEL (°)</span>
+          <input type="number" step="any" data-head="heel" value="${esc(heelVal)}" title="Negative = port · positive = starboard"></label>
         <label class="fr-field"><span>FUEL</span>
           <select data-head="fuelType">${fuelOpts}</select></label>
 
@@ -430,6 +435,7 @@ const BunkerReports = (() => {
         <label class="fr-field"><span>TIME TO BUNKER</span>
           <output class="fr-out" data-bp-head="timeToBunker"></output></label>
       </div>
+      <div class="hint">Heel: <b>negative</b> = port, <b>positive</b> = starboard (decimals OK). Default 0.</div>
       <div class="hint" data-bp-head="advice"></div>
     </div>`;
   }
@@ -441,6 +447,11 @@ const BunkerReports = (() => {
       const opts = ['<option value="">— select tank —</option>'].concat(tanks.map((t) =>
         `<option value="${esc(t.id)}" ${row.tankId === t.id ? 'selected' : ''}>${esc(t.name)}</option>`)).join('');
       const cell = (field) => `<td class="fr-calc" data-bp-cell="${i}.${field}"></td>`;
+      const tk = tanks.find((t) => t.id === row.tankId);
+      const directM3 = tk && FRCore.usesDirectM3Input && FRCore.usesDirectM3Input(tk);
+      const soundDisplay = directM3
+        ? (f.currentSoundingMM === '' || f.currentSoundingMM == null ? '' : String(f.currentSoundingMM))
+        : FRCore.formatCm(f.currentSoundingMM);
       return `<tr data-slot="${i}">
         <th class="fr-tank-name">${i + 1}. <select data-slot="${i}" data-field="tankId">${opts}</select></th>
         ${cell('capacity100M3')}${cell('capacity85M3')}${cell('startingUllageMM')}
@@ -448,7 +459,7 @@ const BunkerReports = (() => {
         <td><input type="number" step="any" data-slot="${i}" data-field="targetVolumeM3" value="${esc(f.targetVolumeM3)}"></td>
         ${cell('targetVolumePercent')}${cell('targetUllageMM')}${cell('planAddMT')}
         <td class="bp-valve" data-bp-valve="${i}"></td>
-        <td><input type="number" step="any" data-slot="${i}" data-field="currentSoundingMM" value="${esc(FRCore.formatCm(f.currentSoundingMM))}">
+        <td><input type="number" step="any" data-slot="${i}" data-field="currentSoundingMM" value="${esc(soundDisplay)}">
           <span class="bp-method" data-bp-method="${i}"></span></td>
         ${cell('currentVolumePercent')}${cell('currentVolumeM3')}${cell('quantityAddMT')}
         ${cell('remainingToTargetMT')}
@@ -950,10 +961,15 @@ const BunkerReports = (() => {
     const tag = document.querySelector(`[data-bp-method="${i}"]`);
     const box = document.querySelector(`input[data-slot="${i}"][data-field="currentSoundingMM"]`);
     if (tag) {
-      tag.textContent = row.tankId && row.startingMethod ? String(row.startingMethod).toUpperCase() : '';
-      tag.title = row.startingMethod
-        ? `This tank is gauged by ${row.startingMethod}. Enter the reading the same way.`
-        : '';
+      const tk = row.tankId ? tankById(row.tankId) : null;
+      const directM3 = tk && FRCore.usesDirectM3Input && FRCore.usesDirectM3Input(tk);
+      tag.textContent = directM3 ? 'M³'
+        : (row.tankId && row.startingMethod ? String(row.startingMethod).toUpperCase() : '');
+      tag.title = directM3
+        ? 'Enter observed volume in m³ (gauge or double interpolation).'
+        : (row.startingMethod
+          ? `This tank is gauged by ${row.startingMethod}. Enter the reading the same way.`
+          : '');
       tag.classList.toggle('bp-method-bad', Boolean(row.reversedReading));
     }
     if (box) {
@@ -1181,7 +1197,11 @@ const BunkerReports = (() => {
         const slot = view.plan.sequence[Number(el.dataset.slot)];
         if (slot) {
           if (el.dataset.field === 'currentSoundingMM') {
-            slot.currentSoundingMM = FRCore.cmToMm(el.value);
+            const tk = slot.tankId ? tankById(slot.tankId) : null;
+            const directM3 = tk && FRCore.usesDirectM3Input && FRCore.usesDirectM3Input(tk);
+            slot.currentSoundingMM = directM3
+              ? (el.value === '' ? '' : Number(el.value))
+              : FRCore.cmToMm(el.value);
             // Anchor the estimate on this reading, in the tank's own running
             // hours so time spent shut is not counted as time taking fuel.
             const tc = Core.tankClock(slot);
@@ -1799,10 +1819,7 @@ const BunkerReports = (() => {
     const h = view.after.header;
     const types = FRCore.REPORT_TYPES.map((t) =>
       `<option value="${esc(t)}" ${h.reportType === t ? 'selected' : ''}>${esc(t)}</option>`).join('');
-    const heels = FRCore.HEEL_OPTIONS.map((v) => {
-      const label = v === 0 ? '0' : `${Math.abs(v)} ${v < 0 ? 'Port' : 'Stbd'}`;
-      return `<option value="${v}" ${Number(h.heel) === v ? 'selected' : ''}>${label}</option>`;
-    }).join('');
+    const heelVal = h.heel === '' || h.heel == null ? 0 : h.heel;
     return `<div class="form-panel fr-header no-print">
       <div class="fr-header-grid">
         <label class="fr-field"><span>VOYAGE</span>
@@ -1817,8 +1834,8 @@ const BunkerReports = (() => {
           <output class="fr-out" data-ba-head="meanDraft"></output></label>
         <label class="fr-field"><span>TRIM</span>
           <output class="fr-out" data-ba-head="trim"></output></label>
-        <label class="fr-field"><span>HEEL</span>
-          <select data-head="heel">${heels}</select></label>
+        <label class="fr-field"><span>HEEL (°)</span>
+          <input type="number" step="any" data-head="heel" value="${esc(heelVal)}" title="Negative = port · positive = starboard"></label>
         <label class="fr-field"><span>ER TEMP.</span>
           <input type="number" step="any" data-head="engineRoomTemp" value="${esc(h.engineRoomTemp)}"></label>
 
@@ -1831,6 +1848,7 @@ const BunkerReports = (() => {
         <label class="fr-field"><span>SW TEMP.</span>
           <input type="number" step="any" data-head="seaTemp" value="${esc(h.seaTemp)}"></label>
       </div>
+      <div class="hint">Heel: <b>negative</b> = port, <b>positive</b> = starboard (decimals OK). Default 0.</div>
       <div class="hint" data-ba-head="attitude"></div>
     </div>`;
   }

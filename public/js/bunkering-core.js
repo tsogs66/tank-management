@@ -22,7 +22,7 @@
 }(typeof globalThis !== 'undefined' ? globalThis : this, function (calc, FuelReport) {
 'use strict';
 
-const { computeTank, mtFromVolume, volumeFromMT, blendFuels } = calc;
+const { computeTank, mtFromVolume, volumeFromMT, blendFuels, usesDirectM3Input } = calc;
 
 /** Tank slots on the plan sheet (workbook sequence 1..6). */
 const PLAN_SLOTS = 6;
@@ -120,6 +120,9 @@ function scaleTop(tank) {
  * target is outside what the table covers.
  */
 function readingForVolume(tank, targetVolume, ctx = {}) {
+  if (typeof usesDirectM3Input === 'function' && usesDirectM3Input(tank)) {
+    return targetVolume != null ? Number(targetVolume) : null;
+  }
   const target = num(targetVolume);
   const top = scaleTop(tank);
   if (target == null || !(top > 0)) return null;
@@ -568,13 +571,15 @@ function computeBunkerPlan(bundle, form, conversion) {
     if (out.currentSoundingMM != null) {
       // Pass the reading in the column's entry method; computeTank converts to
       // table scale before trim. Trim is the direct by-stern table value.
+      const directM3 = typeof usesDirectM3Input === 'function' && usesDirectM3Input(tank);
       const res = computeTank(tank, {
         reading: out.currentSoundingMM,
-        trim: trimByStern,
-        list: heel,
+        trim: directM3 ? 0 : trimByStern,
+        list: directM3 ? 0 : heel,
         tempC,
         density15,
-        entryMethod: out.startingMethod,
+        gaugeType: directM3 ? 'volume' : 'meter',
+        entryMethod: directM3 ? (tank.soundingMethod || 'gaugeDirectM3') : out.startingMethod,
       });
       out.currentVolumeM3 = round(res.volumeObserved, 3);
       out.currentVolumePercent = capacity > 0 ? round((res.volumeObserved / capacity) * 100, 1) : null;
@@ -604,7 +609,7 @@ function computeBunkerPlan(bundle, form, conversion) {
        * reading that saturates is far more often the wrong sense than a tank
        * genuinely brimmed. Anything short of that is left to the 85% warning
        * to report as the overfill it may well be. */
-      if (out.currentVolumeM3 >= capacity - fillTolerance(capacity)) {
+      if (!directM3 && out.currentVolumeM3 >= capacity - fillTolerance(capacity)) {
         // A flipped reading of exactly zero is a real reading — an empty
         // dipped tank — so the bound is inclusive.
         const alt = (scaleTop(tank) || 0) - out.currentSoundingMM;

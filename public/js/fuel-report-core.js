@@ -29,7 +29,15 @@
 }(typeof globalThis !== 'undefined' ? globalThis : this, function (calc) {
 'use strict';
 
-const { computeTank, vcfDetail54B, wcf56, lerpLookup, toTableReading } = calc;
+const {
+  computeTank,
+  vcfDetail54B,
+  wcf56,
+  lerpLookup,
+  toTableReading,
+  usesDirectM3Input,
+  isDoubleInterpManualTank,
+} = calc;
 
 /** Report types — workbook Data!Y3:Y9 / Data!U28. */
 const REPORT_TYPES = [
@@ -65,7 +73,7 @@ const METHODS = [
   { id: 'dip', label: 'DIP' },
 ];
 
-/** Heel selector — workbook Data!W3:W11 (port negative, starboard positive). */
+/** Legacy heel presets (reports now use a free numeric heel field). */
 const HEEL_OPTIONS = [-4, -3, -2, -1, 0, 1, 2, 3, 4];
 
 const SECTIONS = [
@@ -226,6 +234,15 @@ function formatCm(mm, tank) {
   return cm == null ? '' : String(cm);
 }
 
+function formatActualInput(reading, tank) {
+  if (typeof usesDirectM3Input === 'function' && usesDirectM3Input(tank)) {
+    if (reading === '' || reading == null) return '';
+    const v = num(reading);
+    return v == null ? '' : String(round(v, 3));
+  }
+  return formatCm(reading, tank);
+}
+
 /**
  * SG column is always treated as density @15°C (kg/L). Legacy API/RD/SG
  * unit standards are ignored so every sheet uses dens @15.
@@ -345,15 +362,19 @@ function computeRow(tank, rowForm, ctx) {
   const capacity = num(tank.capacity, 0) || 0;
   const { density15, source: densitySource } = densityFromUnit(unit, row.unitValue, ctx.conversion);
 
+  const directM3 = usesDirectM3Input(tank);
+  const doubleInterpManual = isDoubleInterpManualTank(tank);
   const nativeMethod = normalizeMethod(tank.soundingMethod);
   const pipeHeight = soundingPipeHeight(tank);
   // Calibration tables are sounding-from-bottom on Veniamis correction tanks even
   // when the user enters ullage. computeTank converts entry → table scale (Excel
   // Setup!F) before trim; trim itself stays the direct by-stern value.
-  const tableReading = (typeof toTableReading === 'function' && reading != null)
-    ? toTableReading(tank, reading, method)
-    : (reading != null && method !== nativeMethod && pipeHeight > 0 ? pipeHeight - reading : reading);
-  const flipped = reading != null && tableReading != null && Math.abs(tableReading - reading) > 1e-9;
+  const tableReading = directM3 || reading == null
+    ? reading
+    : ((typeof toTableReading === 'function')
+      ? toTableReading(tank, reading, method)
+      : (method !== nativeMethod && pipeHeight > 0 ? pipeHeight - reading : reading));
+  const flipped = !directM3 && reading != null && tableReading != null && Math.abs(tableReading - reading) > 1e-9;
 
   const pair = soundingPair(method, reading, pipeHeight);
   const out = {
@@ -362,6 +383,8 @@ function computeRow(tank, rowForm, ctx) {
     side: tank.side || '',
     fuelRole: tank.fuelRole || '',
     calcType: tank.calcType || 'direct',
+    directM3Input: directM3,
+    doubleInterpManual,
     soundingUnit: soundingUnitOf(tank),
     tankGrade: tank.fuelGrade || '',
     section,
@@ -414,12 +437,12 @@ function computeRow(tank, rowForm, ctx) {
 
   const result = computeTank(tank, {
     reading,
-    trim: ctx.trimByStern,
-    list: ctx.heel,
+    trim: directM3 ? 0 : ctx.trimByStern,
+    list: directM3 ? 0 : ctx.heel,
     tempC,
     density15,
-    gaugeType: 'meter',
-    entryMethod: method,
+    gaugeType: directM3 ? 'volume' : 'meter',
+    entryMethod: directM3 ? (tank.soundingMethod || 'gaugeDirectM3') : method,
   });
 
   out.measuredM3 = round(result.volumeObserved, 3);
@@ -687,6 +710,9 @@ return {
   mmToCm,
   cmToMm,
   formatCm,
+  formatActualInput,
+  usesDirectM3Input,
+  isDoubleInterpManualTank,
   emptyFuelReport,
   normalizeForm,
   computeRow,

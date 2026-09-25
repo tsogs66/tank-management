@@ -1,4 +1,7 @@
-/* Tank calculation engine (browser) */
+/**
+ * Tank sounding calculation engine
+ * Double interpolation + ASTM Table 54B VCF + WCF
+ */
 'use strict';
 
 /** True when axis runs low→high (e.g. -2,-1,0,1,2). False for high→low (2,1,0,-1,-2). */
@@ -460,8 +463,33 @@ function fromTableReading(tank, tableReading, entryMethod) {
  *     settling/service tanks are logged as a direct volume-gauge reading rather
  *     than a meter/ullage figure) and skips interpolation entirely.
  */
+/** Gauge read directly in m³ (no sounding pipe / calibration table). */
+const CALC_TYPE_GAUGE_DIRECT = 'gaugeDirect';
+const SOUNDING_GAUGE_DIRECT_M3 = 'gaugeDirectM3';
+/** Chief enters trim + heel tables manually in a popup (double interpolation). */
+const CALC_TYPE_DOUBLE_INTERP_MANUAL = 'doubleInterpManual';
+const SOUNDING_DOUBLE_INTERP_MANUAL = 'doubleInterpManual';
+
+function isGaugeDirectM3Tank(tank) {
+  const ct = String(tank && tank.calcType || '');
+  const sm = String(tank && tank.soundingMethod || '');
+  return ct === CALC_TYPE_GAUGE_DIRECT || sm === SOUNDING_GAUGE_DIRECT_M3;
+}
+
+function isDoubleInterpManualTank(tank) {
+  const ct = String(tank && tank.calcType || '');
+  const sm = String(tank && tank.soundingMethod || '');
+  return ct === CALC_TYPE_DOUBLE_INTERP_MANUAL || sm === SOUNDING_DOUBLE_INTERP_MANUAL;
+}
+
+function usesDirectM3Input(tank) {
+  return isGaugeDirectM3Tank(tank) || isDoubleInterpManualTank(tank);
+}
+
 function calcApproachOf(calcType) {
   const t = String(calcType || 'direct');
+  if (t === CALC_TYPE_GAUGE_DIRECT) return 'gauge-direct-m3';
+  if (t === CALC_TYPE_DOUBLE_INTERP_MANUAL) return 'double-interp-manual';
   if (t === 'correction') return 'sounding-correction';
   if (t === 'trimHeel' || t === 'trim-heel' || t === 'trim_heel') return 'trim-heel-correction';
   return 'volume-correction';
@@ -470,6 +498,57 @@ function calcApproachOf(calcType) {
 function isTrimHeelType(calcType) {
   const t = String(calcType || '');
   return t === 'trimHeel' || t === 'trim-heel' || t === 'trim_heel';
+}
+
+/**
+ * Bilinear interpolation on a 3×3 (or n×m) grid.
+ * yAxis[i] with xAxis[j] → grid[i][j]; target (y, x).
+ */
+function bilinearGridInterp(yAxis, xAxis, grid, y, x) {
+  const ys = (yAxis || []).map(Number);
+  const xs = (xAxis || []).map(Number);
+  if (ys.length < 2 || xs.length < 2 || !grid || !grid.length) return null;
+  const yv = Number(y);
+  const xv = Number(x);
+  if (!Number.isFinite(yv) || !Number.isFinite(xv)) return null;
+
+  let yi = 0;
+  while (yi < ys.length - 2 && yv > ys[yi + 1]) yi += 1;
+  yi = Math.max(0, Math.min(yi, ys.length - 2));
+  let xi = 0;
+  while (xi < xs.length - 2 && xv > xs[xi + 1]) xi += 1;
+  xi = Math.max(0, Math.min(xi, xs.length - 2));
+
+  const y0 = ys[yi];
+  const y1 = ys[yi + 1];
+  const x0 = xs[xi];
+  const x1 = xs[xi + 1];
+  const ty = y1 === y0 ? 0 : (yv - y0) / (y1 - y0);
+  const tx = x1 === x0 ? 0 : (xv - x0) / (x1 - x0);
+
+  const q = (i, j) => {
+    const row = grid[i];
+    const v = row && row[j];
+    return Number.isFinite(Number(v)) ? Number(v) : 0;
+  };
+  const v00 = q(yi, xi);
+  const v10 = q(yi, xi + 1);
+  const v01 = q(yi + 1, xi);
+  const v11 = q(yi + 1, xi + 1);
+  const a = v00 + tx * (v10 - v00);
+  const b = v01 + tx * (v11 - v01);
+  return Math.round((a + ty * (b - a)) * 1000) / 1000;
+}
+
+/**
+ * Workbook-style manual double interpolation: trim volume table + heeling correction (m³).
+ */
+function manualDoubleInterpolation(opts) {
+  const o = opts || {};
+  const trimVol = bilinearGridInterp(o.soundingAxis, o.trimAxis, o.trimGrid, o.sounding, o.trim);
+  const heelCorr = bilinearGridInterp(o.soundingAxis, o.heelAxis, o.heelGrid, o.sounding, o.heel);
+  if (trimVol == null && heelCorr == null) return null;
+  return Math.round(((trimVol || 0) + (heelCorr || 0)) * 1000) / 1000;
 }
 
 function computeTank(tank, inputs) {
@@ -490,10 +569,12 @@ function computeTank(tank, inputs) {
   const { soundingInc, heelInc, soundingUnit, correctionUnit } = resolveIncrements(tank);
   const method = entryMethod || tank.soundingMethod || 'sounding';
   const approach = calcApproachOf(tank.calcType);
+  const directM3 = usesDirectM3Input(tank) || gaugeType === 'volume';
+  const effectiveGauge = directM3 ? 'volume' : gaugeType;
 
   // UI enters centimetres; stored / API readings are already table-native.
   let reading = readingIn;
-  if (gaugeType !== 'volume' && String(readingUnit || '').toLowerCase() === 'cm') {
+  if (effectiveGauge !== 'volume' && String(readingUnit || '').toLowerCase() === 'cm') {
     reading = cmToTableUnits(readingIn, soundingUnit);
   }
 
@@ -501,11 +582,11 @@ function computeTank(tank, inputs) {
   let trimVolume = null, heelVolume = null;
   let trimCorrApplied = null, heelCorrApplied = null;
 
-  if (gaugeType === 'volume') {
-    // Volume gauge: the reading IS the observed volume already -- no interpolation.
-    var volumeObserved = reading;
-    var correctedReadingOut = reading;
-    var soundingBottomOut = reading;
+  if (effectiveGauge === 'volume') {
+    // Volume gauge / direct m³: the reading IS the observed volume — no calibration table.
+    var volumeObserved = Number(reading) || 0;
+    var correctedReadingOut = volumeObserved;
+    var soundingBottomOut = volumeObserved;
   } else if (tank.calcType === 'correction') {
     // Direct sounding correction (length heel → corrected sounding → volume):
     // Length corrections are converted into sounding-table units before adding.
@@ -613,7 +694,7 @@ function computeTank(tank, inputs) {
   }
 
   return {
-    gaugeType,
+    gaugeType: effectiveGauge,
     calcApproach: approach,
     soundingUnit,
     correctionUnit,
@@ -637,6 +718,10 @@ function computeTank(tank, inputs) {
 }
 
 
+/**
+ * Convert MT ↔ observed m³ using ASTM WCF (and optional VCF when temp ≠ 15).
+ * volumeObserved ≈ (MT / WCF) / VCF
+ */
 function volumeFromMT(mt, density15, tempC = 15) {
   const dens = Number(density15);
   const mass = Number(mt);
@@ -657,6 +742,11 @@ function mtFromVolume(volumeObserved, density15, tempC = 15) {
   return vol * vcf * wcf;
 }
 
+/**
+ * Mix fuels of different density @15°C.
+ * Each part: { density15, quantityMT } and/or { density15, volumeM3, tempC }
+ * method: 'wcf' (default) — blend via vol@15 from WCF; 'mass' — mass-weighted ρ
+ */
 function blendFuels(parts = [], method = 'wcf') {
   const rows = [];
   let totalMT = 0;
@@ -703,6 +793,7 @@ function blendFuels(parts = [], method = 'wcf') {
   if (method === 'mass') {
     blendedDensity15 = massRhoSum / totalMT;
   } else {
+    // Consistent with WCF: M = V15 * (ρ - 0.0011) → ρ = M/V15 + 0.0011
     blendedDensity15 = totalMT / totalVol15 + 0.0011;
   }
   blendedDensity15 = Math.round(blendedDensity15 * 1e6) / 1e6;
@@ -717,6 +808,9 @@ function blendFuels(parts = [], method = 'wcf') {
   };
 }
 
+/**
+ * Live bunkering progress from planned MT, pumping rate, and clock.
+ */
 function bunkerProgress({
   plannedMT = 0,
   receivedMT = null,
@@ -770,7 +864,7 @@ function bunkerProgress({
 
 function formatDuration(ms) {
   if (ms == null || !Number.isFinite(ms) || ms < 0) return '—';
-  const totalSec = Math.round(ms / 1000);
+  const totalSec = Math.floor(ms / 1000);
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
@@ -778,6 +872,10 @@ function formatDuration(ms) {
   return `${m}m ${String(s).padStart(2, '0')}s`;
 }
 
+/**
+ * Linear interpolate in a sorted [[x,y], ...] table (workbook Conversion sheet).
+ * Returns null if empty; clamps outside range to nearest endpoint.
+ */
 function lerpLookup(pairs, x) {
   const table = (pairs || []).filter((r) => Array.isArray(r) && r.length >= 2 && Number.isFinite(Number(r[0])) && Number.isFinite(Number(r[1])));
   if (!table.length || !Number.isFinite(Number(x))) return null;
@@ -799,24 +897,28 @@ function lerpLookup(pairs, x) {
   return Number(sorted[sorted.length - 1][1]);
 }
 
+/** Inverse lookup: find x for a given y in [[x,y], ...] (monotone tables). */
 function lerpLookupInverse(pairs, y) {
   const table = (pairs || []).filter((r) => Array.isArray(r) && r.length >= 2 && Number.isFinite(Number(r[0])) && Number.isFinite(Number(r[1])));
   if (!table.length || !Number.isFinite(Number(y))) return null;
   const flipped = table.map((r) => [Number(r[1]), Number(r[0])]);
+  // If y column is not strictly sorted, sort by y
   flipped.sort((a, b) => a[0] - b[0]);
   return lerpLookup(flipped, y);
 }
 
+/** Specific gravity / relative density → density @15°C (kg/L) via Conversion sheet. */
 function sgToDensity15(sg, rdToDensity15) {
   return lerpLookup(rdToDensity15, sg);
 }
 
+/** Density @15°C (kg/L) → specific gravity / relative density via Conversion sheet. */
 function density15ToSg(density15, rdToDensity15) {
   return lerpLookupInverse(rdToDensity15, density15);
 }
 
-function apiToDensity15Lookup(api, apiTable) {
+/** API gravity → density @15°C (kg/L). */
+function apiToDensity15(api, apiTable) {
   return lerpLookup(apiTable, api);
 }
-
 
