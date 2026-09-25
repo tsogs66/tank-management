@@ -14,9 +14,9 @@ const BunkerConsumption = (function () {
     {
       key: 'distillate',
       title: 'MO / MGO / LSMGO',
-      grades: ['MO/MGO', 'LSMGO'],
-      aliases: ['MDO/MGO', 'MDO', 'MGO'],
-      defaultGrade: 'MO/MGO',
+      grades: ['MDO/MGO', 'LSMGO'],
+      aliases: ['MO/MGO', 'MDO', 'MGO'],
+      defaultGrade: 'MDO/MGO',
       qtyLabel: 'MO/MGO/LSMGO',
     },
   ];
@@ -47,7 +47,11 @@ const BunkerConsumption = (function () {
       marginPct: (leg.marginPct == null || leg.marginPct === '') ? null : Number(leg.marginPct),
     })) : [];
     list.forEach((leg) => { if (leg.marginPct != null && isNaN(leg.marginPct)) leg.marginPct = null; });
-    while (list.length > 1 && legIsBlank(list[list.length - 1])) list.pop();
+    /* Keep one trailing blank so Add destination / stay can show a new line;
+       only collapse legacy consecutive blank padding. */
+    while (list.length > 1
+        && legIsBlank(list[list.length - 1])
+        && legIsBlank(list[list.length - 2])) list.pop();
     if (!list.length) list = [emptyLeg()];
     const anyPerLeg = list.some((l) => l.marginPct != null);
     const legacy = (legacySideMargin == null || legacySideMargin === '') ? null : Number(legacySideMargin);
@@ -66,7 +70,7 @@ const BunkerConsumption = (function () {
     };
   }
   function defaultPlan() {
-    return { voyageNo: '', date: '', residual: emptySide('HFO'), distillate: emptySide('MO/MGO') };
+    return { voyageNo: '', date: '', residual: emptySide('HFO'), distillate: emptySide('MDO/MGO') };
   }
 
   /** Keep saved plans readable after LSFO / MDO/MGO label renames. */
@@ -77,10 +81,10 @@ const BunkerConsumption = (function () {
       if (/^lsfo$/i.test(g) || /^vlsfo$/i.test(g)) return 'VLSFO';
     }
     if (meta.key === 'distillate') {
-      if (/^(mdo\/?mgo|mdo|mgo|mo\/?mgo)$/i.test(g)) return 'MO/MGO';
+      if (/^(mdo\/?mgo|mdo|mgo|mo\/?mgo)$/i.test(g)) return 'MDO/MGO';
     }
     if ((meta.aliases || []).includes(g)) {
-      return normalizeGradeLabel(meta.key === 'residual' ? 'VLSFO' : 'MO/MGO', meta);
+      return normalizeGradeLabel(meta.key === 'residual' ? 'VLSFO' : 'MDO/MGO', meta);
     }
     return meta.defaultGrade;
   }

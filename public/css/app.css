@@ -9,6 +9,9 @@
   --text: #e9e4d6;
   --text-dim: #a9a292;
   --text-faint: #8a8376;
+  /* Alias used by the reorder list. Resolves at use time so Bright / Prism /
+     Astrolabe keep their own dim colour instead of the #8a8f98 fallback. */
+  --muted: var(--text-dim);
   --accent: #c99a53;
   --accent-2: #57b3ab;
   --good: #5f9e6e;
@@ -237,30 +240,38 @@ body.nav-open .menu-toggle { opacity: 0; pointer-events: none; }
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
   align-items: stretch; justify-content: space-around;
   gap: 1px;
-  padding: 3px 2px calc(3px + env(safe-area-inset-bottom, 0px));
+  padding: var(--nav-pad-y) 2px calc(var(--nav-pad-y) + env(safe-area-inset-bottom, 0px));
   background: rgba(10, 20, 32, 0.97);
   border-top: 1px solid var(--border);
   box-shadow: 0 -8px 24px rgba(0,0,0,.35);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
 }
 html.bright .bottom-nav { background: rgba(255,255,255,0.97); }
 .bn-item {
-  flex: 1 1 0; min-width: 0; max-width: 80px;
+  flex: 1 1 0; min-width: 0; max-width: none;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 2px; padding: 4px 2px 3px;
   border: 0; background: transparent; color: var(--text-dim);
-  font-size: 8px; font-weight: 700; letter-spacing: 0.04em;
+  font-size: var(--nav-label); font-weight: 700; letter-spacing: 0.04em;
   text-transform: uppercase; cursor: pointer; border-radius: 6px;
-  min-height: 46px; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  min-height: var(--nav-item-h); touch-action: manipulation; -webkit-tap-highlight-color: transparent;
 }
 .bn-item {
   font-family: 'Oswald', sans-serif;
   letter-spacing: 0.05em;
 }
-.bn-item .bn-ic { font-size: 18px; line-height: 1; flex-shrink: 0; }
+.bn-item .bn-ic { font-size: var(--nav-ic); line-height: 1; flex-shrink: 0; }
 .bn-item.active { color: var(--accent); background: var(--nav-active-bg, rgba(201,154,83,0.12)); }
 html.bright .bn-item.active { background: var(--nav-active-bg, rgba(138,90,26,0.12)); }
+/* The bar answers the finger the way Voyage Chief's does: the colour eases in
+   rather than snapping, and the item dips under the press so a tap on a tablet
+   held at arm's length is felt as well as seen. */
+.bn-item { transition: color .15s ease, background .15s ease; }
+.bn-item:hover { color: var(--text); border-color: transparent; }
+.bn-item.active:hover { color: var(--accent); }
+.bn-item:active { transform: scale(0.96); }
+.bn-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .bn-more-sheet {
   display: none; position: fixed; inset: 0; z-index: 45;
   background: rgba(4,10,18,0.55);
@@ -338,7 +349,7 @@ html.use-bottom-nav .sidebar {
 }
 html.use-bottom-nav .sidebar-backdrop { display: none !important; }
 html.use-bottom-nav .main {
-  padding: calc(12px + env(safe-area-inset-top, 0px)) 10px calc(64px + env(safe-area-inset-bottom, 0px));
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 10px calc(var(--nav-bar-h) + env(safe-area-inset-bottom, 0px));
 }
 /* Room for ChEng AIO Home FAB (top-right) when embedded */
 html.chengaio-embed .main {
@@ -874,7 +885,7 @@ html.bright .toast {
     padding: calc(56px + env(safe-area-inset-top, 0px)) 14px calc(88px + env(safe-area-inset-bottom, 0px));
   }
   html.use-bottom-nav .main {
-    padding: calc(12px + env(safe-area-inset-top, 0px)) 10px calc(64px + env(safe-area-inset-bottom, 0px));
+    padding: calc(12px + env(safe-area-inset-top, 0px)) 10px calc(var(--nav-bar-h) + env(safe-area-inset-bottom, 0px));
   }
   .page-head { align-items: flex-start; }
   .page-head .btn-row { width: 100%; }
@@ -901,7 +912,7 @@ html.bright .toast {
   }
   .tg-grid.tab-collapsed { padding-right: 0 !important; }
   .tg-tab {
-    top: auto; bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+    top: auto; bottom: calc(var(--nav-bar-h) + env(safe-area-inset-bottom, 0px));
     transform: none; max-height: 42vh;
   }
   .tg-card { padding: 8px; }
@@ -947,6 +958,20 @@ html.bright .toast {
 }
 .fr-field .fr-unit { color: var(--text-faint); font-size: 11px; font-style: normal; }
 .fr-field-wide { grid-column: span 2; }
+/* Heel + S/W temp + E/R temp share the last two header columns so S/W temp
+   can sit between them without wrapping the sheet to a third landscape row. */
+.fr-field-triple {
+  grid-column: span 2;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 8px;
+  min-width: 0;
+}
+.fr-field-triple .fr-field input,
+.fr-field-triple .fr-field select {
+  padding-left: 6px;
+  padding-right: 6px;
+}
 .fr-header .hint { margin-top: 10px; }
 
 table.fr-sheet {
@@ -1118,10 +1143,18 @@ table.fr-sheet tfoot th { text-align: left; }
 @media (max-width: 900px) {
   .fr-header-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .fr-field-wide { grid-column: span 2; }
+  .fr-field-triple { grid-column: span 2; }
+}
+
+/* Tablet landscape: keep the six-column / two-row header. The three
+   attitude boxes stay packed in the last two columns. */
+@media (min-width: 901px) and (max-width: 1180px) and (orientation: landscape) {
+  .fr-header-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 }
 
 /* ---------- Bunkering plan / summary screens ---------- */
-.bp-layout { display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: 10px; align-items: start; }
+/* Sequence then monitor (tablet portrait order) — also Windows + tablet landscape. */
+.bp-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
 table.bp-sheet thead th { min-width: 40px; }
 table.bp-sheet tbody th.fr-tank-name { min-width: 168px; }
 table.bp-sheet tbody th.fr-tank-name select { min-width: 130px; margin-left: 4px; }
@@ -1148,8 +1181,11 @@ td.bp-valve { min-width: 102px; text-align: center; padding: 3px 3px; }
 tr.bp-row-filling th.fr-tank-name { box-shadow: inset 3px 0 0 var(--good); }
 tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
 
-.bp-monitor { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.bp-monitor-stats { display: flex; flex-direction: column; gap: 10px; }
+.bp-monitor { display: flex; flex-direction: column; gap: 10px; min-width: 0; align-items: stretch; }
+.bp-monitor-stats { display: flex; flex-direction: row; flex-wrap: wrap; gap: 10px; }
+.bp-monitor-box { flex: 1 1 150px; }
+.bp-progress { flex: 1 1 100%; }
+.bp-clock { flex: 1 1 100%; width: 100%; max-width: none; }
 .bp-monitor-progress-text { margin: 0; flex: 1 1 100%; }
 .bp-clock {
   border: 1px solid var(--border); border-radius: 8px; padding: 10px;
@@ -2501,11 +2537,13 @@ html.bright .tsp-dialog { background: #fff; color: #122238; border-color: rgba(1
 .tsp-head h3 { margin: 0; font-size: 16px; }
 .tsp-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 .tsp-row {
-  display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(90px, 0.9fr) minmax(80px, 0.7fr);
+  display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(110px, 0.8fr);
   gap: 8px; align-items: end;
   border: 1px solid var(--line, #2a3550); border-radius: 8px; padding: 8px 10px;
 }
-.tsp-mode-sg .tsp-row { grid-template-columns: minmax(0, 1.2fr) minmax(110px, 0.8fr); }
+.tsp-mode-sg .tsp-row,
+.tsp-mode-temp .tsp-row,
+.tsp-mode-actual .tsp-row { grid-template-columns: minmax(0, 1.2fr) minmax(110px, 0.8fr); }
 .tsp-name { font-weight: 600; font-size: 13px; padding-bottom: 6px; }
 .tsp-field { display: flex; flex-direction: column; gap: 4px; margin: 0; min-width: 0; }
 .tsp-field span {
@@ -2567,13 +2605,13 @@ html.tc-top-nav:not(.is-mobile-chrome) .sidebar .nav-credit {
   display: none !important;
 }
 /* Day/night belongs on the top bar here, and used to be hidden with the rest
- * of the sidebar's column furniture.
+   of the sidebar's column furniture.
  *
  * On this layout there is no bottom nav and no More sheet, which are the two
  * places the toggle lives on a phone — so hiding it here left Tank Chief with
  * no way at all to reach Bright mode on Windows or a landscape tablet.
- * Measured: no reachable toggle at 1180x820 or 1920x1080 by any route,
- * including opening the More sheet by hand.
+ * Verified before and after: 1180x820 and 1920x1080 had no reachable toggle,
+ * by any route, including opening the More sheet by hand.
  *
  * It has to be un-column-ised as well as unhidden: the base rule sizes it for
  * a vertical sidebar (full width, stacked margins), which in a horizontal bar
@@ -2687,3 +2725,222 @@ html:not(.tc-top-nav) .nav-group-label {
   pointer-events: none;
 }
 html:not(.tc-top-nav) .nav-group-label::after { display: none; }
+
+/* Screen only. The printed forms are laid out deliberately and a
+   column moving on a signed sheet is not a styling detail. */
+@media screen {
+  /* Numbers line up or they cannot be compared — see num-align.js, which decides
+     which columns these apply to by reading what is in them. */
+  td.num, th.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  table td, table th { font-variant-numeric: tabular-nums; }
+}
+
+
+/* One control scale for the whole suite.
+ *
+ * Measured before this existed: thirteen distinct button heights across the
+ * AIO and its two modules (27, 28, 29, 30, 34, 36, 37, 38, 39, 40, 44, 70),
+ * eleven input heights, seven border radii. Each program had a scale; they
+ * disagreed, so a button beside a field was never quite the same height.
+ *
+ * These values are duplicated in four documents that cannot share a file:
+ * apps/web/css/shell.css, modules/tanks/public/css/app.css and the <style>
+ * block in modules/voyage/www/voyage_manager.html inside the AIO, and the
+ * standalone Tank Chief's own public/css/app.css. Change one, change all
+ * four. scripts/test-suite-scale.js holds the AIO's three to each other;
+ * nothing reaches across the two repositories, so the fourth is kept by hand.
+ *
+ * The coarse-pointer step is not cosmetic: the same pages run on an engine
+ * room tablet, where a 32px control is a missed tap.
+ */
+:root {
+  --ctl-h: 38px;      /* buttons and fields, so they line up side by side */
+  --ctl-h-sm: 32px;   /* in-table actions, chips, toggles */
+  --ctl-r: 10px;
+  --ctl-r-sm: 8px;
+  --cell-pad-y: 6px;
+  --cell-pad-x: 10px;
+
+  /* The bottom bar is a control too, and the one a chief hits most often.
+     46px is a phone's bar: it has to leave room for the page. */
+  --nav-item-h: 46px;
+  --nav-ic: 18px;
+  --nav-label: 8px;
+  --nav-pad-y: 3px;
+  /* What the page keeps clear below itself: the items, the bar's padding and
+     a little air. Derived, so a taller bar never sits over the last row. */
+  --nav-bar-h: calc(var(--nav-item-h) + (var(--nav-pad-y) * 2) + 12px);
+}
+@media (pointer: coarse) {
+  :root {
+    --ctl-h: 44px;
+    --ctl-h-sm: 38px;
+  }
+}
+
+/* A tablet, told from a phone by having room on both sides: a phone in
+   landscape is wide but short, and is still a phone. On the tablet the bar is
+   the program's main control, used standing up with the screen at arm's
+   length, so it gets a target that does not have to be aimed at — and the
+   label under the icon becomes readable rather than merely present. */
+@media (pointer: coarse) and (min-width: 600px) and (min-height: 600px) {
+  :root {
+    --nav-item-h: 72px;
+    --nav-ic: 26px;
+    --nav-label: 11px;
+    --nav-pad-y: 7px;
+  }
+}
+
+
+/* The same control scale, applied to Tank Chief's own classes. */
+.btn {
+  min-height: var(--ctl-h);
+  border-radius: var(--ctl-r);
+}
+.btn.small {
+  min-height: var(--ctl-h-sm);
+  border-radius: var(--ctl-r-sm);
+}
+input, select, textarea {
+  min-height: var(--ctl-h);
+  border-radius: var(--ctl-r);
+}
+input[type="checkbox"], input[type="radio"] { min-height: 0; }
+table.data-table th, table.data-table td,
+table.tank-table th, table.tank-table td,
+table.leg-table th, table.leg-table td,
+table.calib-table th, table.calib-table td {
+  padding: var(--cell-pad-y) var(--cell-pad-x);
+}
+table .btn {
+  min-height: var(--ctl-h-sm);
+  /* The padding has to come down with it — a floor cannot shrink a
+     button that its own padding already makes taller. */
+  padding: 4px 10px;
+  border-radius: var(--ctl-r-sm);
+}
+/* A field inside a dense table row keeps the row's height, not the form's. */
+table.leg-table input, table.calib-table input { min-height: var(--ctl-h-sm); }
+
+/* Nothing in this suite is smaller than 12px — see apps/web/css/shell.css for
+ * why, and for the measurement this list came from. !important for the same
+ * reason it is used there. Screen only: the printed forms are typeset in
+ * points and are not this rule's business.
+ */
+@media screen {
+  .app-credit-name, .app-credit-authors, .app-credit-when,
+  .nav-group-label,
+  .tag, .pill,
+  .hint, p.hint, span.hint, i, b,
+  .label, .card .label, .card .sub, .card .unit,
+  table th, table td {
+    font-size: 12px !important;
+  }
+}
+
+
+/* Tank Chief was the one surface of the three with no reduced-motion block at
+ * all — the AIO shell and Voyage Chief already had theirs. Its own animation
+ * is the PDF progress bar; the shared ones live in hud-effects.css, which
+ * carries its own block. */
+@media (prefers-reduced-motion: reduce) {
+  .pdf-progress, .pdf-progress::after { animation: none !important; }
+  * { scroll-behavior: auto !important; }
+}
+
+/* ---------- Reordering a tank list ----------
+   Rows are made for a gloved finger on a tablet in an engine room: tall
+   enough to hit, with move buttons as well as a drag handle, because a
+   long-press drag is a poor way to move the eleventh tank up one place. */
+.page-head-actions { display: flex; gap: 8px; align-items: center; }
+
+.cat-section-head {
+  margin: 18px 0 6px;
+  font-size: 14px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.reorder-wrap { margin-bottom: 14px; }
+
+.reorder-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: reorder;
+}
+
+.reorder-row {
+  counter-increment: reorder;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  min-height: 48px;
+  border: 1px solid var(--border, #d7d7d7);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  background: var(--bg-card, #16283f);
+  color: var(--text);
+}
+
+.reorder-row::before {
+  content: counter(reorder);
+  min-width: 1.6em;
+  text-align: right;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The row being moved is lifted off the list rather than faded out, so a
+   thumb resting on the grip does not hide the one thing that has to stay
+   visible. */
+.reorder-row.dragging {
+  cursor: grabbing;
+  border-color: var(--accent, #14506b);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .18);
+  transform: scale(1.01);
+}
+
+/* The handle is the only part of the row that takes the gesture: a finger
+   anywhere else scrolls the page, which is what it is usually for. Without
+   touch-action:none Android scrolls instead of dragging. */
+.reorder-grip {
+  color: var(--text-dim);
+  cursor: grab;
+  touch-action: none;
+  padding: 10px 8px;
+  margin: -10px -2px -10px -6px;   /* a target worth aiming at, not a glyph */
+  font-size: 18px;
+  line-height: 1;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.reorder-row.dragging .reorder-grip { cursor: grabbing; }
+
+/* While a row is in hand, nothing else on the page is selectable — a drag
+   that starts on a name otherwise leaves a blue smear behind it. */
+body.reorder-dragging {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.reorder-name { flex: 1; font-weight: 600; color: var(--text); }
+.reorder-moves { display: flex; gap: 4px; }
+
+.reorder-moves .btn.tiny {
+  min-width: 40px;
+  min-height: 36px;
+  padding: 2px 8px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+@media (max-width: 520px) {
+  .reorder-row .tag { display: none; }
+}

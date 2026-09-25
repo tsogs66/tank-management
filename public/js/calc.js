@@ -308,6 +308,31 @@ function bilinearInterpInc(xAxis, yAxis, grid, x, y, xInc) {
   return linearInterp([xLo, xHi], [vLo, vHi], x);
 }
 
+/**
+ * Put back the upright column the booklets leave out.
+ *
+ * A heeling table prints -4 -3 -2 -1 1 2 3 4 and no zero: upright there is no
+ * correction, so the column would be all zeros and the page saved the width.
+ * Reading straight from -1 to +1 across that gap invents a correction for an
+ * upright ship, because the two sides are not mirror images. On the FLAG EVI
+ * book it reaches 20 mm, and where the heel table is a volume correction that
+ * lands in the answer whole: NO.1 H.F.O. TK (P) at ullage 1080 came out 1.175
+ * m3 over the figure the same table gives by hand.
+ */
+function insertUprightColumn(vals, grid) {
+  if (!vals || vals.length < 2 || !grid || !grid.length) return { vals, grid };
+  if (vals.some((v) => Number(v) === 0)) return { vals, grid };
+  let at = -1;
+  for (let i = 1; i < vals.length; i++) {
+    if ((Number(vals[i - 1]) < 0) !== (Number(vals[i]) < 0)) { at = i; break; }
+  }
+  if (at < 0) return { vals, grid };
+  return {
+    vals: vals.slice(0, at).concat(0, vals.slice(at)),
+    grid: grid.map((row) => row.slice(0, at).concat(0, row.slice(at))),
+  };
+}
+
 /** Resolve sounding / heel increments from tank metadata or axis spacing. */
 function resolveIncrements(tank) {
   const unit = detectSoundingUnit(tank);
@@ -390,8 +415,47 @@ function wcf56(density15) {
  */
 function tablesUseSounding(tank) {
   const vc = tank && tank.volumeCurve;
-  if (!vc || !Array.isArray(vc.v) || vc.v.length < 2) return true;
-  return Number(vc.v[vc.v.length - 1]) >= Number(vc.v[0]);
+  if (vc && Array.isArray(vc.v) && vc.v.length >= 2) {
+    return Number(vc.v[vc.v.length - 1]) >= Number(vc.v[0]);
+  }
+  /* Direct / capacity grids: even-keel (or mid) column climbing = sounding. */
+  const grid = tank && tank.trimGrid;
+  const vals = tank && tank.trimVals;
+  if (grid && grid.length >= 2) {
+    let mid = 0;
+    if (Array.isArray(vals) && vals.length) {
+      let best = Infinity;
+      vals.forEach((v, i) => {
+        const a = Math.abs(Number(v));
+        if (Number.isFinite(a) && a < best) { best = a; mid = i; }
+      });
+    } else {
+      mid = Math.max(0, Math.floor(((vals || []).length || 1) / 2));
+    }
+    const first = Number(grid[0][mid]);
+    const last = Number(grid[grid.length - 1][mid]);
+    if (Number.isFinite(first) && Number.isFinite(last) && first !== last) {
+      return last >= first;
+    }
+  }
+  return true;
+}
+
+/**
+ * True when the tank carries parallel ullage + sounded depth columns (same
+ * rows as trimAxis). Switching sounding↔ullage then remaps through those
+ * columns instead of subtracting from pipe height.
+ */
+function hasDualDepthAxes(tank) {
+  const u = tank && tank.ullageAxis;
+  const s = tank && tank.soundingAxis;
+  if (!Array.isArray(u) || !Array.isArray(s) || u.length < 2 || s.length < 2) return false;
+  let pairs = 0;
+  const n = Math.min(u.length, s.length);
+  for (let i = 0; i < n; i++) {
+    if (Number.isFinite(Number(u[i])) && Number.isFinite(Number(s[i]))) pairs += 1;
+  }
+  return pairs >= 2;
 }
 
 /**
@@ -399,10 +463,41 @@ function tablesUseSounding(tank) {
  * entryMethod: 'ullage' | 'dip' | 'sounding' — how `reading` was taken.
  * Trim/heel interpolation must see this table-scale value, never a scaled trim.
  */
+/** Pipe / table top used to convert ullage ↔ sounding. Explicit pipe wins;
+ *  otherwise dual-axis row sums, else the top of the sounding/ullage axis. */
+function effectivePipeHeight(tank) {
+  const explicit = Number(tank && tank.pipeHeight);
+  if (explicit > 0) return explicit;
+  if (hasDualDepthAxes(tank)) {
+    let top = 0;
+    const n = Math.min(tank.ullageAxis.length, tank.soundingAxis.length);
+    for (let i = 0; i < n; i++) {
+      const sum = Number(tank.ullageAxis[i]) + Number(tank.soundingAxis[i]);
+      if (Number.isFinite(sum) && sum > top) top = sum;
+    }
+    if (top > 0) return top;
+  }
+  const axis = (tank && (tank.trimAxis || tank.listAxis)) || [];
+  let top = 0;
+  for (const v of axis) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > top) top = n;
+  }
+  return top > 0 ? top : 0;
+}
+
+/**
+ * Map a user reading onto trimAxis. Dual-depth tables remap through the
+ * paired ullage/sounding columns; single-axis tables fall back to pipe − reading.
+ */
 function toTableReading(tank, reading, entryMethod) {
-  const pipe = Number(tank && tank.pipeHeight) || 0;
   const method = String(entryMethod || tank && tank.soundingMethod || 'sounding').toLowerCase();
   const ullageEntry = method === 'ullage';
+  if (hasDualDepthAxes(tank) && Array.isArray(tank.trimAxis) && tank.trimAxis.length >= 2) {
+    const src = ullageEntry ? tank.ullageAxis : tank.soundingAxis;
+    return linearInterp(src, tank.trimAxis, reading);
+  }
+  const pipe = effectivePipeHeight(tank);
   if (tablesUseSounding(tank)) {
     return ullageEntry && pipe > 0 ? pipe - reading : reading;
   }
@@ -411,13 +506,180 @@ function toTableReading(tank, reading, entryMethod) {
 
 /** Inverse of toTableReading — table-scale value back to the entry method. */
 function fromTableReading(tank, tableReading, entryMethod) {
-  const pipe = Number(tank && tank.pipeHeight) || 0;
   const method = String(entryMethod || tank && tank.soundingMethod || 'sounding').toLowerCase();
   const ullageEntry = method === 'ullage';
+  if (hasDualDepthAxes(tank) && Array.isArray(tank.trimAxis) && tank.trimAxis.length >= 2) {
+    const dst = ullageEntry ? tank.ullageAxis : tank.soundingAxis;
+    return linearInterp(tank.trimAxis, dst, tableReading);
+  }
+  const pipe = effectivePipeHeight(tank);
   if (tablesUseSounding(tank)) {
     return ullageEntry && pipe > 0 ? pipe - tableReading : tableReading;
   }
   return !ullageEntry && pipe > 0 ? pipe - tableReading : tableReading;
+}
+
+/** Smallest, largest and sign spread of every figure in a grid. */
+function gridStats(grid) {
+  let min = Infinity;
+  let max = -Infinity;
+  let neg = 0;
+  let n = 0;
+  let frac = 0;
+  let zeroCount = 0;
+  for (const row of grid || []) {
+    for (const v of row || []) {
+      const x = Number(v);
+      if (!Number.isFinite(x)) continue;
+      n += 1;
+      if (x < min) min = x;
+      if (x > max) max = x;
+      if (x < 0) neg += 1;
+      if (x === 0) {
+        zeroCount += 1;
+        continue;
+      }
+      // Volume corrections are printed to ~3 decimal places (m3). Sounding
+      // corrections (mm) are whole numbers. Float noise under 1e-6 ignored.
+      // Zeros are skipped for the unit vote — empty heel cells are common.
+      if (Math.abs(x - Math.round(x)) > 1e-6) frac += 1;
+    }
+  }
+  if (!n) return null;
+  return {
+    min: min,
+    max: max,
+    neg: neg,
+    n: n,
+    frac: frac,
+    zeros: zeroCount,
+    nonzero: n - zeroCount,
+    span: max - min,
+    mag: Math.max(Math.abs(min), Math.abs(max)),
+  };
+}
+
+/**
+ * Heel/list table unit: millimetres (integer sounding correction) vs m³
+ * (volume correction with decimal places).
+ *
+ * Comparing magnitude to tank capacity is the wrong tell — a volume heel
+ * table can reach nearly the tank's capacity (e.g. 431 on a 463 m³ tank)
+ * and still be cubic metres. Decimals decide: no fractional values → mm;
+ * fractional values (typically ≤3 d.p.) → m³.
+ */
+function heelUnitKind(stats) {
+  if (!stats || !stats.nonzero) return 'unknown';
+  const fracShare = stats.frac / stats.nonzero;
+  if (fracShare <= 0.05) return 'mm';
+  if (fracShare >= 0.5) return 'm3';
+  return 'unknown';
+}
+
+/** How steadily one column climbs or falls down the sounding axis, 0..1. */
+function columnMonotonicity(grid, col) {
+  let up = 0, down = 0, n = 0;
+  for (let i = 1; i < (grid || []).length; i += 1) {
+    const a = Number(grid[i - 1][col]), b = Number(grid[i][col]);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || a === b) continue;
+    n += 1;
+    if (b > a) up += 1; else down += 1;
+  }
+  return n ? Math.max(up, down) / n : 0;
+}
+
+/**
+ * Does this grid hold the tank's capacity, or a correction to the sounding?
+ *
+ * A capacity table never goes negative, reaches the tank's own size, runs all
+ * the way from empty to full, and climbs steadily as the tank fills. A
+ * correction table does none of those: it stays small, changes sign across the
+ * columns, and wanders.
+ */
+function looksLikeCapacityTable(grid, vals, capacity) {
+  const s = gridStats(grid);
+  if (!s || (grid || []).length < 4) return false;
+  if (s.neg > s.n * 0.02) return false;
+  const cap = Number(capacity) > 0 ? Number(capacity) : s.max;
+  if (!(cap > 0) || s.max < cap * 0.5 || s.span < cap * 0.5) return false;
+  const mid = Math.max(0, Math.floor(((vals || []).length || 1) / 2));
+  return columnMonotonicity(grid, mid) >= 0.9;
+}
+
+/**
+ * Which of the three arrangements a tank's calibration tables are in.
+ *
+ * Every book lays this out differently, so the tables are asked what they
+ * hold rather than the file being trusted to say:
+ *
+ *   trim grid is a capacity table, heel grid is a correction in millimetres
+ *     -> 'correction': heel the sounding, then read the capacity grid
+ *
+ *   trim and heel are both corrections and a capacity curve is stored
+ *     -> 'trimHeel': both corrections at the sounding as read, then the curve
+ *
+ *   trim grid is a capacity table and the heel grid is in cubic metres
+ *     -> 'direct': trim volume minus heel volume
+ *
+ * Millimetres vs cubic metres is told by decimals on the heel figures —
+ * not by comparing heel magnitude to tank capacity (a volume heel table
+ * often reaches nearly the tank's own size).
+ */
+function detectCalcType(tank) {
+  const t = tank || {};
+  const cap = Number(t.capacity) || 0;
+  const hasCurve = !!(t.volumeCurve && Array.isArray(t.volumeCurve.x) && t.volumeCurve.x.length);
+  const heel = gridStats(t.listGrid);
+  const unsure = (reason) => ({ calcType: t.calcType || null, confident: false, reason, hasCurve });
+
+  if (!t.trimGrid || !t.trimGrid.length) return unsure('no trim table to read');
+  const trimIsCapacity = looksLikeCapacityTable(t.trimGrid, t.trimVals, cap);
+
+  if (trimIsCapacity) {
+    if (!heel) {
+      return { calcType: 'correction', confident: true, hasCurve,
+        reason: 'the trim table holds capacities and there is no heel table' };
+    }
+    const kind = heelUnitKind(heel);
+    if (kind === 'mm') {
+      return { calcType: 'correction', confident: true, hasCurve,
+        reason: 'the trim table holds capacities, and the heel table is whole '
+          + 'numbers (millimetres) — a sounding correction, not a volume' };
+    }
+    if (kind === 'm3') {
+      return { calcType: 'direct', confident: true, hasCurve,
+        reason: 'the trim table holds capacities, and the heel table has '
+          + 'decimal figures (cubic metres) — a volume correction' };
+    }
+    return unsure('the trim table holds capacities, but the heel figures mix '
+      + 'whole numbers and decimals — say which unit in the tank');
+  }
+
+  if (hasCurve) {
+    return { calcType: 'trimHeel', confident: true, hasCurve,
+      reason: 'trim and heel are both corrections and the capacity comes from its own curve' };
+  }
+  return unsure('neither the trim table nor a capacity curve gives a volume');
+}
+
+/**
+ * Which way a tank's trim columns run.
+ *
+ * Books print it both ways. FLAG EVI heads its positive columns TRIM BY STEM,
+ * so a positive column is down by the bow; the Giorgis books head theirs by
+ * the stern. FLAG EVI imports keep printed +/− and tag trimAxisSense=bow
+ * (stem-positive books). Calibration can flip headers or change sense later.
+ * The app talks one language to the engineer -- positive is down by the bow --
+ * and turns it into the tank's own column sign here, once, per tank.
+ *
+ * Tanks stored before this carry no sense at all, and every one of them was
+ * saved with the columns running by the stern, so that is the default. An
+ * importer that knows better says so with `trimAxisSense`.
+ */
+function trimAxisSign(tank) {
+  const sense = String((tank && tank.trimAxisSense) || '').toLowerCase();
+  if (sense === 'bow' || sense === 'stem' || sense === 'head' || sense === 'fore') return 1;
+  return -1;
 }
 
 /**
@@ -564,9 +826,12 @@ function computeTank(tank, inputs) {
   } = inputs;
   const divisor = tank.correctionDivisor || 1;
   // Trim is the direct table column key — never scale/multiply it for lookup.
-  const tableTrim = Number(trim) || 0;
+  // `trim` arrives the way the ship is read: positive down by the bow. Turn it
+  // into this tank's column sign — never scale or multiply it beyond that.
+  const tableTrim = (Number(trim) || 0) * trimAxisSign(tank);
 
   const { soundingInc, heelInc, soundingUnit, correctionUnit } = resolveIncrements(tank);
+  const heel = insertUprightColumn(tank.listVals, tank.listGrid);
   const method = entryMethod || tank.soundingMethod || 'sounding';
   const approach = calcApproachOf(tank.calcType);
   const directM3 = usesDirectM3Input(tank) || gaugeType === 'volume';
@@ -595,7 +860,7 @@ function computeTank(tank, inputs) {
 
     if (tank.listAxis && tank.listAxis.length) {
       listCorr = bilinearInterpInc(
-        tank.listAxis, tank.listVals, tank.listGrid, corrected, list, heelInc
+        tank.listAxis, heel.vals, heel.grid, corrected, list, heelInc
       );
       heelCorrApplied = lengthToUnit(listCorr / divisor, correctionUnit, soundingUnit);
       corrected = applyLengthCorrection(corrected, listCorr, divisor, correctionUnit, soundingUnit);
@@ -631,7 +896,7 @@ function computeTank(tank, inputs) {
 
     if (tank.listAxis && tank.listAxis.length) {
       listCorr = bilinearInterpInc(
-        tank.listAxis, tank.listVals, tank.listGrid, tableReading, list, heelInc
+        tank.listAxis, heel.vals, heel.grid, tableReading, list, heelInc
       );
       heelCorrApplied = lengthToUnit(listCorr / divisor, correctionUnit, soundingUnit);
     } else {
@@ -665,7 +930,7 @@ function computeTank(tank, inputs) {
 
     if (tank.listAxis && tank.listAxis.length) {
       listCorr = bilinearInterpInc(
-        tank.listAxis, tank.listVals, tank.listGrid, tableReading, list, heelInc
+        tank.listAxis, heel.vals, heel.grid, tableReading, list, heelInc
       );
       heelVolume = listCorr / divisor;
     } else {

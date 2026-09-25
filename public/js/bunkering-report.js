@@ -442,10 +442,31 @@ const BunkerReports = (() => {
 
   function planSequencePanel(c) {
     const tanks = (bundle().tanks.fuel || []);
+
+    /* Heavy fuel and distillate are bunkered as separate operations, so the
+       picker offers them as separate groups rather than one list of
+       eighteen. Within a group the tanks are in the chief's order, because
+       that is the order the sequence is planned in. */
+    const isDo = (t) => {
+      if (typeof FuelReportCore !== 'undefined' && typeof FuelReportCore.sectionForTank === 'function') {
+        return FuelReportCore.sectionForTank(t) === 'do';
+      }
+      const grade = String((t && t.fuelGrade) || '').toLowerCase();
+      return grade === 'mdo' || grade === 'mgo' || grade === 'lsmgo';
+    };
+    const heavy = tanks.filter((t) => !isDo(t));
+    const distillate = tanks.filter(isDo);
+
     const rows = c.rows.map((row, i) => {
       const f = view.plan.sequence[i] || {};
-      const opts = ['<option value="">— select tank —</option>'].concat(tanks.map((t) =>
-        `<option value="${esc(t.id)}" ${row.tankId === t.id ? 'selected' : ''}>${esc(t.name)}</option>`)).join('');
+      const optionFor = (t) =>
+        `<option value="${esc(t.id)}" ${row.tankId === t.id ? 'selected' : ''}>${esc(t.name)}</option>`;
+      const group = (label, list) => (list.length
+        ? `<optgroup label="${esc(label)}">${list.map(optionFor).join('')}</optgroup>`
+        : '');
+      const opts = '<option value="">— select tank —</option>'
+        + group('HFO / VLSFO', heavy)
+        + group('MDO / MGO / LSMGO', distillate);
       const cell = (field) => `<td class="fr-calc" data-bp-cell="${i}.${field}"></td>`;
       const tk = tanks.find((t) => t.id === row.tankId);
       const directM3 = tk && FRCore.usesDirectM3Input && FRCore.usesDirectM3Input(tk);
@@ -1019,7 +1040,7 @@ const BunkerReports = (() => {
     if (c.header.density15 == null) advice.push('no density — enter density @15 °C to get quantities in MT');
     set('[data-bp-head="advice"]', advice.length
       ? `Check: ${advice.join('; ')}.`
-      : `Trim ${n(c.header.trim, 2)} m (tables read at ${signed(c.header.trimByStern, 2)} by the stern) · `
+      : `Trim ${signed(c.header.trim, 2)} m ${FRCore.trimSense(c.header.trim)} · `
         + `density ${n(c.header.density15, 4, '—')} @ ${n(c.header.tempC, 0)} °C`);
 
     for (const row of c.rows) {
@@ -1834,10 +1855,14 @@ const BunkerReports = (() => {
           <output class="fr-out" data-ba-head="meanDraft"></output></label>
         <label class="fr-field"><span>TRIM</span>
           <output class="fr-out" data-ba-head="trim"></output></label>
-        <label class="fr-field"><span>HEEL (°)</span>
-          <input type="number" step="any" data-head="heel" value="${esc(heelVal)}" title="Negative = port · positive = starboard"></label>
-        <label class="fr-field"><span>ER TEMP.</span>
-          <input type="number" step="any" data-head="engineRoomTemp" value="${esc(h.engineRoomTemp)}"></label>
+        <div class="fr-field-triple">
+          <label class="fr-field"><span>HEEL (°)</span>
+            <input type="number" step="any" data-head="heel" value="${esc(heelVal)}" title="Negative = port · positive = starboard"></label>
+          <label class="fr-field"><span>SW TEMP.</span>
+            <input type="number" step="any" data-head="seaTemp" value="${esc(h.seaTemp)}"></label>
+          <label class="fr-field"><span>ER TEMP.</span>
+            <input type="number" step="any" data-head="engineRoomTemp" value="${esc(h.engineRoomTemp)}"></label>
+        </div>
 
         <label class="fr-field"><span>DATE</span>
           <input type="date" data-head="date" value="${esc(h.date)}"></label>
@@ -1845,8 +1870,6 @@ const BunkerReports = (() => {
           <input type="time" data-head="time" value="${esc(h.time)}"></label>
         <label class="fr-field fr-field-wide"><span>PORT</span>
           <input data-head="port" value="${esc(h.port)}"></label>
-        <label class="fr-field"><span>SW TEMP.</span>
-          <input type="number" step="any" data-head="seaTemp" value="${esc(h.seaTemp)}"></label>
       </div>
       <div class="hint">Heel: <b>negative</b> = port, <b>positive</b> = starboard (decimals OK). Default 0.</div>
       <div class="hint" data-ba-head="attitude"></div>
@@ -1903,7 +1926,7 @@ const BunkerReports = (() => {
     set('[data-ba-head="trim"]', n(c.header.trim, 2));
     set('[data-ba-head="attitude"]',
       `Trim ${c.header.trimLabel} · heel ${c.header.heelLabel} — tables read at trim `
-      + `${signed(c.header.trimByStern, 2)} m by the stern.`);
+      + `${signed(c.header.trim, 2)} m ${FRCore.trimSense(c.header.trim)}.`);
     UI.paintSectionCells(c.sections);
     for (const g of c.grades) {
       set(`[data-ba-grade="${g.id}.addedMT"]`, g.addedMT != null ? `${signed(g.addedMT, 3)}` : '—');

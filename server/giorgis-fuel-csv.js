@@ -409,6 +409,7 @@ function parseTankBlock(name, rows, opts = {}) {
     ...meta,
     name: meta.name,
     category,
+    // Set from what the tables turn out to hold, a few lines below.
     calcType: 'direct',
     soundingMethod,
     correctionDivisor: 1,
@@ -443,6 +444,14 @@ function parseTankBlock(name, rows, opts = {}) {
     // Even-keel volume curve from trim grid
     tank.volumeCurve = { x: trimAxis.slice(), v: evenKeelVols.slice() };
   }
+
+  // Every book lays its tables out differently, so the finished tank is asked
+  // what it is rather than assumed. Where the tables do not say clearly, the
+  // guess above stands and the reason rides along for a human to settle.
+  const verdict = detectCalcType(tank);
+  if (verdict.confident && verdict.calcType) tank.calcType = verdict.calcType;
+  tank.calcTypeReason = verdict.reason;
+  tank.calcTypeConfident = !!verdict.confident;
 
   return tank;
 }

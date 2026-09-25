@@ -446,10 +446,11 @@ function computeBunkerPlan(bundle, form, conversion) {
   const draftFwd = num(header.draftFwd, 0) || 0;
   const draftAft = num(header.draftAft, 0) || 0;
   const meanDraft = (draftFwd + draftAft) / 2;
+  // One signed trim: positive down by the bow (the book's TRIM BY STEM
+  // columns), negative down by the stern. See fuel-report-core's trimSense.
   const trim = draftFwd - draftAft;
-  const trimByStern = draftAft - draftFwd;
   const heel = num(header.heel, 0) || 0;
-  const ctx = { trim: trimByStern, list: heel };
+  const ctx = { trim, list: heel };
 
   const rate = num(header.deliveryRateMTPerHour);
   const quantity = num(header.bunkerQuantityMT);
@@ -569,12 +570,10 @@ function computeBunkerPlan(bundle, form, conversion) {
     }
 
     if (out.currentSoundingMM != null) {
-      // Pass the reading in the column's entry method; computeTank converts to
-      // table scale before trim. Trim is the direct by-stern table value.
       const directM3 = typeof usesDirectM3Input === 'function' && usesDirectM3Input(tank);
       const res = computeTank(tank, {
         reading: out.currentSoundingMM,
-        trim: directM3 ? 0 : trimByStern,
+        trim: directM3 ? 0 : trim,
         list: directM3 ? 0 : heel,
         tempC,
         density15,
@@ -617,7 +616,7 @@ function computeBunkerPlan(bundle, form, conversion) {
         const altRes = alt >= 0
           ? computeTank(tank, {
             reading: alt,
-            trim: trimByStern,
+            trim,
             list: heel,
             tempC,
             density15,
@@ -867,7 +866,6 @@ function computeBunkerPlan(bundle, form, conversion) {
       tempC,
       meanDraft: round(meanDraft, 3),
       trim: round(trim, 3),
-      trimByStern: round(trimByStern, 3),
       heel,
       deliveryRateMTPerHour: rate,
       bunkerQuantityMT: quantity,

@@ -18,6 +18,9 @@ const STATE = {
   tankView: readPref('tankView', 'table'),
   tankGroup: readPref('tankGroup', 'all'),
   tankTabOpen: readPref('tankTabOpen', 'true') !== 'false',
+  // Which category page is in reordering mode, if any. Not remembered: it is
+  // a mode you are in for a minute, not a preference.
+  reorderCat: null,
 };
 
 function readPref(key, fallback) {
@@ -308,6 +311,20 @@ function getReading(id) {
   return STATE.bundle?.readings?.[id] || null;
 }
 
+/**
+ * Which way the ship is down, from the signed trim.
+ *
+ * The calibration book heads its columns TRIM BY STEM on the positive side and
+ * TRIM BY STERN on the negative, and the monitoring page shows the same signed
+ * figure (draft fwd - draft aft). Spelling the sense out beside the number is
+ * what keeps a -0.41 from being read as 0.41 the other way.
+ */
+function trimSenseLabel(trim) {
+  const t = Number(trim);
+  if (!Number.isFinite(t) || Math.abs(t) < 0.005) return 'even keel';
+  return `${fmt(Math.abs(t), 2)} m by the ${t > 0 ? 'bow' : 'stern'}`;
+}
+
 function fillStatusClass(pct) {
   if (pct == null) return 'neutral';
   if (pct >= 95) return 'bad';
@@ -353,7 +370,7 @@ function apiHref(path) {
   return (typeof Api !== 'undefined' && Api.withPrefix) ? Api.withPrefix(path) : path;
 }
 
-const BOTTOM_PRIMARY = new Set(['dashboard', 'fuel-report', 'bunker-after']);
+const BOTTOM_PRIMARY = new Set(['dashboard', 'fuel-report', 'bunker-after', 'bunker-summary', 'report', 'sounding-card']);
 
 function isAioEmbedded() {
   try {
@@ -473,12 +490,9 @@ function renderMoreNav() {
   grid.appendChild(mk('add-tank', 'Add Tank', '+'));
   grid.appendChild(mk('calibration', 'Calibration', '☰'));
   if (bunkerPlanNavAllowed()) grid.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
-  grid.appendChild(mk('bunker-summary', 'Summary', '📑'));
   if (bunkerConsumptionNavAllowed()) {
     grid.appendChild(mk('bunker-consumption', 'Cons.', '📊'));
   }
-  grid.appendChild(mk('sounding-card', 'Sounding', '📇'));
-  grid.appendChild(mk('report', 'Report', '📋'));
   grid.appendChild(mk('vcf-wcf', 'VCF/WCF', 'Σ'));
   grid.appendChild(mk('iso8217', 'ISO 8217', '▤'));
   if (!isAioEmbedded()) grid.appendChild(mk('setup', 'Setup', '⚙'));
@@ -530,6 +544,7 @@ function renderMoreNav() {
 const PAGE_ALIASES = { bunkering: 'bunker-plan' };
 
 function navigate(page, tankId = null) {
+  try { if (window.ChengClockPicker) ChengClockPicker.close(); } catch (_) {}
   let next = PAGE_ALIASES[page] || page;
   if (next === 'setup' && isAioEmbedded()) {
     showToast('Open Vessel Setup from the ChEng AIO menu');
@@ -772,6 +787,7 @@ function renderNav() {
 }
 
 function render() {
+  try { if (window.ChengClockPicker) ChengClockPicker.close(); } catch (_) {}
   renderNav();
   syncBottomNav();
   const main = document.getElementById('main');
@@ -828,8 +844,13 @@ function render() {
 /* ---------- Dashboard ---------- */
 /** Distillate grades (MDO / MGO / LSMGO) vs residual heavy fuel (HFO / VLSFO). */
 function isDistillateFuel(tank) {
+  if (typeof FuelReportCore !== 'undefined' && typeof FuelReportCore.sectionForTank === 'function') {
+    return FuelReportCore.sectionForTank(tank) === 'do';
+  }
   const g = String((tank && tank.fuelGrade) || '').toLowerCase();
-  return g === 'mdo' || g === 'mgo' || g === 'lsmgo';
+  if (g === 'mdo' || g === 'mgo' || g === 'lsmgo') return true;
+  const u = String((tank && tank.name) || '').toUpperCase().replace(/\./g, '');
+  return /\bLSMGO\b|\bMGO\b|\bMDO\b/.test(u);
 }
 
 function fuelFamilyTotals(tanks) {
@@ -858,16 +879,21 @@ function sideRank(side) {
   return 2;
 }
 
-/** Storage tanks: tank number ascending, then P left / S right / centre. */
+/**
+ * Storage tanks: tank number ascending, then P left / S right / centre.
+ *
+ * A good default and a poor override — once a chief has set an order, that
+ * is the order the mock-up shows too, so the page agrees with every list.
+ */
 function sortStorageTanks(tanks) {
-  return tanks.slice().sort((a, b) => {
+  return TankOrder.sortedOr(tanks, (list) => list.slice().sort((a, b) => {
     const an = a.tankNo == null || a.tankNo === '' ? 1e9 : Number(a.tankNo);
     const bn = b.tankNo == null || b.tankNo === '' ? 1e9 : Number(b.tankNo);
     if (an !== bn) return an - bn;
     const sr = sideRank(a.side) - sideRank(b.side);
     if (sr) return sr;
     return String(a.name || '').localeCompare(String(b.name || ''));
-  });
+  }));
 }
 
 function categoryTotals(catId) {
@@ -1071,11 +1097,22 @@ function renderDashboard(main) {
   }
 
   for (const c of CATS) {
+    const tanks = TankOrder.sorted(STATE.bundle.tanks[c.id] || []);
     const title = document.createElement('div');
     title.className = 'section-title';
     title.innerHTML = `<span class="cat-dot cat-${c.id}"></span>${c.label}`;
     main.appendChild(title);
-    main.appendChild(buildTankTable(STATE.bundle.tanks[c.id] || []));
+    /* Fuel reads as heavy and distillate here too, so this page and the fuel
+       page show the same two lists in the same order. */
+    for (const sec of categorySections(c.id, tanks)) {
+      if (sec.title) {
+        const head = document.createElement('h2');
+        head.className = 'cat-section-head';
+        head.textContent = `${sec.title} · ${sec.tanks.length}`;
+        main.appendChild(head);
+      }
+      main.appendChild(buildTankTable(sec.tanks));
+    }
   }
 }
 
@@ -1158,24 +1195,32 @@ function tankSideKey(tank) {
  */
 function arrangeFuelSideRow(familyTanks, side) {
   const roleOf = (t) => TankGraphics.roleOf(t);
-  const numbered = familyTanks
-    .filter((t) => roleOf(t) === 'storage' && tankSideKey(t) === side)
-    .sort(byTankNoThenName);
+
+  /* The mock-up is a drawing of the engine room, so the roles stay in their
+     places — storage, then settling or service, then the rest. Inside a role
+     the chief's order wins where there is one: the drawing then reads in the
+     same order as the lists it sits above. */
+  const inOrder = (list, fallback) => TankOrder.sortedOr(list, (l) => l.slice().sort(fallback));
+
+  const numbered = inOrder(
+    familyTanks.filter((t) => roleOf(t) === 'storage' && tankSideKey(t) === side),
+    byTankNoThenName
+  );
 
   if (side === 'port') {
-    const settling = familyTanks.filter((t) => roleOf(t) === 'settling').sort(byTankName);
-    const overflow = familyTanks.filter((t) => roleOf(t) === 'overflow').sort(byTankName);
+    const settling = inOrder(familyTanks.filter((t) => roleOf(t) === 'settling'), byTankName);
+    const overflow = inOrder(familyTanks.filter((t) => roleOf(t) === 'overflow'), byTankName);
     return numbered.concat(settling, overflow);
   }
 
-  const service = familyTanks.filter((t) => roleOf(t) === 'service').sort(byTankName);
+  const service = inOrder(familyTanks.filter((t) => roleOf(t) === 'service'), byTankName);
   const claimed = new Set(numbered.concat(service).map((t) => t.id));
   for (const t of familyTanks) {
     const r = roleOf(t);
     if (r === 'settling' || r === 'overflow') claimed.add(t.id);
     if (r === 'storage' && tankSideKey(t) === 'port') claimed.add(t.id);
   }
-  const other = familyTanks.filter((t) => !claimed.has(t.id)).sort(byTankNoThenName);
+  const other = inOrder(familyTanks.filter((t) => !claimed.has(t.id)), byTankNoThenName);
   return numbered.concat(service, other);
 }
 
@@ -1354,12 +1399,266 @@ function buildTankTable(tanks) {
   return wrap;
 }
 
+/**
+ * Fuel tanks read as two lists, not one.
+ *
+ * A chief sounds the heavy fuel and the diesel/gas oil as separate rounds and
+ * reports them in separate blocks, so a single table of eighteen tanks is a
+ * table nobody reads from. Monitoring already prints them apart; this is the
+ * same division, on the page the tanks are listed from.
+ *
+ * The division follows the fuel a tank is carrying rather than the grade on
+ * its calibration sheet, so an HFO tank run on gas oil sits with the gas oil
+ * — the same answer Monitoring gives, from the same core.
+ */
+function fuelSections(tanks) {
+  const isDo = (tank) => {
+    const form = STATE.bundle && STATE.bundle.fuelReport;
+    if (form && typeof FuelReportCore !== 'undefined' && typeof FuelReportCore.sectionForRow === 'function') {
+      const rowForm = (form.rows && form.rows[tank.id]) || {};
+      return FuelReportCore.sectionForRow(tank, rowForm) === 'do';
+    }
+    return isDistillateFuel(tank);
+  };
+  return [
+    { id: 'fuel', title: 'HFO / VLSFO', tanks: tanks.filter((t) => !isDo(t)) },
+    { id: 'do', title: 'MDO / MGO / LSMGO', tanks: tanks.filter(isDo) },
+  ];
+}
+
+/**
+ * The lists a category page shows: one, or — for fuel — heavy and distillate.
+ * Each is reordered on its own, because they are sounded on their own.
+ */
+function categorySections(catId, tanks) {
+  if (catId !== 'fuel') return [{ id: catId, title: '', tanks }];
+  return fuelSections(tanks).filter((sec) => sec.tanks.length);
+}
+
 function renderCategory(main, catId) {
   const c = CATS.find((x) => x.id === catId);
   const t = categoryTotals(catId);
+  const tanks = TankOrder.sorted(STATE.bundle.tanks[catId] || []);
+  const ordered = TankOrder.isOrdered(tanks);
+  const reordering = STATE.reorderCat === catId;
+
   main.innerHTML += `<div class="page-head"><div><h1><span class="cat-dot cat-${c.id}"></span>${c.label}</h1>
-    <div class="desc">${t.count} tanks · ${fmt(t.capacity,0)} m³</div></div></div>`;
-  main.appendChild(buildTankTable(STATE.bundle.tanks[catId] || []));
+    <div class="desc">${t.count} tanks · ${fmt(t.capacity,0)} m³${ordered ? ' · custom order' : ''}</div></div>
+    <div class="page-head-actions no-print">
+      <button class="btn small${reordering ? ' primary' : ''}" id="btn-reorder">${reordering ? 'Done' : 'Reorder'}</button>
+      ${ordered && !reordering ? '<button class="btn small ghost" id="btn-reorder-clear">Reset order</button>' : ''}
+    </div></div>`;
+
+  const sections = categorySections(catId, tanks);
+  for (const sec of sections) {
+    if (sec.title) {
+      const head = document.createElement('h2');
+      head.className = 'cat-section-head';
+      head.textContent = `${sec.title} · ${sec.tanks.length}`;
+      main.appendChild(head);
+    }
+    main.appendChild(reordering
+      ? buildReorderList(catId, sec)
+      : buildTankTable(sec.tanks));
+  }
+
+  const toggle = document.getElementById('btn-reorder');
+  if (toggle) {
+    toggle.onclick = () => {
+      STATE.reorderCat = reordering ? null : catId;
+      render();
+    };
+  }
+  const reset = document.getElementById('btn-reorder-clear');
+  if (reset) {
+    reset.onclick = async () => {
+      if (!confirm('Put this list back to the order the app chooses?')) return;
+      try {
+        await Api.clearTankOrder(STATE.activeVesselId, catId);
+        await reloadBundle();
+        showToast('Order reset');
+        render();
+      } catch (err) {
+        showToast(err.message);
+      }
+    };
+  }
+}
+
+/**
+ * The reordering list.
+ *
+ * Move buttons as well as dragging: this is used one-handed on a tablet in an
+ * engine room, and a chief who wants the eleventh tank one place up should not
+ * have to drag it there.
+ *
+ * Dragging is one code path for finger, pen and mouse — pointer events, the
+ * same as the signature pad — rather than the HTML5 drag events, which a
+ * touchscreen never fires. Two things make it work on a phone:
+ *
+ *   - the drag starts on the grip alone, so a finger anywhere else on the row
+ *     still scrolls the page, which on a list of eighteen tanks is most of
+ *     what a finger is there to do;
+ *   - the page follows the drag near the top and bottom edges, because a
+ *     phone shows six rows and the tank being moved is usually going further
+ *     than that.
+ */
+function buildReorderList(catId, section) {
+  const wrap = document.createElement('div');
+  wrap.className = 'reorder-wrap';
+
+  const list = document.createElement('ol');
+  list.className = 'reorder-list';
+  section.tanks.forEach((tank, at) => {
+    const li = document.createElement('li');
+    li.className = 'reorder-row';
+    li.dataset.tankId = tank.id;
+    li.innerHTML = `
+      <span class="reorder-grip" title="Drag to move" aria-hidden="true">⋮⋮</span>
+      <span class="reorder-name">${escapeHtml(tank.name || 'Tank')}</span>
+      <span class="tag">${escapeHtml(tank.fuelRole || '—')}</span>
+      <span class="reorder-moves">
+        <button class="btn tiny" data-move="up" ${at === 0 ? 'disabled' : ''} aria-label="Move up">▲</button>
+        <button class="btn tiny" data-move="down" ${at === section.tanks.length - 1 ? 'disabled' : ''} aria-label="Move down">▼</button>
+      </span>`;
+    list.appendChild(li);
+  });
+
+  const idsIn = () => [...list.querySelectorAll('.reorder-row')].map((li) => li.dataset.tankId);
+
+  /* The order that goes to the server is the whole category, not this list:
+     fuel is shown as two lists and the store keeps one array, so the heavy
+     tanks keep their places while the distillate are moved among themselves. */
+  const save = async () => {
+    const shown = idsIn();
+    const whole = TankOrder.sorted(STATE.bundle.tanks[catId] || []).map((t) => t.id);
+    const mine = new Set(shown);
+    let take = 0;
+    const merged = whole.map((id) => (mine.has(id) ? shown[take++] : id));
+    try {
+      await Api.reorderTanks(STATE.activeVesselId, catId, merged);
+      await reloadBundle();
+    } catch (err) {
+      showToast(err.message);
+    }
+  };
+
+  list.onclick = async (ev) => {
+    const button = ev.target.closest('[data-move]');
+    if (!button) return;
+    const row = button.closest('.reorder-row');
+    const to = button.dataset.move === 'up' ? row.previousElementSibling : row.nextElementSibling;
+    if (!to) return;
+    if (button.dataset.move === 'up') list.insertBefore(row, to);
+    else list.insertBefore(to, row);
+    await save();
+    render();
+  };
+
+  attachReorderDrag(list, save);
+
+  wrap.appendChild(list);
+  const hint = document.createElement('div');
+  hint.className = 'hint';
+  hint.textContent = 'Drag the ⋮⋮ handle or use ▲▼. This order is used on Monitoring, '
+    + 'Bunkering, the sounding card and every other list of tanks.';
+  wrap.appendChild(hint);
+  return wrap;
+}
+
+/**
+ * Dragging a row with a finger, a pen or a mouse.
+ *
+ * The row is moved in the list as the pointer passes each neighbour's middle,
+ * so what is on screen during the drag is what will be saved — there is no
+ * separate preview to disagree with the result.
+ */
+function attachReorderDrag(list, save) {
+  const EDGE = 72;        /* how near an edge the page starts following */
+  const SPEED = 14;       /* pixels a frame at the very edge */
+
+  let row = null;
+  let pointerId = null;
+  let scrolling = null;
+  let lastY = 0;
+
+  /* The rows the dragged one could land among, and their middles. */
+  const others = () => [...list.querySelectorAll('.reorder-row')].filter((li) => li !== row);
+
+  const placeAt = (y) => {
+    const rest = others();
+    const middles = rest.map((li) => {
+      const box = li.getBoundingClientRect();
+      return box.top + box.height / 2;
+    });
+    const at = TankOrder.dropIndex(middles, y);
+    const before = rest[at] || null;
+    if (before !== row.nextElementSibling || before === null) list.insertBefore(row, before);
+  };
+
+  /* A phone shows six rows; without this the eleventh tank cannot reach the
+     top of the list, because the finger is already at the edge of the glass. */
+  const follow = () => {
+    if (!row) { scrolling = null; return; }
+    const top = lastY - EDGE;
+    const bottom = lastY - (window.innerHeight - EDGE);
+    let by = 0;
+    if (top < 0) by = Math.max(-SPEED, (top / EDGE) * SPEED);
+    else if (bottom > 0) by = Math.min(SPEED, (bottom / EDGE) * SPEED);
+    if (by) {
+      window.scrollBy(0, by);
+      placeAt(lastY);
+    }
+    scrolling = requestAnimationFrame(follow);
+  };
+
+  const stop = async (ev) => {
+    if (!row) return;
+    const moved = row;
+    try {
+      if (pointerId != null && moved.hasPointerCapture && moved.hasPointerCapture(pointerId)) {
+        moved.releasePointerCapture(pointerId);
+      }
+    } catch { /* already gone */ }
+    moved.classList.remove('dragging');
+    document.body.classList.remove('reorder-dragging');
+    if (scrolling) cancelAnimationFrame(scrolling);
+    scrolling = null;
+    row = null;
+    pointerId = null;
+    if (ev) ev.preventDefault();
+    await save();
+    render();
+  };
+
+  list.addEventListener('pointerdown', (ev) => {
+    if (!ev.isPrimary || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
+    const grip = ev.target.closest('.reorder-grip');
+    if (!grip) return;                       /* elsewhere on the row: let the page scroll */
+    row = grip.closest('.reorder-row');
+    if (!row) return;
+    pointerId = ev.pointerId;
+    lastY = ev.clientY;
+    /* Capture keeps the moves coming to this row even when the finger runs
+       off it, which on a phone it immediately does. It is a convenience, not
+       the mechanism: a browser that refuses the id still drags, because the
+       moves are listened for on the list. */
+    try { row.setPointerCapture(pointerId); } catch { /* keep dragging */ }
+    row.classList.add('dragging');
+    document.body.classList.add('reorder-dragging');
+    scrolling = requestAnimationFrame(follow);
+    ev.preventDefault();
+  });
+
+  list.addEventListener('pointermove', (ev) => {
+    if (!row || ev.pointerId !== pointerId) return;
+    lastY = ev.clientY;
+    placeAt(lastY);
+    ev.preventDefault();
+  });
+
+  list.addEventListener('pointerup', stop);
+  list.addEventListener('pointercancel', stop);
 }
 
 /* ---------- Tank detail ---------- */
@@ -1383,14 +1682,16 @@ function renderTankDetail(main, tankId) {
   const doubleInterp = typeof isDoubleInterpManualTank === 'function' && isDoubleInterpManualTank(tank);
   const gaugeChoice = !directM3Tank && tank.calcType === 'direct' && /SETT|SERVICE/i.test(tank.name || '');
   const initialGT = directM3Tank ? 'volume' : (existing.gaugeType || 'meter');
-  // Trim for tables is by the stern (Excel Data!AG9 = 1×(aft−fwd)). Prefer a
-  // saved table trim, else drafts, else the voyage trim field only when drafts
-  // are absent — never multiply/scale the value used for interpolation.
+  // One signed trim, the same number the monitoring page shows and the same
+  // sign the calibration book heads its columns with: fwd − aft, positive
+  // down by the bow (TRIM BY STEM), negative down by the stern (TRIM BY
+  // STERN). Prefer a saved table trim, else drafts, else the voyage trim
+  // field — never multiply or scale the value used for interpolation.
   const voy = STATE.bundle.voyage || {};
   const draftFwd = Number(voy.draftFwd);
   const draftAft = Number(voy.draftAft);
   const trimFromDrafts = Number.isFinite(draftFwd) && Number.isFinite(draftAft)
-    ? (draftAft - draftFwd)
+    ? (draftFwd - draftAft)
     : null;
   const defaultTrim = existing.trim != null
     ? existing.trim
@@ -1409,7 +1710,9 @@ function renderTankDetail(main, tankId) {
         ${doubleInterp ? '<button type="button" class="btn small" id="btn-double-interp">Double interpolation…</button>' : ''}
         </div></div>
       <div class="form-row-2" id="trimlist-row" style="${initialGT==='volume'?'display:none':''}">
-        <div class="form-row"><label>Trim by stern (m)</label><input type="number" step="any" id="in-trim" value="${defaultTrim}" title="Direct table trim — same value as the calibration trim columns"></div>
+        <div class="form-row"><label>Trim (m)</label>
+          <input type="number" step="any" id="in-trim" value="${defaultTrim}" title="Signed table trim: positive down by the bow (TRIM BY STEM), negative down by the stern (TRIM BY STERN)">
+          <div class="hint" id="trim-sense">${trimSenseLabel(defaultTrim)}</div></div>
         <div class="form-row"><label>List / Heel (°)</label><input type="number" step="any" id="in-list" value="${existing.list ?? STATE.bundle.voyage?.heel ?? 0}"></div>
       </div>
     <div class="form-row-2">
@@ -1476,6 +1779,13 @@ function renderTankDetail(main, tankId) {
       },
     });
   });
+  const trimInput = document.getElementById('in-trim');
+  if (trimInput) {
+    trimInput.addEventListener('input', () => {
+      const sense = document.getElementById('trim-sense');
+      if (sense) sense.textContent = trimSenseLabel(trimInput.value);
+    });
+  }
 
   async function doCalc() {
     let reading = parseFloat(document.getElementById('in-reading').value);
@@ -1491,7 +1801,8 @@ function renderTankDetail(main, tankId) {
       tempC: parseFloat(document.getElementById('in-temp').value) || 15,
       density15: document.getElementById('in-density').value === '' ? null : parseFloat(document.getElementById('in-density').value),
       gaugeType,
-      // Trim field is the direct table trim (by the stern), matching Excel Data!AG9.
+      // The trim field is the signed table trim: positive down by the bow,
+      // which is the side the book heads TRIM BY STEM.
       entryMethod: tank.soundingMethod || 'sounding',
     };
     let result;
@@ -1612,6 +1923,15 @@ function renderResultSteps(panel, tank, r, inputs) {
   const steps = document.createElement('div');
   steps.className = 'steps';
   const defs = [];
+  if (r.gaugeType !== 'volume') {
+    // Which way the ship was down, spelled out: the sign alone has been read
+    // backwards often enough to be worth a word.
+    defs.push({
+      label: 'Trim applied',
+      formula: 'signed table trim · + by the bow, − by the stern',
+      value: trimSenseLabel(inputs && inputs.trim),
+    });
+  }
   if (r.gaugeType === 'volume') {
     defs.push({ label: 'Volume gauge', formula: 'direct reading', value: fmt(inputs.reading,3)+' m³' });
     defs.push({ label: 'Observed volume', formula: 'clamped to capacity', value: fmt(r.volumeObserved,3)+' m³', highlight: true });
@@ -1728,6 +2048,100 @@ function pipeHeightHint(tank) {
       : 'Leave blank to use it; enter a value only to override.');
 }
 
+/** Build the same preview shape as /tanks/import-csv for browser-parsed FLAG EVI. */
+async function buildCsvImportPreviewFromParsed(parsed) {
+  const vesselId = STATE.activeVesselId;
+  const bundle = await Api.getVessel(vesselId);
+  const tanksBundle = bundle.tanks || {};
+  const norm = (s) => String(s || '').toUpperCase().replace(/TANK/g, 'TK').replace(/[^A-Z0-9]/g, '');
+  function findByName(name) {
+    const n = norm(name);
+    for (const cat of Object.keys(tanksBundle)) {
+      const hit = (tanksBundle[cat] || []).find((t) => {
+        const tn = norm(t.name);
+        return tn === n || (n.length > 6 && (tn.includes(n) || n.includes(tn)));
+      });
+      if (hit) return hit;
+    }
+    return null;
+  }
+  const preview = (parsed.tanks || []).map((tank) => {
+    const existing = findByName(tank.name);
+    return {
+      name: tank.name,
+      category: tank.category || 'fuel',
+      calcType: tank.calcType,
+      capacity: tank.capacity,
+      trimRows: (tank.trimAxis || []).length,
+      listRows: (tank.listAxis || []).length,
+      existing: existing ? { id: existing.id, name: existing.name, category: existing.category } : null,
+    };
+  });
+  const existingList = preview.filter((t) => t.existing);
+  return {
+    ok: true,
+    preview: true,
+    format: parsed.format || 'flag-evi-xlsx',
+    tankCount: preview.length,
+    existingCount: existingList.length,
+    newCount: preview.length - existingList.length,
+    warnings: parsed.warnings || [],
+    sheets: parsed.sheets || [],
+    tanks: preview,
+    existingTanks: existingList.map((t) => ({
+      sheetName: t.name,
+      id: t.existing.id,
+      name: t.existing.name,
+      category: t.existing.category,
+      capacity: t.capacity,
+      calcType: t.calcType,
+      trimRows: t.trimRows,
+      listRows: t.listRows,
+    })),
+    _parsedTanks: parsed.tanks,
+  };
+}
+
+async function applyParsedWorkbookTanks(parsedTanks, { replaceExisting } = {}) {
+  const vesselId = STATE.activeVesselId;
+  const bundle = await Api.getVessel(vesselId);
+  const tanksBundle = bundle.tanks || {};
+  const norm = (s) => String(s || '').toUpperCase().replace(/TANK/g, 'TK').replace(/[^A-Z0-9]/g, '');
+  function findByName(name) {
+    const n = norm(name);
+    for (const cat of Object.keys(tanksBundle)) {
+      const hit = (tanksBundle[cat] || []).find((t) => {
+        const tn = norm(t.name);
+        return tn === n || (n.length > 6 && (tn.includes(n) || n.includes(tn)));
+      });
+      if (hit) return hit;
+    }
+    return null;
+  }
+  let created = 0;
+  let replaced = 0;
+  let skipped = 0;
+  for (const tank of parsedTanks || []) {
+    const existing = findByName(tank.name);
+    if (existing) {
+      if (!replaceExisting) { skipped += 1; continue; }
+      await Api.upsertTank(vesselId, {
+        ...tank,
+        id: existing.id,
+        category: tank.category || existing.category || 'fuel',
+      });
+      replaced += 1;
+    } else {
+      await Api.upsertTank(vesselId, {
+        ...tank,
+        category: tank.category || 'fuel',
+      });
+      created += 1;
+    }
+  }
+  return { created, replaced, skipped, format: 'flag-evi-xlsx' };
+}
+
 function renderAddTank(main) {
   main.innerHTML += `<div class="page-head"><div><h1>Add Tank</h1>
     <div class="desc">Manually add storage, settling, or service tanks — or import tanks and sounding tables from a capacity PDF.</div></div></div>
@@ -1833,12 +2247,32 @@ function renderAddTank(main) {
       </div>
     </div>
     <div class="section-title">Import / edit tanks from CSV or Excel</div>
-    <p class="hint">Accepts tank-list CSV, Giorgis <b>fuel / lube / misc / fresh-water CSV</b>, or <b>lube-oil XLSX</b>. Multi-tank files import depth/ullage × trim volumes and heel corrections. Matching names update calibration tables.</p>
-    <label class="hint" style="display:flex;align-items:center;gap:6px;margin:0 0 8px">
-      <input type="checkbox" id="csv-update-existing" checked> Update existing tanks with same name
-    </label>
+    <p class="hint">Accepts tank-list CSV, Giorgis <b>fuel / lube / misc / fresh-water CSV</b>, lube-oil XLSX, or <b>FLAG EVI dual-sheet</b> workbooks (<i>Trim Correction</i> + <i>Heeling Correction</i> → direct volume tables). Matching names can be replaced or skipped after preview.</p>
     <input type="file" id="csv-file" accept=".csv,.xlsx,.xlsm,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
-    <button class="btn" id="btn-import-csv" style="margin-top:8px">Import CSV / Excel</button>`;
+    <div class="btn-row" style="margin-top:8px;flex-wrap:wrap;gap:8px">
+      <button class="btn" id="btn-import-csv">Preview CSV / Excel</button>
+    </div>
+    <div id="csv-import-panel" class="pdf-import-panel" style="display:none;margin-top:12px">
+      <div id="csv-import-summary" class="hint" style="margin:0 0 10px"></div>
+      <div id="csv-import-existing" style="display:none;margin:0 0 10px">
+        <div class="help-box" style="margin:0 0 8px">
+          <b>Existing tanks found</b> — same name already in this vessel. Choose whether to <b>replace</b> their calibration tables or leave them unchanged.
+        </div>
+        <div class="scroll-x"><table class="data-table" id="csv-existing-table"><thead><tr>
+          <th>Sheet tank</th><th>Existing name</th><th>Cat</th><th>Cap m³</th><th>Trim</th><th>Heel</th>
+        </tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="scroll-x"><table class="data-table" id="csv-preview-table"><thead><tr>
+        <th>Tank in file</th><th>Status</th><th>Cat</th><th>Type</th><th>Cap m³</th><th>Trim rows</th><th>Heel rows</th>
+      </tr></thead><tbody></tbody></table></div>
+      <div class="btn-row" style="margin-top:10px;flex-wrap:wrap;gap:8px;align-items:center">
+        <label class="hint" style="display:flex;align-items:center;gap:6px;margin:0">
+          <input type="checkbox" id="csv-replace-existing" checked> Replace existing tanks (update calibration)
+        </label>
+        <button class="btn primary" id="btn-csv-apply" disabled>Import selected</button>
+        <button class="btn" id="btn-csv-cancel">Cancel</button>
+      </div>
+    </div>`;
   main.appendChild(form);
 
   const syncAddTankCalcMethod = () => {
@@ -2041,35 +2475,168 @@ function renderAddTank(main) {
   document.getElementById('btn-import-csv').onclick = async () => {
     const file = document.getElementById('csv-file').files[0];
     if (!file) { showToast('Choose a CSV or Excel file'); return; }
-    const updateExisting = document.getElementById('csv-update-existing')?.checked !== false;
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('updateExisting', updateExisting ? 'true' : 'false');
     Progress.start(document.getElementById('btn-import-csv').closest('.form-panel'),
-      `Uploading ${file.name}…`);
+      `Reading ${file.name}…`);
     let res;
     try {
-      res = await Api.upload(`/api/vessels/${STATE.activeVesselId}/tanks/import-csv`, fd,
-        (pct, phase) => Progress.set(pct, phase === 'uploading'
-          ? `Uploading… ${pct == null ? '' : pct + '%'}`
-          : 'Reading the file on the server…'));
+      /* Android / LocalApi: parse FLAG EVI dual-sheet workbooks in the browser
+         (Python importers are unavailable on-device). */
+      const native = !!(window.Capacitor && (window.Capacitor.isNativePlatform
+        ? window.Capacitor.isNativePlatform()
+        : (window.Capacitor.getPlatform && window.Capacitor.getPlatform() !== 'web')));
+      const isXlsx = /\.xlsx$/i.test(file.name || '');
+      const tryBrowser = native || isXlsx;
+      if (tryBrowser && window.FlagEviXlsxBrowser && window.XLSX
+        && (FlagEviXlsxBrowser.looksLikeFlagEviName(file.name) || isXlsx)) {
+        try {
+          const parsed = await FlagEviXlsxBrowser.parseFlagEviFile(file);
+          if (parsed?.format === 'flag-evi-xlsx' && (parsed.tanks || []).length) {
+            res = await buildCsvImportPreviewFromParsed(parsed);
+          }
+        } catch (browserErr) {
+          if (native || FlagEviXlsxBrowser.looksLikeFlagEviName(file.name)) {
+            Progress.done();
+            showToast(browserErr.message || 'FLAG EVI workbook import failed');
+            return;
+          }
+        }
+      }
+      if (!res) {
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('preview', 'true');
+        res = await Api.upload(`/api/vessels/${STATE.activeVesselId}/tanks/import-csv`, fd,
+          (pct, phase) => Progress.set(pct, phase === 'uploading'
+            ? `Uploading… ${pct == null ? '' : pct + '%'}`
+            : 'Parsing tanks on the server…'));
+      }
+    } catch (err) {
+      Progress.done();
+      showToast(err.message);
+      return;
+    }
+    Progress.done('Preview ready');
+
+    const panel = document.getElementById('csv-import-panel');
+    const summary = document.getElementById('csv-import-summary');
+    const existingWrap = document.getElementById('csv-import-existing');
+    const existingBody = document.querySelector('#csv-existing-table tbody');
+    const previewBody = document.querySelector('#csv-preview-table tbody');
+    const applyBtn = document.getElementById('btn-csv-apply');
+    const replaceCb = document.getElementById('csv-replace-existing');
+
+    STATE._csvImportFile = file;
+    STATE._csvImportPreview = res;
+    STATE._csvImportParsedTanks = res._parsedTanks || null;
+
+    const fmtLabel = res.format === 'flag-evi-xlsx' ? 'FLAG EVI trim+heel workbook'
+      : res.format === 'giorgis-fuel-csv' ? 'Giorgis fuel workbook'
+        : res.format === 'giorgis-misc-csv' ? 'Giorgis misc workbook'
+          : res.format === 'giorgis-water-csv' ? 'Giorgis fresh-water workbook'
+            : res.format === 'giorgis-lube-csv' || res.format === 'giorgis-lube-xlsx' ? 'Giorgis lube workbook'
+              : res.format === 'giorgis-workbook-csv' ? 'Giorgis workbook'
+                : 'Tanks CSV';
+    const existingCount = res.existingCount ?? (res.existingTanks || []).length;
+    const newCount = res.newCount ?? Math.max(0, (res.tankCount || 0) - existingCount);
+    summary.innerHTML = `<b>${fmtLabel}</b>: ${res.tankCount || 0} tank(s) in file`
+      + (existingCount ? ` — <span style="color:var(--warn,#c90)">${existingCount} already on this vessel</span>` : '')
+      + (newCount ? ` — ${newCount} new` : '')
+      + ((res.warnings || []).length ? `<br><span class="hint">${escapeHtml((res.warnings || []).slice(0, 4).join(' · '))}</span>` : '');
+
+    existingBody.innerHTML = '';
+    if (existingCount) {
+      existingWrap.style.display = '';
+      for (const row of (res.existingTanks || [])) {
+        existingBody.innerHTML += `<tr>
+          <td class="tname">${escapeHtml(row.sheetName || row.name || '')}</td>
+          <td class="tname">${escapeHtml(row.name || '')}</td>
+          <td>${escapeHtml(row.category || '')}</td>
+          <td>${fmt(row.capacity, 1)}</td>
+          <td>${row.trimRows ?? '—'}</td>
+          <td>${row.listRows ?? '—'}</td>
+        </tr>`;
+      }
+      replaceCb.checked = true;
+      replaceCb.disabled = false;
+    } else {
+      existingWrap.style.display = 'none';
+      replaceCb.checked = false;
+      replaceCb.disabled = true;
+    }
+
+    previewBody.innerHTML = '';
+    for (const t of (res.tanks || [])) {
+      const status = t.existing
+        ? `<span class="pill warn">exists → ${escapeHtml(t.existing.name)}</span>`
+        : '<span class="pill good">new</span>';
+      previewBody.innerHTML += `<tr>
+        <td class="tname">${escapeHtml(t.name || '')}</td>
+        <td>${status}</td>
+        <td>${escapeHtml(t.category || '')}</td>
+        <td>${escapeHtml(t.calcType || '')}</td>
+        <td>${fmt(t.capacity, 1)}</td>
+        <td>${t.trimRows ?? 0}</td>
+        <td>${t.listRows ?? 0}</td>
+      </tr>`;
+    }
+
+    panel.style.display = '';
+    applyBtn.disabled = !(res.tanks || []).length;
+    if (existingCount) {
+      showToast(`${existingCount} tank(s) already exist — choose Replace or leave unchecked to skip them`);
+    }
+  };
+
+  document.getElementById('btn-csv-cancel').onclick = () => {
+    document.getElementById('csv-import-panel').style.display = 'none';
+    STATE._csvImportFile = null;
+    STATE._csvImportPreview = null;
+  };
+
+  document.getElementById('btn-csv-apply').onclick = async () => {
+    const file = STATE._csvImportFile || document.getElementById('csv-file').files[0];
+    const replaceExisting = document.getElementById('csv-replace-existing')?.checked === true;
+    Progress.start(document.getElementById('btn-csv-apply').closest('.form-panel'),
+      `Importing ${file ? file.name : 'tanks'}…`);
+    let res;
+    try {
+      if (STATE._csvImportParsedTanks && STATE._csvImportParsedTanks.length) {
+        res = await applyParsedWorkbookTanks(STATE._csvImportParsedTanks, { replaceExisting });
+      } else {
+        if (!file) { Progress.done(); showToast('Choose a CSV or Excel file'); return; }
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('preview', 'false');
+        fd.append('replaceExisting', replaceExisting ? 'true' : 'false');
+        fd.append('updateExisting', replaceExisting ? 'true' : 'false');
+        res = await Api.upload(`/api/vessels/${STATE.activeVesselId}/tanks/import-csv`, fd,
+          (pct, phase) => Progress.set(pct, phase === 'uploading'
+            ? `Uploading… ${pct == null ? '' : pct + '%'}`
+            : 'Writing tanks…'));
+      }
     } catch (err) {
       Progress.done();
       showToast(err.message);
       return;
     }
     Progress.done('Imported');
+    document.getElementById('csv-import-panel').style.display = 'none';
+    STATE._csvImportFile = null;
+    STATE._csvImportPreview = null;
+    STATE._csvImportParsedTanks = null;
     await reloadBundle();
     const c = res.created ?? 0;
-    const u = res.updated ?? 0;
-    const total = res.imported ?? (c + u);
-    const fmt = res.format === 'giorgis-fuel-csv' ? 'Giorgis fuel workbook'
-      : res.format === 'giorgis-misc-csv' ? 'Giorgis misc workbook'
-        : res.format === 'giorgis-water-csv' ? 'Giorgis fresh-water workbook'
-          : res.format === 'giorgis-lube-csv' || res.format === 'giorgis-lube-xlsx' ? 'Giorgis lube workbook'
-            : res.format === 'giorgis-workbook-csv' ? 'Giorgis workbook'
-              : 'Tanks CSV';
-    showToast(`${fmt}: ${u} updated, ${c} created${total ? ` (${total} tanks)` : ''}`);
+    const u = (res.replaced ?? 0) || (res.updated ?? 0);
+    const skipped = res.skipped ?? 0;
+    const fmt = res.format === 'flag-evi-xlsx' ? 'FLAG EVI workbook'
+      : res.format === 'giorgis-fuel-csv' ? 'Giorgis fuel workbook'
+        : res.format === 'giorgis-misc-csv' ? 'Giorgis misc workbook'
+          : res.format === 'giorgis-water-csv' ? 'Giorgis fresh-water workbook'
+            : res.format === 'giorgis-lube-csv' || res.format === 'giorgis-lube-xlsx' ? 'Giorgis lube workbook'
+              : res.format === 'giorgis-workbook-csv' ? 'Giorgis workbook'
+                : 'Tanks CSV';
+    showToast(`${fmt}: ${u} replaced, ${c} created${skipped ? `, ${skipped} skipped` : ''}`);
+    if (c + u > 0) navigate('calibration');
   };
 }
 
@@ -2080,9 +2647,10 @@ function renderCalibrationList(main) {
   const head = document.createElement('div');
   head.className = 'page-head no-print';
   head.innerHTML = `<div><h1>Calibration Database</h1>
-    <div class="desc">Excel-style sounding tables: edit in-app, or export/import CSV &amp; Excel per tank. Workbook import refreshes Tank1–Tank4 style sheets.</div></div>
+    <div class="desc">Excel-style sounding tables: edit in-app, or export/import CSV &amp; Excel per tank. Workbook import refreshes Tank1–Tank4 sheets or FLAG EVI Trim+Heeling Correction workbooks.</div></div>
     <div class="btn-row">
       <button class="btn primary" id="btn-print-fuel-book">Print all fuel calibration</button>
+      <button class="btn" id="btn-recheck-calc">Check table types</button>
       <label class="btn">Import workbook<input type="file" id="excel-import" accept=".xlsm,.xlsx" hidden></label>
       <button class="btn" id="btn-import-repo-excel">Import repo workbook</button>
       <a class="btn" href="${apiHref('/api/templates/calibration.csv')}">Calibration CSV template</a>
@@ -2121,6 +2689,61 @@ function renderCalibrationList(main) {
     tr.onclick = () => navigate('calibration', tr.dataset.id);
   });
 
+  const verdictPanel = document.createElement('div');
+  verdictPanel.className = 'form-panel no-print';
+  verdictPanel.style.display = 'none';
+  main.insertBefore(verdictPanel, wrap);
+
+  /**
+   * What each tank's tables turn out to hold, and what that makes it.
+   *
+   * Ships do not share a calibration book: one prints a sheet of capacities
+   * beside a heel table in millimetres, the next prints two correction tables
+   * and a capacity curve. A tank imported before the app could tell them apart
+   * carries whatever its importer guessed, and guessing wrong means a heel
+   * correction in millimetres being taken off as cubic metres. This reads the
+   * stored tables and reports; nothing is written until Apply.
+   */
+  async function showVerdicts(apply) {
+    const btn = document.getElementById('btn-recheck-calc');
+    btn.disabled = true;
+    btn.textContent = apply ? 'Applying…' : 'Reading tables…';
+    try {
+      const r = await Api.recheckCalcType(STATE.activeVesselId, apply);
+      const changed = r.tanks.filter((t) => t.changed);
+      const unsure = r.tanks.filter((t) => !t.confident);
+      const rows = [...changed, ...unsure.filter((t) => !t.changed)].map((t) => `<tr>
+        <td class="tname">${escapeHtml(t.name || t.id)}</td>
+        <td>${escapeHtml(t.was || '—')}</td>
+        <td>${t.changed ? `<b>${escapeHtml(t.now)}</b>` : '<span class="pill warn">unsure</span>'}</td>
+        <td style="white-space:normal">${escapeHtml(t.reason || '')}</td></tr>`).join('');
+      verdictPanel.innerHTML = `
+        <div class="page-head" style="margin:0 0 8px">
+          <div><h2 style="margin:0">${apply ? 'Table types updated' : 'What the tables say'}</h2>
+          <div class="desc">${r.total} tank(s) read · ${r.changed} ${apply ? 'changed' : 'to change'} · ${r.unsure} left as they are</div></div>
+          ${!apply && r.changed ? '<div class="btn-row"><button class="btn primary" id="btn-apply-calc">Apply the ' + r.changed + ' change(s)</button></div>' : ''}
+        </div>
+        ${rows ? `<div class="scroll-x"><table class="data-table"><thead><tr>
+          <th>Tank</th><th>Was</th><th>${apply ? 'Now' : 'Would be'}</th><th>What its tables hold</th>
+        </tr></thead><tbody>${rows}</tbody></table></div>`
+        : '<div class="empty-state">Every tank already matches its own tables.</div>'}`;
+      verdictPanel.style.display = '';
+      const applyBtn = document.getElementById('btn-apply-calc');
+      if (applyBtn) applyBtn.onclick = () => showVerdicts(true);
+      if (apply) {
+        await reloadBundle();
+        showToast(`${r.changed} tank(s) updated`);
+        navigate('calibration');
+      }
+    } catch (e) {
+      showToast(e.message || 'Could not read the calibration tables');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Check table types';
+    }
+  }
+  document.getElementById('btn-recheck-calc').onclick = () => showVerdicts(false);
+
   document.getElementById('btn-print-fuel-book').onclick = () => {
     const fuel = (STATE.bundle?.tanks?.fuel || []).filter((t) =>
       (t.trimAxis || []).length || (t.listAxis || []).length || (t.volumeCurve?.x || []).length
@@ -2133,9 +2756,31 @@ function renderCalibrationList(main) {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
+      Progress.start(e.target.closest('.form-panel') || null, `Reading ${file.name}…`);
+      const native = !!(window.Capacitor && (window.Capacitor.isNativePlatform
+        ? window.Capacitor.isNativePlatform()
+        : (window.Capacitor.getPlatform && window.Capacitor.getPlatform() !== 'web')));
+      if ((native || /\.xlsx$/i.test(file.name)) && window.FlagEviXlsxBrowser && window.XLSX) {
+        try {
+          const parsed = await FlagEviXlsxBrowser.parseFlagEviFile(file);
+          if (parsed?.format === 'flag-evi-xlsx' && (parsed.tanks || []).length) {
+            const res = await applyParsedWorkbookTanks(parsed.tanks, { replaceExisting: true });
+            Progress.done('Imported');
+            await reloadBundle();
+            showToast(`Imported ${(res.created || 0) + (res.replaced || 0)} tank tables from FLAG EVI workbook`);
+            navigate('calibration');
+            return;
+          }
+        } catch (browserErr) {
+          if (native || FlagEviXlsxBrowser.looksLikeFlagEviName(file.name)) {
+            Progress.done();
+            showToast(browserErr.message || 'Workbook import failed');
+            return;
+          }
+        }
+      }
       const fd = new FormData();
       fd.append('file', file);
-      Progress.start(e.target.closest('.form-panel') || null, `Uploading ${file.name}…`);
       const res = await Api.upload(`/api/vessels/${STATE.activeVesselId}/import-excel`, fd,
         (pct, phase) => Progress.set(pct, phase === 'uploading'
           ? `Uploading… ${pct == null ? '' : pct + '%'}`
@@ -2443,6 +3088,12 @@ function renderCalibrationEditor(main, tankId) {
     ].join('');
   };
 
+  const methodNow = String(tank.soundingMethod || 'ullage').toLowerCase();
+  const trimSenseNow = String(tank.trimAxisSense || 'stern').toLowerCase();
+  const dualDepth = (typeof hasDualDepthAxes === 'function')
+    ? hasDualDepthAxes(tank)
+    : (Array.isArray(tank.ullageAxis) && Array.isArray(tank.soundingAxis)
+      && tank.ullageAxis.length >= 2 && tank.soundingAxis.length >= 2);
   meta.innerHTML = `
     <div class="form-row-3">
       <div class="form-row"><label>Calc type</label>
@@ -2452,7 +3103,8 @@ function renderCalibrationEditor(main, tankId) {
           <option value="direct" ${tank.calcType==='direct'||!tank.calcType?'selected':''}>volume correction (trim m³ − heel m³)</option>
           <option value="gaugeDirect" ${tank.calcType==='gaugeDirect'?'selected':''}>gauge sounding (direct m³)</option>
           <option value="doubleInterpManual" ${tank.calcType==='doubleInterpManual'?'selected':''}>double interpolation (manual)</option>
-        </select></div>
+        </select>
+        <div class="hint">Changing type rebuilds the grid layout — Save to keep it</div></div>
       <div class="form-row"><label>Capacity 100% m³</label><input id="c-cap" type="number" step="any" value="${tank.capacity||0}"></div>
       <div class="form-row"><label>Correction divisor</label><input id="c-div" type="number" step="any" value="${tank.correctionDivisor|| (isDirect?1:10)}"></div>
     </div>
@@ -2464,12 +3116,29 @@ function renderCalibrationEditor(main, tankId) {
         <div class="hint">${pipeHeightHint(tank)}</div></div>
       <div class="form-row"><label>Sounding method</label>
         <select id="c-method">
-          <option value="ullage" ${tank.soundingMethod==='ullage'?'selected':''}>ullage</option>
-          <option value="sounding" ${tank.soundingMethod==='sounding'?'selected':''}>sounding</option>
-          <option value="gaugeDirectM3" ${tank.soundingMethod==='gaugeDirectM3'?'selected':''}>gauge sounding (direct m³)</option>
-          <option value="doubleInterpManual" ${tank.soundingMethod==='doubleInterpManual'?'selected':''}>double interpolation (manual)</option>
-        </select></div>
+          <option value="ullage" ${methodNow==='ullage'?'selected':''}>ullage</option>
+          <option value="sounding" ${methodNow==='sounding'?'selected':''}>sounding</option>
+          <option value="gaugeDirectM3" ${methodNow==='gaugeDirectM3'?'selected':''}>gauge sounding (direct m³)</option>
+          <option value="doubleInterpManual" ${methodNow==='doubleInterpManual'?'selected':''}>double interpolation (manual)</option>
+        </select>
+        <div class="hint">${dualDepth
+          ? 'Dual depth columns stored — method flip uses ullage/sounding pair (no subtract)'
+          : 'Single depth axis — opposite method uses pipe − reading'}</div></div>
       <div class="form-row"><label>85% volume (ref)</label><input value="${fmt((tank.capacity||0)*0.85,2)}" disabled></div>
+    </div>
+    <div class="form-row-3">
+      <div class="form-row"><label>Trim header sense</label>
+        <select id="c-trim-sense">
+          <option value="stern" ${trimSenseNow==='stern'||trimSenseNow==='aft'?'selected':''}>+ = by stern (default)</option>
+          <option value="bow" ${trimSenseNow==='bow'||trimSenseNow==='stem'||trimSenseNow==='forward'?'selected':''}>+ = by bow / stem</option>
+        </select>
+        <div class="hint">How printed trim +/− columns are read — does not rewrite numbers</div></div>
+      <div class="form-row"><label>Trim column signs</label>
+        <button type="button" class="btn" id="c-flip-trim" style="width:100%">Negate trim headers (+/−)</button>
+        <div class="hint">Multiplies every trim column header by −1 if the book needs correction</div></div>
+      <div class="form-row"><label>Depth columns</label>
+        <input value="${dualDepth ? 'Ullage + Sounded (dual)' : 'Single axis'}" disabled>
+        <div class="hint">Import default: col1 ullage, col2 sounded, then heel/trim/volume</div></div>
     </div>
     <div class="form-row-3">
       <div class="form-row"><label>Sounding table unit</label>
@@ -2495,7 +3164,26 @@ function renderCalibrationEditor(main, tankId) {
     </div>`;
   main.appendChild(meta);
 
-  main.appendChild(buildExcelCalibrationTable(tank));
+  document.getElementById('c-flip-trim')?.addEventListener('click', () => {
+    const inputs = [...document.querySelectorAll('[data-excel="trimVal"]')];
+    if (!inputs.length) { showToast('No trim headers to flip'); return; }
+    inputs.forEach((el) => {
+      const n = parseFloat(el.value);
+      if (Number.isFinite(n)) el.value = String(-n);
+    });
+    showToast('Trim headers negated — Save calibration to keep');
+  });
+
+  let excelPanel = buildExcelCalibrationTable(tank);
+  main.appendChild(excelPanel);
+
+  document.getElementById('c-type').onchange = () => {
+    const nextType = document.getElementById('c-type').value;
+    const draft = { ...tank, calcType: nextType };
+    const fresh = buildExcelCalibrationTable(draft);
+    excelPanel.replaceWith(fresh);
+    excelPanel = fresh;
+  };
 
   const sticky = document.createElement('div');
   sticky.className = 'calib-sticky-actions no-print';
@@ -2512,11 +3200,14 @@ function renderCalibrationEditor(main, tankId) {
       capacity: parseFloat(document.getElementById('c-cap').value) || 0,
       correctionDivisor: parseFloat(document.getElementById('c-div').value) || 10,
       pipeHeight: parseFloat(document.getElementById('c-pipe').value) || 0,
-      soundingMethod: document.getElementById('c-method').value,
+      soundingMethod: String(document.getElementById('c-method').value || 'ullage').toLowerCase(),
+      trimAxisSense: String(document.getElementById('c-trim-sense')?.value || tank.trimAxisSense || 'stern').toLowerCase(),
       soundingUnit: document.getElementById('c-sound-unit').value || null,
       correctionUnit: document.getElementById('c-corr-unit').value || null,
       soundingIncrement: parseFloat(document.getElementById('c-sound-inc').value) || 1,
       heelIncrement: parseFloat(document.getElementById('c-heel-inc').value) || 1,
+      calcTypeConfident: false,
+      calcTypeReason: null,
       ...parsed,
     };
     await Api.saveCalibration(STATE.activeVesselId, tankId, calibration);
@@ -2557,6 +3248,10 @@ function buildExcelCalibrationTable(tank) {
 
   const isDirect = tank.calcType === 'direct';
   const rowAxis = tank.trimAxis || [];
+  const ullageAxis = Array.isArray(tank.ullageAxis) ? tank.ullageAxis : [];
+  const soundingAxis = Array.isArray(tank.soundingAxis) ? tank.soundingAxis : [];
+  const dualDepth = ullageAxis.length >= 2 && soundingAxis.length >= 2
+    && ullageAxis.length === rowAxis.length;
   const trimVals = tank.trimVals || [];
   const trimGrid = tank.trimGrid || [];
   const listAxis = tank.listAxis || [];
@@ -2566,7 +3261,8 @@ function buildExcelCalibrationTable(tank) {
   const volV = tank.volumeCurve?.v || [];
   const volMap = new Map(volX.map((x, i) => [Number(x), volV[i]]));
 
-  const rowLabel = isDirect ? 'Depth' : 'SOUNDING ullage';
+  const rowLabel = dualDepth ? 'ULLAGE'
+    : (isDirect ? 'Depth' : 'SOUNDING ullage');
   const trimLabel = isDirect ? 'Trim → volume m³'
     : (tank.calcType === 'trimHeel' || tank.calcType === 'trim-heel'
       ? 'Trim (m) → length correction (at original)'
@@ -2578,6 +3274,7 @@ function buildExcelCalibrationTable(tank) {
 
   // Header row 1: section labels
   let head1 = `<th class="excel-corner">${escapeHtml(rowLabel)}</th>`;
+  if (dualDepth) head1 += '<th class="excel-corner">SOUNDED</th>';
   trimVals.forEach(() => { head1 += '<th class="excel-sec-trim"></th>'; });
   if (!isDirect) {
     head1 += '<th class="excel-sec-vol">SOUNDING CM</th><th class="excel-sec-vol">sounding VOLUME</th>';
@@ -2591,6 +3288,7 @@ function buildExcelCalibrationTable(tank) {
 
   // Header row 2: numeric trim / list values (editable)
   let head2 = '<th class="excel-corner-sub"></th>';
+  if (dualDepth) head2 += '<th class="excel-corner-sub"></th>';
   trimVals.forEach((v, j) => {
     head2 += `<th class="excel-trim-h"><input type="number" step="any" data-excel="trimVal" data-j="${j}" value="${v}" title="${trimLabel}"></th>`;
   });
@@ -2609,9 +3307,12 @@ function buildExcelCalibrationTable(tank) {
   const nRows = Math.max(rowAxis.length, listAxis.length, isDirect ? 0 : volX.length, 1);
   let body = '';
   for (let i = 0; i < nRows; i++) {
-    const ra = rowAxis[i];
+    const ra = dualDepth ? (ullageAxis[i] ?? rowAxis[i]) : rowAxis[i];
     body += '<tr>';
     body += `<td class="excel-rowh"><input type="number" step="any" data-excel="rowAxis" data-i="${i}" value="${ra ?? ''}"></td>`;
+    if (dualDepth) {
+      body += `<td class="excel-rowh"><input type="number" step="any" data-excel="soundAxis" data-i="${i}" value="${soundingAxis[i] ?? ''}"></td>`;
+    }
     for (let j = 0; j < trimVals.length; j++) {
       const val = trimGrid[i] && trimGrid[i][j] != null ? trimGrid[i][j] : '';
       body += `<td class="excel-trim"><input type="number" step="any" data-excel="trimGrid" data-r="${i}" data-c="${j}" value="${val}"></td>`;
@@ -2644,7 +3345,9 @@ function buildExcelCalibrationTable(tank) {
       <button type="button" class="btn small" id="btn-add-calib-row" style="margin-left:auto">+ row</button>
     </div>
     <div class="hint" style="color:var(--text-faint);font-size:12px;margin-bottom:8px">
-      Matches workbook sheets Tank1–Tank4: left = ${escapeHtml(rowLabel)} × trim${isDirect ? ' volume' : ' correction'}; 
+      Default depth layout: <b>ullage</b> then <b>sounded</b>, then heel/trim/volume.
+      ${dualDepth ? 'Dual columns stored — sounding↔ullage uses the pair (no pipe subtract). ' : ''}
+      Matches workbook sheets Tank1–Tank4 / FLAG EVI: left = ${escapeHtml(rowLabel)} × trim${isDirect ? ' volume' : ' correction'};
       ${isDirect ? '' : 'center = SOUNDING CM / VOLUME; '}right = list/heel table. Edit any cell, then Save.
     </div>
     <div class="scroll-x excel-scroll">
@@ -2680,7 +3383,7 @@ function buildExcelCalibrationTable(tank) {
 }
 
 function readExcelCalibrationTable(tank) {
-  const isDirect = document.getElementById('c-type')?.value === 'direct' || tank.calcType === 'direct';
+  const isDirect = document.getElementById('c-type')?.value === 'direct';
   const trimVals = Array.from(document.querySelectorAll('input[data-excel="trimVal"]'))
     .map((el) => parseFloat(el.value)).filter((n) => !Number.isNaN(n));
   const listVals = Array.from(document.querySelectorAll('input[data-excel="listVal"]'))
@@ -2688,6 +3391,8 @@ function readExcelCalibrationTable(tank) {
 
   const rowInputs = Array.from(document.querySelectorAll('input[data-excel="rowAxis"]'));
   const trimAxis = [];
+  const ullageAxis = [];
+  const soundingAxis = [];
   const trimGrid = [];
   const listAxis = [];
   const listGrid = [];
@@ -2696,6 +3401,7 @@ function readExcelCalibrationTable(tank) {
 
   rowInputs.forEach((el, i) => {
     const ra = parseFloat(el.value);
+    const soundEl = document.querySelector(`input[data-excel="soundAxis"][data-i="${i}"]`);
     const hasTrim = trimVals.some((_, j) => {
       const cell = document.querySelector(`input[data-excel="trimGrid"][data-r="${i}"][data-c="${j}"]`);
       return cell && cell.value !== '';
@@ -2707,6 +3413,9 @@ function readExcelCalibrationTable(tank) {
 
     if (!Number.isNaN(ra)) {
       trimAxis.push(ra);
+      const soundN = soundEl ? parseFloat(soundEl.value) : NaN;
+      ullageAxis.push(ra);
+      soundingAxis.push(Number.isNaN(soundN) ? ra : soundN);
       const row = trimVals.map((_, j) => {
         const cell = document.querySelector(`input[data-excel="trimGrid"][data-r="${i}"][data-c="${j}"]`);
         const n = cell ? parseFloat(cell.value) : 0;
@@ -2737,7 +3446,9 @@ function readExcelCalibrationTable(tank) {
     }
   });
 
-  return {
+  const dual = soundingAxis.length >= 2
+    && soundingAxis.some((s, i) => Number.isFinite(s) && Math.abs(s - ullageAxis[i]) > 1e-9);
+  const out = {
     trimAxis,
     trimVals,
     trimGrid,
@@ -2746,6 +3457,16 @@ function readExcelCalibrationTable(tank) {
     listGrid,
     volumeCurve: { x: volX, v: volV },
   };
+  if (dual) {
+    out.ullageAxis = ullageAxis;
+    out.soundingAxis = soundingAxis;
+    out.depthPairMode = 'dual';
+  } else {
+    out.ullageAxis = [];
+    out.soundingAxis = [];
+    out.depthPairMode = 'single';
+  }
+  return out;
 }
 
 /* ---------- Calibration print / PDF ---------- */
@@ -4626,6 +5347,9 @@ async function checkTankAppUpdate() {
 
 /* ---------- Boot ---------- */
 async function boot() {
+  if (window.LoadingSplash) {
+    LoadingSplash.update(LoadingSplash.BOOT_ID, 'Starting Tank Chief…');
+  }
   try {
     if (window.ChengLicense) await ChengLicense.ensureLicensed();
   } catch (e) {
@@ -4685,6 +5409,7 @@ async function boot() {
   });
 
   try {
+    if (window.LoadingSplash) LoadingSplash.update(LoadingSplash.BOOT_ID, 'Loading vessel data…');
     const st = await Api.getStatus();
     STATE.vessels = st.vessels || [];
     STATE.activeVesselId = st.activeVesselId;
@@ -4713,6 +5438,7 @@ async function boot() {
   }
 
   render();
+  if (window.LoadingSplash) LoadingSplash.endBoot();
   if (isBunkerOpsEmbed()) {
     navigate('bunker-plan');
   } else {

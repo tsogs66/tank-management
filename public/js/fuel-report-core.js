@@ -56,7 +56,7 @@ const REPORT_TYPES = [
 const FUEL_TYPES = [
   { id: 'hfo', label: 'HFO', section: 'fuel', group: 'residual' },
   { id: 'lsfo', label: 'VLSFO', section: 'fuel', group: 'residual' },
-  { id: 'mdo', label: 'MO/MGO', section: 'do', group: 'distillate' },
+  { id: 'mdo', label: 'MDO/MGO', section: 'do', group: 'distillate' },
   { id: 'lsmgo', label: 'LSMGO', section: 'do', group: 'distillate' },
 ];
 
@@ -157,9 +157,46 @@ function soundingPipeHeight(tank) {
   return max;
 }
 
+/**
+ * Read MGO / MDO / LSMGO / HFO off the tank title.
+ *
+ * FLAG EVI and older imports often store fuelGrade as hfo (the form default)
+ * even when the plate says M.G.O. or LSMGO. Dots and spaces are stripped so
+ * "M.G.O. STORAGE TK" and "L.S.M.G.O." match the same as "MGO" / "LSMGO".
+ */
+function fuelGradeFromName(name) {
+  const u = String(name || '').toUpperCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
+  if (!u) return null;
+  if (/\bLSMGO\b|LS\s*MGO/.test(u)) return 'lsmgo';
+  if (/\bMGO\b|GAS OIL/.test(u)) return 'mgo';
+  if (/\bMDO\b|\bDIESEL\b/.test(u)) return 'mdo';
+  if (/VLSFO|ULSFO|\bLSFO\b|LS HFO|LS FO/.test(u)) return 'lsfo';
+  if (/\bHFO\b/.test(u)) return 'hfo';
+  return null;
+}
+
+function isDistillateGrade(grade) {
+  const g = String(grade || '').toLowerCase();
+  return g === 'mdo' || g === 'mgo' || g === 'lsmgo';
+}
+
+/**
+ * Grade used for home-section and default fuel type.
+ * A stored distillate grade wins. A name that is clearly MGO/MDO/LSMGO wins
+ * over a leftover residual default, because those oils are not HFO/VLSFO.
+ */
+function resolvedFuelGrade(tank) {
+  const stored = String((tank && tank.fuelGrade) || '').toLowerCase().trim();
+  const inferred = fuelGradeFromName(tank && tank.name);
+  if (isDistillateGrade(stored)) return stored;
+  if (isDistillateGrade(inferred)) return inferred;
+  if (stored && stored !== 'other') return stored;
+  return inferred || 'hfo';
+}
+
 /** Default grade bucket for a tank, from its calibration-DB fuel grade. */
 function defaultFuelType(tank) {
-  const grade = String((tank && tank.fuelGrade) || '').toLowerCase();
+  const grade = resolvedFuelGrade(tank);
   if (grade === 'lsfo') return 'lsfo';
   if (grade === 'mgo' || grade === 'mdo' || grade === 'lsmgo') return grade === 'lsmgo' ? 'lsmgo' : 'mdo';
   return 'hfo';
@@ -167,8 +204,7 @@ function defaultFuelType(tank) {
 
 /** Which printed block a tank belongs to by its calibration-DB grade. */
 function sectionForTank(tank) {
-  const grade = String((tank && tank.fuelGrade) || '').toLowerCase();
-  return grade === 'mdo' || grade === 'mgo' || grade === 'lsmgo' ? 'do' : 'fuel';
+  return isDistillateGrade(resolvedFuelGrade(tank)) ? 'do' : 'fuel';
 }
 
 /** The block a fuel type belongs in — MDO/MGO and LSMGO are diesel/gas oil. */
@@ -326,10 +362,22 @@ function normalizeForm(bundle, form) {
   };
 }
 
-function trimLabel(trimByStern) {
-  const t = num(trimByStern, 0) || 0;
+/**
+ * Which way the ship is down, in the sign the calibration book prints.
+ *
+ * The trim columns are headed TRIM BY STEM on the positive side and TRIM BY
+ * STERN on the negative, so a positive trim is down by the bow.
+ */
+function trimSense(trim) {
+  const t = num(trim, 0) || 0;
   if (Math.abs(t) < 0.005) return 'even keel';
-  return `${Math.abs(t).toFixed(2)} m by ${t > 0 ? 'stern' : 'fore'}`;
+  return t > 0 ? 'by bow' : 'by stern';
+}
+
+function trimLabel(trim) {
+  const t = num(trim, 0) || 0;
+  if (Math.abs(t) < 0.005) return 'even keel';
+  return `${Math.abs(t).toFixed(2)} m ${trimSense(t)}`;
 }
 
 /** Ullage and dip in mm from the entered sounding and the sounding-pipe height. */
@@ -424,7 +472,7 @@ function computeRow(tank, rowForm, ctx) {
       pipeHeight: pipeHeight || null,
       flipped,
       nativeReading: tableReading != null ? round(tableReading, 3) : null,
-      trimUsed: ctx.trimByStern,
+      trimUsed: ctx.trim,
       heelUsed: ctx.heel,
     },
   };
@@ -437,7 +485,7 @@ function computeRow(tank, rowForm, ctx) {
 
   const result = computeTank(tank, {
     reading,
-    trim: directM3 ? 0 : ctx.trimByStern,
+    trim: directM3 ? 0 : ctx.trim,
     list: directM3 ? 0 : ctx.heel,
     tempC,
     density15,
@@ -487,14 +535,15 @@ function computeFuelReport(bundle, form, conversion) {
   const draftFwd = num(header.draftFwd, 0) || 0;
   const draftAft = num(header.draftAft, 0) || 0;
   const meanDraft = (draftFwd + draftAft) / 2;
-  // Displayed trim keeps the workbook's fwd − aft sign (Data!J7); the
-  // calibration tables are indexed by trim *by the stern*, so the lookup uses
-  // aft − fwd.
+  // One signed trim, printed the way the calibration book heads its columns
+  // and shown the way the monitoring page shows it: positive down by the bow
+  // (TRIM BY STEM), negative down by the stern (TRIM BY STERN). Carrying a
+  // second, negated "by the stern" figure beside it is what let the tank card
+  // and the monitoring page disagree by a sign on the same ship.
   const trim = draftFwd - draftAft;
-  const trimByStern = draftAft - draftFwd;
   const heel = num(header.heel, 0) || 0;
 
-  const ctx = { conversion, capacityMtFactor, trimByStern, heel };
+  const ctx = { conversion, capacityMtFactor, trim, heel };
 
   const sections = SECTIONS.map((section) => ({
     id: section.id,
@@ -584,8 +633,8 @@ function computeFuelReport(bundle, form, conversion) {
       draftAft,
       meanDraft: round(meanDraft, 3),
       trim: round(trim, 3),
-      trimByStern: round(trimByStern, 3),
-      trimLabel: trimLabel(trimByStern),
+      trimLabel: trimLabel(trim),
+      trimSense: trimSense(trim),
       heel,
       heelLabel: heelLabel(heel),
       condition: String(header.reportType || '').toUpperCase(),
@@ -634,7 +683,7 @@ function readingsFromReport(bundle, computed) {
       if (row.measuredM3 == null) continue;
       readings[row.tankId] = {
         reading: num(row.reading),
-        trim: computed.header.trimByStern,
+        trim: computed.header.trim,
         list: computed.header.heel,
         tempC: num(row.tempC, 15),
         density15: row.density15,
@@ -698,8 +747,13 @@ return {
   SAFE_FILL_RATIO,
   LUBE_DENSITY,
   normalizeMethod,
+  trimSense,
+  trimLabel,
   soundingPipeHeight,
   soundingPair,
+  fuelGradeFromName,
+  resolvedFuelGrade,
+  isDistillateGrade,
   defaultFuelType,
   sectionForTank,
   sectionForFuelType,

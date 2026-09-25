@@ -64,6 +64,7 @@ const NodeRequire = (() => {
     './tank-table-io': () => unavailable('Spreadsheet export'),
     './giorgis-fuel-csv': () => unavailable('The fuel CSV importer'),
     './giorgis-lube-xlsx': () => unavailable('The lube spreadsheet importer'),
+    './flag-evi-xlsx': () => unavailable('The FLAG EVI spreadsheet importer'),
     './python-run': () => unavailable('Python'),
     child_process: () => unavailable('Running another program'),
   };

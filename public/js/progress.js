@@ -40,9 +40,13 @@ const Progress = (() => {
     const box = ensure(mountEl);
     box.style.display = '';
     box.classList.add('active');
-    box.querySelector('#task-progress-title').textContent = title || 'Working…';
+    const heading = title || 'Working…';
+    box.querySelector('#task-progress-title').textContent = heading;
     box.querySelector('#task-progress-msg').textContent = message || '';
     box.querySelector('#task-progress-time').textContent = '0:00';
+    if (window.LoadingSplash) {
+      LoadingSplash.show('task-progress', message ? `${heading} — ${message}` : heading);
+    }
     set(0);
     startedAt = Date.now();
     if (timer) clearInterval(timer);
@@ -60,6 +64,9 @@ const Progress = (() => {
     const msg = document.getElementById('task-progress-msg');
     if (!bar || !fill) return;
     if (message != null && msg) msg.textContent = message;
+    if (window.LoadingSplash && LoadingSplash.isVisible()) {
+      LoadingSplash.update('task-progress', message || undefined, { pct: pct == null ? null : pct });
+    }
     if (pct == null) {
       bar.classList.add('indeterminate');
       fill.style.width = '40%';
@@ -72,6 +79,7 @@ const Progress = (() => {
   function done(message) {
     if (message) set(100, message);
     if (timer) { clearInterval(timer); timer = null; }
+    if (window.LoadingSplash) LoadingSplash.hide('task-progress');
     const box = document.getElementById('task-progress');
     if (!box) return;
     window.setTimeout(() => {

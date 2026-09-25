@@ -178,10 +178,14 @@ const FuelReport = (() => {
           <input type="number" step="any" data-head="draftFwd" value="${esc(h.draftFwd)}"></label>
         <label class="fr-field"><span>MEAN DRAFT</span>
           <output class="fr-out" data-fr-head="meanDraft"></output></label>
-        <label class="fr-field"><span>HEEL (°)</span>
-          <input type="number" step="any" data-head="heel" value="${esc(heelVal)}" title="Negative = heel to port · positive = heel to starboard"></label>
-        <label class="fr-field"><span>ER TEMP.</span>
-          <input type="number" step="any" data-head="engineRoomTemp" value="${esc(h.engineRoomTemp)}"></label>
+        <div class="fr-field-triple">
+          <label class="fr-field"><span>HEEL (°)</span>
+            <input type="number" step="any" data-head="heel" value="${esc(heelVal)}" title="Negative = port · positive = starboard"></label>
+          <label class="fr-field"><span>SW TEMP.</span>
+            <input type="number" step="any" data-head="seaTemp" value="${esc(h.seaTemp)}"></label>
+          <label class="fr-field"><span>ER TEMP.</span>
+            <input type="number" step="any" data-head="engineRoomTemp" value="${esc(h.engineRoomTemp)}"></label>
+        </div>
 
         <label class="fr-field"><span>DATE</span>
           <input type="date" data-head="date" value="${esc(h.date)}"></label>
@@ -193,8 +197,6 @@ const FuelReport = (() => {
           <output class="fr-out" data-fr-head="trim"></output></label>
         <label class="fr-field fr-field-wide"><span>PORT</span>
           <input data-head="port" value="${esc(h.port)}"></label>
-        <label class="fr-field"><span>SW TEMP.</span>
-          <input type="number" step="any" data-head="seaTemp" value="${esc(h.seaTemp)}"></label>
       </div>
       <div class="hint">Heel: enter decimals if needed. <b>Negative</b> values = heel to <b>port</b>; <b>positive</b> = heel to <b>starboard</b>. Default 0 when left blank.</div>
       <div class="hint" data-fr-head="attitude"></div>
@@ -241,7 +243,7 @@ const FuelReport = (() => {
         <td><select data-row="${esc(row.tankId)}" data-field="fuelType">${typeOpts}</select></td>
         <td class="fr-actual-cell"><input type="number" step="any" data-row="${esc(row.tankId)}" data-field="reading" data-sheet-popup="actual" value="${esc(actualVal)}">${diBtn}</td>
         <td>${methodCell}</td>
-        <td><input type="number" step="any" class="fr-narrow" data-row="${esc(row.tankId)}" data-field="tempC" value="${esc(f.tempC)}"></td>
+        <td><input type="number" step="any" class="fr-narrow" data-row="${esc(row.tankId)}" data-field="tempC" data-sheet-popup="temp" value="${esc(f.tempC)}"></td>
         <td><input type="number" step="any" class="fr-wide" data-row="${esc(row.tankId)}" data-field="unitValue" data-sheet-popup="sg" value="${esc(f.unitValue)}"></td>
         <td class="fr-check"><input type="checkbox" data-row="${esc(row.tankId)}" data-field="inUse" ${row.inUse ? 'checked' : ''}></td>
         ${COMPUTED_COLUMNS.map((c) =>
@@ -611,7 +613,7 @@ const FuelReport = (() => {
     setCell('[data-fr-head="trim"]', n(c.header.trim, 2));
     setCell('[data-fr-head="attitude"]',
       `Trim ${c.header.trimLabel} · heel ${c.header.heelLabel} — calibration tables are read at trim `
-      + `${signed(c.header.trimByStern, 2)} m by the stern.`);
+      + `${signed(c.header.trim, 2)} m ${Core.trimSense(c.header.trim)}.`);
 
     paintSectionCells(c.sections);
     for (const section of c.sections) {
@@ -1333,7 +1335,7 @@ const FuelReport = (() => {
           <td>${esc(r.methodLabel)} ${n(Core.mmToCm(r.reading, { soundingUnit: r.soundingUnit }), 1)}</td>
           <td>${t.flipped ? `${esc(t.nativeMethod)} ${n(t.nativeReading, 0)} (pipe ${n(t.pipeHeight, 0)})` : 'as read'}</td>
           <td>${esc(r.calcType)} · step ${n(t.soundingIncrement, 0)}</td>
-          <td>${signed(t.trimUsed, 2)} m</td>
+          <td>${signed(t.trimUsed, 2)} m ${esc(Core.trimSense(t.trimUsed))}</td>
           <td>${corrCell(r, t.trimCorrection)}</td>
           <td>${signed(t.heelUsed, 1)}°</td>
           <td>${corrCell(r, t.listCorrection)}</td>
@@ -1397,10 +1399,10 @@ const FuelReport = (() => {
         <thead><tr><th>Step</th><th>Formula</th><th>Source</th></tr></thead>
         <tbody>
           <tr><td class="fr-print-name">Mean draft</td><td>(draft fwd + draft aft) ÷ 2</td><td>Report header</td></tr>
-          <tr><td class="fr-print-name">Trim</td><td>draft aft − draft fwd (direct table trim by the stern — not scaled)</td><td>Report header</td></tr>
-          <tr><td class="fr-print-name">Dip ↔ ullage</td><td>reading on table scale = sounding-pipe height − reading (before trim)</td><td>Setup sheet</td></tr>
-          <tr><td class="fr-print-name">Trim correction</td><td>double interpolation on table-scale sounding × direct trim grid ÷ correction divisor</td><td>Tank calibration table</td></tr>
-          <tr><td class="fr-print-name">Heel correction</td><td>double interpolation on table-scale sounding × heel grid ÷ correction divisor (applied before trim)</td><td>Tank calibration table</td></tr>
+          <tr><td class="fr-print-name">Trim</td><td>draft fwd − draft aft; positive is down by the bow (the book's TRIM BY STEM columns), negative down by the stern</td><td>Report header</td></tr>
+          <tr><td class="fr-print-name">Dip ↔ ullage</td><td>reading on table scale = sounding-pipe height − reading</td><td>Setup sheet</td></tr>
+          <tr><td class="fr-print-name">Trim correction</td><td>double interpolation on sounding × trim grid ÷ correction divisor</td><td>Tank calibration table</td></tr>
+          <tr><td class="fr-print-name">Heel correction</td><td>double interpolation on corrected sounding × heel grid ÷ correction divisor</td><td>Tank calibration table</td></tr>
           <tr><td class="fr-print-name">Observed volume</td><td>volume curve / trim-volume grid at the corrected sounding</td><td>Tank calibration table</td></tr>
           <tr><td class="fr-print-name">Volume %</td><td>observed volume ÷ 100% capacity × 100</td><td>Data sheet</td></tr>
           <tr><td class="fr-print-name">VCF (ASTM 54B)</td><td>exp(−α·ΔT·(1 + 0.8·α·ΔT)), ΔT = temp − 15 °C, α from the density band</td><td>ASTM Tables sheet</td></tr>
@@ -1473,9 +1475,15 @@ const FuelReport = (() => {
   }
 
 
-  /* ---- Mobile / tablet sheet popups (Actual + SG) ---- */
+  /* ---- Mobile / tablet sheet popups (Actual + Temp + SG) ---- */
   function sheetPopupWanted() {
     try {
+      /* Windows desktop / mouse: type in the grid. Coarse/touch or narrow
+         viewports keep the sheet popup so fat fingers are not fighting cells. */
+      if (window.matchMedia('(hover: hover) and (pointer: fine)').matches
+        && window.matchMedia('(min-width: 1101px)').matches) {
+        return false;
+      }
       return window.matchMedia('(max-width: 1100px), (pointer: coarse)').matches;
     } catch (_) {
       return window.innerWidth <= 1100;
@@ -1486,9 +1494,85 @@ const FuelReport = (() => {
     document.getElementById('tankSheetPopup')?.remove();
   }
 
+  /* Select the whole value so the next keystroke replaces it. type=number
+     ignores select() on Chromium/Android, so those fields are text+decimal. */
+  function selectAllPopupField(el) {
+    if (!el || el.readOnly || el.disabled) return;
+    if (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA') return;
+    const t = String(el.type || 'text').toLowerCase();
+    if (t === 'checkbox' || t === 'radio' || t === 'button' || t === 'submit'
+      || t === 'file' || t === 'hidden' || t === 'range' || t === 'color'
+      || t === 'date' || t === 'time' || t === 'datetime-local' || t === 'month' || t === 'week') {
+      return;
+    }
+    const run = () => {
+      try { el.select(); } catch (_) { /* ignore */ }
+      try {
+        const len = String(el.value ?? '').length;
+        if (typeof el.setSelectionRange === 'function') el.setSelectionRange(0, len);
+      } catch (_) { /* type=number */ }
+    };
+    run();
+    setTimeout(run, 0);
+  }
+
+  function bindPopupSelectAll(root) {
+    if (!root || root.dataset.tspSelectAll === '1') return;
+    root.dataset.tspSelectAll = '1';
+    const onFocus = (e) => {
+      const el = e.target;
+      if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) return;
+      selectAllPopupField(el);
+    };
+    const onPointer = (e) => {
+      const el = e.target;
+      if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) return;
+      if (document.activeElement === el) {
+        if (e.cancelable && e.type !== 'touchend') e.preventDefault();
+        selectAllPopupField(el);
+      }
+    };
+    root.addEventListener('focusin', onFocus);
+    root.addEventListener('mouseup', onPointer);
+    root.addEventListener('pointerup', onPointer);
+    root.addEventListener('touchend', () => {
+      const el = document.activeElement;
+      if (el && root.contains(el)) selectAllPopupField(el);
+    });
+  }
+
+  function popupModeTitle(mode, sectionTitle) {
+    if (mode === 'sg') return `${sectionTitle} — SG`;
+    if (mode === 'temp') return `${sectionTitle} — Temp`;
+    return `${sectionTitle} — Actual`;
+  }
+
+  function popupRowHtml(mode, r, fr) {
+    const name = `<div class="tsp-name">${esc(r.name)}</div>`;
+    if (mode === 'sg') {
+      return `<div class="tsp-row" data-tsp-tank="${esc(r.tankId)}">
+        ${name}
+        <label class="tsp-field"><span>SG</span>
+          <input type="text" inputmode="decimal" autocomplete="off" data-tsp="unitValue" value="${esc(fr.unitValue)}"></label>
+      </div>`;
+    }
+    if (mode === 'temp') {
+      return `<div class="tsp-row" data-tsp-tank="${esc(r.tankId)}">
+        ${name}
+        <label class="tsp-field"><span>Temp (°C)</span>
+          <input type="text" inputmode="decimal" autocomplete="off" data-tsp="tempC" value="${esc(fr.tempC)}"></label>
+      </div>`;
+    }
+    return `<div class="tsp-row" data-tsp-tank="${esc(r.tankId)}">
+      ${name}
+      <label class="tsp-field"><span>Actual (cm)</span>
+        <input type="text" inputmode="decimal" autocomplete="off" data-tsp="reading" value="${esc(Core.formatCm(fr.reading, { soundingUnit: r.soundingUnit }))}"></label>
+    </div>`;
+  }
+
   function openSheetPopup(opts) {
     const {
-      mode, /* 'actual' | 'sg' */
+      mode, /* 'actual' | 'sg' | 'temp' */
       sectionId,
       focusTankId,
       formRows,
@@ -1499,26 +1583,9 @@ const FuelReport = (() => {
     closeSheetPopup();
     const section = (computed.sections || []).find((s) => s.id === sectionId)
       || { id: sectionId, title: sectionId === 'do' ? 'MO / MGO / LSMGO' : 'HFO / VLSFO', rows: [] };
-    const title = mode === 'sg'
-      ? `${section.title} — SG`
-      : `${section.title} — Actual`;
-    const list = (section.rows || []).map((r) => {
-      const fr = formRows[r.tankId] || {};
-      if (mode === 'sg') {
-        return `<div class="tsp-row" data-tsp-tank="${esc(r.tankId)}">
-          <div class="tsp-name">${esc(r.name)}</div>
-          <label class="tsp-field"><span>SG</span>
-            <input type="number" step="any" inputmode="decimal" data-tsp="unitValue" value="${esc(fr.unitValue)}"></label>
-        </div>`;
-      }
-      return `<div class="tsp-row" data-tsp-tank="${esc(r.tankId)}">
-        <div class="tsp-name">${esc(r.name)}</div>
-        <label class="tsp-field"><span>Actual (cm)</span>
-          <input type="number" step="any" inputmode="decimal" data-tsp="reading" value="${esc(Core.formatCm(fr.reading, { soundingUnit: r.soundingUnit }))}"></label>
-        <label class="tsp-field"><span>Temp (°C)</span>
-          <input type="number" step="any" inputmode="decimal" data-tsp="tempC" value="${esc(fr.tempC)}"></label>
-      </div>`;
-    }).join('') || `<p class="hint">No tanks in this group.</p>`;
+    const title = popupModeTitle(mode, section.title);
+    const list = (section.rows || []).map((r) => popupRowHtml(mode, r, formRows[r.tankId] || {})).join('')
+      || `<p class="hint">No tanks in this group.</p>`;
 
     const overlay = document.createElement('div');
     overlay.id = 'tankSheetPopup';
@@ -1533,10 +1600,17 @@ const FuelReport = (() => {
       </div>
     </div>`;
     document.body.appendChild(overlay);
+    bindPopupSelectAll(overlay);
 
+    const focusSel = mode === 'sg' ? '[data-tsp="unitValue"]'
+      : mode === 'temp' ? '[data-tsp="tempC"]'
+      : '[data-tsp="reading"]';
     const focusRow = overlay.querySelector(`[data-tsp-tank="${CSS.escape(focusTankId || '')}"]`);
-    const focusInput = focusRow?.querySelector('input');
-    setTimeout(() => focusInput?.focus(), 40);
+    const focusInput = focusRow?.querySelector(focusSel) || overlay.querySelector('input');
+    setTimeout(() => {
+      focusInput?.focus();
+      selectAllPopupField(focusInput);
+    }, 40);
 
     const dismiss = () => closeSheetPopup();
     overlay.addEventListener('click', (e) => { if (e.target === overlay) dismiss(); });
@@ -1549,27 +1623,29 @@ const FuelReport = (() => {
         if (mode === 'sg') {
           fr.unitValue = rowEl.querySelector('[data-tsp="unitValue"]')?.value ?? '';
           fr.unit = 'den15';
+        } else if (mode === 'temp') {
+          fr.tempC = rowEl.querySelector('[data-tsp="tempC"]')?.value ?? '';
         } else {
           fr.reading = Core.cmToMm(rowEl.querySelector('[data-tsp="reading"]')?.value, {
             soundingUnit: (view.computed?.sections || [])
               .flatMap((s) => s.rows).find((x) => x.tankId === id)?.soundingUnit || 'mm',
           });
-          fr.tempC = rowEl.querySelector('[data-tsp="tempC"]')?.value ?? '';
           fr.unit = 'den15';
         }
         if (host) {
           if (mode === 'sg') {
             const uv = host.querySelector(`input[data-row="${CSS.escape(id)}"][data-field="unitValue"]`);
             if (uv) uv.value = fr.unitValue ?? '';
+          } else if (mode === 'temp') {
+            const tp = host.querySelector(`input[data-row="${CSS.escape(id)}"][data-field="tempC"]`);
+            if (tp) tp.value = fr.tempC ?? '';
           } else {
             const rd = host.querySelector(`input[data-row="${CSS.escape(id)}"][data-field="reading"]`);
-            const tp = host.querySelector(`input[data-row="${CSS.escape(id)}"][data-field="tempC"]`);
             const unitHint = {
               soundingUnit: (view.computed?.sections || [])
                 .flatMap((s) => s.rows).find((x) => x.tankId === id)?.soundingUnit || 'mm',
             };
             if (rd) rd.value = Core.formatCm(fr.reading, unitHint);
-            if (tp) tp.value = fr.tempC ?? '';
           }
         }
       });
@@ -1583,14 +1659,15 @@ const FuelReport = (() => {
       const el = e.target;
       if (!el || !el.dataset || !el.dataset.sheetPopup) return;
       if (!sheetPopupWanted()) return;
-      const fieldMode = el.dataset.sheetPopup; /* actual | sg */
+      const fieldMode = el.dataset.sheetPopup; /* actual | sg | temp */
       const tankId = el.dataset.row;
       const sectionEl = el.closest('[data-section]');
       const sectionId = sectionEl?.dataset.section || 'fuel';
       e.preventDefault();
       el.blur();
+      const mode = fieldMode === 'sg' ? 'sg' : fieldMode === 'temp' ? 'temp' : 'actual';
       openSheetPopup({
-        mode: fieldMode === 'sg' ? 'sg' : 'actual',
+        mode,
         sectionId,
         focusTankId: tankId,
         formRows: getFormRows(),

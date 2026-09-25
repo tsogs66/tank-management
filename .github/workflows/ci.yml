@@ -31,6 +31,19 @@ jobs:
 
       - run: npm ci
 
+      - name: Check asar Python script path rewrite
+        run: node scripts/test-python-asar-path.js
+
+      - name: Check FLAG EVI dual-sheet importer
+        run: node scripts/test-flag-evi-xlsx.js
+
+      # Not every yard writes the book the same way. A JEWEL book splits the
+      # header over two rows, puts sounding first and works in centimetres;
+      # only the first of those fails loudly, so this checks the depths come
+      # in the right way round and in the right unit.
+      - name: Correction books written another way
+        run: node scripts/test-flag-evi-layout.js
+
       # No bundler: public/js is hand-edited and loaded straight by the page,
       # so a parse error would otherwise ship.
       - name: Check every script parses
@@ -39,6 +52,34 @@ jobs:
           for f in public/js/*.js server/*.js scripts/*.js; do
             node --check "$f"
           done
+
+      # The calculation the whole program exists for. The figures are a real
+      # calibration book, so a regression shows up as a wrong tonnage here
+      # rather than on a signed sheet.
+      - name: Double interpolation against a real calibration book
+        run: node scripts/test-double-interp.js
+
+      # Ships do not share a calibration book. This is the three arrangements
+      # the app has to tell apart from the tables themselves.
+      - name: Calibration arrangements
+        run: node scripts/test-calc-type.js
+
+      # A book is typed by hand before it is imported. These are the shapes it
+      # arrives in — merged trim headers, "-4-1" heel pairs, blocks of
+      # different widths down one sheet — and what has to come out.
+      - name: Sheet tidying before import
+        run: node scripts/test-sheet-tidy.js
+
+      # The order a chief puts the tanks in is the order of the stored array,
+      # which every page reads. This covers what the array alone cannot: a
+      # reorder sent from a stale page, and the route that would otherwise be
+      # read as a tank called "order".
+      - name: Tank order
+        run: node scripts/test-tank-order.js
+
+      # Repairing a tank's table type must not cost it its tables.
+      - name: Calibration repair keeps the tables
+        run: node scripts/test-recheck-calc-type.js
 
       # public/embedded is generated from server/ and gitignored. If the copy
       # step breaks, the on-device database silently stops matching the server.
@@ -96,6 +137,12 @@ jobs:
             sleep 1
           done
           node scripts/parity-check.js
+
+          # The reorder list is dragged with pointer events so one code path
+          # serves finger, pen and mouse. Whether a touchscreen fires them at
+          # all is a question only a browser answers, so it is asked here,
+          # where there is one — and a server for the order to be saved to.
+          node scripts/test-reorder-touch.js
           kill "$(cat /tmp/tank-server.pid)" || true
 
       - name: Server log

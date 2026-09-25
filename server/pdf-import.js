@@ -445,6 +445,12 @@ function planTankCreates(result, opts = {}) {
       pdfSource: group.name,
       pdfTableId: table.id,
     };
+    // Ask the finished tables what arrangement they are in; keep the guess
+    // above when they do not say clearly.
+    const verdict = detectCalcType(tank);
+    if (verdict.confident && verdict.calcType) tank.calcType = verdict.calcType;
+    tank.calcTypeReason = verdict.reason;
+    tank.calcTypeConfident = !!verdict.confident;
     plans.push({
       name: meta.name,
       tableId: table.id,
