@@ -2,7 +2,7 @@
  * Signed decimals on phones/tablets: Android's decimal numpad (inputmode=decimal)
  * has no minus key. Heel, trim, and calibration grids need −.
  *
- * Touch/coarse: keep inputmode=decimal for the numeric pad + show a small − / .
+ * Touch/coarse: keep inputmode=decimal for the numeric pad + show a small + − .
  * accessory above the keyboard. Desktop: inputmode=text (full keyboard, pen-friendly).
  */
 (function (global) {
@@ -29,7 +29,11 @@
   ].join(',');
 
   let accessoryEl = null;
-  let accessoryTarget = null;
+  /** Last signed input that opened the bar (kept while tapping Insert keys). */
+  let lastSignedInput = null;
+  let savedCaret = { start: 0, end: 0 };
+  let hideAccessoryTimer = null;
+  let accessoryPointerDown = false;
 
   function touchLike() {
     try {
@@ -63,10 +67,32 @@
     el.dataset.signedReady = '1';
   }
 
+  function rememberCaret(el) {
+    if (!el) return;
+    const val = String(el.value ?? '');
+    let start = val.length;
+    let end = val.length;
+    try {
+      if (el.selectionStart != null) start = el.selectionStart;
+      if (el.selectionEnd != null) end = el.selectionEnd;
+    } catch (_e) { /* ignore */ }
+    savedCaret = { start, end };
+  }
+
+  function bindFieldCaretTracking(el) {
+    if (!el || el.dataset.tmsCaretBound === '1') return;
+    el.dataset.tmsCaretBound = '1';
+    const sync = () => {
+      if (document.activeElement === el) rememberCaret(el);
+    };
+    el.addEventListener('keyup', sync);
+    el.addEventListener('click', sync);
+    el.addEventListener('select', sync);
+  }
+
   /** Optional leading +/−, digits, one decimal separator while typing. */
   function coerceSignedNumericInput(el) {
     if (!el || el.dataset.signed !== '1') return;
-    /* Voyage log entry runs its own coerceSurveyCorrectionInput (+/− semantics). */
     if (el.dataset.surveyCorr != null) return;
     const raw = String(el.value ?? '');
     let out = '';
@@ -81,30 +107,38 @@
       else if ((c === '.' || c === ',') && !seenDot) { out += '.'; seenDot = true; }
     }
     if (out === raw) return;
-    let start = null;
+    let start = savedCaret.start;
     try { start = el.selectionStart; } catch (_e) { /* ignore */ }
     el.value = out;
-    try {
-      const pos = Math.min(out.length, start != null ? start : out.length);
-      el.setSelectionRange(pos, pos);
-    } catch (_e) { /* ignore */ }
+    const pos = Math.min(out.length, start != null ? start : out.length);
+    savedCaret = { start: pos, end: pos };
+    try { el.setSelectionRange(pos, pos); } catch (_e) { /* ignore */ }
   }
 
-  function insertAtCaret(el, text) {
+  function insertAtCaret(el, text, caret) {
     if (!el || el.readOnly || el.disabled) return;
     const val = String(el.value ?? '');
-    let start = val.length;
-    let end = val.length;
-    try {
-      start = el.selectionStart != null ? el.selectionStart : val.length;
-      end = el.selectionEnd != null ? el.selectionEnd : start;
-    } catch (_e) { /* ignore */ }
+    const start = caret?.start != null ? caret.start : val.length;
+    const end = caret?.end != null ? caret.end : start;
     const next = val.slice(0, start) + text + val.slice(end);
     el.value = next;
-    coerceSignedNumericInput(el);
     const pos = start + text.length;
-    try { el.setSelectionRange(pos, pos); } catch (_e) { /* ignore */ }
+    savedCaret = { start: pos, end: pos };
+    coerceSignedNumericInput(el);
+    try { el.setSelectionRange(savedCaret.start, savedCaret.end); } catch (_e) { /* ignore */ }
     el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function applyAccessoryChar(ch) {
+    const el = lastSignedInput;
+    if (!el || !document.body.contains(el)) return;
+    const text = ch === '−' ? '-' : ch;
+    insertAtCaret(el, text, savedCaret);
+    try {
+      el.focus({ preventScroll: true });
+      el.setSelectionRange(savedCaret.start, savedCaret.end);
+    } catch (_e) { /* ignore */ }
   }
 
   function ensureAccessoryCss() {
@@ -118,6 +152,7 @@
   background:linear-gradient(180deg,rgba(10,18,28,.94),rgba(6,12,20,.98));
   border-top:1px solid rgba(201,154,83,.35);
   box-shadow:0 -8px 24px rgba(0,0,0,.35);
+  touch-action:manipulation;
 }
 html.bright .tms-signed-accessory{background:linear-gradient(180deg,#f4f1ea,#ebe6dc);border-color:rgba(18,34,56,.12);}
 .tms-signed-accessory.open{display:flex;}
@@ -125,12 +160,34 @@ html.bright .tms-signed-accessory{background:linear-gradient(180deg,#f4f1ea,#ebe
   min-width:72px;min-height:48px;padding:10px 16px;border-radius:12px;
   border:1px solid rgba(201,154,83,.45);background:rgba(0,0,0,.28);color:inherit;
   font-size:22px;font-weight:700;cursor:pointer;letter-spacing:normal;text-transform:none;
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent;
 }
 html.bright .tms-signed-accessory button{background:#fff;color:#122238;}
 .tms-signed-accessory button:active{transform:scale(.97);}
 .tms-signed-accessory .tms-sa-label{font-size:11px;align-self:center;opacity:.65;text-transform:uppercase;letter-spacing:.08em;margin-right:4px;}
 `;
     document.head.appendChild(s);
+  }
+
+  function bindAccessoryButton(btn) {
+    if (!btn || btn.dataset.tmsInsBound === '1') return;
+    btn.dataset.tmsInsBound = '1';
+    const ch = btn.getAttribute('data-tms-ins');
+    const fire = (e) => {
+      if (e.cancelable) e.preventDefault();
+      e.stopPropagation();
+      applyAccessoryChar(ch);
+    };
+    btn.addEventListener('pointerdown', (e) => {
+      accessoryPointerDown = true;
+      if (hideAccessoryTimer) {
+        clearTimeout(hideAccessoryTimer);
+        hideAccessoryTimer = null;
+      }
+      if (lastSignedInput) rememberCaret(lastSignedInput);
+      fire(e);
+    });
+    btn.addEventListener('click', fire);
   }
 
   function ensureAccessory() {
@@ -144,15 +201,7 @@ html.bright .tms-signed-accessory button{background:#fff;color:#122238;}
       <button type="button" data-tms-ins="+" aria-label="Plus">+</button>
       <button type="button" data-tms-ins="−" aria-label="Minus">−</button>
       <button type="button" data-tms-ins="." aria-label="Decimal point">.</button>`;
-    bar.addEventListener('mousedown', (e) => { e.preventDefault(); });
-    bar.addEventListener('touchstart', (e) => { e.preventDefault(); }, { passive: false });
-    bar.addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-tms-ins]');
-      if (!btn || !accessoryTarget) return;
-      const ch = btn.getAttribute('data-tms-ins');
-      insertAtCaret(accessoryTarget, ch === '−' ? '-' : ch);
-      accessoryTarget.focus();
-    });
+    bar.querySelectorAll('[data-tms-ins]').forEach(bindAccessoryButton);
     document.body.appendChild(bar);
     accessoryEl = bar;
     return bar;
@@ -172,7 +221,9 @@ html.bright .tms-signed-accessory button{background:#fff;color:#122238;}
 
   function showAccessory(el) {
     if (!touchLike() || !el) return;
-    accessoryTarget = el;
+    lastSignedInput = el;
+    rememberCaret(el);
+    bindFieldCaretTracking(el);
     const bar = ensureAccessory();
     bar.classList.add('open');
     document.documentElement.classList.add('keyboard-open');
@@ -181,10 +232,24 @@ html.bright .tms-signed-accessory button{background:#fff;color:#122238;}
 
   function hideAccessory() {
     if (accessoryEl) accessoryEl.classList.remove('open');
-    accessoryTarget = null;
     if (!document.querySelector('input:focus, textarea:focus')) {
       document.documentElement.classList.remove('keyboard-open');
     }
+  }
+
+  function scheduleHideAccessory() {
+    if (hideAccessoryTimer) clearTimeout(hideAccessoryTimer);
+    hideAccessoryTimer = setTimeout(() => {
+      hideAccessoryTimer = null;
+      if (accessoryPointerDown) {
+        accessoryPointerDown = false;
+        return;
+      }
+      const active = document.activeElement;
+      if (isSignedField(active)) return;
+      if (accessoryEl && active && accessoryEl.contains(active)) return;
+      hideAccessory();
+    }, 280);
   }
 
   function scan(root) {
@@ -203,21 +268,22 @@ html.bright .tms-signed-accessory button{background:#fff;color:#122238;}
     document.addEventListener('focusin', (e) => {
       const el = e.target;
       if (!isSignedField(el)) return;
+      if (hideAccessoryTimer) {
+        clearTimeout(hideAccessoryTimer);
+        hideAccessoryTimer = null;
+      }
       prepareSigned(el);
       showAccessory(el);
     }, true);
-    document.addEventListener('focusout', () => {
-      setTimeout(() => {
-        const active = document.activeElement;
-        if (isSignedField(active)) {
-          accessoryTarget = active;
-          return;
-        }
-        hideAccessory();
-      }, 80);
+    document.addEventListener('focusout', (e) => {
+      if (isSignedField(e.target)) rememberCaret(e.target);
+      scheduleHideAccessory();
     }, true);
     document.addEventListener('input', (e) => {
-      if (e.target?.dataset?.signed === '1') coerceSignedNumericInput(e.target);
+      if (e.target?.dataset?.signed === '1') {
+        rememberCaret(e.target);
+        coerceSignedNumericInput(e.target);
+      }
     }, true);
     try {
       window.visualViewport?.addEventListener('resize', positionAccessory);
@@ -245,6 +311,8 @@ html.bright .tms-signed-accessory button{background:#fff;color:#122238;}
     touchLike,
     prepareSigned,
     coerceSignedNumericInput,
+    insertAtCaret,
+    applyAccessoryChar,
     scan,
     isSignedField,
   };
