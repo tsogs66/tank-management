@@ -2583,6 +2583,11 @@ html.bright .dim-grid output.dim-formula.dim-formula-mid { background: rgba(110,
 .dim-mid-row { background: rgba(255, 255, 255, 0.03); }
 .dim-result-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
 .dim-targets { margin-bottom: 8px; }
+.dim-heel-mode-field { border: 1px solid var(--line, #2a3550); border-radius: 8px; padding: 8px 12px; margin: 8px 0; }
+.dim-heel-mode-field legend { font-size: 12px; font-weight: 600; padding: 0 4px; }
+.dim-radio { display: block; font-size: 13px; margin: 4px 0; cursor: pointer; }
+.dim-axis-actions { margin: 4px 0 10px; }
+.dim-corr-sounding { margin-left: 4px; }
 
 /* ---- Windows / desktop: fixed top menubar with click dropdowns ---- */
 html.tc-top-nav:not(.is-mobile-chrome) {

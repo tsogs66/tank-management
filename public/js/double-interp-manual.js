@@ -20,6 +20,15 @@
     return String(Math.round(Number(v) * 10000) / 10000);
   }
 
+  function axisBracket(center) {
+    if (typeof root.excelAxisBracket === 'function') return root.excelAxisBracket(center);
+    const v = Number(center);
+    if (!Number.isFinite(v)) return [0, 0, 1];
+    if (Math.abs(v) < 1e-9) return [0, 0, 1];
+    if (v > 0) return [0, v, 1];
+    return [0, v, -1];
+  }
+
   function readAxis(prefix) {
     return [
       num(document.getElementById(`${prefix}-0`)?.value, null),
@@ -54,9 +63,46 @@
     });
   }
 
+  function heelMode() {
+    const el = document.querySelector('input[name="dim-heel-mode"]:checked');
+    return el && el.value === 'sounding' ? 'sounding' : 'volume';
+  }
+
+  function applyAxisBracket(prefix, center, force) {
+    const bracket = axisBracket(center);
+    [0, 1, 2].forEach((i) => {
+      const el = document.getElementById(`${prefix}-${i}`);
+      if (!el) return;
+      if (i === 1) {
+        el.value = String(center);
+        return;
+      }
+      if (force || el.dataset.dimAuto === '1' || el.value === '') {
+        el.value = String(bracket[i]);
+        el.dataset.dimAuto = '1';
+      }
+    });
+  }
+
+  function updateHeelSectionLabels(mode) {
+    const title = document.getElementById('dim-heel-section-title');
+    if (title) {
+      title.textContent = mode === 'sounding'
+        ? 'HEELING CORRECTION (cm on sounding)'
+        : 'HEELING CORRECTION (m³ to add to volume)';
+    }
+    const hint = document.getElementById('dim-heel-mode-hint');
+    if (hint) {
+      hint.textContent = mode === 'sounding'
+        ? 'Heel table is in cm: interpolated correction is added to target sounding, then trim volume is read at that length.'
+        : 'Heel table is in m³: centre heel (D11) is added to trim centre (D4), then volume is interpolated at target sounding.';
+    }
+  }
+
   function computeResult() {
     const fn = root.manualDoubleInterpolation;
     if (typeof fn !== 'function') return null;
+    const mode = heelMode();
     const soundingAxis = readAxis('dim-sounding');
     const trimAxis = readAxis('dim-trim');
     const heelAxis = readAxis('dim-heel');
@@ -70,7 +116,8 @@
     if (typeof build === 'function') {
       const corners = root.excelQuadrantCornersFromGrid;
       const heelFilled = build(soundingAxis, heelAxis, corners(heelGrid));
-      const heelCenter = heelFilled && heelFilled[1] ? heelFilled[1][1] : 0;
+      let heelCenter = 0;
+      if (mode === 'volume' && heelFilled && heelFilled[1]) heelCenter = heelFilled[1][1];
       const trimFilled = build(soundingAxis, trimAxis, corners(trimGrid), heelCenter);
       paintFormulaCells('dim-trim-grid', trimFilled);
       paintFormulaCells('dim-heel-grid', heelFilled);
@@ -82,16 +129,19 @@
       heel,
       soundingAxis,
       trimAxis,
+      heelAxis,
       heelGrid,
       trimGrid,
+      heelMode: mode,
     });
   }
 
-  /**
-   * @param {string} secLabel Trim (m) or Heel (°)
-   * @param {string} tableId
-   * @param {string} secPrefix dim-trim | dim-heel
-   */
+  function resultVolume(raw) {
+    if (raw == null) return null;
+    if (typeof raw === 'object' && raw.volumeM3 != null) return raw.volumeM3;
+    return Number(raw);
+  }
+
   function soundingAxisRow() {
     const sound = (i) =>
       `<input type="text" inputmode="decimal" data-signed="1" class="dim-axis" id="dim-sounding-${i}">`;
@@ -102,11 +152,12 @@
     </div>`;
   }
 
-  function quadrantSection(title, secLabel, tableId, secPrefix) {
+  function quadrantSection(title, secLabel, tableId, secPrefix, titleId) {
     const secHead = (i, extraClass, readonly) => {
       const cls = `dim-axis ${extraClass || ''}`.trim();
       const ro = readonly ? ' readonly tabindex="-1"' : '';
-      return `<input type="text" inputmode="decimal" data-signed="1" class="${cls}" id="${secPrefix}-${i}"${ro}>`;
+      const auto = i !== 1 ? ' data-dim-auto="1"' : '';
+      return `<input type="text" inputmode="decimal" data-signed="1" class="${cls}" id="${secPrefix}-${i}"${ro}${auto}>`;
     };
     const corner = (r, c) =>
       `<input type="text" inputmode="decimal" data-signed="1" data-dim-corner data-row="${r}" data-col="${c}" class="dim-manual">`;
@@ -114,9 +165,10 @@
       `<output class="dim-formula" data-dim-formula data-row="${r}" data-col="${c}">—</output>`;
     const soundLabel = (i) =>
       `<output class="dim-sound-label" data-dim-sound-label data-idx="${i}">—</output>`;
+    const tid = titleId ? ` id="${titleId}"` : '';
 
     return `<div class="dim-quadrant-block">
-      <div class="section-title">${esc(title)}</div>
+      <div class="section-title"${tid}>${esc(title)}</div>
       <table class="dim-grid dim-excel-grid" id="${tableId}">
         <thead>
           <tr><th></th><th colspan="3">${esc(secLabel)}</th></tr>
@@ -176,9 +228,8 @@
     overlay.innerHTML = `<div class="tsp-dialog dim-interp-dialog" role="dialog" aria-modal="true">
       <div class="tsp-head"><h3>Double interpolation — ${esc(o.tankName || 'Tank')}</h3>
         <button type="button" class="btn ghost small" data-dim-close>Close</button></div>
-      <p class="hint">Same layout as the Excel sheet: enter <b>four corners</b> and axis labels only.
-        Centre trim <b>${esc(trim)}</b> m and heel <b>${esc(heel)}</b> come from this page header.
-        Blue cells follow the sheet formulas; middle trim result adds heeling correction.</p>
+      <p class="hint">Enter <b>four corners</b> per table. Trim/heel <b>start</b> and <b>end</b> columns
+        bracket the header values (0 → 1 m or 0 → −1 when negative). Formula cells follow the Excel sheet.</p>
       <div class="dim-targets form-row-3">
         <label class="fr-field"><span>Target sounding</span>
           <input type="text" inputmode="decimal" data-signed="1" id="dim-target-sounding"></label>
@@ -187,12 +238,26 @@
         <label class="fr-field"><span>Heel used (°)</span>
           <input type="text" inputmode="decimal" data-signed="1" id="dim-target-heel" value="${esc(heel)}" readonly tabindex="-1"></label>
       </div>
+      <fieldset class="dim-heel-mode-field">
+        <legend>Heel correction type</legend>
+        <label class="dim-radio"><input type="radio" name="dim-heel-mode" value="volume" checked>
+          Volume correction (m³) — add to corrected volume</label>
+        <label class="dim-radio"><input type="radio" name="dim-heel-mode" value="sounding">
+          Sounding correction (cm) — add to sounding length</label>
+        <p class="hint" id="dim-heel-mode-hint"></p>
+      </fieldset>
       ${soundingAxisRow()}
+      <div class="dim-axis-actions">
+        <button type="button" class="btn ghost small" id="dim-bracket-axis">Reset trim/heel columns from header</button>
+      </div>
       ${quadrantSection('TRIM CORRECTION (volume m³)', 'Trim (m)', 'dim-trim-grid', 'dim-trim')}
-      ${quadrantSection('HEELING CORRECTION (m³ to add)', 'Heel (°)', 'dim-heel-grid', 'dim-heel')}
+      ${quadrantSection('HEELING CORRECTION (m³ to add to volume)', 'Heel (°)', 'dim-heel-grid', 'dim-heel', 'dim-heel-section-title')}
       <div class="dim-result-row">
         <strong>Corrected volume (m³):</strong>
         <output id="dim-result-out">${vol != null ? esc(vol) : '—'}</output>
+        <span class="dim-corr-sounding hint" id="dim-corr-sounding-wrap" hidden>
+          Sounding after heel: <output id="dim-corr-sounding-out">—</output>
+        </span>
         <button type="button" class="btn small" id="dim-recalc">Calculate</button>
       </div>
       <div class="tsp-actions">
@@ -216,17 +281,39 @@
 
     const recalc = () => {
       syncSoundMid();
-      const r = computeResult();
+      const raw = computeResult();
+      const r = resultVolume(raw);
       const out = document.getElementById('dim-result-out');
       if (out) out.textContent = r != null ? fmt(r) : '—';
+      const wrap = document.getElementById('dim-corr-sounding-wrap');
+      const sout = document.getElementById('dim-corr-sounding-out');
+      if (wrap && sout) {
+        const show = raw && typeof raw === 'object' && raw.correctedSounding != null;
+        wrap.hidden = !show;
+        if (show) sout.textContent = fmt(raw.correctedSounding);
+      }
       return r;
     };
 
     overlay.querySelectorAll('[data-dim-close]').forEach((b) => { b.onclick = closeModal; });
     overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
     overlay.addEventListener('input', (e) => {
+      if (e.target.matches('.dim-axis[data-dim-auto]') && e.target.id !== 'dim-sounding-1') {
+        e.target.dataset.dimAuto = '0';
+      }
       if (e.target.matches('[data-dim-corner], .dim-axis, #dim-target-sounding')) recalc();
     });
+    overlay.querySelectorAll('input[name="dim-heel-mode"]').forEach((inp) => {
+      inp.addEventListener('change', () => {
+        updateHeelSectionLabels(heelMode());
+        recalc();
+      });
+    });
+    document.getElementById('dim-bracket-axis').onclick = () => {
+      applyAxisBracket('dim-trim', trim, true);
+      applyAxisBracket('dim-heel', heel, true);
+      recalc();
+    };
     document.getElementById('dim-recalc').onclick = recalc;
     document.getElementById('dim-apply').onclick = () => {
       const r = recalc();
@@ -238,7 +325,6 @@
       closeModal();
     };
 
-    /* Defaults matching a typical FLAG-style book (chief adjusts). */
     const setIfEmpty = (id, val) => {
       const el = document.getElementById(id);
       if (el && el.value === '') el.value = String(val);
@@ -247,12 +333,9 @@
     setIfEmpty('dim-sounding-1', '4041');
     setIfEmpty('dim-sounding-2', '4021');
     setIfEmpty('dim-target-sounding', '4041');
-    setIfEmpty('dim-trim-0', '0');
-    setIfEmpty('dim-trim-1', trim);
-    setIfEmpty('dim-trim-2', '1');
-    setIfEmpty('dim-heel-0', '0');
-    setIfEmpty('dim-heel-1', heel);
-    setIfEmpty('dim-heel-2', '-1');
+    applyAxisBracket('dim-trim', trim, true);
+    applyAxisBracket('dim-heel', heel, true);
+    updateHeelSectionLabels('volume');
 
     if (root.TmsSignedNumeric && typeof root.TmsSignedNumeric.scan === 'function') {
       root.TmsSignedNumeric.scan(overlay);

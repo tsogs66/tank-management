@@ -859,6 +859,15 @@ function excelQuadrantCornersFromGrid(grid) {
   ];
 }
 
+/** Trim / heel column headers: 0, centre, then 1 or −1 by sign of centre. */
+function excelAxisBracket(center) {
+  const v = Number(center);
+  if (!Number.isFinite(v)) return [0, 0, 1];
+  if (Math.abs(v) < 1e-9) return [0, 0, 1];
+  if (v > 0) return [0, v, 1];
+  return [0, v, -1];
+}
+
 /** Interpolate at (sounding, trim/heel) after filling the Excel quadrant. */
 function excelQuadrantValueAt(soundingAxis, secAxis, corners, sounding, sec) {
   const filled = buildExcelQuadrantGrid(soundingAxis, secAxis, corners);
@@ -867,20 +876,35 @@ function excelQuadrantValueAt(soundingAxis, secAxis, corners, sounding, sec) {
 }
 
 /**
- * Workbook-style manual double interpolation: trim volume table + heeling correction (m³).
+ * Workbook-style manual double interpolation.
+ * @param {'volume'|'sounding'} [opts.heelMode]
  */
 function manualDoubleInterpolation(opts) {
   const o = opts || {};
+  const heelMode = o.heelMode === 'sounding' ? 'sounding' : 'volume';
   const heelCorners = excelQuadrantCornersFromGrid(o.heelGrid) || o.heelGrid;
   const trimCorners = excelQuadrantCornersFromGrid(o.trimGrid) || o.trimGrid;
   const heelFilled = buildExcelQuadrantGrid(o.soundingAxis, o.heelAxis, heelCorners);
-  const heelCenter = heelFilled && heelFilled[1] ? heelFilled[1][1] : 0;
-  const trimFilled = buildExcelQuadrantGrid(o.soundingAxis, o.trimAxis, trimCorners, heelCenter);
+  const heelAtTarget = heelFilled
+    ? bilinearGridInterp(o.soundingAxis, o.heelAxis, heelFilled, o.sounding, o.heel)
+    : null;
+  let soundingForTrim = o.sounding;
+  let centerAdd = 0;
+  if (heelMode === 'volume') {
+    centerAdd = heelFilled && heelFilled[1] ? heelFilled[1][1] : 0;
+  } else if (heelAtTarget != null && Number.isFinite(Number(heelAtTarget))) {
+    soundingForTrim = Number(o.sounding) + Number(heelAtTarget);
+  }
+  const trimFilled = buildExcelQuadrantGrid(o.soundingAxis, o.trimAxis, trimCorners, centerAdd);
   const trimVol = trimFilled
-    ? bilinearGridInterp(o.soundingAxis, o.trimAxis, trimFilled, o.sounding, o.trim)
+    ? bilinearGridInterp(o.soundingAxis, o.trimAxis, trimFilled, soundingForTrim, o.trim)
     : null;
   if (trimVol == null) return null;
-  return Math.round(trimVol * 1000) / 1000;
+  const volumeM3 = Math.round(trimVol * 1000) / 1000;
+  if (heelMode === 'sounding') {
+    return { volumeM3, heelCorrection: heelAtTarget, correctedSounding: soundingForTrim };
+  }
+  return volumeM3;
 }
 
 function computeTank(tank, inputs) {
@@ -1260,6 +1284,7 @@ if (typeof globalThis !== 'undefined') {
   globalThis.bilinearGridInterp = bilinearGridInterp;
   globalThis.linearInterpAxis = linearInterpAxis;
   globalThis.buildExcelQuadrantGrid = buildExcelQuadrantGrid;
+  globalThis.excelAxisBracket = excelAxisBracket;
   globalThis.excelQuadrantCornersFromGrid = excelQuadrantCornersFromGrid;
   globalThis.manualDoubleInterpolation = manualDoubleInterpolation;
 }
