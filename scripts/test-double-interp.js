@@ -76,6 +76,22 @@ const near = (got, want, tol, what) => {
 near(calc.bilinearInterpInc(ULLAGE, STEM_VALS, STEM_GRID, 1080, 0.41, 50),
      374.3814, 0.0005, 'the printed columns, read at 0.41 by the stem');
 
+/* Excel DOUBLE INTERPOLATION quadrant (four corners + axis mid targets). */
+{
+  const sounding = [4071, 4041, 4021];
+  const trimAx = [0, 0.41, 1];
+  const corners = [
+    [384.905, null, 393.96],
+    [null, null, null],
+    [376.008, null, 384.971],
+  ];
+  const g = calc.buildExcelQuadrantGrid(sounding, trimAx, corners);
+  assert.ok(g, 'quadrant grid builds');
+  near(g[1][0], 379.567, 0.002, 'left column mid sounding (C4)');
+  near(g[1][2], 388.567, 0.02, 'right column mid sounding (E4)');
+  near(g[1][1], 383.257, 0.02, 'trim centre before heel add (D4 base)');
+}
+
 /* 0.41 by the bow reaches the same pair of columns whichever way round the
    tank's own axis was stored. */
 for (const axis of ['stem', 'stern', undefined]) {
