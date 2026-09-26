@@ -112,7 +112,28 @@ near(calc.bilinearInterpInc(ULLAGE, STEM_VALS, STEM_GRID, 1080, 0.41, 50),
     trimGrid: corners,
     heelGrid: heelCorners,
   });
-  near(vol, 404.705, 0.02, 'manual double interp at sheet targets');
+  near(vol, 404.705, 0.02, 'manual double interp at sheet targets (volume heel)');
+
+  assert.deepStrictEqual(calc.excelAxisBracket(0.41), [0, 0.41, 1], 'trim bracket positive');
+  assert.deepStrictEqual(calc.excelAxisBracket(-0.4), [0, -0.4, -1], 'heel bracket negative');
+  pass += 2;
+
+  const volSound = calc.manualDoubleInterpolation({
+    sounding: 4041,
+    trim: 0.41,
+    heel: -0.4,
+    heelMode: 'sounding',
+    soundingAxis: sounding,
+    trimAxis: trimAx,
+    heelAxis: heelAx,
+    trimGrid: corners,
+    heelGrid: heelCorners,
+  });
+  assert.ok(volSound && typeof volSound === 'object', 'sounding heel returns detail object');
+  near(volSound.heelCorrection, 21.448, 0.02, 'sounding mode heel cm');
+  near(volSound.correctedSounding, 4041 + 21.448, 0.02, 'sounding after heel');
+  assert.ok(Number.isFinite(volSound.volumeM3), 'sounding mode volume');
+  pass += 3;
 }
 
 /* 0.41 by the bow reaches the same pair of columns whichever way round the
