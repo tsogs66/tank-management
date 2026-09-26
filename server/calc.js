@@ -823,7 +823,7 @@ function linearInterpAxis(x, x0, x1, y0, y1) {
  * Build the 3×3 quadrant from four manual corners (same layout as the coloured Excel blocks).
  * Row 0 = high sounding, row 2 = low sounding; col 0 / 2 = manual; col 1 = interpolated.
  */
-function buildExcelQuadrantGrid(soundingAxis, secAxis, corners) {
+function buildExcelQuadrantGrid(soundingAxis, secAxis, corners, centerAdd = 0) {
   const y0 = Number(soundingAxis[0]);
   const y1 = Number(soundingAxis[1]);
   const y2 = Number(soundingAxis[2]);
@@ -838,7 +838,9 @@ function buildExcelQuadrantGrid(soundingAxis, secAxis, corners) {
   const r1c0 = linearInterpAxis(y1, y0, y2, c00, c20);
   const r1c2 = linearInterpAxis(y1, y0, y2, c02, c22);
   const r0c1 = linearInterpAxis(x1, x0, x2, c00, c02);
-  const r1c1 = linearInterpAxis(x1, x0, x2, r1c0, r1c2);
+  let r1c1 = linearInterpAxis(x1, x0, x2, r1c0, r1c2);
+  const add = Number(centerAdd);
+  if (r1c1 != null && Number.isFinite(add) && add !== 0) r1c1 += add;
   const r2c1 = linearInterpAxis(x1, x0, x2, c20, c22);
   return [
     [c00, r0c1, c02],
@@ -873,15 +875,13 @@ function manualDoubleInterpolation(opts) {
   const heelCorners = excelQuadrantCornersFromGrid(o.heelGrid) || o.heelGrid;
   const trimCorners = excelQuadrantCornersFromGrid(o.trimGrid) || o.trimGrid;
   const heelFilled = buildExcelQuadrantGrid(o.soundingAxis, o.heelAxis, heelCorners);
-  const trimFilled = buildExcelQuadrantGrid(o.soundingAxis, o.trimAxis, trimCorners);
-  const heelCorr = heelFilled
-    ? bilinearGridInterp(o.soundingAxis, o.heelAxis, heelFilled, o.sounding, o.heel)
-    : null;
+  const heelCenter = heelFilled && heelFilled[1] ? heelFilled[1][1] : 0;
+  const trimFilled = buildExcelQuadrantGrid(o.soundingAxis, o.trimAxis, trimCorners, heelCenter);
   const trimVol = trimFilled
     ? bilinearGridInterp(o.soundingAxis, o.trimAxis, trimFilled, o.sounding, o.trim)
     : null;
-  if (trimVol == null && heelCorr == null) return null;
-  return Math.round(((trimVol || 0) + (heelCorr || 0)) * 1000) / 1000;
+  if (trimVol == null) return null;
+  return Math.round(trimVol * 1000) / 1000;
 }
 
 function computeTank(tank, inputs) {

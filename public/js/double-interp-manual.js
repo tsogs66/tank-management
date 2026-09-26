@@ -70,7 +70,8 @@
     if (typeof build === 'function') {
       const corners = root.excelQuadrantCornersFromGrid;
       const heelFilled = build(soundingAxis, heelAxis, corners(heelGrid));
-      const trimFilled = build(soundingAxis, trimAxis, corners(trimGrid));
+      const heelCenter = heelFilled && heelFilled[1] ? heelFilled[1][1] : 0;
+      const trimFilled = build(soundingAxis, trimAxis, corners(trimGrid), heelCenter);
       paintFormulaCells('dim-trim-grid', trimFilled);
       paintFormulaCells('dim-heel-grid', heelFilled);
     }

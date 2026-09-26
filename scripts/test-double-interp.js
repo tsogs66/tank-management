@@ -90,6 +90,29 @@ near(calc.bilinearInterpInc(ULLAGE, STEM_VALS, STEM_GRID, 1080, 0.41, 50),
   near(g[1][0], 379.567, 0.002, 'left column mid sounding (C4)');
   near(g[1][2], 388.567, 0.02, 'right column mid sounding (E4)');
   near(g[1][1], 383.257, 0.02, 'trim centre before heel add (D4 base)');
+
+  const heelAx = [0, -0.4, -1];
+  const heelCorners = [
+    [0, null, 54.043],
+    [null, null, null],
+    [0, null, 53.339],
+  ];
+  const heelG = calc.buildExcelQuadrantGrid(sounding, heelAx, heelCorners);
+  near(heelG[1][1], 21.448, 0.02, 'heel centre (D11)');
+  const trimWithHeel = calc.buildExcelQuadrantGrid(sounding, trimAx, corners, heelG[1][1]);
+  near(trimWithHeel[1][1], 404.705, 0.02, 'trim centre with heel (D4)');
+
+  const vol = calc.manualDoubleInterpolation({
+    sounding: 4041,
+    trim: 0.41,
+    heel: -0.4,
+    soundingAxis: sounding,
+    trimAxis: trimAx,
+    heelAxis: heelAx,
+    trimGrid: corners,
+    heelGrid: heelCorners,
+  });
+  near(vol, 404.705, 0.02, 'manual double interp at sheet targets');
 }
 
 /* 0.41 by the bow reaches the same pair of columns whichever way round the
