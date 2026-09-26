@@ -807,15 +807,81 @@ function bilinearGridInterp(yAxis, xAxis, grid, y, x) {
   return Math.round((a + ty * (b - a)) * 1000) / 1000;
 }
 
+/** One step of the Excel DOUBLE INTERPOLATION sheet: ((y1-y0)/(x1-x0)*(x-x0))+y0 */
+function linearInterpAxis(x, x0, x1, y0, y1) {
+  const xv = Number(x);
+  const a = Number(x0);
+  const b = Number(x1);
+  const ya = Number(y0);
+  const yb = Number(y1);
+  if (!Number.isFinite(xv) || !Number.isFinite(ya) || !Number.isFinite(yb)) return null;
+  if (a === b) return ya;
+  return ya + ((yb - ya) / (b - a)) * (xv - a);
+}
+
+/**
+ * Build the 3×3 quadrant from four manual corners (same layout as the coloured Excel blocks).
+ * Row 0 = high sounding, row 2 = low sounding; col 0 / 2 = manual; col 1 = interpolated.
+ */
+function buildExcelQuadrantGrid(soundingAxis, secAxis, corners, centerAdd = 0) {
+  const y0 = Number(soundingAxis[0]);
+  const y1 = Number(soundingAxis[1]);
+  const y2 = Number(soundingAxis[2]);
+  const x0 = Number(secAxis[0]);
+  const x1 = Number(secAxis[1]);
+  const x2 = Number(secAxis[2]);
+  const c00 = Number(corners[0][0]);
+  const c02 = Number(corners[0][2]);
+  const c20 = Number(corners[2][0]);
+  const c22 = Number(corners[2][2]);
+  if (![c00, c02, c20, c22].every(Number.isFinite)) return null;
+  const r1c0 = linearInterpAxis(y1, y0, y2, c00, c20);
+  const r1c2 = linearInterpAxis(y1, y0, y2, c02, c22);
+  const r0c1 = linearInterpAxis(x1, x0, x2, c00, c02);
+  let r1c1 = linearInterpAxis(x1, x0, x2, r1c0, r1c2);
+  const add = Number(centerAdd);
+  if (r1c1 != null && Number.isFinite(add) && add !== 0) r1c1 += add;
+  const r2c1 = linearInterpAxis(x1, x0, x2, c20, c22);
+  return [
+    [c00, r0c1, c02],
+    [r1c0, r1c1, r1c2],
+    [c20, r2c1, c22],
+  ];
+}
+
+/** Read four corner cells from a 3×3 manual grid (other cells ignored). */
+function excelQuadrantCornersFromGrid(grid) {
+  if (!grid || grid.length < 3) return null;
+  return [
+    [grid[0][0], null, grid[0][2]],
+    [null, null, null],
+    [grid[2][0], null, grid[2][2]],
+  ];
+}
+
+/** Interpolate at (sounding, trim/heel) after filling the Excel quadrant. */
+function excelQuadrantValueAt(soundingAxis, secAxis, corners, sounding, sec) {
+  const filled = buildExcelQuadrantGrid(soundingAxis, secAxis, corners);
+  if (!filled) return null;
+  return bilinearGridInterp(soundingAxis, secAxis, filled, sounding, sec);
+}
+
 /**
  * Workbook-style manual double interpolation: trim volume table + heeling correction (m³).
+ * Heeling quadrant first; trim centre adds the heel centre (D4 = trim block + D11 heel).
  */
 function manualDoubleInterpolation(opts) {
   const o = opts || {};
-  const trimVol = bilinearGridInterp(o.soundingAxis, o.trimAxis, o.trimGrid, o.sounding, o.trim);
-  const heelCorr = bilinearGridInterp(o.soundingAxis, o.heelAxis, o.heelGrid, o.sounding, o.heel);
-  if (trimVol == null && heelCorr == null) return null;
-  return Math.round(((trimVol || 0) + (heelCorr || 0)) * 1000) / 1000;
+  const heelCorners = excelQuadrantCornersFromGrid(o.heelGrid) || o.heelGrid;
+  const trimCorners = excelQuadrantCornersFromGrid(o.trimGrid) || o.trimGrid;
+  const heelFilled = buildExcelQuadrantGrid(o.soundingAxis, o.heelAxis, heelCorners);
+  const heelCenter = heelFilled && heelFilled[1] ? heelFilled[1][1] : 0;
+  const trimFilled = buildExcelQuadrantGrid(o.soundingAxis, o.trimAxis, trimCorners, heelCenter);
+  const trimVol = trimFilled
+    ? bilinearGridInterp(o.soundingAxis, o.trimAxis, trimFilled, o.sounding, o.trim)
+    : null;
+  if (trimVol == null) return null;
+  return Math.round(trimVol * 1000) / 1000;
 }
 
 function computeTank(tank, inputs) {
@@ -1200,6 +1266,10 @@ module.exports = {
   isDoubleInterpManualTank,
   usesDirectM3Input,
   bilinearGridInterp,
+  linearInterpAxis,
+  buildExcelQuadrantGrid,
+  excelQuadrantCornersFromGrid,
+  excelQuadrantValueAt,
   manualDoubleInterpolation,
   isAscending,
   linearInterp,

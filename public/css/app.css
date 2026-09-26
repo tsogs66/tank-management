@@ -2563,10 +2563,24 @@ html.bright .tsp-dialog { background: #fff; color: #122238; border-color: rgba(1
 
 .fr-actual-cell { display: flex; flex-direction: column; gap: 4px; min-width: 7rem; }
 .fr-actual-cell .fr-di-btn { align-self: flex-start; font-size: 11px; padding: 2px 6px; }
-.dim-interp-dialog { width: min(720px, 100%); }
+.dim-interp-dialog { width: min(820px, 100%); }
 .dim-grid { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 13px; }
 .dim-grid th, .dim-grid td { border: 1px solid var(--line, #2a3550); padding: 4px 6px; text-align: center; }
-.dim-grid input.dim-axis { font-size: 12px; padding: 4px; }
+.dim-grid input.dim-axis { font-size: 12px; padding: 4px; max-width: 88px; }
+.dim-grid input.dim-manual { font-size: 12px; padding: 4px; width: 100%; min-width: 72px; box-sizing: border-box; }
+.dim-grid output.dim-formula {
+  display: block; min-height: 28px; line-height: 28px; padding: 2px 4px;
+  background: rgba(87, 179, 171, 0.12); color: var(--teal, #57b3ab);
+  font-variant-numeric: tabular-nums; font-weight: 600;
+}
+.dim-grid output.dim-formula.dim-formula-mid {
+  background: rgba(201, 154, 83, 0.18); color: var(--gold, #c99a53);
+}
+html.bright .dim-grid output.dim-formula { background: rgba(23, 102, 95, 0.08); color: #17665f; }
+html.bright .dim-grid output.dim-formula.dim-formula-mid { background: rgba(110, 72, 20, 0.1); color: #6e4814; }
+.dim-axis-calc { opacity: 0.92; font-weight: 700; background: rgba(201, 154, 83, 0.12) !important; }
+.dim-quadrant-block { margin-bottom: 12px; }
+.dim-mid-row { background: rgba(255, 255, 255, 0.03); }
 .dim-result-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
 .dim-targets { margin-bottom: 8px; }
 
