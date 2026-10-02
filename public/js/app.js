@@ -1900,6 +1900,14 @@ function renderTankDetail(main, tankId) {
   else document.getElementById('result-panel').innerHTML = '<div class="empty-state">Enter sounding and calculate</div>';
 }
 
+/** Bold only the calculated figure. A trailing unit stays at normal weight. */
+function emphasizeResult(text){
+  const s = String(text ?? '');
+  const m = s.match(/^(.*\S)(\s+(?:m³|MT|%|mm|cm|m|L|kW|bar|°C))$/);
+  if (!m) return `<b>${s}</b>`;
+  return `<b>${m[1]}</b><span class="unit">${m[2]}</span>`;
+}
+
 function renderResultSteps(panel, tank, r, inputs) {
   const pct = r.fillPercent;
   const cls = fillStatusClass(pct);
@@ -1912,10 +1920,10 @@ function renderResultSteps(panel, tank, r, inputs) {
         <svg width="84" height="84"><circle cx="42" cy="42" r="34" stroke="var(--border)" stroke-width="8" fill="none"/>
         <circle cx="42" cy="42" r="34" stroke="${color}" stroke-width="8" fill="none"
           stroke-dasharray="${dash} ${circ}" stroke-linecap="round"/></svg>
-        <div class="gauge-pct">${pct != null ? fmt(pct,0)+'%' : '–'}</div>
+        <div class="gauge-pct">${pct != null ? `<b>${fmt(pct,0)}</b><span class="unit">%</span>` : '–'}</div>
       </div>
       <div>
-        <div style="font-size:22px;font-weight:800">${fmt(r.volumeObserved,2)} m³</div>
+        <div class="result-hero">${emphasizeResult(fmt(r.volumeObserved,2)+' m³')}</div>
         <div style="color:var(--text-dim);font-size:12px">observed · cap ${fmt(tank.capacity,1)} m³</div>
         ${r.weightMT != null ? `<div style="margin-top:4px;font-weight:700;color:var(--accent-2)">${fmt(r.weightMT,3)} MT</div>` : ''}
       </div>
@@ -2006,7 +2014,7 @@ function renderResultSteps(panel, tank, r, inputs) {
   for (const s of defs) {
     steps.innerHTML += `<div class="step${s.highlight?' highlight':''}">
       <div class="step-label">${s.label}<span class="formula">${s.formula}</span></div>
-      <div class="step-value">${s.value}</div></div>`;
+      <div class="step-value">${emphasizeResult(s.value)}</div></div>`;
   }
   panel.appendChild(steps);
 }
@@ -3849,7 +3857,7 @@ function renderVoyage(main) {
         <td><input data-k="${key}" data-i="${i}" data-f="distance" type="number" value="${leg.distance||''}"></td>
         <td><input data-k="${key}" data-i="${i}" data-f="speed" type="number" value="${leg.speed||''}"></td>
         <td><input data-k="${key}" data-i="${i}" data-f="daily" type="number" value="${leg.daily||''}"></td>
-        <td>${fmt(days,2)}</td><td>${fmt(consumption,2)}</td></tr>`;
+        <td class="result-num">${fmt(days,2)}</td><td class="result-num">${fmt(consumption,2)}</td></tr>`;
     });
     const arrival = (Number(b.departureRob)||0) + (Number(b.received)||0) - totalC - (Number(b.margin)||0);
     const panel = document.createElement('div');
@@ -3861,10 +3869,10 @@ function renderVoyage(main) {
       <div class="scroll-x" style="margin-top:10px"><table class="leg-table">
         <thead><tr><th>From</th><th>To</th><th>Dist</th><th>Spd</th><th>Daily</th><th>Days</th><th>Used</th></tr></thead>
         <tbody>${legRows}</tbody></table></div>
-      <div class="kv-row"><span class="k">Voyage days</span><span class="v">${fmt(totalD,2)}</span></div>
-      <div class="kv-row"><span class="k">Total consumption</span><span class="v">${fmt(totalC,2)} MT</span></div>
+      <div class="kv-row"><span class="k">Voyage days</span><span class="v">${emphasizeResult(fmt(totalD,2))}</span></div>
+      <div class="kv-row"><span class="k">Total consumption</span><span class="v">${emphasizeResult(fmt(totalC,2)+' MT')}</span></div>
       <div class="kv-row total"><span class="k">Projected arrival ROB</span>
-        <span class="v" style="color:${arrival<0?'var(--bad)':'var(--accent-2)'}">${fmt(arrival,2)} MT</span></div>`;
+        <span class="v" style="color:${arrival<0?'var(--bad)':'var(--accent-2)'}">${emphasizeResult(fmt(arrival,2)+' MT')}</span></div>`;
     panels.appendChild(panel);
   }
   main.appendChild(panels);
