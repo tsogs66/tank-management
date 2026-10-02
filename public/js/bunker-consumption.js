@@ -20,8 +20,6 @@ const BunkerConsumption = (function () {
       qtyLabel: 'MO/MGO/LSMGO',
     },
   ];
-  const MAX_LEGS = 30;
-
   function emptyLeg() {
     return { port: false, from: '', to: '', distance: null, speed: null, dailyCons: null, days: null, marginPct: null };
   }
@@ -58,7 +56,6 @@ const BunkerConsumption = (function () {
     if (!anyPerLeg && legacy != null && !isNaN(legacy)) {
       list.forEach((leg) => { if (!legIsBlank(leg)) leg.marginPct = legacy; });
     }
-    if (list.length > MAX_LEGS) list = list.slice(0, MAX_LEGS);
     return list;
   }
   function emptySide(grade) {
@@ -67,10 +64,11 @@ const BunkerConsumption = (function () {
       legs: [emptyLeg()],
       currentRob: null,
       qtyReceive: null,
+      deliveryRob: null,
     };
   }
   function defaultPlan() {
-    return { voyageNo: '', date: '', residual: emptySide('HFO'), distillate: emptySide('MDO/MGO') };
+    return { voyageNo: '', date: '', remarks: '', residual: emptySide('HFO'), distillate: emptySide('MDO/MGO') };
   }
 
   /** Keep saved plans readable after LSFO / MDO/MGO label renames. */
@@ -98,7 +96,9 @@ const BunkerConsumption = (function () {
       s.legs = normalizeLegs(s.legs, legacyMargin);
       if ('marginPct' in s) delete s.marginPct;
       s.grade = normalizeGradeLabel(s.grade, meta);
+      if (s.deliveryRob === undefined) s.deliveryRob = null;
     });
+    if (typeof plan.remarks !== 'string') plan.remarks = plan.remarks == null ? '' : String(plan.remarks);
     return plan;
   }
 
@@ -151,12 +151,44 @@ const BunkerConsumption = (function () {
     const arrivalRob = rob == null ? null : rob - required;
     const nextDepRob = arrivalRob == null ? null : arrivalRob + receive;
     const stem = rob == null ? null : Math.max(0, required - rob - receive);
-    return { daysPort, daysSea, totalDist, totalCons, margin, required, arrivalRob, nextDepRob, stem, receive };
+    const delivery = (side.deliveryRob != null && side.deliveryRob !== '' && !isNaN(side.deliveryRob))
+      ? Number(side.deliveryRob) : null;
+    const shortageExcess = (delivery == null || nextDepRob == null) ? null : delivery - nextDepRob;
+    return {
+      daysPort, daysSea, totalDist, totalCons, margin, required,
+      arrivalRob, nextDepRob, stem, receive, delivery, shortageExcess,
+    };
+  }
+
+  function resultCard(title, value, unit) {
+    const blank = value == null || value === '';
+    const shown = blank ? '—' : value;
+    const unitHtml = blank || !unit ? '' : `<span class="bp-result-unit">${unit}</span>`;
+    return `<div class="bp-result"><div class="bp-result-value"><b>${shown}</b>${unitHtml}</div><div class="bp-result-title">${title}</div></div>`;
+  }
+  function resultCardsHtml(sum) {
+    return [
+      resultCard('Days at Port / Anchor', fmtN(sum.daysPort, 3), 'days'),
+      resultCard('Days at Sea', fmtN(sum.daysSea, 3), 'days'),
+      resultCard('Total Distance', fmtN(sum.totalDist, 2), 'NM'),
+      resultCard('Total Consumption', fmtFuel(sum.totalCons), 'MT'),
+      resultCard('Total Margin', fmtFuel(sum.margin), 'MT'),
+      resultCard('Required Quantity', fmtFuel(sum.required), 'MT'),
+      resultCard('Arrival ROB', sum.arrivalRob == null ? '' : fmtFuel(sum.arrivalRob), 'MT'),
+      resultCard('Next Departure ROB', sum.nextDepRob == null ? '' : fmtFuel(sum.nextDepRob), 'MT'),
+      resultCard('Stem still needed', sum.stem == null ? '' : fmtFuel(sum.stem), 'MT'),
+      resultCard('Shortage/Excess Quantity', sum.shortageExcess == null ? '' : fmtFuel(sum.shortageExcess), 'MT'),
+    ].join('');
+  }
+  function paintSideResults(sideKey) {
+    const host = document.querySelector(`#bcGrid .bunker-side[data-bc-side="${sideKey}"] .bunker-results`);
+    if (!host || !_plan || !_plan[sideKey]) return;
+    host.innerHTML = resultCardsHtml(summarize(_plan[sideKey]));
   }
 
   function addLeg(sideKey) {
     const side = _plan[sideKey];
-    if (!side || side.legs.length >= MAX_LEGS) return;
+    if (!side) return;
     side.legs.push(emptyLeg());
     renderGrid(_plan);
     scheduleSave();
@@ -249,6 +281,8 @@ const BunkerConsumption = (function () {
     const dateEl = document.getElementById('bc_date');
     if (voyEl) plan.voyageNo = voyEl.value.trim();
     if (dateEl) plan.date = dateEl.value;
+    const remEl = document.getElementById('bc_remarks');
+    if (remEl) plan.remarks = remEl.value;
     SIDES.forEach((meta) => {
       const side = plan[meta.key];
       const gradeSel = document.querySelector(`select[data-bc-grade="${meta.key}"]`);
@@ -293,6 +327,8 @@ const BunkerConsumption = (function () {
       if (!plan.date) plan.date = new Date().toISOString().slice(0, 10);
       dateEl.value = plan.date || '';
     }
+    const remEl = document.getElementById('bc_remarks');
+    if (remEl && document.activeElement !== remEl) remEl.value = plan.remarks || '';
 
     grid.innerHTML = SIDES.map((meta) => {
       const side = plan[meta.key];
@@ -343,16 +379,9 @@ const BunkerConsumption = (function () {
         <div class="bunker-totals">
           <div class="field"><label>Current ROB (MT)</label><input type="number" step="0.001" data-bc-sf="currentRob" data-bc-side="${meta.key}" value="${side.currentRob ?? ''}"></div>
           <div class="field"><label>Quantity to Receive (MT)</label><input type="number" step="0.001" data-bc-sf="qtyReceive" data-bc-side="${meta.key}" value="${side.qtyReceive ?? ''}"></div>
-          <div class="field calc"><label>Days at Port / Anchor</label><input readonly tabindex="-1" value="${fmtN(sum.daysPort, 3)}"></div>
-          <div class="field calc"><label>Days at Sea</label><input readonly tabindex="-1" value="${fmtN(sum.daysSea, 3)}"></div>
-          <div class="field calc"><label>Total Distance (nm)</label><input readonly tabindex="-1" value="${fmtN(sum.totalDist, 2)}"></div>
-          <div class="field calc"><label>Total Consumption (MT)</label><input readonly tabindex="-1" value="${fmtFuel(sum.totalCons)}"></div>
-          <div class="field calc"><label>Total Margin (MT)</label><input readonly tabindex="-1" value="${fmtFuel(sum.margin)}"></div>
-          <div class="field calc"><label>Required Quantity (MT)</label><input readonly tabindex="-1" value="${fmtFuel(sum.required)}"></div>
-          <div class="field calc"><label>Arrival ROB (MT)</label><input readonly tabindex="-1" value="${sum.arrivalRob == null ? '—' : fmtFuel(sum.arrivalRob)}"></div>
-          <div class="field calc"><label>Next Departure ROB (MT)</label><input readonly tabindex="-1" value="${sum.nextDepRob == null ? '—' : fmtFuel(sum.nextDepRob)}"></div>
-          <div class="field calc full"><label>Stem still needed (MT)</label><input readonly tabindex="-1" value="${sum.stem == null ? '—' : fmtFuel(sum.stem)}"></div>
+          <div class="field full"><label>Delivery / Redelivery ROB (MT)</label><input type="number" step="0.001" data-bc-sf="deliveryRob" data-bc-side="${meta.key}" value="${side.deliveryRob ?? ''}"></div>
         </div>
+        <div class="bunker-results">${resultCardsHtml(sum)}</div>
         <div class="bunker-formula">Sea days = Dist ÷ (Speed × 24) · Qty = Daily × Days · Line margin = Qty × Margin% · Required = Σ Qty + Σ margins · Arrival ROB = Current ROB − Required · Next Dep ROB = Arrival ROB + Qty to Receive</div>
       </div>`;
     }).join('');
@@ -417,8 +446,14 @@ const BunkerConsumption = (function () {
             { label: 'Required Quantity', value: fmtFuel(sum.required) + ' MT' },
             { label: 'Arrival ROB', value: sum.arrivalRob == null ? '—' : fmtFuel(sum.arrivalRob) + ' MT' },
             { label: 'Next Departure ROB', value: sum.nextDepRob == null ? '—' : fmtFuel(sum.nextDepRob) + ' MT' },
+            { label: 'Delivery / Redelivery ROB', value: sum.delivery == null ? '—' : fmtFuel(sum.delivery) + ' MT' },
+            { label: 'Shortage/Excess Quantity', value: sum.shortageExcess == null ? '—' : fmtFuel(sum.shortageExcess) + ' MT' },
             { label: 'Stem still needed', value: sum.stem == null ? '—' : fmtFuel(sum.stem) + ' MT' },
           ], 4)}
+          ${meta.key === 'distillate' ? `<div class="pr-remarks bc-pr-remarks">
+            <div class="pr-remarks-title bc-pr-remarks-title">Remarks</div>
+            <div class="pr-remarks-body bc-pr-remarks-body">${esc(plan.remarks || '—')}</div>
+          </div>` : ''}
         </div>
       </section>`;
     }).join('');
@@ -602,6 +637,10 @@ const BunkerConsumption = (function () {
       _plan.date = document.getElementById('bc_date').value;
       scheduleSave();
     });
+    document.getElementById('bc_remarks')?.addEventListener('input', () => {
+      _plan.remarks = document.getElementById('bc_remarks').value;
+      scheduleSave();
+    });
 
     const grid = document.getElementById('bcGrid');
     if (grid) {
@@ -655,6 +694,9 @@ const BunkerConsumption = (function () {
           const qtyInp = tr.querySelector('.col-qty input');
           const qty = legQty(leg);
           if (qtyInp) qtyInp.value = qty == null ? '' : fmtFuel(qty);
+          paintSideResults(sk);
+        } else if (t.dataset.bcSf && t.dataset.bcSide) {
+          paintSideResults(t.dataset.bcSide);
         }
         scheduleSave();
       });
@@ -714,13 +756,19 @@ const BunkerConsumption = (function () {
           <button type="button" class="btn small" id="bc-load-rob">Load Tank ROB</button>
           <button type="button" class="btn small" id="bc-clear">Clear</button>
         </div>
-        <div class="btn-row" style="margin:4px 0 0;">
-          <button type="button" class="btn small" id="bc-print-only">Print</button>
-          <button type="button" class="btn small" id="bc-save-only">Save</button>
-          <button type="button" class="btn primary small" id="bc-print-save">Print &amp; Save</button>
-        </div>
       </div>
       <div class="bunker-plan-grid" id="bcGrid"></div>
+      <div class="bunker-plan-footer">
+        <label class="bunker-remarks">
+          <span>Remarks</span>
+          <textarea id="bc_remarks" rows="4" placeholder="Remarks for this calculation"></textarea>
+        </label>
+        <div class="btn-row bunker-plan-actions">
+          <button type="button" class="btn small" id="bc-save-only">Save</button>
+          <button type="button" class="btn small" id="bc-print-only">Print</button>
+          <button type="button" class="btn primary small" id="bc-print-save">Save &amp; Print</button>
+        </div>
+      </div>
       <div class="hint" style="margin-top:12px;">Industry practice: sea days ≈ distance (nm) ÷ (speed kn × 24); port/anchor days are entered directly. Each destination or stay can carry its own Margin % — e.g. a higher reserve into a bunkering port than for a short anchorage.</div>
     </div>
     <div class="form-panel no-print" id="bcHistory" style="display:none;">
