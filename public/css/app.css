@@ -514,7 +514,7 @@ label.btn { margin: 0; }
   font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
   color: var(--text-faint); margin-bottom: 6px;
 }
-.card .value { font-size: 22px; font-weight: 700; }
+.card .value { font-size: 22px; font-weight: 800; }
 .card .value .unit { font-size: 12px; color: var(--text-dim); font-weight: 500; margin-left: 4px; }
 .card .sub { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
 
@@ -686,7 +686,9 @@ table.excel-table input[type="number"]:focus {
   gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--border-soft);
 }
 .kv-row .k { color: var(--text-dim); font-size: 13px; }
-.kv-row .v { font-weight: 700; }
+.kv-row .v { font-weight: 500; }
+.kv-row .v b { font-weight: 800; }
+.kv-row .v .unit { font-weight: 500; }
 .kv-row input { width: 120px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
 .kv-row.total { border-bottom: none; margin-top: 6px; }
 
@@ -700,7 +702,9 @@ table.excel-table input[type="number"]:focus {
   display: block; font-size: 11px; color: var(--text-faint); margin-top: 2px;
   font-family: ui-monospace, Menlo, monospace;
 }
-.step .step-value { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.step .step-value { font-size: 15px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.step .step-value b { font-weight: 800; }
+.step .step-value .unit { font-weight: 500; font-size: 12px; }
 .step.highlight {
   background: rgba(58,160,255,.08); border-radius: 8px; padding: 12px 10px;
 }
@@ -711,8 +715,14 @@ table.excel-table input[type="number"]:focus {
 .gauge-ring svg { transform: rotate(-90deg); }
 .gauge-ring .gauge-pct {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  font-weight: 700; font-size: 15px;
+  font-weight: 500; font-size: 15px;
 }
+.gauge-ring .gauge-pct b { font-weight: 800; }
+.gauge-ring .gauge-pct .unit { font-weight: 500; font-size: 11px; }
+.result-hero { font-size: 22px; font-weight: 500; }
+.result-hero b { font-weight: 800; }
+.result-hero .unit { font-weight: 500; font-size: 14px; color: var(--text-dim); margin-left: 4px; }
+.leg-table td.result-num { font-weight: 800; }
 
 .fuel-panels { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .back-link {
