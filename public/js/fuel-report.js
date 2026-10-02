@@ -1492,12 +1492,19 @@ const FuelReport = (() => {
 
   function closeSheetPopup() {
     document.getElementById('tankSheetPopup')?.remove();
+    releaseSheetPopupSources();
   }
 
-  /* Select the whole value so the next keystroke replaces it. type=number
-     ignores select() on Chromium/Android, so those fields are text+decimal. */
+  /* True while a sheet popup is being built, so a focus bounce cannot reopen it. */
+  let _sheetPopupLock = false;
+
+  /* Select the whole value once, when the field is first entered, so the next
+     keystroke replaces it. Later clicks must leave the caret where the user
+     put it — re-selecting on pointerup froze the popup (focus jumped back to
+     the sheet cell and the dialog rebuilt on every key). */
   function selectAllPopupField(el) {
     if (!el || el.readOnly || el.disabled) return;
+    if (document.activeElement !== el) return;
     if (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA') return;
     const t = String(el.type || 'text').toLowerCase();
     if (t === 'checkbox' || t === 'radio' || t === 'button' || t === 'submit'
@@ -1505,39 +1512,40 @@ const FuelReport = (() => {
       || t === 'date' || t === 'time' || t === 'datetime-local' || t === 'month' || t === 'week') {
       return;
     }
-    const run = () => {
-      try { el.select(); } catch (_) { /* ignore */ }
-      try {
-        const len = String(el.value ?? '').length;
-        if (typeof el.setSelectionRange === 'function') el.setSelectionRange(0, len);
-      } catch (_) { /* type=number */ }
-    };
-    run();
-    setTimeout(run, 0);
+    try { el.select(); } catch (_) { /* ignore */ }
+    try {
+      const len = String(el.value ?? '').length;
+      if (typeof el.setSelectionRange === 'function') el.setSelectionRange(0, len);
+    } catch (_) { /* type=number */ }
   }
 
   function bindPopupSelectAll(root) {
     if (!root || root.dataset.tspSelectAll === '1') return;
     root.dataset.tspSelectAll = '1';
-    const onFocus = (e) => {
+    root.addEventListener('focusin', (e) => {
       const el = e.target;
       if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) return;
+      if (el.dataset.tspDidSelect === '1') return;
+      el.dataset.tspDidSelect = '1';
       selectAllPopupField(el);
-    };
-    const onPointer = (e) => {
+    });
+    root.addEventListener('focusout', (e) => {
       const el = e.target;
-      if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) return;
-      if (document.activeElement === el) {
-        if (e.cancelable && e.type !== 'touchend') e.preventDefault();
-        selectAllPopupField(el);
-      }
-    };
-    root.addEventListener('focusin', onFocus);
-    root.addEventListener('mouseup', onPointer);
-    root.addEventListener('pointerup', onPointer);
-    root.addEventListener('touchend', () => {
-      const el = document.activeElement;
-      if (el && root.contains(el)) selectAllPopupField(el);
+      if (el && el.dataset) delete el.dataset.tspDidSelect;
+    });
+  }
+
+  function releaseSheetPopupSources() {
+    document.querySelectorAll('input[data-tsp-locked]').forEach((el) => {
+      el.readOnly = false;
+      delete el.dataset.tspLocked;
+    });
+  }
+
+  function lockSheetPopupSources() {
+    document.querySelectorAll('input[data-sheet-popup]').forEach((el) => {
+      el.readOnly = true;
+      el.dataset.tspLocked = '1';
     });
   }
 
@@ -1600,6 +1608,7 @@ const FuelReport = (() => {
       </div>
     </div>`;
     document.body.appendChild(overlay);
+    lockSheetPopupSources();
     bindPopupSelectAll(overlay);
 
     const focusSel = mode === 'sg' ? '[data-tsp="unitValue"]'
@@ -1607,9 +1616,26 @@ const FuelReport = (() => {
       : '[data-tsp="reading"]';
     const focusRow = overlay.querySelector(`[data-tsp-tank="${CSS.escape(focusTankId || '')}"]`);
     const focusInput = focusRow?.querySelector(focusSel) || overlay.querySelector('input');
+    const keepInside = (e) => {
+      const pop = document.getElementById('tankSheetPopup');
+      if (!pop || pop !== overlay) {
+        document.removeEventListener('focusin', keepInside, true);
+        return;
+      }
+      if (pop.contains(e.target)) return;
+      if (e.target && e.target.closest && e.target.closest('.tms-signed-accessory')) return;
+      const back = focusInput && overlay.contains(focusInput)
+        ? focusInput
+        : overlay.querySelector('input, textarea');
+      if (back) {
+        e.stopPropagation();
+        try { back.focus(); } catch (_) { /* ignore */ }
+      }
+    };
+    document.addEventListener('focusin', keepInside, true);
     setTimeout(() => {
-      focusInput?.focus();
-      selectAllPopupField(focusInput);
+      if (!document.body.contains(overlay)) return;
+      try { focusInput?.focus(); } catch (_) { /* ignore */ }
     }, 40);
 
     const dismiss = () => closeSheetPopup();
@@ -1659,22 +1685,37 @@ const FuelReport = (() => {
       const el = e.target;
       if (!el || !el.dataset || !el.dataset.sheetPopup) return;
       if (!sheetPopupWanted()) return;
+      /* Another input dialog is already up (this sheet popup, double
+         interpolation, or the ship clock). Rebuilding it on every focus
+         bounce is what froze the page. */
+      const openPopup = document.getElementById('tankSheetPopup');
+      if (openPopup || _sheetPopupLock || document.querySelector('.tsp-overlay, .ccp-overlay')) {
+        try { el.blur(); } catch (_) { /* ignore */ }
+        const back = openPopup && (openPopup.querySelector('input, textarea'));
+        if (back) { try { back.focus(); } catch (_) { /* ignore */ } }
+        return;
+      }
       const fieldMode = el.dataset.sheetPopup; /* actual | sg | temp */
       const tankId = el.dataset.row;
       const sectionEl = el.closest('[data-section]');
       const sectionId = sectionEl?.dataset.section || 'fuel';
       e.preventDefault();
-      el.blur();
+      try { el.blur(); } catch (_) { /* ignore */ }
       const mode = fieldMode === 'sg' ? 'sg' : fieldMode === 'temp' ? 'temp' : 'actual';
-      openSheetPopup({
-        mode,
-        sectionId,
-        focusTankId: tankId,
-        formRows: getFormRows(),
-        computed: getComputed(),
-        onApply,
-        host: wrap,
-      });
+      _sheetPopupLock = true;
+      try {
+        openSheetPopup({
+          mode,
+          sectionId,
+          focusTankId: tankId,
+          formRows: getFormRows(),
+          computed: getComputed(),
+          onApply,
+          host: wrap,
+        });
+      } finally {
+        _sheetPopupLock = false;
+      }
     });
   }
 

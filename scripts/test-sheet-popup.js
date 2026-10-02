@@ -25,7 +25,10 @@ for (const file of candidates) {
   assert(src.includes('data-sheet-popup="temp"'), rel + ': Temp column must open a popup');
   assert(/mode === 'temp'|fieldMode === 'temp'/.test(src), rel + ': popup must have a temp mode');
   assert(src.includes('function selectAllPopupField'), rel + ': popup fields must select-all');
-  assert(src.includes('function bindPopupSelectAll'), rel + ': popup must bind select-all on click/focus');
+  assert(src.includes('function bindPopupSelectAll'), rel + ': popup must bind select-all on focus');
+  assert(!src.includes("addEventListener('pointerup'"), rel + ': pointerup must not re-select and bounce focus');
+  assert(!src.includes('setTimeout(run, 0)'), rel + ': select-all must not run again after the caret moves');
+  assert(src.includes('_sheetPopupLock'), rel + ': opening a popup must ignore focus bounce');
   assert(/data-tsp="tempC"/.test(src), rel + ': temp popup rows must edit tempC');
   assert(!/mode === 'sg'[\s\S]{0,200}Temp \(\u00b0C\)/.test(src)
     || src.includes("mode === 'temp'"), rel + ': temp is a dedicated popup mode');
