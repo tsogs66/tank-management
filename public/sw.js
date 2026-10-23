@@ -29,6 +29,7 @@ const ASSETS = [
   '/js/bunkering-core.js',
   '/js/bunkering-report.js',
   '/js/bunker-consumption.js',
+  '/js/stem-advice.js',
   '/manifest.json',
   '/icons/icon.svg',
   '/icons/icon-192.png',
