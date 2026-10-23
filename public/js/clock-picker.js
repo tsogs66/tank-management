@@ -591,7 +591,11 @@ input.ccp-bound{cursor:pointer}
       suppressReadout = false;
       partH.classList.toggle('active', state.step === 'hour' || state.step === 'ampm');
       partM.classList.toggle('active', state.step === 'minute');
-      const hAngle = ((state.h12 % 12) / 12) * 360 + (state.m / 60) * 30;
+      /* The hour hand sits on the highlighted numeral. Folding the minutes in
+         would walk 11:59 onto the 12 while 11 stays lit. Minutes only ease the
+         hour hand off its mark once the minute hand is the one being set. */
+      const hAngle = ((state.h12 % 12) / 12) * 360
+        + (state.step === 'minute' ? (state.m / 60) * 30 : 0);
       const mAngle = state.m * 6;
       handH.style.transform = `rotate(${hAngle}deg)`;
       handM.style.transform = `rotate(${mAngle}deg)`;
