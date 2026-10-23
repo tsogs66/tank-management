@@ -5568,3 +5568,38 @@ window.addEventListener('message', (ev) => {
 });
 
 document.addEventListener('DOMContentLoaded', boot);
+
+/* Ship's clock from Voyage Chief when both programs share this device.
+   Otherwise the tablet's own zone, labelled as the device. */
+(function () {
+  const KEY = 'chengShipClock';
+  function fmt(tz) {
+    const now = new Date(Date.now() + tz * 60000);
+    const hh = String(now.getUTCHours()).padStart(2, '0');
+    const mm = String(now.getUTCMinutes()).padStart(2, '0');
+    const sign = tz >= 0 ? '+' : '−';
+    const abs = Math.abs(Math.round(tz));
+    const zh = String(Math.floor(abs / 60)).padStart(2, '0');
+    const zm = abs % 60;
+    return hh + ':' + mm + ' UTC' + sign + zh + (zm ? String(zm).padStart(2, '0') : '');
+  }
+  function storedTz() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if (raw && raw.tzOffsetMin != null && isFinite(Number(raw.tzOffsetMin))) return Number(raw.tzOffsetMin);
+    } catch (_) {}
+    return null;
+  }
+  function tick() {
+    const chip = document.getElementById('shipClockChip');
+    if (!chip) return;
+    const tz = storedTz();
+    const ship = tz != null;
+    const use = ship ? tz : -new Date().getTimezoneOffset();
+    chip.hidden = false;
+    chip.textContent = (ship ? 'Ship ' : 'Device ') + fmt(use);
+    chip.style.cssText = 'margin:8px 12px 0;font-family:IBM Plex Mono,Consolas,monospace;font-size:13px;letter-spacing:.04em;';
+  }
+  tick();
+  setInterval(tick, 15000);
+})();

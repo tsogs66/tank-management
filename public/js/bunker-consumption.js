@@ -150,14 +150,28 @@ const BunkerConsumption = (function () {
       ? Number(side.qtyReceive) : 0;
     const arrivalRob = rob == null ? null : rob - required;
     const nextDepRob = arrivalRob == null ? null : arrivalRob + receive;
-    const stem = rob == null ? null : Math.max(0, required - rob - receive);
+    const stemAdvice = (typeof StemAdvice !== 'undefined' && StemAdvice.advise)
+      ? StemAdvice.advise(side, { required: required, rob: rob, receive: receive })
+      : null;
+    const stem = stemAdvice && stemAdvice.stemStill != null
+      ? stemAdvice.stemStill
+      : (rob == null ? null : Math.max(0, required - rob - receive));
     const delivery = (side.deliveryRob != null && side.deliveryRob !== '' && !isNaN(side.deliveryRob))
       ? Number(side.deliveryRob) : null;
     const shortageExcess = (delivery == null || nextDepRob == null) ? null : delivery - nextDepRob;
     return {
       daysPort, daysSea, totalDist, totalCons, margin, required,
-      arrivalRob, nextDepRob, stem, receive, delivery, shortageExcess,
+      arrivalRob, nextDepRob, stem, stemAdvice, receive, delivery, shortageExcess,
     };
+  }
+  function stemAdvicePlain(side, sum) {
+    if (!sum || !sum.stemAdvice || typeof StemAdvice === 'undefined' || !StemAdvice.sentence) return '';
+    return StemAdvice.sentence(side && side.grade, sum.stemAdvice, fmtFuel);
+  }
+  function stemAdviceHtml(side, sum) {
+    const text = stemAdvicePlain(side, sum);
+    if (!text) return '';
+    return text.replace(/(\d[\d,]*\.\d+)/g, '<b>$1</b>');
   }
 
   function resultCard(title, value, unit) {
@@ -379,10 +393,13 @@ const BunkerConsumption = (function () {
         <div class="bunker-totals">
           <div class="field"><label>Current ROB (MT)</label><input type="number" step="0.001" data-bc-sf="currentRob" data-bc-side="${meta.key}" value="${side.currentRob ?? ''}"></div>
           <div class="field"><label>Quantity to Receive (MT)</label><input type="number" step="0.001" data-bc-sf="qtyReceive" data-bc-side="${meta.key}" value="${side.qtyReceive ?? ''}"></div>
+          <div class="field"><label>Unpumpable (MT)</label><input type="number" step="0.001" data-bc-sf="unpumpableMt" data-bc-side="${meta.key}" value="${side.unpumpableMt ?? ''}" title="Oil that cannot be pumped" inputmode="decimal"></div>
+          <div class="field"><label>Weather reserve (MT)</label><input type="number" step="0.001" data-bc-sf="weatherMarginMt" data-bc-side="${meta.key}" value="${side.weatherMarginMt ?? ''}" title="Extra tonnes to arrive with, beyond the line margins" inputmode="decimal"></div>
           <div class="field full"><label>Delivery / Redelivery ROB (MT)</label><input type="number" step="0.001" data-bc-sf="deliveryRob" data-bc-side="${meta.key}" value="${side.deliveryRob ?? ''}"></div>
         </div>
         <div class="bunker-results">${resultCardsHtml(sum)}</div>
-        <div class="bunker-formula">Sea days = Dist ÷ (Speed × 24) · Qty = Daily × Days · Line margin = Qty × Margin% · Required = Σ Qty + Σ margins · Arrival ROB = Current ROB − Required · Next Dep ROB = Arrival ROB + Qty to Receive</div>
+        <div class="stem-advice">${stemAdviceHtml(side, sum)}</div>
+        <div class="bunker-formula">Sea days = Dist ÷ (Speed × 24) · Qty = Daily × Days · Line margin = Qty × Margin% · Required = Σ Qty + Σ margins · Order = Required + unpumpable + weather − Current ROB</div>
       </div>`;
     }).join('');
   }
@@ -448,8 +465,12 @@ const BunkerConsumption = (function () {
             { label: 'Next Departure ROB', value: sum.nextDepRob == null ? '—' : fmtFuel(sum.nextDepRob) + ' MT' },
             { label: 'Delivery / Redelivery ROB', value: sum.delivery == null ? '—' : fmtFuel(sum.delivery) + ' MT' },
             { label: 'Shortage/Excess Quantity', value: sum.shortageExcess == null ? '—' : fmtFuel(sum.shortageExcess) + ' MT' },
+            { label: 'Unpumpable', value: sum.stemAdvice && sum.stemAdvice.unpumpable ? fmtFuel(sum.stemAdvice.unpumpable) + ' MT' : '—' },
+            { label: 'Weather reserve', value: sum.stemAdvice && sum.stemAdvice.weather ? fmtFuel(sum.stemAdvice.weather) + ' MT' : '—' },
+            { label: 'Order', value: sum.stemAdvice && sum.stemAdvice.orderMt != null ? fmtFuel(sum.stemAdvice.orderMt) + ' MT' : '—' },
             { label: 'Stem still needed', value: sum.stem == null ? '—' : fmtFuel(sum.stem) + ' MT' },
           ], 4)}
+          <div class="pr-remarks-body">${esc(stemAdvicePlain(side, sum))}</div>
           ${meta.key === 'distillate' ? `<div class="pr-remarks bc-pr-remarks">
             <div class="pr-remarks-title bc-pr-remarks-title">Remarks</div>
             <div class="pr-remarks-body bc-pr-remarks-body">${esc(plan.remarks || '—')}</div>
@@ -612,6 +633,9 @@ const BunkerConsumption = (function () {
       readFromDom(_plan);
       loadTankRob();
     });
+    document.getElementById('bc-go-plan')?.addEventListener('click', () => { if (typeof navigate === 'function') navigate('bunker-plan'); });
+    document.getElementById('bc-go-after')?.addEventListener('click', () => { if (typeof navigate === 'function') navigate('bunker-after'); });
+    document.getElementById('bc-go-bdn')?.addEventListener('click', () => { if (typeof navigate === 'function') navigate('bunker-summary'); });
     document.getElementById('bc-clear')?.addEventListener('click', () => {
       clearPlan();
     });
@@ -755,6 +779,9 @@ const BunkerConsumption = (function () {
         <div class="btn-row" style="margin:0;">
           <button type="button" class="btn small" id="bc-load-rob">Load Tank ROB</button>
           <button type="button" class="btn small" id="bc-clear">Clear</button>
+          <button type="button" class="btn small" id="bc-go-plan">Bunkering plan</button>
+          <button type="button" class="btn small" id="bc-go-after">After survey</button>
+          <button type="button" class="btn small" id="bc-go-bdn">BDN summary</button>
         </div>
       </div>
       <div class="bunker-plan-grid" id="bcGrid"></div>
