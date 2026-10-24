@@ -7,6 +7,7 @@ const ASSETS = [
   '/css/print-voyage.css',
   '/fonts/fonts.css',
   '/js/app.js',
+  '/js/guide.js',
   '/js/api.js',
   '/js/branding.js',
   '/js/node-shim.js',
