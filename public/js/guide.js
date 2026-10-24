@@ -40,6 +40,7 @@
         'More → VCF/WCF — volume and weight factors on their own.',
         'More → ISO 8217 — the marine fuel grade limits.',
         'More → Backup — export, import, and peer sync.',
+        'More → Notes — a note or reminder for this ship, with a deadline. Tick Show at open and it appears when the program opens. Inside ChEng AIO this page is the suite Notes menu.',
         'More → About — this guide.'
       ],
       buttons: [
@@ -48,6 +49,30 @@
       ],
       undo: [
         'Changing page does not delete a tank. A sounding is kept only after you save that tank.'
+      ]
+    },
+    {
+      group: 'Start',
+      q: 'How do I keep a note or a reminder?',
+      purpose: 'Notes holds something you must not forget for this ship. A ticked line appears when Tank Chief opens, with its deadline. Inside ChEng AIO the same job is the Notes page on the suite menu.',
+      steps: [
+        'Open More → Notes. On a wide screen it is under System.',
+        'Type the title and the note. Set the deadline date and time.',
+        'Leave Show when the program opens ticked if it should appear at startup.',
+        'Press Save note.',
+        'The next open lists the ticked lines. Close leaves them set. Stop reminding unticks that line.'
+      ],
+      buttons: [
+        'Show when the program opens — the checkbox on the form and at the start of each line',
+        'Save note — stores the line on this device for the active ship',
+        'Edit — puts that line back in the form',
+        'Delete — removes the line after you confirm',
+        'Stop reminding — unticks that line without deleting it'
+      ],
+      undo: [
+        'Untick Show at open to stop the startup list and keep the note.',
+        'A wrong deadline: press Edit, set the date and time, and Save changes.',
+        'Delete asks you to confirm. After that the line is gone from this device.'
       ]
     },
     {
