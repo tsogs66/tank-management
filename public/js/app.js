@@ -5598,7 +5598,6 @@ document.addEventListener('DOMContentLoaded', boot);
     const use = ship ? tz : -new Date().getTimezoneOffset();
     chip.hidden = false;
     chip.textContent = (ship ? 'Ship ' : 'Device ') + fmt(use);
-    chip.style.cssText = 'margin:8px 12px 0;font-family:IBM Plex Mono,Consolas,monospace;font-size:13px;letter-spacing:.04em;';
   }
   tick();
   setInterval(tick, 15000);
