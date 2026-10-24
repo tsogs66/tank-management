@@ -5299,6 +5299,13 @@ function renderAbout(main) {
   </div>`;
   document.getElementById('btn-install-app')?.addEventListener('click', promptAppInstall);
   document.getElementById('btn-check-update')?.addEventListener('click', checkTankAppUpdate);
+  const guideHost = document.createElement('div');
+  guideHost.id = 'tankGuideHost';
+  const aboutCopy = main.querySelector('.about-copy');
+  const firstHeading = aboutCopy && aboutCopy.querySelector('h2');
+  if (aboutCopy && firstHeading) aboutCopy.insertBefore(guideHost, firstHeading);
+  else if (aboutCopy) aboutCopy.appendChild(guideHost);
+  if (window.TankGuide) TankGuide.render(guideHost);
   paintInstallButton();
 }
 
