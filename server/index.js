@@ -32,6 +32,8 @@ const bunkerLive = require('./bunker-live');
 const fuelReport = require('../public/js/fuel-report-core');
 const bunkeringCore = require('../public/js/bunkering-core');
 const fs = require('fs');
+/* Node's global crypto is WebCrypto: no createHash or randomBytes on it. */
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3080;
@@ -50,7 +52,12 @@ app.use(cors({
     'x-license-entitlement',
   ],
 }));
-app.use(express.json({ limit: '50mb' }));
+/* The ceiling on a single POSTed body, named once: the sync push quotes this
+   figure when a bundle will not fit, and a message that drifts from the real
+   limit is worse than no message. */
+const SINGLE_POST_LIMIT_MB = 50;
+const SINGLE_POST_LIMIT_BYTES = SINGLE_POST_LIMIT_MB * 1024 * 1024;
+app.use(express.json({ limit: `${SINGLE_POST_LIMIT_MB}mb` }));
 
 /* Per-request license email scope — requires signed entitlement when scoped.
  * Peer sync orchestration (probe/pull/push) is local UI → this device → peer
@@ -1245,12 +1252,270 @@ app.get('/api/sync/ping', (req, res) => {
     format: 'vessel-fuel-tms-sync',
     product: 'tank-chief',
     vesselCount: (bundle.index && bundle.index.vessels) ? bundle.index.vessels.length : store.listVessels().length,
+    /* Read by a pushing peer so it need not probe: an older Tank Chief answers
+       an unknown POST with its SPA page, and "is that a 404 or the wrong mount"
+       is not a question worth asking mid-push. */
+    resumableImport: {
+      supported: true,
+      maxBytes: SYNC_UPLOAD_MAX_BYTES,
+      maxChunks: SYNC_UPLOAD_MAX_CHUNKS,
+      maxChunkBytes: SYNC_UPLOAD_MAX_CHUNK_BYTES,
+    },
+    /* What a single POST can carry here, so a sender can say why one failed
+       instead of surfacing a bare 413. */
+    maxSinglePostBytes: SINGLE_POST_LIMIT_BYTES,
     time: new Date().toISOString(),
   });
 });
 
 app.get('/api/sync/export', requireSyncAuth, (req, res) => {
   res.json(store.syncPushBundle());
+});
+
+/* ---------- Resumable sync import ----------------------------------------
+ 
+   A tank push is the WHOLE database in one POST: every vessel, and for each of
+   them the calibration tables, the saved fuel/voyage/tank-summary reports, the
+   bunker history and the base64 signature and stamp images. On a ship's
+   connection that is the same problem the voyage legs had -- a drop at 90%
+   costs the entire transfer and the next attempt starts from nothing -- with
+   one extra edge: express.json caps a body at 50 MB, so a fleet past that size
+   could not push at all and said so only as a raw error.
+ 
+   So a bundle may instead arrive as numbered chunks, staged on disk and
+   assembled once every one has landed. The shape deliberately mirrors the
+   voyage sync server's resumable upload, so the two halves of the suite work
+   the same way and what is learned about one applies to the other:
+ 
+     - a chunk is written under its index, so re-sending one is harmless
+     - a resume asks the RECEIVER what it holds rather than trusting the
+       sender's record of what it sent
+     - the assembled bundle is verified against the digest declared up front,
+       BEFORE applySyncPayload touches the database; a mismatch keeps the parts
+       so only the bad chunk need be re-sent
+ 
+   Both ends are Node here, so unlike the voyage server there is no
+   cross-language digest problem: sha256 via crypto on both sides.          */
+
+const SYNC_UPLOAD_DIR = '.sync-uploads';
+/* A tank database this big is a bug, not a database. */
+const SYNC_UPLOAD_MAX_BYTES = 2 * 1024 * 1024 * 1024;
+const SYNC_UPLOAD_MAX_CHUNKS = 20000;
+const SYNC_UPLOAD_MAX_CHUNK_BYTES = 8 * 1024 * 1024;
+const SYNC_UPLOAD_STALE_MS = 14 * 24 * 3600 * 1000;
+/* Below this a bundle goes in one POST; the handshake costs more than the push. */
+const SYNC_CHUNK_THRESHOLD_BYTES = 2 * 1024 * 1024;
+const SYNC_CHUNK_BYTES = 512 * 1024;
+const SYNC_CHUNK_TRIES = 4;
+
+function syncUploadRoot() {
+  return path.join(store.DATA_DIR, SYNC_UPLOAD_DIR);
+}
+
+/** The staging folder, with the id validated rather than trusted: it reaches
+ *  the filesystem, so an id we did not issue must not resolve to a path. */
+function syncUploadDir(id) {
+  if (!/^[0-9a-f]{32}$/.test(String(id || ''))) throw new Error('invalid upload id');
+  return path.join(syncUploadRoot(), String(id));
+}
+
+function syncChunkPath(dir, index) {
+  return path.join(dir, String(index).padStart(6, '0') + '.part');
+}
+
+function readSyncManifest(dir) {
+  try { return JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')); }
+  catch { return null; }
+}
+
+function writeSyncManifest(dir, manifest) {
+  fs.mkdirSync(dir, { recursive: true });
+  manifest.touchedAt = new Date().toISOString();
+  fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+}
+
+/** Indices actually on disk. The disk is the authority, not the sender. */
+function syncReceivedChunks(dir, totalChunks) {
+  const got = [];
+  for (let i = 0; i < totalChunks; i++) {
+    try {
+      const st = fs.statSync(syncChunkPath(dir, i));
+      if (st.size > 0) got.push(i);
+    } catch { /* absent */ }
+  }
+  return got;
+}
+
+function pruneStaleSyncUploads() {
+  let entries = [];
+  try { entries = fs.readdirSync(syncUploadRoot(), { withFileTypes: true }); } catch { return; }
+  const cutoff = Date.now() - SYNC_UPLOAD_STALE_MS;
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+    const dir = path.join(syncUploadRoot(), e.name);
+    try {
+      if (fs.statSync(dir).mtimeMs >= cutoff) continue;
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch { /* leave it */ }
+  }
+}
+
+function deleteSyncUpload(dir) {
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+}
+
+function sha256Hex(buf) {
+  return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+/** Begin a new staged import, or resume one and say which chunks are held. */
+app.post('/api/sync/import/upload', requireSyncAuth, (req, res) => {
+  const b = req.body || {};
+  const totalBytes = Number(b.totalBytes || 0);
+  const totalChunks = Number(b.totalChunks || 0);
+  const chunkBytes = Number(b.chunkBytes || 0);
+  if (!(totalBytes > 0 && totalChunks > 0 && chunkBytes > 0)) {
+    return res.status(400).json({ error: 'totalBytes, totalChunks and chunkBytes are required' });
+  }
+  if (totalBytes > SYNC_UPLOAD_MAX_BYTES) {
+    return res.status(413).json({ error: `bundle is ${totalBytes} bytes; this peer accepts up to ${SYNC_UPLOAD_MAX_BYTES}` });
+  }
+  if (totalChunks > SYNC_UPLOAD_MAX_CHUNKS) {
+    return res.status(400).json({ error: `${totalChunks} chunks exceeds the limit of ${SYNC_UPLOAD_MAX_CHUNKS}; use a larger chunk size` });
+  }
+  if (chunkBytes > SYNC_UPLOAD_MAX_CHUNK_BYTES) {
+    return res.status(400).json({ error: `chunkBytes ${chunkBytes} exceeds the limit of ${SYNC_UPLOAD_MAX_CHUNK_BYTES}` });
+  }
+  const digest = String(b.digest || '');
+  const digestAlgo = String(b.digestAlgo || 'none');
+  if (digestAlgo !== 'sha256' || !digest) {
+    return res.status(400).json({ error: 'digestAlgo must be sha256 and a digest is required' });
+  }
+
+  pruneStaleSyncUploads();
+
+  let dir = null;
+  let manifest = null;
+  const asked = String(b.uploadId || '');
+  if (asked) {
+    try { dir = syncUploadDir(asked); } catch { return res.status(400).json({ error: 'invalid upload id' }); }
+    manifest = readSyncManifest(dir);
+    /* The digest binds a resumed upload to the bundle it started as. If the
+       database changed between attempts the digest changes with it, and we
+       start fresh rather than assembling halves of two different databases. */
+    if (manifest && (manifest.digest !== digest
+      || Number(manifest.totalBytes) !== totalBytes
+      || Number(manifest.totalChunks) !== totalChunks)) {
+      deleteSyncUpload(dir);
+      manifest = null;
+      dir = null;
+    }
+  }
+  if (!manifest) {
+    const id = crypto.randomBytes(16).toString('hex');
+    dir = syncUploadDir(id);
+    manifest = { uploadId: id, totalBytes, totalChunks, chunkBytes, digest, digestAlgo,
+                 startedAt: new Date().toISOString() };
+    writeSyncManifest(dir, manifest);
+  }
+  const received = syncReceivedChunks(dir, totalChunks);
+  res.json({ uploadId: manifest.uploadId, received, receivedCount: received.length,
+             totalChunks, chunkBytes, resumed: !!asked && received.length > 0, digestVerified: true });
+});
+
+app.get('/api/sync/import/upload/:id', requireSyncAuth, (req, res) => {
+  let dir;
+  try { dir = syncUploadDir(req.params.id); } catch { return res.status(400).json({ error: 'invalid upload id' }); }
+  const manifest = readSyncManifest(dir);
+  if (!manifest) return res.status(404).json({ error: 'no such upload' });
+  const received = syncReceivedChunks(dir, Number(manifest.totalChunks || 0));
+  res.json({ uploadId: manifest.uploadId, received, receivedCount: received.length,
+             totalChunks: manifest.totalChunks, chunkBytes: manifest.chunkBytes,
+             startedAt: manifest.startedAt, touchedAt: manifest.touchedAt });
+});
+
+/* Raw bytes, not JSON: express.json would try to parse a slice of a bundle. */
+app.put('/api/sync/import/upload/:id/:index', requireSyncAuth,
+  express.raw({ type: '*/*', limit: SYNC_UPLOAD_MAX_CHUNK_BYTES }), (req, res) => {
+    let dir;
+    try { dir = syncUploadDir(req.params.id); } catch { return res.status(400).json({ error: 'invalid upload id' }); }
+    const manifest = readSyncManifest(dir);
+    if (!manifest) return res.status(404).json({ error: 'no such upload — begin it again' });
+    const total = Number(manifest.totalChunks || 0);
+    const index = Number(req.params.index);
+    if (!Number.isInteger(index) || index < 0 || index >= total) {
+      return res.status(400).json({ error: `chunk index ${req.params.index} is outside 0..${total - 1}` });
+    }
+    const buf = Buffer.isBuffer(req.body) ? req.body : null;
+    if (!buf || !buf.length) return res.status(400).json({ error: 'empty chunk' });
+    /* Written to a temporary name and renamed, so a connection that dies
+       mid-write cannot leave a short chunk looking complete. */
+    const tmp = syncChunkPath(dir, index) + '.tmp';
+    try {
+      fs.writeFileSync(tmp, buf);
+      fs.renameSync(tmp, syncChunkPath(dir, index));
+    } catch (e) {
+      try { fs.rmSync(tmp, { force: true }); } catch { /* ignore */ }
+      return res.status(507).json({ error: 'could not store the chunk: ' + e.message });
+    }
+    writeSyncManifest(dir, manifest);
+    const received = syncReceivedChunks(dir, total);
+    res.json({ uploadId: manifest.uploadId, index, receivedCount: received.length, totalChunks: total });
+  });
+
+app.post('/api/sync/import/upload/:id/complete', requireSyncAuth, (req, res) => {
+  let dir;
+  try { dir = syncUploadDir(req.params.id); } catch { return res.status(400).json({ error: 'invalid upload id' }); }
+  const manifest = readSyncManifest(dir);
+  if (!manifest) return res.status(404).json({ error: 'no such upload — begin it again' });
+  const total = Number(manifest.totalChunks || 0);
+  const received = syncReceivedChunks(dir, total);
+  if (received.length !== total) {
+    const missing = [];
+    for (let i = 0; i < total && missing.length < 10; i++) if (!received.includes(i)) missing.push(i);
+    /* The parts are deliberately kept: the sender re-sends what is missing,
+       not the whole database again. */
+    return res.status(409).json({ error: `${total - received.length} chunk(s) still missing: ${missing.join(', ')}`,
+                                  uploadId: manifest.uploadId, received, totalChunks: total });
+  }
+  let buf;
+  try {
+    const parts = [];
+    for (let i = 0; i < total; i++) parts.push(fs.readFileSync(syncChunkPath(dir, i)));
+    buf = Buffer.concat(parts);
+  } catch (e) {
+    return res.status(409).json({ error: 'could not read the staged parts: ' + e.message });
+  }
+  if (Number(manifest.totalBytes) && buf.length !== Number(manifest.totalBytes)) {
+    return res.status(409).json({ error: `assembled ${buf.length} bytes, the upload declared ${manifest.totalBytes}`,
+                                  uploadId: manifest.uploadId, received, totalChunks: total });
+  }
+  const actual = sha256Hex(buf);
+  if (actual !== manifest.digest) {
+    return res.status(409).json({
+      error: 'the assembled bundle does not match the digest the sender declared '
+        + `(sha256: got ${actual.slice(0, 16)}…, expected ${String(manifest.digest).slice(0, 16)}…) — `
+        + 'the parts are kept, send the chunks again',
+      uploadId: manifest.uploadId, received, totalChunks: total });
+  }
+  let payload;
+  try { payload = JSON.parse(buf.toString('utf8')); }
+  catch (e) { return res.status(400).json({ error: 'the assembled bundle is not valid JSON: ' + e.message }); }
+  try {
+    const results = store.applySyncPayload(payload);
+    /* Only once the database has taken it are the parts no longer needed. */
+    deleteSyncUpload(dir);
+    res.json({ ok: true, results, uploadId: manifest.uploadId, digestVerified: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message, uploadId: manifest.uploadId });
+  }
+});
+
+app.delete('/api/sync/import/upload/:id', requireSyncAuth, (req, res) => {
+  let dir;
+  try { dir = syncUploadDir(req.params.id); } catch { return res.status(400).json({ error: 'invalid upload id' }); }
+  deleteSyncUpload(dir);
+  res.json({ ok: true, uploadId: req.params.id });
 });
 
 app.post('/api/sync/import', requireSyncAuth, (req, res) => {
@@ -1356,6 +1621,105 @@ app.post('/api/sync/pull', asyncHandler(async (req, res) => {
   res.json({ ok: true, results, from: url, remoteCount });
 }));
 
+/** Does this peer take a staged, resumable import? Read, not probed. */
+async function peerSupportsResumableImport(url, authBody) {
+  try {
+    const resp = await fetchPeerSync(url, '/api/sync/ping', { method: 'GET', authBody });
+    const body = await readPeerSyncJson(resp, url);
+    return {
+      supported: !!(body && body.resumableImport && body.resumableImport.supported),
+      maxBytes: Number(body?.resumableImport?.maxBytes || 0),
+      maxChunkBytes: Number(body?.resumableImport?.maxChunkBytes || 0),
+      /* An older peer does not report this; fall back to our own ceiling,
+         which is what such a peer is overwhelmingly likely to be running. */
+      maxSinglePost: Number(body?.maxSinglePostBytes || 0) || SINGLE_POST_LIMIT_BYTES,
+    };
+  } catch (_) {
+    /* Unreadable ping: let the push itself report the real reason. */
+    return { supported: false, maxBytes: 0, maxChunkBytes: 0, maxSinglePost: SINGLE_POST_LIMIT_BYTES };
+  }
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Push a bundle as resumable chunks. Returns the peer's completion result.
+ *
+ * The session is held on disk, so a restart of this server between attempts
+ * resumes rather than starting over -- the same reason the voyage side keeps
+ * its session in IndexedDB instead of memory.
+ */
+async function pushBundleInChunks(url, authBody, buf, onNote) {
+  const note = typeof onNote === 'function' ? onNote : () => {};
+  const digest = sha256Hex(buf);
+  const chunkBytes = SYNC_CHUNK_BYTES;
+  const totalChunks = Math.ceil(buf.length / chunkBytes);
+  const manifest = { totalBytes: buf.length, totalChunks, chunkBytes, digest, digestAlgo: 'sha256' };
+
+  const sessionFile = path.join(syncUploadRoot(), 'outgoing-' + sha256Hex(Buffer.from(url)).slice(0, 16) + '.json');
+  let stored = null;
+  try { stored = JSON.parse(fs.readFileSync(sessionFile, 'utf8')); } catch { /* none */ }
+  if (stored && stored.digest === digest && Number(stored.totalBytes) === buf.length) {
+    manifest.uploadId = stored.uploadId;
+  }
+
+  const begunResp = await fetchPeerSync(url, '/api/sync/import/upload', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(manifest), authBody,
+  });
+  const begun = await readPeerSyncJson(begunResp, url);
+  const uploadId = begun && begun.uploadId;
+  if (!uploadId) throw new Error('The peer did not return an upload id.');
+  try {
+    fs.mkdirSync(syncUploadRoot(), { recursive: true });
+    fs.writeFileSync(sessionFile, JSON.stringify({ uploadId, digest, totalBytes: buf.length, totalChunks }));
+  } catch { /* a lost session only costs a restart from the peer's list */ }
+
+  /* The peer's list, not ours: a chunk whose response was lost is on its disk
+     and unconfirmed here, and believing ourselves would skip it for good. */
+  const have = new Set(Array.isArray(begun.received) ? begun.received : []);
+  if (have.size) note(`Resuming: the peer already holds ${have.size} of ${totalChunks} chunk(s).`);
+
+  let sent = have.size;
+  for (let i = 0; i < totalChunks; i++) {
+    if (have.has(i)) continue;
+    const slice = buf.subarray(i * chunkBytes, Math.min((i + 1) * chunkBytes, buf.length));
+    let lastErr = null;
+    for (let attempt = 1; attempt <= SYNC_CHUNK_TRIES; attempt++) {
+      try {
+        const r = await fetchPeerSync(url, `/api/sync/import/upload/${uploadId}/${i}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' },
+          body: slice, authBody,
+        });
+        await readPeerSyncJson(r, url);
+        lastErr = null;
+        break;
+      } catch (err) {
+        lastErr = err;
+        /* 1s, 2s, 4s. A ship's link often comes back on its own, and failing
+           the whole database on the first blip is what this exists to stop. */
+        if (attempt < SYNC_CHUNK_TRIES) await sleep(1000 * Math.pow(2, attempt - 1));
+      }
+    }
+    if (lastErr) {
+      throw new Error(
+        `Push stopped at chunk ${i + 1} of ${totalChunks} (${lastErr.message}). `
+        + `The ${sent} chunk(s) already sent are kept on the peer — run the push again `
+        + 'and it continues from there rather than starting over.'
+      );
+    }
+    sent++;
+  }
+
+  note('Peer is reassembling and checking the bundle…');
+  const doneResp = await fetchPeerSync(url, `/api/sync/import/upload/${uploadId}/complete`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', authBody,
+  });
+  const done = await readPeerSyncJson(doneResp, url);
+  try { fs.rmSync(sessionFile, { force: true }); } catch { /* ignore */ }
+  return { ...done, chunks: totalChunks, bytes: buf.length, resumable: true };
+}
+
 app.post('/api/sync/push', asyncHandler(async (req, res) => {
   const settings = store.getSettings();
   const url = normalizePeerUrl(req.body?.syncUrl || settings.syncUrl || '');
@@ -1365,14 +1729,50 @@ app.post('/api/sync/push', asyncHandler(async (req, res) => {
     syncApiToken: req.body?.syncApiToken || settings.syncApiToken || '',
     ...peerScopeFromRequest(req),
   };
+
+  /* Serialised once: the size decides the route, and a second stringify of a
+     fleet-sized bundle is megabytes of garbage for nothing. */
+  const buf = Buffer.from(JSON.stringify(payload), 'utf8');
+  const notes = [];
+  const peer = await peerSupportsResumableImport(url, authBody);
+
+  if (buf.length >= SYNC_CHUNK_THRESHOLD_BYTES && peer.supported) {
+    if (peer.maxBytes && buf.length > peer.maxBytes) {
+      return res.status(413).json({
+        error: `This database is ${(buf.length / 1048576).toFixed(1)} MB and the peer accepts at most `
+          + `${(peer.maxBytes / 1048576).toFixed(0)} MB even in chunks. Nothing was sent. `
+          + 'Archive or delete saved reports and uploaded images on vessels you no longer need, or '
+          + 'push one vessel at a time from a per-vessel backup file.',
+      });
+    }
+    const remote = await pushBundleInChunks(url, authBody, buf, (m) => notes.push(m));
+    return res.json({ ok: true, remote, to: url, chunked: true, bytes: buf.length, notes });
+  }
+
+  /* One POST. State the real ceiling BEFORE sending, rather than letting the
+     peer answer 413 with its own page: a fleet bundle that outgrew the body
+     limit used to fail as a raw error that named no cause and no remedy. */
+  if (buf.length > peer.maxSinglePost) {
+    const mb = (n) => (n / 1048576).toFixed(1);
+    return res.status(413).json({
+      error: `This database is ${mb(buf.length)} MB and a single sync push can carry at most `
+        + `${mb(peer.maxSinglePost)} MB. Nothing was sent. `
+        + (peer.supported
+          ? 'The peer does take resumable chunked pushes, so this is a bug — report it.'
+          : 'Update the peer to a build that accepts resumable chunked pushes and it will go in pieces; '
+            + 'until then, reduce the database by archiving saved reports and uploaded images on vessels '
+            + 'you no longer need, or push one vessel at a time from a per-vessel backup file.'),
+    });
+  }
+
   const resp = await fetchPeerSync(url, '/api/sync/import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: buf,
     authBody,
   });
   const result = await readPeerSyncJson(resp, url);
-  res.json({ ok: true, remote: result, to: url });
+  res.json({ ok: true, remote: result, to: url, chunked: false, bytes: buf.length });
 }));
 
 /* ---------- Excel workbook import (Tank1–Tank4 or FLAG EVI dual-sheet) ---------- */
