@@ -11,7 +11,7 @@
  * What is substituted, and why it is safe to substitute:
  *
  *   fs, path, crypto   the shim in node-shim.js, over IndexedDB
- *   express, cors      the shim below — the server uses six methods of it
+ *   express, cors      the shim below — the server uses seven methods of it
  *   multer             a stub; nothing that uploads a file is served here
  *   ./store            the shared database module, already loaded
  *   the importers      stubs that refuse clearly
@@ -142,6 +142,13 @@ const ExpressShim = (() => {
     static: () => (req, res, next) => next && next(),
     json: () => (req, res, next) => next && next(),
     urlencoded: () => (req, res, next) => next && next(),
+    /* The resumable sync-import chunk route parses its body with express.raw.
+       Without this the whole app failed to boot on-device -- index.js calls it
+       at load time, so a missing method is not a dormant gap in one route but
+       a TypeError before a single page renders. The route itself is
+       unreachable here (nothing pushes to this device's own API), and the
+       handler already refuses a body that is not a Buffer. */
+    raw: () => (req, res, next) => next && next(),
     Router: makeApp,
   });
 
