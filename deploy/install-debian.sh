@@ -38,6 +38,13 @@ fi
 
 cd "$APP_DIR"
 npm install --omit=dev
+# public/embedded is generated from server/ and is gitignored, so a clone never
+# carries it. Without it the on-device database cannot start: the app offers
+# the switch (canUseLocal() only checks that local-api.js loaded, not that its
+# files exist) and boot() then dies on "404 fetching /embedded/index.js".
+# Only fs and path are used, so it runs fine after --omit=dev.
+echo "==> Building the on-device route copy (public/embedded)"
+npm run embed
 if [[ -f requirements.txt ]]; then
   pip3 install --break-system-packages -r requirements.txt 2>/dev/null \
     || pip3 install -r requirements.txt
