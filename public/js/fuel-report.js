@@ -445,7 +445,23 @@ const FuelReport = (() => {
     const consumption = Core.CONSUMPTION_FIELDS.map((f) => `
       <label class="fr-field"><span>${esc(f.label)}</span>
         <input type="number" step="any" data-consumption="${f.id}" value="${esc(view.form.consumption[f.id])}"></label>`).join('');
+    /* No Prepared-by boxes. The Chief Engineer's name, rank and signature are
+       the ship's, entered once on Vessel Setup, and every printout in the suite
+       reads them from the vessel record -- so there is nothing to retype here,
+       and nothing to go stale after a crew change. What the sheet will carry is
+       shown instead, so it can still be checked before printing. */
     const sig = view.form.signature;
+    const signer = String(sig.preparedBy || '').trim();
+    const vesselSigner = String(vesselChiefEngineer() || '').trim();
+    const signedNote = signer
+      ? (signer === vesselSigner
+        ? `Signed by <b>${esc(signer)}</b>, ${esc(sig.rank || 'Chief Engineer')}, from Vessel Setup.`
+        : `This sheet is filed under <b>${esc(signer)}</b>, ${esc(sig.rank || 'Chief Engineer')} — the officer who prepared it. `
+          + (vesselSigner
+            ? `Vessel Setup now names ${esc(vesselSigner)}; new sheets will carry that name.`
+            : 'Vessel Setup names no Chief Engineer yet.'))
+      : 'No Chief Engineer is named on Vessel Setup yet, so the signature line will print blank. '
+        + 'Enter the name there and upload the signature once, and every printout will carry both.';
     return `<div class="form-panel no-print">
       <div class="section-title" style="margin-top:0">Lube oil quantity (litres)</div>
       <div class="fr-quant">${lube}</div>
@@ -454,12 +470,7 @@ const FuelReport = (() => {
       <div class="section-title">Daily fuel consumption (MT)</div>
       <div class="fr-quant">${consumption}</div>
       <div class="section-title">Prepared by</div>
-      <div class="fr-quant">
-        <label class="fr-field"><span>NAME</span>
-          <input data-signature="preparedBy" value="${esc(sig.preparedBy)}"></label>
-        <label class="fr-field"><span>RANK</span>
-          <input data-signature="rank" value="${esc(sig.rank)}"></label>
-      </div>
+      <p class="hint" data-fr-signer style="margin:0">${signedNote}</p>
     </div>`;
   }
 
@@ -752,8 +763,6 @@ const FuelReport = (() => {
         view.form.received[el.dataset.received] = el.value;
       } else if (el.dataset.consumption) {
         view.form.consumption[el.dataset.consumption] = el.value;
-      } else if (el.dataset.signature) {
-        view.form.signature[el.dataset.signature] = el.value;
       } else {
         return;
       }
