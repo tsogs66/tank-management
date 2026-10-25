@@ -1245,13 +1245,11 @@ async function readPeerSyncJson(resp, url) {
   return payload;
 }
 
-app.get('/api/sync/ping', (req, res) => {
-  const bundle = store.syncPushBundle();
-  res.json({
-    ok: true,
-    format: 'vessel-fuel-tms-sync',
-    product: 'tank-chief',
-    vesselCount: (bundle.index && bundle.index.vessels) ? bundle.index.vessels.length : store.listVessels().length,
+/* What this host can accept on a push. Shared so the AIO shell's /api/health
+   reports the same numbers as /api/sync/ping rather than a second copy that
+   quietly drifts when a limit changes. */
+function syncCapabilities() {
+  return {
     /* Read by a pushing peer so it need not probe: an older Tank Chief answers
        an unknown POST with its SPA page, and "is that a 404 or the wrong mount"
        is not a question worth asking mid-push. */
@@ -1264,6 +1262,17 @@ app.get('/api/sync/ping', (req, res) => {
     /* What a single POST can carry here, so a sender can say why one failed
        instead of surfacing a bare 413. */
     maxSinglePostBytes: SINGLE_POST_LIMIT_BYTES,
+  };
+}
+
+app.get('/api/sync/ping', (req, res) => {
+  const bundle = store.syncPushBundle();
+  res.json({
+    ok: true,
+    format: 'vessel-fuel-tms-sync',
+    product: 'tank-chief',
+    vesselCount: (bundle.index && bundle.index.vessels) ? bundle.index.vessels.length : store.listVessels().length,
+    ...syncCapabilities(),
     time: new Date().toISOString(),
   });
 });
@@ -2703,7 +2712,7 @@ function start({ port = PORT, host = HOST } = {}) {
   });
 }
 
-module.exports = { app, start };
+module.exports = { app, start, syncCapabilities };
 
 // Run directly (npm start) and it serves straight away; required by the
 // desktop wrapper, it waits to be told.
