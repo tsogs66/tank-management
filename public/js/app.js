@@ -497,6 +497,7 @@ function renderMoreNav() {
   grid.appendChild(mk('iso8217', 'ISO 8217', '▤'));
   if (!isAioEmbedded()) grid.appendChild(mk('setup', 'Setup', '⚙'));
   grid.appendChild(mk('settings', 'Backup', '⇅'));
+  if (!isAioEmbedded()) grid.appendChild(mk('notes', 'Notes', '📝'));
   grid.appendChild(mk('about', 'About', 'ℹ'));
   host.appendChild(grid);
 
@@ -708,6 +709,7 @@ function renderNav() {
   group('System', (body) => {
     if (!isAioEmbedded()) body.appendChild(mk('setup', 'Vessel Setup', '⚙'));
     body.appendChild(mk('settings', 'Backup / Sync', '⇅'));
+    if (!isAioEmbedded()) body.appendChild(mk('notes', 'Notes', '📝'));
     body.appendChild(mk('about', 'About', 'ℹ'));
   });
 
@@ -800,7 +802,7 @@ function render() {
     main.appendChild(banner);
   }
 
-  const noVesselOk = ['setup', 'settings', 'about', 'vcf-wcf', 'iso8217'];
+  const noVesselOk = ['setup', 'settings', 'about', 'notes', 'vcf-wcf', 'iso8217'];
   if (!STATE.bundle && !noVesselOk.includes(STATE.route.page)) {
     if (isAioEmbedded()) {
       main.innerHTML += `<div class="form-panel"><h2>No vessel selected</h2>
@@ -837,6 +839,7 @@ function render() {
   else if (page === 'setup') renderSetup(main);
   else if (page === 'settings') renderSettings(main);
   else if (page === 'about') renderAbout(main);
+  else if (page === 'notes' && window.TankNotes) TankNotes.render(main);
   else if (CATS.some((c) => c.id === page) && !STATE.route.tankId) renderCategory(main, page);
   else if (STATE.route.tankId) renderTankDetail(main, STATE.route.tankId);
 }
@@ -5299,6 +5302,13 @@ function renderAbout(main) {
   </div>`;
   document.getElementById('btn-install-app')?.addEventListener('click', promptAppInstall);
   document.getElementById('btn-check-update')?.addEventListener('click', checkTankAppUpdate);
+  const guideHost = document.createElement('div');
+  guideHost.id = 'tankGuideHost';
+  const aboutCopy = main.querySelector('.about-copy');
+  const firstHeading = aboutCopy && aboutCopy.querySelector('h2');
+  if (aboutCopy && firstHeading) aboutCopy.insertBefore(guideHost, firstHeading);
+  else if (aboutCopy) aboutCopy.appendChild(guideHost);
+  if (window.TankGuide) TankGuide.render(guideHost);
   paintInstallButton();
 }
 
@@ -5446,6 +5456,7 @@ async function boot() {
   }
 
   render();
+  try { if (window.TankNotes) TankNotes.promptOnOpen(); } catch (_) {}
   if (window.LoadingSplash) LoadingSplash.endBoot();
   if (isBunkerOpsEmbed()) {
     navigate('bunker-plan');
