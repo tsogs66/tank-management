@@ -335,10 +335,35 @@ function emptyFuelReport(bundle) {
       atSea: '', atAnchor: '', atPort: '',
       boilerSea: '', boilerAnchor: '', boilerPort: '',
     },
-    signature: { preparedBy: '', rank: 'Chief Engineer' },
+    /* Who signs is the ship's business, not this sheet's: the name comes from
+       the vessel record that Vessel Setup writes, so it is entered once for
+       the ship instead of on every printout. */
+    signature: { preparedBy: String(((bundle && bundle.vessel) || {}).chiefEngineer || '').trim(), rank: 'Chief Engineer' },
     options: { capacityMtFactor: CAPACITY_MT_FACTOR, lubeDensity: LUBE_DENSITY },
     updatedAt: null,
   };
+}
+
+/**
+ * Signature fields, with a blank stored value falling back to the vessel's.
+ *
+ * A plain spread would not do. Every sheet saved while the Prepared-by boxes
+ * existed carries `preparedBy: ''` if they were left empty, and spreading that
+ * over the default would blank out the Chief Engineer that Vessel Setup now
+ * supplies -- the printout would go back to showing a dash.
+ *
+ * A stored name that is NOT blank is kept, deliberately. A sheet filed under a
+ * previous Chief is a record of who signed it, and reprinting it under the
+ * incoming officer's name would be a false document. The same reasoning files
+ * signature images by name.
+ */
+function mergeSignature(base, src) {
+  const out = { ...base };
+  for (const [k, v] of Object.entries(src || {})) {
+    const val = typeof v === 'string' ? v.trim() : v;
+    if (val !== '' && val != null) out[k] = v;
+  }
+  return out;
 }
 
 /** Merge a stored form over the defaults so new tanks always get a row. */
@@ -356,7 +381,7 @@ function normalizeForm(bundle, form) {
     lube: { ...base.lube, ...(src.lube || {}) },
     received: { ...base.received, ...(src.received || {}) },
     consumption: { ...base.consumption, ...(src.consumption || {}) },
-    signature: { ...base.signature, ...(src.signature || {}) },
+    signature: mergeSignature(base.signature, src.signature),
     options: { ...base.options, ...(src.options || {}) },
     updatedAt: src.updatedAt || null,
   };
