@@ -477,10 +477,10 @@ const BunkerReports = (() => {
         <th class="fr-tank-name">${i + 1}. <select data-slot="${i}" data-field="tankId">${opts}</select></th>
         ${cell('capacity100M3')}${cell('capacity85M3')}${cell('startingUllageMM')}
         ${cell('startingRobM3')}${cell('freeM3At85')}
-        <td><input type="number" step="any" data-slot="${i}" data-field="targetVolumeM3" value="${esc(f.targetVolumeM3)}"></td>
+        <td class="bp-entry"><input type="number" step="any" data-slot="${i}" data-field="targetVolumeM3" value="${esc(f.targetVolumeM3)}"></td>
         ${cell('targetVolumePercent')}${cell('targetUllageMM')}${cell('planAddMT')}
         <td class="bp-valve" data-bp-valve="${i}"></td>
-        <td><input type="number" step="any" data-slot="${i}" data-field="currentSoundingMM" value="${esc(soundDisplay)}">
+        <td class="bp-entry bp-sound"><input type="number" step="any" data-slot="${i}" data-field="currentSoundingMM" value="${esc(soundDisplay)}">
           <span class="bp-method" data-bp-method="${i}"></span></td>
         ${cell('currentVolumePercent')}${cell('currentVolumeM3')}${cell('quantityAddMT')}
         ${cell('remainingToTargetMT')}
