@@ -3446,3 +3446,40 @@ html.astrolabe body::before { opacity: 0.26; }
 @media print {
   body::before { display: none !important; }
 }
+
+/* ---------- askText: the program's own text prompt ----------
+   window.prompt() is not available everywhere this program runs, so the
+   dialog below replaces it. Styled off the signature pad so the two read as
+   the same program. The overlay is appended to <body> by app.js and never to
+   a page container: inside a page that is display:none it would lay out at
+   0x0 while still reporting itself open. */
+
+.ask-text-overlay {
+  position: fixed; inset: 0; z-index: 95;
+  background: rgba(4, 8, 18, .72);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+}
+.ask-text-overlay[hidden] { display: none; }
+.ask-text-dialog {
+  width: min(420px, 100%);
+  background: var(--bg-card, #16203a);
+  border: 1px solid var(--border, #2a3550);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.ask-text-title { font-weight: 700; font-size: 15px; }
+.ask-text-message { font-size: 12px; color: #8b95a8; margin: 0; }
+.ask-text-label { font-size: 12px; color: #8b95a8; }
+.ask-text-field { display: flex; flex-direction: column; gap: 4px; }
+.ask-text-input {
+  width: 100%;
+  padding: 9px 10px;
+  font-size: 14px;
+  color: var(--text, #e6ecf7);
+  background: var(--bg-input, #0e1628);
+  border: 1px solid var(--border, #2a3550);
+  border-radius: 8px;
+}
+.ask-text-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }

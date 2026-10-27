@@ -46,6 +46,106 @@ function showToast(msg) {
   showToast._t = setTimeout(() => el.classList.remove('show'), 2400);
 }
 
+/* ---- askText: the program's own text prompt --------------------------------
+   window.prompt() is not available everywhere this program runs. Electron
+   THROWS "prompt() is not supported." rather than returning null, and because
+   these call sites sit in async click handlers the throw became a rejected
+   promise nobody saw: the button did nothing at all, with no error on screen
+   and nothing in the status line. The Android WebView has no prompt of its own
+   either. (alert and confirm do work, so only prompt needed replacing.)
+
+   So the program asks for itself, in its own dialog, which also lets a question
+   carry a label and a number keypad instead of one run-on string. Returns the
+   text typed, or null when the user cancels -- the same contract the call sites
+   already expect from prompt(). Enter accepts, Escape and a click on the
+   backdrop cancel, and the input takes focus on open. */
+
+/* The overlay is built once and kept as a direct child of <body>. Not inside a
+   page container: those are display:none whenever their page is not the open
+   one, and a dialog in there lays out at 0x0 while still reporting itself open
+   -- the first attempt at this fix failed exactly that way. */
+function askTextOverlay() {
+  let overlay = document.getElementById('askTextOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'askTextOverlay';
+    overlay.className = 'ask-text-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'askTextTitle');
+    overlay.hidden = true;
+    overlay.innerHTML = `
+      <div class="ask-text-dialog">
+        <div class="ask-text-title" id="askTextTitle">Enter a value</div>
+        <p class="ask-text-message" id="askTextMessage" hidden></p>
+        <div class="ask-text-field">
+          <label class="ask-text-label" for="askTextInput" id="askTextLabel">Value</label>
+          <input class="ask-text-input" id="askTextInput" type="text" autocomplete="off">
+        </div>
+        <div class="ask-text-actions">
+          <button type="button" class="btn" id="askTextCancel">Cancel</button>
+          <button type="button" class="btn primary" id="askTextAccept">OK</button>
+        </div>
+      </div>`;
+  }
+  if (overlay.parentElement !== document.body) document.body.appendChild(overlay);
+  return overlay;
+}
+
+function askText(opts) {
+  const o = opts || {};
+  return new Promise((resolve) => {
+    const overlay = askTextOverlay();
+    const input = document.getElementById('askTextInput');
+    const okBtn = document.getElementById('askTextAccept');
+    const cancel = document.getElementById('askTextCancel');
+    if (!overlay || !input || !okBtn || !cancel) {
+      // No dialog in the document: better a working prompt than a dead button.
+      try { resolve(window.prompt(o.message || o.title || '', o.value == null ? '' : String(o.value))); }
+      catch (_) { resolve(null); }
+      return;
+    }
+    document.getElementById('askTextTitle').textContent = o.title || 'Enter a value';
+    const msg = document.getElementById('askTextMessage');
+    msg.textContent = o.message || '';
+    msg.hidden = !o.message;
+    document.getElementById('askTextLabel').textContent = o.label || 'Value';
+    okBtn.textContent = o.okLabel || 'OK';
+    input.type = o.type === 'number' ? 'number' : 'text';
+    if (o.type === 'number') input.inputMode = 'numeric'; else input.removeAttribute('inputmode');
+    input.placeholder = o.placeholder || '';
+    input.value = o.value == null ? '' : String(o.value);
+
+    let done = false;
+    function close(result) {
+      if (done) return;
+      done = true;
+      overlay.classList.remove('open');
+      overlay.hidden = true;
+      okBtn.removeEventListener('click', onOk);
+      cancel.removeEventListener('click', onCancel);
+      overlay.removeEventListener('mousedown', onBackdrop);
+      document.removeEventListener('keydown', onKey, true);
+      resolve(result);
+    }
+    function onOk() { close(input.value); }
+    function onCancel() { close(null); }
+    function onBackdrop(ev) { if (ev.target === overlay) close(null); }
+    function onKey(ev) {
+      if (ev.key === 'Escape') { ev.preventDefault(); close(null); }
+      else if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); close(input.value); }
+    }
+    okBtn.addEventListener('click', onOk);
+    cancel.addEventListener('click', onCancel);
+    overlay.addEventListener('mousedown', onBackdrop);
+    document.addEventListener('keydown', onKey, true);
+
+    overlay.hidden = false;
+    overlay.classList.add('open');
+    setTimeout(() => { try { input.focus(); input.select(); } catch (_) { /* ignore */ } }, 0);
+  });
+}
+
 /** Chrome/Edge/Android fire this once; keep it so About can offer Install. */
 let deferredInstallPrompt = null;
 
@@ -4483,7 +4583,12 @@ function renderSetup(main) {
   };
 
   document.getElementById('btn-new-vessel').onclick = async () => {
-    const name = prompt('New vessel name?');
+    const name = await askText({
+      title: 'New vessel',
+      label: 'Vessel name',
+      placeholder: 'e.g. MV Example',
+      okLabel: 'Create',
+    });
     if (!name) return;
     const v = await Api.createVessel({ name });
     await Api.setActive(v.id);
@@ -4497,7 +4602,13 @@ function renderSetup(main) {
 
   document.getElementById('btn-clone-vessel').onclick = async () => {
     if (!STATE.bundle) { showToast('No active vessel'); return; }
-    const name = prompt('Name for cloned vessel?', vesselName() + ' (copy)');
+    const name = await askText({
+      title: 'Clone vessel',
+      message: 'The tanks, voyage and bunkering details are copied; readings are not.',
+      label: 'Name for the cloned vessel',
+      value: vesselName() + ' (copy)',
+      okLabel: 'Clone',
+    });
     if (!name) return;
     const v = await Api.createVessel({
       name,
