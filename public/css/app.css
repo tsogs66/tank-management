@@ -17,10 +17,10 @@
   --good: #5f9e6e;
   --warn: #c99a53;
   --bad: #e06a4c;
-  --fuel: #c99a53;
-  --lube: #57b3ab;
+  --fuel: #c36a39;
+  --lube: #ea8633;
   --misc: #a9a292;
-  --water: #57b3ab;
+  --water: #348fdc;
   --radius: 10px;
   --shadow: 0 2px 10px rgba(0,0,0,0.35);
   --sidebar-w: 240px;
@@ -48,10 +48,10 @@ html.bright {
   --good: #2f7a45;
   --warn: #8a5a1a;
   --bad: #b33a22;
-  --fuel: #8a5a1a;
-  --lube: #1f7a72;
+  --fuel: #6b3a1f;
+  --lube: #c45a10;
   --misc: #3d4a5c;
-  --water: #1f7a72;
+  --water: #1f6fb2;
   --brass: #8a5a1a;
   --shadow: 0 2px 10px rgba(18,34,56,0.12);
   --nav-item-bg: rgba(255,255,255,0.92);
@@ -77,7 +77,7 @@ html.prism {
   --warn: #e8c070;
   --bad: #e0705c;
   --fuel: #e8a040;
-  --lube: #2fd4b8;
+  --lube: #ff9a4a;
   --misc: #7eb8ae;
   --water: #40c8e8;
   --brass: #e8c070;
@@ -132,9 +132,9 @@ html.astrolabe {
   --warn: #c9985a;
   --bad: #e0705c;
   --fuel: #c9985a;
-  --lube: #6ab0c8;
+  --lube: #e09050;
   --misc: #a89a82;
-  --water: #5898b8;
+  --water: #6eb0d4;
   --brass: #c9985a;
   --shadow: 0 18px 46px rgba(4, 6, 16, 0.5);
   --nav-item-bg: rgba(22, 26, 44, 0.94);
@@ -3250,4 +3250,76 @@ body.reorder-dragging {
 
 @media (max-width: 520px) {
   .reorder-row .tag { display: none; }
+}
+
+/* Tank Chief reads as bunkers at a glance: a sight glass on every container,
+   a fuel valve on every button, and pipe colours on the family marks.
+   Theme fills stay; the liquid colours are the shipyard pipe code. */
+.card,
+.form-panel,
+.result-panel,
+.pdf-upload-card,
+.bp-result {
+  position: relative;
+  overflow: hidden;
+}
+.card::before,
+.form-panel::before,
+.result-panel::before,
+.pdf-upload-card::before,
+.bp-result::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 11px;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(255,255,255,.5), rgba(255,255,255,0) 42%, rgba(0,0,0,.22)),
+    repeating-linear-gradient(180deg, rgba(255,255,255,.8) 0 1px, transparent 1px 8px) 0 0 / 100% 30% no-repeat,
+    linear-gradient(180deg, rgba(233,228,214,.16) 0 30%, #f0c14a 30% 33%, #c8960a 33% 55%, #6b3a1f 55% 100%);
+}
+html.bright .card::before,
+html.bright .form-panel::before,
+html.bright .result-panel::before,
+html.bright .pdf-upload-card::before,
+html.bright .bp-result::before {
+  background:
+    linear-gradient(90deg, rgba(255,255,255,.9), rgba(255,255,255,0) 46%, rgba(18,34,56,.14)),
+    repeating-linear-gradient(180deg, rgba(18,34,56,.45) 0 1px, transparent 1px 8px) 0 0 / 100% 30% no-repeat,
+    linear-gradient(180deg, #efe6d6 0 30%, #f0c14a 30% 33%, #c8960a 33% 55%, #6b3a1f 55% 100%);
+}
+.card,
+.form-panel,
+.result-panel,
+.pdf-upload-card {
+  padding-left: 24px;
+}
+.bp-result {
+  padding-left: 22px;
+  box-shadow:
+    inset 0 3px 0 #c8960a,
+    inset 0 1px 0 rgba(255,255,255,.45),
+    inset 0 -10px 18px rgba(0,0,0,.18),
+    0 10px 22px rgba(0,0,0,.28);
+}
+.btn {
+  border-left: 4px solid #6b3a1f;
+  background-image: linear-gradient(180deg, transparent 0 72%, rgba(200,150,10,.34) 100%);
+}
+.btn.primary {
+  background: linear-gradient(180deg, #f0c14a 0%, #e0a020 62%, #c8960a 100%);
+  border-color: #8a5530;
+  border-left-color: #6b3a1f;
+  color: #1a1208;
+}
+.btn.primary:hover { filter: brightness(1.06); color: #1a1208; }
+.btn.danger {
+  border-left-color: var(--bad);
+  background-image: none;
+}
+html.bright .btn.primary,
+html.bright .btn.primary:hover {
+  color: #1a1208;
 }
