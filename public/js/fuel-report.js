@@ -832,7 +832,7 @@ const FuelReport = (() => {
 
   /* ---------- save ---------- */
 
-  async function saveReport({ snapshot = false, print = false } = {}) {
+  async function saveReport({ snapshot = false, print = false, quiet = false } = {}) {
     const computed = recompute();
     const bundle = currentBundle();
     const form = { ...view.form, updatedAt: new Date().toISOString() };
@@ -851,10 +851,10 @@ const FuelReport = (() => {
         bundle.fuelReport = res.form;
         if (res.history) bundle.reportHistory = res.history;
         await OfflineDB.idbSet('vessel:' + STATE.activeVesselId, bundle);
-        showToast(snapshot ? 'Report saved' : 'Draft saved');
+        if (!quiet) showToast(snapshot ? 'Report saved' : 'Draft saved');
       } catch {
         await Api.mutate(`/api/vessels/${STATE.activeVesselId}/fuel-report`, { method: 'PUT', body });
-        showToast('Saved offline — will sync when online');
+        if (!quiet) showToast('Saved offline — will sync when online');
       }
     };
 
@@ -872,6 +872,11 @@ const FuelReport = (() => {
       return;
     }
     await pushServer();
+  }
+
+  async function flushIfDirty() {
+    if (!view.dirty || !view.form) return;
+    await saveReport({ snapshot: false, print: false, quiet: true });
   }
 
   /* ---------- printed document ---------- */
@@ -1731,6 +1736,7 @@ const FuelReport = (() => {
 
   return {
     render,
+    flushIfDirty,
     printReport,
     buildPrintPages,
     recompute,

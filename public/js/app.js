@@ -529,7 +529,8 @@ function renderMoreNav() {
     } else {
       sw.onchange = async (e) => {
         const id = e.target.value;
-        if (!id) return;
+        if (!id || id === STATE.activeVesselId) return;
+        try { await flushUnsavedTankWork(); } catch (err) { console.warn('Save before vessel change:', err && err.message); }
         await Api.setActive(id);
         STATE.activeVesselId = id;
         await reloadBundle();
@@ -601,6 +602,42 @@ async function reloadBundle() {
   if (!STATE.activeVesselId) { STATE.bundle = null; return; }
   STATE.bundle = await Api.getVessel(STATE.activeVesselId);
 }
+
+async function flushUnsavedTankWork() {
+  if (typeof window.flushOpenTankReading === 'function') {
+    try { await window.flushOpenTankReading(); } catch (err) { console.warn(err); }
+  }
+  if (window.FuelReport && typeof FuelReport.flushIfDirty === 'function') {
+    try { await FuelReport.flushIfDirty(); } catch (err) { console.warn(err); }
+  }
+  if (window.BunkerReports && typeof BunkerReports.flushOpenForms === 'function') {
+    try { await BunkerReports.flushOpenForms(); } catch (err) { console.warn(err); }
+  }
+  const voyageNo = document.getElementById('v-voyage');
+  if (voyageNo && STATE.bundle) {
+    const val = (id) => {
+      const el = document.getElementById(id);
+      return el ? el.value : '';
+    };
+    const num = (id) => parseFloat(val(id)) || 0;
+    await persistPart('voyage', {
+      ...(STATE.bundle.voyage || {}),
+      voyageNo: val('v-voyage'),
+      port: val('v-port'),
+      reportType: val('v-type'),
+      date: val('v-date'),
+      trim: num('v-trim'),
+      heel: num('v-heel'),
+      draftFwd: num('v-dfwd'),
+      draftAft: num('v-daft'),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+  if (document.getElementById('btn-save-voyage-plan') && STATE.bundle && STATE.bundle.bunkering) {
+    await persistPart('bunkering', STATE.bundle.bunkering);
+  }
+}
+window.flushUnsavedTankWork = flushUnsavedTankWork;
 
 /* ---------- Nav / shell ---------- */
 function renderNav() {
@@ -778,7 +815,8 @@ function renderNav() {
   if (vesselSwitcher) {
     vesselSwitcher.onchange = async (e) => {
       const id = e.target.value;
-      if (!id) return;
+      if (!id || id === STATE.activeVesselId) return;
+      try { await flushUnsavedTankWork(); } catch (err) { console.warn('Save before vessel change:', err && err.message); }
       await Api.setActive(id);
       STATE.activeVesselId = id;
       await reloadBundle();
@@ -789,6 +827,7 @@ function renderNav() {
 }
 
 function render() {
+  window.flushOpenTankReading = null;
   try { if (window.ChengClockPicker) ChengClockPicker.close(); } catch (_) {}
   renderNav();
   syncBottomNav();
@@ -1790,9 +1829,10 @@ function renderTankDetail(main, tankId) {
     });
   }
 
-  async function doCalc() {
+  async function doCalc(opts) {
+    const quiet = !!(opts && opts.quiet);
     let reading = parseFloat(document.getElementById('in-reading').value);
-    if (Number.isNaN(reading)) { showToast('Enter a reading'); return; }
+    if (Number.isNaN(reading)) { if (!quiet) showToast('Enter a reading'); return; }
     const gaugeType = directM3Tank ? 'volume' : (gaugeChoice ? document.getElementById('in-gaugetype').value : 'meter');
     /* Sounding/ullage inputs are centimetres; convert to the table's native
        units (mm common, metres when the depth column has decimals). */
@@ -1820,9 +1860,16 @@ function renderTankDetail(main, tankId) {
       await persistPart('readings', STATE.bundle.readings);
     }
     renderResultSteps(document.getElementById('result-panel'), tank, result, inputs);
-    showToast('Reading saved');
+    if (!quiet) showToast('Reading saved');
   }
-  document.getElementById('btn-calc').onclick = doCalc;
+  document.getElementById('btn-calc').onclick = () => doCalc();
+  let detailDirty = false;
+  grid.addEventListener('input', () => { detailDirty = true; });
+  window.flushOpenTankReading = async () => {
+    if (!detailDirty) return;
+    await doCalc({ quiet: true });
+    detailDirty = false;
+  };
 
   async function loadConversionTable() {
     if (STATE.conversionTable) return STATE.conversionTable;
@@ -4267,6 +4314,7 @@ function renderSetup(main) {
 
   list.querySelectorAll('[data-load]').forEach((btn) => {
     btn.onclick = async () => {
+      try { await flushUnsavedTankWork(); } catch (err) { console.warn('Save before vessel change:', err && err.message); }
       await Api.setActive(btn.dataset.load);
       STATE.activeVesselId = btn.dataset.load;
       await reloadBundle();
