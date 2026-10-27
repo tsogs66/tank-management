@@ -1298,8 +1298,25 @@ table.fr-sheet tfoot th { text-align: left; }
    the valve controls and the sounding boxes into the same space. */
 table.bp-sheet { width: max-content; min-width: 100%; }
 table.bp-sheet thead th { min-width: 4.4rem; }
-table.bp-sheet tbody th.fr-tank-name { min-width: 168px; }
-table.bp-sheet tbody th.fr-tank-name select { min-width: 130px; margin-left: 4px; max-width: 100%; box-sizing: border-box; }
+table.bp-sheet thead th:first-child,
+table.bp-sheet tbody th.fr-tank-name { min-width: 12.5rem; padding-right: 4px; }
+.bp-tank-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.bp-tank-pick .bp-seq { flex: 0 0 auto; }
+table.bp-sheet tbody th.fr-tank-name select {
+  flex: 1 1 auto;
+  width: 1%;
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+  box-sizing: border-box;
+}
 table.bp-sheet tbody td.bp-entry { min-width: 5.5rem; white-space: normal; vertical-align: middle; }
 table.bp-sheet tbody td.bp-entry input {
   box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%;
