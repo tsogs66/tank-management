@@ -150,6 +150,11 @@ jobs:
           # all is a question only a browser answers, so it is asked here,
           # where there is one — and a server for the order to be saved to.
           node scripts/test-reorder-touch.js
+
+          # Whether the replacement for window.prompt actually paints is not
+          # something the source can answer: parked in a hidden page container
+          # it lays out at 0x0 while still reporting itself open.
+          node tests/browser_ask_text_e2e.js
           kill "$(cat /tmp/tank-server.pid)" || true
 
       - name: Server log
