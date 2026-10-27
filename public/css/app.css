@@ -2117,8 +2117,18 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   min-height: 2.4em; overflow: hidden;
   color: var(--text);
 }
-.tg-art { position: relative; }
-.tg-svg { display: block; width: 100%; height: auto; --tg-ink: #93a1b8; }
+.tg-art { position: relative; display: flex; justify-content: center; }
+.tg-svg { display: block; width: 100%; max-width: 128px; height: auto; margin: 0 auto; --tg-ink: #93a1b8; }
+@media (max-width: 600px) {
+  .tg-svg { max-width: 148px; }
+}
+@media (min-width: 1181px) {
+  .tg-svg { max-width: 140px; }
+}
+.tg-schematic-col-tanks .tg-svg { max-width: 112px; }
+@media (min-width: 1181px) {
+  .tg-schematic-col-tanks .tg-svg { max-width: 124px; }
+}
 .tg-pct {
   position: absolute; right: 4px; top: 4px;
   font-size: 13px; font-weight: 800; color: var(--text, #e8eef8);
@@ -2646,21 +2656,35 @@ html.bright .bunker-side { background: rgba(18,34,56,0.04); }
   -webkit-backdrop-filter: blur(8px);
 }
 .bp-result-value {
-  font-weight: 500;
-  font-size: 22px;
-  line-height: 1.15;
+  font-family: "Segoe UI", "Segoe UI Variable Text", system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 26px;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
+  color: var(--text);
 }
 .bp-result-value b { font-weight: 800; }
-.bp-result-unit { font-weight: 500; font-size: 13px; margin-left: 6px; letter-spacing: .04em; }
-.bp-result-title {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: .05em;
-  text-transform: uppercase;
-  line-height: 1.25;
-  opacity: .92;
+.bp-result-unit {
+  font-weight: 600;
+  font-size: 12px;
+  margin-left: 5px;
+  letter-spacing: .02em;
+  color: var(--accent);
 }
+.bp-result-title {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  color: #8ea0b8;
+  opacity: 1;
+}
+html.bright .bp-result-title { color: #5c6b80; }
+html.prism .bp-result-title { color: #6f9e96; }
+html.astrolabe .bp-result-title { color: #9a866c; }
 html.bright .bp-result {
   color: #122238;
   background: linear-gradient(165deg, rgba(255,255,255,.92), rgba(255,255,255,.55) 48%, rgba(201,154,83,.16));
@@ -2708,7 +2732,7 @@ html.bright .bp-result {
 @media (max-width: 720px) {
   .bunker-results { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .bp-result { min-height: 72px; padding: 10px 10px 8px; }
-  .bp-result-value { font-size: 18px; }
+  .bp-result-value { font-size: 22px; }
   .bp-result-unit { font-size: 12px; }
   .bunker-remarks textarea { font-size: 16px; min-height: 96px; }
   .bunker-plan-actions .btn { flex: 1 1 auto; min-height: 44px; }
@@ -2892,27 +2916,28 @@ html.tc-top-nav:not(.is-mobile-chrome) .nav-group {
   position: relative;
   min-width: 0;
   border: 1px solid var(--border-soft);
-  border-radius: 8px;
+  border-radius: 4px;
   background: rgba(0,0,0,.12);
   overflow: visible;
 }
 html.tc-top-nav:not(.is-mobile-chrome) .nav-group-label {
   margin: 0;
-  padding: 8px 12px;
+  padding: 6px 10px;
   cursor: pointer;
   user-select: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 11px;
-  letter-spacing: .06em;
-  text-transform: uppercase;
+  font-family: "Segoe UI", "Segoe UI Variable Text", system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
   white-space: nowrap;
   background: transparent;
   border: 0;
   color: inherit;
-  font-family: inherit;
 }
 html.tc-top-nav:not(.is-mobile-chrome) .nav-group-label::after {
   content: "▾";
@@ -2953,6 +2978,30 @@ html.tc-top-nav:not(.is-mobile-chrome) .nav-group.collapsed .nav-group-body { di
 html.tc-top-nav:not(.is-mobile-chrome) .nav-btn {
   width: 100%;
   justify-content: flex-start;
+  font-family: "Segoe UI", "Segoe UI Variable Text", system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  border-radius: 4px;
+  padding: 6px 10px;
+}
+html.tc-top-nav:not(.is-mobile-chrome) .masthead h1,
+html.tc-top-nav:not(.is-mobile-chrome) .panel h2,
+html.tc-top-nav:not(.is-mobile-chrome) button,
+html.tc-top-nav:not(.is-mobile-chrome) input,
+html.tc-top-nav:not(.is-mobile-chrome) select {
+  font-family: "Segoe UI", "Segoe UI Variable Text", system-ui, sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+html.tc-top-nav:not(.is-mobile-chrome) .masthead h1 {
+  font-weight: 600;
+  font-size: 18px;
+}
+html.tc-top-nav:not(.is-mobile-chrome) .panel,
+html.tc-top-nav:not(.is-mobile-chrome) .card {
+  border-radius: 6px;
 }
 html.tc-top-nav:not(.is-mobile-chrome) .workspace {
   flex: 1;

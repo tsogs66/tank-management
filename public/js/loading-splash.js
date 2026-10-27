@@ -8,6 +8,7 @@ const LoadingSplash = (() => {
   let root = null;
   let labelEl = null;
   let kickerEl = null;
+  let detailEl = null;
   let trackBar = null;
   let hideTimer = null;
 
@@ -80,13 +81,15 @@ const LoadingSplash = (() => {
     root.innerHTML = `
       <div class="loading-splash-viz">${SVG_MARKUP}</div>
       <div class="loading-splash-text">
-        <div class="loading-splash-kicker" id="loading-splash-kicker"></div>
         <p class="loading-splash-label" id="loading-splash-label">Starting…</p>
-      </div>
-      <div class="loading-splash-track" aria-hidden="true"><div class="loading-splash-track-bar" id="loading-splash-track-bar"></div></div>`;
+        <div class="loading-splash-track" aria-hidden="true"><div class="loading-splash-track-bar" id="loading-splash-track-bar"></div></div>
+        <div class="loading-splash-detail" id="loading-splash-detail"></div>
+        <div class="loading-splash-kicker" id="loading-splash-kicker"></div>
+      </div>`;
     document.body.appendChild(root);
     labelEl = root.querySelector('#loading-splash-label');
     kickerEl = root.querySelector('#loading-splash-kicker');
+    detailEl = root.querySelector('#loading-splash-detail');
     trackBar = root.querySelector('#loading-splash-track-bar');
     return root;
   }
@@ -127,14 +130,21 @@ const LoadingSplash = (() => {
       kickerEl.textContent = top.kicker || '';
       kickerEl.style.display = top.kicker ? '' : 'none';
     }
+    if (detailEl) {
+      detailEl.textContent = top.detail || '';
+      detailEl.style.display = top.detail ? '' : 'none';
+    }
     if (trackBar) {
       const pct = top.pct;
+      const track = trackBar.parentElement;
       if (pct != null && isFinite(pct)) {
-        trackBar.style.width = `${Math.max(4, Math.min(100, pct))}%`;
+        trackBar.style.width = `${Math.max(0, Math.min(100, pct))}%`;
         trackBar.style.animation = 'none';
+        if (track) track.classList.add('is-determinate');
       } else {
         trackBar.style.width = '';
         trackBar.style.animation = '';
+        if (track) track.classList.remove('is-determinate');
       }
     }
   }
@@ -148,6 +158,7 @@ const LoadingSplash = (() => {
     stack.set(id, {
       label: label || 'Working…',
       kicker: o.kicker || '',
+      detail: o.detail || '',
       pct: o.pct != null ? o.pct : null,
       order: orderSeq,
     });
@@ -163,6 +174,7 @@ const LoadingSplash = (() => {
     const o = opts && typeof opts === 'object' ? opts : {};
     if (label != null) cur.label = label;
     if (o.kicker != null) cur.kicker = o.kicker;
+    if (o.detail != null) cur.detail = o.detail;
     if (o.pct !== undefined) cur.pct = o.pct;
     cur.order = ++orderSeq;
     paint();
