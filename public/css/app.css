@@ -165,6 +165,118 @@ a { color: var(--accent); }
   display: flex;
   flex-direction: column;
 }
+/* Same header as Voyage Chief: logo, title beside it, status on the right.
+   The backup line, when present, is its own row so it cannot shove the title. */
+.masthead {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 1px;
+  flex-shrink: 0;
+  padding: 10px 24px 12px;
+  border-bottom: 2px solid var(--brass, var(--accent));
+}
+.masthead-left,
+.masthead-left > div,
+.masthead .status-row { display: contents; }
+.masthead .app-logo {
+  grid-column: 1;
+  grid-row: 1 / span 3;
+  align-self: center;
+  width: 52px;
+  height: 52px;
+  object-fit: contain;
+  display: block;
+}
+.masthead h1 {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: start;
+  text-align: left;
+  align-self: center;
+  margin: 0;
+  min-width: 0;
+  font-family: 'Oswald', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 24px;
+  line-height: 1.15;
+  color: var(--text);
+}
+.masthead .subtitle {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: start;
+  align-self: center;
+  min-width: 0;
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.masthead .byline {
+  grid-column: 2;
+  grid-row: 3;
+  justify-self: start;
+  align-self: center;
+  min-width: 0;
+  margin: 0;
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+.masthead #dbStatus,
+.masthead #syncStatus,
+.masthead #appVersion {
+  grid-column: 3;
+  justify-self: end;
+  align-self: center;
+  text-align: right;
+  max-width: min(46vw, 320px);
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.masthead #dbStatus { grid-row: 1; color: var(--accent-2, var(--good)); }
+.masthead #syncStatus { grid-row: 2; font-size: 10px; }
+.masthead #syncStatus.online { color: var(--good); }
+.masthead #syncStatus.pending { color: var(--warn); }
+.masthead #syncStatus.error { color: var(--bad); }
+.masthead #appVersion { grid-row: 3; color: var(--text-faint); }
+.masthead #dataHealthStrip {
+  grid-column: 1 / -1;
+  grid-row: 4;
+  justify-self: stretch;
+  min-width: 0;
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.masthead #dataHealthStrip[hidden] { display: none !important; }
+.masthead #dataHealthStrip .dh-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.masthead #dataHealthStrip .dh-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); flex: 0 0 auto;
+}
+.masthead #dataHealthStrip .dh-ok .dh-dot { background: var(--good); }
+.masthead #dataHealthStrip .dh-warn .dh-dot { background: var(--warn); }
+.masthead #dataHealthStrip .dh-bad .dh-dot { background: var(--bad); }
+.masthead #dataHealthStrip .dh-warn { color: var(--warn); }
+.masthead #dataHealthStrip .dh-bad { color: var(--bad); }
+@media (max-width: 720px) {
+  .masthead { padding: 6px 8px 8px; }
+  .masthead .app-logo { width: 34px; height: 34px; }
+  .masthead h1 { font-size: 16px; }
+  .masthead .subtitle { font-size: 9px; }
+}
+html.use-bottom-nav .masthead { padding: 8px 10px 8px; }
 #shipClockChip {
   margin: 8px 16px 0;
   padding-left: env(safe-area-inset-left, 0px);
@@ -368,12 +480,12 @@ html.use-bottom-nav .sidebar-backdrop { display: none !important; }
 html.use-bottom-nav .main {
   padding: calc(12px + env(safe-area-inset-top, 0px)) 10px calc(var(--nav-bar-h) + env(safe-area-inset-bottom, 0px));
 }
-/* Room for ChEng AIO Home FAB (top-right) when embedded */
+/* The suite bar sits above this frame, so the page header starts at the top. */
 html.chengaio-embed .main {
-  padding-top: calc(52px + env(safe-area-inset-top, 0px));
+  padding-top: 12px;
 }
 html.use-bottom-nav.chengaio-embed .main {
-  padding-top: calc(52px + env(safe-area-inset-top, 0px));
+  padding-top: 8px;
 }
 
 /* ChEng AIO → Bunkering Plan: iframe shows only bunker-plan — no Tank nav chrome. */
@@ -391,7 +503,7 @@ html.bunker-ops-embed .main {
   padding-top: calc(8px + env(safe-area-inset-top, 0px)) !important;
 }
 html.bunker-ops-embed.chengaio-embed .main {
-  padding-top: calc(52px + env(safe-area-inset-top, 0px)) !important;
+  padding-top: 8px !important;
 }
 
 /* Wide Windows desktop: sidebar. Android/mobile (.is-mobile-chrome) keeps bottom nav
@@ -2841,6 +2953,11 @@ html.tc-top-nav:not(.is-mobile-chrome) .nav-group.collapsed .nav-group-body { di
 html.tc-top-nav:not(.is-mobile-chrome) .nav-btn {
   width: 100%;
   justify-content: flex-start;
+}
+html.tc-top-nav:not(.is-mobile-chrome) .workspace {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 html.tc-top-nav:not(.is-mobile-chrome) .main {
   width: 100%;

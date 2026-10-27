@@ -653,7 +653,8 @@ function renderNav() {
     document.documentElement.classList.toggle('tc-top-nav', topNav);
   } catch (_) {}
 
-  /* No Tank Chief title header — vessel name only when not AIO-embedded. */
+  /* Vessel switcher stays in the sidebar when Tank Chief runs on its own.
+     The title block is the masthead, the same header Voyage Chief uses. */
   if (!isAioEmbedded()) {
     const brand = document.createElement('div');
     brand.className = 'brand';
@@ -826,11 +827,59 @@ function renderNav() {
   }
 }
 
+function renderMasthead() {
+  const label = document.getElementById('activeVesselLabel');
+  const name = vesselName();
+  if (label) {
+    label.textContent = (name && name !== 'No vessel')
+      ? (name + ' — Tank Sounding & Bunkering')
+      : 'Engine Department — Tank Sounding & Bunkering';
+  }
+  const byline = document.getElementById('appByline');
+  if (byline && window.Branding && typeof Branding.authorLine === 'function') {
+    byline.textContent = Branding.authorLine();
+  }
+  const db = document.getElementById('dbStatus');
+  if (db) {
+    const local = !window.Api || typeof Api.getTransport !== 'function' || Api.getTransport() === 'local';
+    if (!STATE.online && !local) db.textContent = '● offline — saved on this device';
+    else if (local) db.textContent = '● local database ready';
+    else db.textContent = '● server database ready';
+  }
+  const syncEl = document.getElementById('syncStatus');
+  if (syncEl) {
+    const url = STATE.settings && STATE.settings.syncUrl ? String(STATE.settings.syncUrl).trim() : '';
+    syncEl.className = '';
+    if (!url) syncEl.textContent = '○ sync not configured';
+    else if (!STATE.online) {
+      syncEl.textContent = '● offline';
+      syncEl.className = 'pending';
+    } else {
+      syncEl.textContent = '● ready to sync';
+      syncEl.className = 'online';
+    }
+  }
+  const ver = document.getElementById('appVersion');
+  if (ver) {
+    const raw = (window.Branding && Branding.APP_VERSION) ? String(Branding.APP_VERSION) : '';
+    ver.textContent = raw ? (raw.charAt(0) === 'v' || raw.charAt(0) === 'V' ? raw : ('v' + raw)) : '';
+  }
+  if (window.OfflineDB && typeof OfflineDB.queueAll === 'function') {
+    OfflineDB.queueAll().then((items) => {
+      const el = document.getElementById('syncStatus');
+      if (!el || !items || !items.length) return;
+      el.textContent = '● changes pending';
+      el.className = 'pending';
+    }).catch(() => {});
+  }
+}
+
 function render() {
   window.flushOpenTankReading = null;
   try { if (window.ChengClockPicker) ChengClockPicker.close(); } catch (_) {}
   renderNav();
   syncBottomNav();
+  renderMasthead();
   const main = document.getElementById('main');
   main.innerHTML = '';
 
@@ -5439,6 +5488,7 @@ async function boot() {
       dot.classList.toggle('online', online);
       dot.classList.toggle('offline', !online);
     }
+    renderMasthead();
   });
 
   const toggle = document.getElementById('menu-toggle');
