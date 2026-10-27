@@ -2135,17 +2135,8 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   color: var(--text);
 }
 .tg-art { position: relative; display: flex; justify-content: center; }
-.tg-svg { display: block; width: 100%; max-width: 128px; height: auto; margin: 0 auto; --tg-ink: #93a1b8; }
-@media (max-width: 600px) {
-  .tg-svg { max-width: 148px; }
-}
-@media (min-width: 1181px) {
-  .tg-svg { max-width: 140px; }
-}
-.tg-schematic-col-tanks .tg-svg { max-width: 112px; }
-@media (min-width: 1181px) {
-  .tg-schematic-col-tanks .tg-svg { max-width: 124px; }
-}
+/* Same scale as the ChEng AIO dashboard: the drawing fills its card. */
+.tg-svg { display: block; width: 100%; height: auto; margin: 0 auto; --tg-ink: #93a1b8; }
 .tg-pct {
   position: absolute; right: 4px; top: 4px;
   font-size: 13px; font-weight: 800; color: var(--text, #e8eef8);
