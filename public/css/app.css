@@ -3400,3 +3400,41 @@ html.bright .btn.primary:hover {
 @media (pointer: coarse) and (orientation: landscape) and (max-height: 520px) {
   :root { --nav-label: 11px; --nav-item-h: 52px; }
 }
+
+/* Faint sounding tanks behind the page. The fill ghosts through the cards;
+   the figures stay on the card colour. */
+body::before {
+  content: "";
+  position: fixed;
+  top: 8vh;
+  right: -4vw;
+  width: min(420px, 78vw);
+  height: min(560px, 78vh);
+  z-index: 0;
+  pointer-events: none;
+  background: var(--brass);
+  -webkit-mask: url("../icons/wash-tanks.svg") center / contain no-repeat;
+  mask: url("../icons/wash-tanks.svg") center / contain no-repeat;
+  opacity: 0.3;
+  animation: tc-level 26s ease-in-out infinite;
+}
+html.bright body::before { opacity: 0.16; }
+html.prism body::before,
+html.astrolabe body::before { opacity: 0.26; }
+.app-shell { position: relative; z-index: 1; }
+.card,
+.form-panel,
+.result-panel,
+.pdf-upload-card {
+  background-color: color-mix(in srgb, var(--bg-card) 86%, transparent);
+}
+@keyframes tc-level {
+  0%, 100% { transform: translate3d(0, 8px, 0); }
+  50% { transform: translate3d(0, -10px, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body::before { animation: none; }
+}
+@media print {
+  body::before { display: none !important; }
+}
