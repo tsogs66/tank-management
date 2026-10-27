@@ -2560,8 +2560,21 @@ const BunkerReports = (() => {
     });
   } catch (_) { /* ignore */ }
 
+  async function flushOpenForms() {
+    if (document.getElementById('bp-save') && view.plan) {
+      await saveChainPart('bunker-plan', 'bunkerPlan', { ...view.plan, updatedAt: new Date().toISOString() }, { quiet: true });
+    }
+    if (document.getElementById('ba-save') && view.after) {
+      await saveChainPart('bunker-after', 'bunkerAfter', { ...view.after, updatedAt: new Date().toISOString() }, { quiet: true });
+    }
+    if (document.getElementById('bs-save') && view.summary) {
+      await saveChainPart('bunker-summary', 'bunkerSummary', { ...view.summary, updatedAt: new Date().toISOString() }, { quiet: true });
+    }
+  }
+
   return {
     renderPlan,
+    flushOpenForms,
     renderAfter,
     renderSummary,
     planPrintPages,
