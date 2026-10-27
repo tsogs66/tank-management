@@ -12,19 +12,22 @@ Tank Chief is a single product delivered as a Node.js **Express** web app (with 
 
 Environment variables (all optional): `PORT` (default `3080`), `HOST` (default `0.0.0.0`), `TMS_DATA_DIR` (override data directory).
 
-### First-run setup (not handled by the startup update script)
+### First-run setup
 
-The update script only refreshes dependencies (`npm install`, `pip install`). These project setup steps are **required for a usable dev instance** and must be run manually after dependencies are installed:
+Demo data and the offline bundle are generated, not committed:
 
-- `npm run seed` — populates `data/` with demo vessels (`MV CAPTAIN VENIAMIS`, `MV GIORGIS`). The `data/` directory ships empty (git-ignored), so without this the app boots but has no vessels. Re-running overwrites the seeded vessels.
-- `npm run embed` — copies `server/{calc.js,bunker-live.js,index.js}` and `seed/*.json` into `public/embedded/`. **Non-obvious gotcha:** `public/embedded/` is git-ignored and generated. Without it, offline/PWA mode and the parity check fail with a browser error `SyntaxError: Unexpected token '<'` (the server returns the SPA HTML fallback for the missing `/embedded/*` files). Re-run `npm run embed` any time `server/calc.js`, `server/bunker-live.js`, or `server/index.js` change, since it is a build-time copy, not a live link.
+- `npm run seed` — populates `data/` with demo vessels (`MV CAPTAIN VENIAMIS`, `MV GIORGIS`). The `data/` directory ships empty (git-ignored), so without this the app boots but has no vessels. Re-running overwrites tanks and readings for those vessels.
+- `npm run embed` — copies `server/{calc.js,bunker-live.js,voyage-inventory.js,index.js}` and `seed/{conversion,iso8217}.json` into `public/embedded/`. **Non-obvious gotcha:** `public/embedded/` is git-ignored and generated. Without it, offline/PWA mode and the parity check fail with a browser error `SyntaxError: Unexpected token '<'` (the server returns the SPA HTML fallback for the missing `/embedded/*` files). Re-run `npm run embed` after changing those server files or the seed reference tables. It is a build-time copy, not a live link.
+
+The shared ChEng Cloud Agent environment install already runs `npm ci`, `python3 -m pip install --user -r requirements.txt`, `npm run embed`, and `npm run seed` in this checkout, and the same install refreshes `cheng-pro` and `voyage-manager` when those sibling checkouts are present. Its start command serves ChEng AIO at `http://0.0.0.0:8080` (`/tanks/` and `/voyage/`). Local Voyage admin and sync credentials are generated once into `~/.cheng-pro-dev.env` (mode `0600`). This repo's own server is still `npm start` on port `3080` when Tank Chief is needed by itself.
 
 ### Lint / test / build
 
-- **No lint script and no unit-test framework are configured** (no ESLint/Prettier, no `test` npm script).
-- The only automated test is the parity check: `npm run parity` (`node scripts/parity-check.js`). It boots a headless Chromium, loads the shared route code in-browser, and diffs every computed API response against the live server to prove browser/offline math equals server math. Requirements: the server must be running on `:3080`, `npm run embed` must have been run, and Playwright's Chromium must be installed (`npx playwright install chromium`, not part of the update script). Expected result: `24/24 identical (reads)` and `13/13 identical (writes)`.
+- **No lint script and no unit-test framework are configured** (no ESLint/Prettier).
+- `npm test` runs the Node script checks listed in `package.json` (tank order, fuel grade, calc type, and the rest). They do not need the server.
+- The browser/server parity check is `npm run parity` (`node scripts/parity-check.js`). It boots a headless Chromium, loads the shared route code in-browser, and diffs every computed API response against the live server to prove browser/offline math equals server math. Requirements: this repo's server must be running on `:3080`, `npm run embed` must have been run, and Playwright's Chromium must be installed (`npx playwright install chromium`). Expected result: `24/24 identical (reads)` and `13/13 identical (writes)`.
 - **No build step for the web app** — the front end is plain static JS served directly. "Build" only applies to the optional Electron (`npm run dist:*`) and Android (`npm run android:apk`) packaging targets.
 
 ### Optional features
 
-- Python 3 + `requirements.txt` (`openpyxl`, `pdfplumber`, `reportlab`) power PDF/Excel calibration import, spawned on demand by `server/python-run.js`. Absent → only those import endpoints degrade; the rest of the app works. OCR of scanned PDFs additionally needs system `tesseract-ocr` + `ocrmypdf`.
+- Python 3 + `requirements.txt` (`openpyxl`, `pdfplumber`, `reportlab`) power PDF/Excel calibration import, spawned on demand by `server/python-run.js`. The Cloud Agent install installs them for the current user. Absent → only those import endpoints degrade; the rest of the app works. OCR of scanned PDFs additionally needs system `tesseract-ocr` + `ocrmypdf`, which that install does not add.
