@@ -1051,7 +1051,7 @@ function renderDashboard(main) {
 
   let grandVol = 0, grandCap = 0, grandWeight = 0, totalTanks = 0, readTanks = 0;
   const cards = document.createElement('div');
-  cards.className = 'cards-row';
+  cards.className = 'cards-row cards-family';
   for (const c of CATS) {
     const t = categoryTotals(c.id);
     grandVol += t.volume; grandCap += t.capacity; grandWeight += t.weight;
@@ -1079,7 +1079,7 @@ function renderDashboard(main) {
     </div>`;
   }
   const summary = document.createElement('div');
-  summary.className = 'cards-row';
+  summary.className = 'cards-row cards-summary';
   summary.innerHTML = `
     <div class="card"><div class="label">Total Volume</div><div class="value">${fmt(grandVol,1)}<span class="unit">m³</span></div></div>
     <div class="card"><div class="label">Total Weight</div><div class="value">${fmt(grandWeight,1)}<span class="unit">MT</span></div></div>
