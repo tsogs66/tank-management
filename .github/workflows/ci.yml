@@ -77,6 +77,13 @@ jobs:
       - name: Tank order
         run: node scripts/test-tank-order.js
 
+      # window.prompt() THROWS in Electron and does not exist in the Android
+      # WebView. Both call sites are async handlers, so the throw became a
+      # rejected promise nobody saw: "Create blank vessel" and "Clone active
+      # as new" did nothing at all on the desktop build.
+      - name: Check no call reaches the native prompt
+        run: node scripts/test-no-native-prompt.js
+
       # Repairing a tank's table type must not cost it its tables.
       - name: Calibration repair keeps the tables
         run: node scripts/test-recheck-calc-type.js

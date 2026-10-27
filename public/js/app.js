@@ -46,6 +46,87 @@ function showToast(msg) {
   showToast._t = setTimeout(() => el.classList.remove('show'), 2400);
 }
 
+/**
+ * Ask for one line of text, in the program's own dialog.
+ *
+ * window.prompt() is not available everywhere Tank Chief runs. Electron does
+ * not implement it at all: the call THROWS "prompt() is not supported." rather
+ * than returning null, and because these call sites sit in async handlers the
+ * throw became a rejected promise nobody saw -- the button did nothing, with
+ * nothing on screen to say why. The Android WebView has no prompt of its own
+ * either. Voyage Chief hit this on "Compile IMO DCS / EU MRV year…".
+ *
+ * Built lazily and appended to document.body, the way showToast does: an
+ * overlay parked inside a page container renders at 0x0 whenever that page is
+ * hidden, while still reporting itself open.
+ *
+ * Resolves with the text, or null when cancelled -- prompt's own contract, so
+ * the call sites keep their shape.
+ */
+function askText(opts) {
+  const o = opts || {};
+  return new Promise((resolve) => {
+    let el = document.getElementById('ask-text');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'ask-text';
+      el.className = 'ask-text';
+      el.setAttribute('role', 'dialog');
+      el.setAttribute('aria-modal', 'true');
+      el.innerHTML = `
+        <div class="ask-text-panel">
+          <h3 id="ask-text-title"></h3>
+          <p class="ask-text-msg" id="ask-text-msg"></p>
+          <label for="ask-text-input" id="ask-text-label"></label>
+          <input id="ask-text-input" type="text" autocomplete="off">
+          <div class="btn-row ask-text-actions">
+            <button type="button" class="btn" id="ask-text-cancel">Cancel</button>
+            <button type="button" class="btn primary" id="ask-text-ok">OK</button>
+          </div>
+        </div>`;
+      document.body.appendChild(el);
+    }
+    const input = el.querySelector('#ask-text-input');
+    const ok = el.querySelector('#ask-text-ok');
+    const cancel = el.querySelector('#ask-text-cancel');
+    const msg = el.querySelector('#ask-text-msg');
+
+    el.querySelector('#ask-text-title').textContent = o.title || 'Enter a value';
+    msg.textContent = o.message || '';
+    msg.style.display = o.message ? '' : 'none';
+    el.querySelector('#ask-text-label').textContent = o.label || 'Value';
+    ok.textContent = o.okLabel || 'OK';
+    input.placeholder = o.placeholder || '';
+    input.value = o.value == null ? '' : String(o.value);
+
+    let done = false;
+    function close(result) {
+      if (done) return;
+      done = true;
+      el.classList.remove('open');
+      ok.removeEventListener('click', onOk);
+      cancel.removeEventListener('click', onCancel);
+      el.removeEventListener('mousedown', onBackdrop);
+      document.removeEventListener('keydown', onKey, true);
+      resolve(result);
+    }
+    function onOk() { close(input.value.trim()); }
+    function onCancel() { close(null); }
+    function onBackdrop(ev) { if (ev.target === el) close(null); }
+    function onKey(ev) {
+      if (ev.key === 'Escape') { ev.preventDefault(); close(null); }
+      else if (ev.key === 'Enter') { ev.preventDefault(); close(input.value.trim()); }
+    }
+    ok.addEventListener('click', onOk);
+    cancel.addEventListener('click', onCancel);
+    el.addEventListener('mousedown', onBackdrop);
+    document.addEventListener('keydown', onKey, true);
+
+    el.classList.add('open');
+    setTimeout(() => { try { input.focus(); input.select(); } catch (_) { /* ignore */ } }, 0);
+  });
+}
+
 /** Chrome/Edge/Android fire this once; keep it so About can offer Install. */
 let deferredInstallPrompt = null;
 
@@ -4483,7 +4564,12 @@ function renderSetup(main) {
   };
 
   document.getElementById('btn-new-vessel').onclick = async () => {
-    const name = prompt('New vessel name?');
+    const name = await askText({
+      title: 'Create blank vessel',
+      label: 'Vessel name',
+      placeholder: 'e.g. M/V PACIFIC HARMONY',
+      okLabel: 'Create',
+    });
     if (!name) return;
     const v = await Api.createVessel({ name });
     await Api.setActive(v.id);
@@ -4497,7 +4583,13 @@ function renderSetup(main) {
 
   document.getElementById('btn-clone-vessel').onclick = async () => {
     if (!STATE.bundle) { showToast('No active vessel'); return; }
-    const name = prompt('Name for cloned vessel?', vesselName() + ' (copy)');
+    const name = await askText({
+      title: 'Clone vessel',
+      message: `Copies the tanks, voyage and bunkering of ${vesselName()}. Readings are not copied.`,
+      label: 'Name for the clone',
+      value: vesselName() + ' (copy)',
+      okLabel: 'Clone',
+    });
     if (!name) return;
     const v = await Api.createVessel({
       name,

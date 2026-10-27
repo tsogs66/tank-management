@@ -568,6 +568,41 @@ label.btn { margin: 0; }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
 .btn-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 
+/* askText(): the program's own one-line prompt. window.prompt throws in
+   Electron and does not exist in the Android WebView, so a button that asked
+   with it did nothing at all. Built from the theme variables, so it follows
+   html.bright with the rest of the app. */
+.ask-text {
+  display: none; position: fixed; inset: 0; z-index: 70;
+  align-items: center; justify-content: center;
+  padding: max(12px, env(safe-area-inset-top, 0px)) 12px
+           max(12px, env(safe-area-inset-bottom, 0px));
+  background: rgba(4,10,18,0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.ask-text.open { display: flex; }
+.ask-text-panel {
+  width: min(460px, calc(100vw - 24px)); box-sizing: border-box;
+  background: var(--bg-panel); color: var(--text);
+  border: 1px solid var(--border); border-radius: 14px;
+  padding: 16px 18px 14px;
+  box-shadow: 0 18px 40px rgba(0,0,0,.35);
+}
+.ask-text-panel h3 { margin: 0 0 6px; font-size: 16px; }
+.ask-text-msg { margin: 0 0 12px; font-size: 12px; color: var(--text-dim); }
+.ask-text-panel label {
+  display: block; margin-bottom: 4px; font-size: 12px; color: var(--text-dim);
+}
+.ask-text-panel input {
+  width: 100%; box-sizing: border-box; margin-bottom: 14px;
+  padding: 9px 10px; font-size: 15px;
+  background: var(--input, var(--bg-card)); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.ask-text-panel input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ask-text-actions { justify-content: flex-end; }
+
 .about-copy { max-width: 760px; line-height: 1.7; color: var(--text-dim); font-size: 13.5px; }
 .about-copy p { margin: 0 0 12px; }
 .about-copy h2 {
