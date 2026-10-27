@@ -474,7 +474,7 @@ const BunkerReports = (() => {
         ? (f.currentSoundingMM === '' || f.currentSoundingMM == null ? '' : String(f.currentSoundingMM))
         : FRCore.formatCm(f.currentSoundingMM);
       return `<tr data-slot="${i}">
-        <th class="fr-tank-name">${i + 1}. <select data-slot="${i}" data-field="tankId">${opts}</select></th>
+        <th class="fr-tank-name"><span class="bp-tank-pick"><span class="bp-seq">${i + 1}.</span><select data-slot="${i}" data-field="tankId">${opts}</select></span></th>
         ${cell('capacity100M3')}${cell('capacity85M3')}${cell('startingUllageMM')}
         ${cell('startingRobM3')}${cell('freeM3At85')}
         <td class="bp-entry"><input type="number" step="any" data-slot="${i}" data-field="targetVolumeM3" value="${esc(f.targetVolumeM3)}"></td>

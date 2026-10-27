@@ -108,7 +108,7 @@
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="fonts/fonts.css">
-  <link rel="stylesheet" href="css/app.css?v=95">
+  <link rel="stylesheet" href="css/app.css?v=99">
   <link rel="stylesheet" href="css/loading-splash.css">
   <link rel="stylesheet" href="css/print-voyage.css?v=7">
 </head>
@@ -121,6 +121,22 @@
       <div id="sidebar-nav"></div>
     </aside>
     <div class="workspace">
+      <header class="masthead no-print" id="appMasthead">
+        <div class="masthead-left">
+          <img class="app-logo" src="icons/icon.svg" width="52" height="52" alt="Tank Chief">
+          <div>
+            <h1>Tank Chief</h1>
+            <div class="subtitle" id="activeVesselLabel">Engine Department — Tank Sounding &amp; Bunkering</div>
+            <div class="byline" id="appByline"></div>
+          </div>
+        </div>
+        <div class="status-row">
+          <div id="dbStatus">● local database ready</div>
+          <div id="syncStatus">○ sync not configured</div>
+          <div id="appVersion"></div>
+          <div id="dataHealthStrip" hidden></div>
+        </div>
+      </header>
       <div id="shipClockChip" class="no-print" hidden></div>
       <main class="main" id="main"></main>
     </div>
@@ -130,10 +146,10 @@
       <span class="bn-ic" aria-hidden="true">📊</span><span>Summary</span>
     </button>
     <button type="button" class="bn-item" data-page="fuel-report" aria-label="Monitoring">
-      <span class="bn-ic" aria-hidden="true">⛽</span><span>Monitoring</span>
+      <span class="bn-ic" aria-hidden="true">⛽</span><span>Monitor</span>
     </button>
     <button type="button" class="bn-item" data-page="bunker-after" aria-label="Bunkering">
-      <span class="bn-ic" aria-hidden="true">📥</span><span>Bunkering</span>
+      <span class="bn-ic" aria-hidden="true">📥</span><span>Bunker</span>
     </button>
     <button type="button" class="bn-item" data-page="bunker-summary" aria-label="Bunker Summary">
       <span class="bn-ic" aria-hidden="true">📑</span><span>Summary</span>
@@ -186,22 +202,22 @@
   <script src="js/db.js?v=75"></script>
   <script src="js/api.js?v=75"></script>
   <script>window.LOADING_SPLASH_BOOT_LABEL = 'Starting Tank Chief…';</script>
-  <script src="js/loading-splash.js?v=1"></script>
+  <script src="js/loading-splash.js?v=2"></script>
   <script src="js/progress.js?v=75"></script>
   <script src="js/tank-order.js?v=1"></script>
-  <script src="js/tank-graphics.js?v=76"></script>
+  <script src="js/tank-graphics.js?v=77"></script>
   <script src="js/image-cutout.js?v=75"></script>
   <script src="js/signature-pad.js?v=75"></script>
   <script src="js/fuel-report-core.js?v=79"></script>
   <script src="js/fuel-report.js?v=81"></script>
   <script src="js/bunkering-core.js?v=81"></script>
-  <script src="js/bunkering-report.js?v=82"></script>
+  <script src="js/bunkering-report.js?v=83"></script>
   <script src="js/stem-advice.js?v=78"></script>
   <script src="js/bunker-consumption.js?v=78"></script>
   <script src="js/tank-sounding-card.js?v=5"></script>
   <script src="js/guide.js"></script>
   <script src="js/notes.js"></script>
-  <script src="js/app.js?v=93"></script>
+  <script src="js/app.js?v=96"></script>
   <script src="js/clock-picker.js?v=2"></script>
   <script>try{ ChengClockPicker && ChengClockPicker.install(); }catch(_e){}</script>
 </body>

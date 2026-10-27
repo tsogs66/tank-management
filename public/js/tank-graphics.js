@@ -21,27 +21,25 @@
 
   /* ---------- content colours ----------
    *
-   * ISO 14726 (identification colours for the content of piping systems) gives
-   * the MAIN colour: brown for flammable liquids — fuel and lube alike — blue
-   * for fresh water, black/grey for waste and bilge. Those are the colours used
-   * here for each family.
+   * ISO 14726 (identification colours for piping) is the family colour:
+   * brown for fuel, orange for oils other than fuel (lube), blue for fresh
+   * water, black for waste and bilge. Diesel is painted yellow, the colour
+   * many yards use so a distillate line is not the same brown as heavy fuel.
    *
-   * The standard separates the grades within a family by additional colour
-   * bands rather than by shading the brown. Shipping every band would leave
-   * eight near-identical brown tanks on the screen, so the grades are shaded
-   * instead: heaviest darkest, distillates lighter. That shading is a
-   * legibility decision and is not itself the standard — the family colour is.
+   * Within a family the role still shades the fill (storage darkest, service
+   * lightest) so the chain reads at a glance. That shading is for the screen,
+   * not an extra ISO band.
    */
   const CONTENT = {
-    hfo:   { fill: '#6b4220', label: 'HFO',   family: 'Residual fuel (ISO brown)' },
-    lsfo:  { fill: '#7d5228', label: 'LSFO',  family: 'Residual fuel (ISO brown)' },
-    mdo:   { fill: '#d2761d', label: 'MDO',   family: 'Distillate fuel (orange)' },
-    mgo:   { fill: '#d2761d', label: 'MGO',   family: 'Distillate fuel (orange)' },
-    lsmgo: { fill: '#dd8526', label: 'LSMGO', family: 'Distillate fuel (orange)' },
-    lube:  { fill: '#6f6327', label: 'LUBE',  family: 'Lubricating oil (ISO brown)' },
-    water: { fill: '#2f6fb5', label: 'FW',    family: 'Fresh water (ISO blue)' },
-    misc:  { fill: '#4a5261', label: 'MISC',  family: 'Waste / bilge (ISO black)' },
-    other: { fill: '#6b5230', label: '—',     family: 'Unclassified' },
+    hfo:   { fill: '#6B3A1F', label: 'HFO',   family: 'Fuel (ISO 14726 brown)' },
+    lsfo:  { fill: '#8A5530', label: 'LSFO',  family: 'Fuel (ISO 14726 brown)' },
+    mdo:   { fill: '#C8960A', label: 'MDO',   family: 'Diesel (shipyard yellow)' },
+    mgo:   { fill: '#E6A817', label: 'MGO',   family: 'Diesel (shipyard yellow)' },
+    lsmgo: { fill: '#F0C14A', label: 'LSMGO', family: 'Diesel (shipyard yellow)' },
+    lube:  { fill: '#E8771A', label: 'LUBE',  family: 'Lubricating oil (ISO 14726 orange)' },
+    water: { fill: '#1F6FB2', label: 'FW',    family: 'Fresh water (ISO 14726 blue)' },
+    misc:  { fill: '#2A2E33', label: 'MISC',  family: 'Waste / bilge (ISO 14726 black)' },
+    other: { fill: '#6B5230', label: '—',     family: 'Unclassified' },
   };
 
   /* Role shading follows the oil through the system. Storage is darkest; it
@@ -185,6 +183,33 @@
     return parts.join('');
   }
 
+  /* Figures drawn in the cavity. Each one keeps its own ink so a reader can
+     tell fill, volume, weight and temperature apart without a caption. */
+  const READING_INK = {
+    grade: '#e7d3b0',
+    pct: '#ffffff',
+    volume: '#7ec8ff',
+    weight: '#ffd36a',
+    temp: '#ff9a7a',
+  };
+
+  function haloText(x, y, size, weight, fill, text) {
+    return `<text x="${x}" y="${y}" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="${size}" font-weight="${weight}" fill="${fill}" stroke="#0b1220" stroke-width="2.6" paint-order="stroke" stroke-linejoin="round">${esc(text)}</text>`;
+  }
+
+  function insideReadings(options) {
+    const d = options && options.details;
+    if (!d) return '';
+    const cx = (L + R) / 2;
+    const parts = [];
+    if (d.grade) parts.push(haloText(cx, 36, 8, 700, READING_INK.grade, d.grade));
+    if (d.pct) parts.push(haloText(cx, 56, 16, 800, READING_INK.pct, d.pct));
+    if (d.volume) parts.push(haloText(L + 28, 78, 8, 700, READING_INK.volume, d.volume));
+    if (d.weight) parts.push(haloText(R - 28, 78, 8, 700, READING_INK.weight, d.weight));
+    if (d.temp) parts.push(haloText(cx, 96, 8, 700, READING_INK.temp, d.temp));
+    return parts.join('');
+  }
+
   /**
    * Draw one tank.
    * `pct` is the fill percentage, or null when the tank has not been sounded.
@@ -228,6 +253,7 @@
 
       <path d="${cavity}" class="tg-shell"/>
       ${fittings(role, uid)}
+      ${insideReadings(options)}
     </svg>`;
   }
 

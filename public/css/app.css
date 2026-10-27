@@ -17,10 +17,10 @@
   --good: #5f9e6e;
   --warn: #c99a53;
   --bad: #e06a4c;
-  --fuel: #c99a53;
-  --lube: #57b3ab;
+  --fuel: #c36a39;
+  --lube: #ea8633;
   --misc: #a9a292;
-  --water: #57b3ab;
+  --water: #348fdc;
   --radius: 10px;
   --shadow: 0 2px 10px rgba(0,0,0,0.35);
   --sidebar-w: 240px;
@@ -48,10 +48,10 @@ html.bright {
   --good: #2f7a45;
   --warn: #8a5a1a;
   --bad: #b33a22;
-  --fuel: #8a5a1a;
-  --lube: #1f7a72;
+  --fuel: #6b3a1f;
+  --lube: #c45a10;
   --misc: #3d4a5c;
-  --water: #1f7a72;
+  --water: #1f6fb2;
   --brass: #8a5a1a;
   --shadow: 0 2px 10px rgba(18,34,56,0.12);
   --nav-item-bg: rgba(255,255,255,0.92);
@@ -77,7 +77,7 @@ html.prism {
   --warn: #e8c070;
   --bad: #e0705c;
   --fuel: #e8a040;
-  --lube: #2fd4b8;
+  --lube: #ff9a4a;
   --misc: #7eb8ae;
   --water: #40c8e8;
   --brass: #e8c070;
@@ -132,9 +132,9 @@ html.astrolabe {
   --warn: #c9985a;
   --bad: #e0705c;
   --fuel: #c9985a;
-  --lube: #6ab0c8;
+  --lube: #e09050;
   --misc: #a89a82;
-  --water: #5898b8;
+  --water: #6eb0d4;
   --brass: #c9985a;
   --shadow: 0 18px 46px rgba(4, 6, 16, 0.5);
   --nav-item-bg: rgba(22, 26, 44, 0.94);
@@ -165,6 +165,118 @@ a { color: var(--accent); }
   display: flex;
   flex-direction: column;
 }
+/* Same header as Voyage Chief: logo, title beside it, status on the right.
+   The backup line, when present, is its own row so it cannot shove the title. */
+.masthead {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 1px;
+  flex-shrink: 0;
+  padding: 10px 24px 12px;
+  border-bottom: 2px solid var(--brass, var(--accent));
+}
+.masthead-left,
+.masthead-left > div,
+.masthead .status-row { display: contents; }
+.masthead .app-logo {
+  grid-column: 1;
+  grid-row: 1 / span 3;
+  align-self: center;
+  width: 52px;
+  height: 52px;
+  object-fit: contain;
+  display: block;
+}
+.masthead h1 {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: start;
+  text-align: left;
+  align-self: center;
+  margin: 0;
+  min-width: 0;
+  font-family: 'Oswald', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 24px;
+  line-height: 1.15;
+  color: var(--text);
+}
+.masthead .subtitle {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: start;
+  align-self: center;
+  min-width: 0;
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.masthead .byline {
+  grid-column: 2;
+  grid-row: 3;
+  justify-self: start;
+  align-self: center;
+  min-width: 0;
+  margin: 0;
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+.masthead #dbStatus,
+.masthead #syncStatus,
+.masthead #appVersion {
+  grid-column: 3;
+  justify-self: end;
+  align-self: center;
+  text-align: right;
+  max-width: min(46vw, 320px);
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.masthead #dbStatus { grid-row: 1; color: var(--accent-2, var(--good)); }
+.masthead #syncStatus { grid-row: 2; font-size: 10px; }
+.masthead #syncStatus.online { color: var(--good); }
+.masthead #syncStatus.pending { color: var(--warn); }
+.masthead #syncStatus.error { color: var(--bad); }
+.masthead #appVersion { grid-row: 3; color: var(--text-faint); }
+.masthead #dataHealthStrip {
+  grid-column: 1 / -1;
+  grid-row: 4;
+  justify-self: stretch;
+  min-width: 0;
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.masthead #dataHealthStrip[hidden] { display: none !important; }
+.masthead #dataHealthStrip .dh-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.masthead #dataHealthStrip .dh-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); flex: 0 0 auto;
+}
+.masthead #dataHealthStrip .dh-ok .dh-dot { background: var(--good); }
+.masthead #dataHealthStrip .dh-warn .dh-dot { background: var(--warn); }
+.masthead #dataHealthStrip .dh-bad .dh-dot { background: var(--bad); }
+.masthead #dataHealthStrip .dh-warn { color: var(--warn); }
+.masthead #dataHealthStrip .dh-bad { color: var(--bad); }
+@media (max-width: 720px) {
+  .masthead { padding: 6px 8px 8px; }
+  .masthead .app-logo { width: 34px; height: 34px; }
+  .masthead h1 { font-size: 16px; }
+  .masthead .subtitle { font-size: 9px; }
+}
+html.use-bottom-nav .masthead { padding: 8px 10px 8px; }
 #shipClockChip {
   margin: 8px 16px 0;
   padding-left: env(safe-area-inset-left, 0px);
@@ -368,12 +480,12 @@ html.use-bottom-nav .sidebar-backdrop { display: none !important; }
 html.use-bottom-nav .main {
   padding: calc(12px + env(safe-area-inset-top, 0px)) 10px calc(var(--nav-bar-h) + env(safe-area-inset-bottom, 0px));
 }
-/* Room for ChEng AIO Home FAB (top-right) when embedded */
+/* The suite bar sits above this frame, so the page header starts at the top. */
 html.chengaio-embed .main {
-  padding-top: calc(52px + env(safe-area-inset-top, 0px));
+  padding-top: 12px;
 }
 html.use-bottom-nav.chengaio-embed .main {
-  padding-top: calc(52px + env(safe-area-inset-top, 0px));
+  padding-top: 8px;
 }
 
 /* ChEng AIO → Bunkering Plan: iframe shows only bunker-plan — no Tank nav chrome. */
@@ -391,7 +503,7 @@ html.bunker-ops-embed .main {
   padding-top: calc(8px + env(safe-area-inset-top, 0px)) !important;
 }
 html.bunker-ops-embed.chengaio-embed .main {
-  padding-top: calc(52px + env(safe-area-inset-top, 0px)) !important;
+  padding-top: 8px !important;
 }
 
 /* Wide Windows desktop: sidebar. Android/mobile (.is-mobile-chrome) keeps bottom nav
@@ -1186,8 +1298,25 @@ table.fr-sheet tfoot th { text-align: left; }
    the valve controls and the sounding boxes into the same space. */
 table.bp-sheet { width: max-content; min-width: 100%; }
 table.bp-sheet thead th { min-width: 4.4rem; }
-table.bp-sheet tbody th.fr-tank-name { min-width: 168px; }
-table.bp-sheet tbody th.fr-tank-name select { min-width: 130px; margin-left: 4px; max-width: 100%; box-sizing: border-box; }
+table.bp-sheet thead th:first-child,
+table.bp-sheet tbody th.fr-tank-name { min-width: 12.5rem; padding-right: 4px; }
+.bp-tank-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.bp-tank-pick .bp-seq { flex: 0 0 auto; }
+table.bp-sheet tbody th.fr-tank-name select {
+  flex: 1 1 auto;
+  width: 1%;
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+  box-sizing: border-box;
+}
 table.bp-sheet tbody td.bp-entry { min-width: 5.5rem; white-space: normal; vertical-align: middle; }
 table.bp-sheet tbody td.bp-entry input {
   box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%;
@@ -2005,8 +2134,18 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
   min-height: 2.4em; overflow: hidden;
   color: var(--text);
 }
-.tg-art { position: relative; }
-.tg-svg { display: block; width: 100%; height: auto; --tg-ink: #93a1b8; }
+.tg-art { position: relative; display: flex; justify-content: center; }
+.tg-svg { display: block; width: 100%; max-width: 128px; height: auto; margin: 0 auto; --tg-ink: #93a1b8; }
+@media (max-width: 600px) {
+  .tg-svg { max-width: 148px; }
+}
+@media (min-width: 1181px) {
+  .tg-svg { max-width: 140px; }
+}
+.tg-schematic-col-tanks .tg-svg { max-width: 112px; }
+@media (min-width: 1181px) {
+  .tg-schematic-col-tanks .tg-svg { max-width: 124px; }
+}
 .tg-pct {
   position: absolute; right: 4px; top: 4px;
   font-size: 13px; font-weight: 800; color: var(--text, #e8eef8);
@@ -2534,21 +2673,35 @@ html.bright .bunker-side { background: rgba(18,34,56,0.04); }
   -webkit-backdrop-filter: blur(8px);
 }
 .bp-result-value {
-  font-weight: 500;
-  font-size: 22px;
-  line-height: 1.15;
+  font-family: "Segoe UI", "Segoe UI Variable Text", system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 26px;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
+  color: var(--text);
 }
 .bp-result-value b { font-weight: 800; }
-.bp-result-unit { font-weight: 500; font-size: 13px; margin-left: 6px; letter-spacing: .04em; }
-.bp-result-title {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: .05em;
-  text-transform: uppercase;
-  line-height: 1.25;
-  opacity: .92;
+.bp-result-unit {
+  font-weight: 600;
+  font-size: 12px;
+  margin-left: 5px;
+  letter-spacing: .02em;
+  color: var(--accent);
 }
+.bp-result-title {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  color: #8ea0b8;
+  opacity: 1;
+}
+html.bright .bp-result-title { color: #5c6b80; }
+html.prism .bp-result-title { color: #6f9e96; }
+html.astrolabe .bp-result-title { color: #9a866c; }
 html.bright .bp-result {
   color: #122238;
   background: linear-gradient(165deg, rgba(255,255,255,.92), rgba(255,255,255,.55) 48%, rgba(201,154,83,.16));
@@ -2596,7 +2749,7 @@ html.bright .bp-result {
 @media (max-width: 720px) {
   .bunker-results { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .bp-result { min-height: 72px; padding: 10px 10px 8px; }
-  .bp-result-value { font-size: 18px; }
+  .bp-result-value { font-size: 22px; }
   .bp-result-unit { font-size: 12px; }
   .bunker-remarks textarea { font-size: 16px; min-height: 96px; }
   .bunker-plan-actions .btn { flex: 1 1 auto; min-height: 44px; }
@@ -2780,27 +2933,28 @@ html.tc-top-nav:not(.is-mobile-chrome) .nav-group {
   position: relative;
   min-width: 0;
   border: 1px solid var(--border-soft);
-  border-radius: 8px;
+  border-radius: 4px;
   background: rgba(0,0,0,.12);
   overflow: visible;
 }
 html.tc-top-nav:not(.is-mobile-chrome) .nav-group-label {
   margin: 0;
-  padding: 8px 12px;
+  padding: 6px 10px;
   cursor: pointer;
   user-select: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 11px;
-  letter-spacing: .06em;
-  text-transform: uppercase;
+  font-family: "Segoe UI", "Segoe UI Variable Text", system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
   white-space: nowrap;
   background: transparent;
   border: 0;
   color: inherit;
-  font-family: inherit;
 }
 html.tc-top-nav:not(.is-mobile-chrome) .nav-group-label::after {
   content: "▾";
@@ -2841,6 +2995,35 @@ html.tc-top-nav:not(.is-mobile-chrome) .nav-group.collapsed .nav-group-body { di
 html.tc-top-nav:not(.is-mobile-chrome) .nav-btn {
   width: 100%;
   justify-content: flex-start;
+  font-family: "Segoe UI", "Segoe UI Variable Text", system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  border-radius: 4px;
+  padding: 6px 10px;
+}
+html.tc-top-nav:not(.is-mobile-chrome) .masthead h1,
+html.tc-top-nav:not(.is-mobile-chrome) .panel h2,
+html.tc-top-nav:not(.is-mobile-chrome) button,
+html.tc-top-nav:not(.is-mobile-chrome) input,
+html.tc-top-nav:not(.is-mobile-chrome) select {
+  font-family: "Segoe UI", "Segoe UI Variable Text", system-ui, sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+html.tc-top-nav:not(.is-mobile-chrome) .masthead h1 {
+  font-weight: 600;
+  font-size: 18px;
+}
+html.tc-top-nav:not(.is-mobile-chrome) .panel,
+html.tc-top-nav:not(.is-mobile-chrome) .card {
+  border-radius: 6px;
+}
+html.tc-top-nav:not(.is-mobile-chrome) .workspace {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 html.tc-top-nav:not(.is-mobile-chrome) .main {
   width: 100%;
@@ -3084,4 +3267,191 @@ body.reorder-dragging {
 
 @media (max-width: 520px) {
   .reorder-row .tag { display: none; }
+}
+
+/* Tank Chief reads as bunkers at a glance: a sight glass on every container,
+   a fuel valve on every button, and pipe colours on the family marks.
+   Theme fills stay; the liquid colours are the shipyard pipe code. */
+.card,
+.form-panel,
+.result-panel,
+.pdf-upload-card,
+.bp-result {
+  position: relative;
+  overflow: hidden;
+}
+.card::before,
+.form-panel::before,
+.result-panel::before,
+.pdf-upload-card::before,
+.bp-result::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 11px;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(255,255,255,.5), rgba(255,255,255,0) 42%, rgba(0,0,0,.22)),
+    repeating-linear-gradient(180deg, rgba(255,255,255,.8) 0 1px, transparent 1px 8px) 0 0 / 100% 30% no-repeat,
+    linear-gradient(180deg, rgba(233,228,214,.16) 0 30%, #f0c14a 30% 33%, #c8960a 33% 55%, #6b3a1f 55% 100%);
+}
+html.bright .card::before,
+html.bright .form-panel::before,
+html.bright .result-panel::before,
+html.bright .pdf-upload-card::before,
+html.bright .bp-result::before {
+  background:
+    linear-gradient(90deg, rgba(255,255,255,.9), rgba(255,255,255,0) 46%, rgba(18,34,56,.14)),
+    repeating-linear-gradient(180deg, rgba(18,34,56,.45) 0 1px, transparent 1px 8px) 0 0 / 100% 30% no-repeat,
+    linear-gradient(180deg, #efe6d6 0 30%, #f0c14a 30% 33%, #c8960a 33% 55%, #6b3a1f 55% 100%);
+}
+.card,
+.form-panel,
+.result-panel,
+.pdf-upload-card {
+  padding-left: 24px;
+}
+.bp-result {
+  padding-left: 22px;
+  box-shadow:
+    inset 0 3px 0 #c8960a,
+    inset 0 1px 0 rgba(255,255,255,.45),
+    inset 0 -10px 18px rgba(0,0,0,.18),
+    0 10px 22px rgba(0,0,0,.28);
+}
+.btn {
+  border-left: 4px solid #6b3a1f;
+  background-image: linear-gradient(180deg, transparent 0 72%, rgba(200,150,10,.34) 100%);
+}
+.btn.primary {
+  background: linear-gradient(180deg, #f0c14a 0%, #e0a020 62%, #c8960a 100%);
+  border-color: #8a5530;
+  border-left-color: #6b3a1f;
+  color: #1a1208;
+}
+.btn.primary:hover { filter: brightness(1.06); color: #1a1208; }
+.btn.danger {
+  border-left-color: var(--bad);
+  background-image: none;
+}
+html.bright .btn.primary,
+html.bright .btn.primary:hover {
+  color: #1a1208;
+}
+
+/* Phone and tablet: equal summary cards, a shorter landscape header,
+   and view controls that match each other under a finger. */
+.cards-row { align-items: stretch; }
+.cards-row .card { height: 100%; display: flex; flex-direction: column; box-sizing: border-box; }
+@media (max-width: 700px) and (orientation: portrait),
+       (min-width: 701px) and (max-width: 1100px) and (orientation: portrait) {
+  .cards-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cards-row .card:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .card::before,
+  .form-panel::before,
+  .result-panel::before,
+  .bp-result::before { width: 8px; }
+  .card, .form-panel, .result-panel { padding-left: 18px; }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .cards-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cards-family { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cards-family .card:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .masthead { padding: 6px 12px 8px; }
+  .masthead .app-logo { width: 36px; height: 36px; }
+  .masthead .byline { display: none; }
+  .masthead h1 { font-size: 16px; }
+}
+@media (min-width: 900px) and (orientation: landscape) and (min-height: 521px) and (max-height: 900px) {
+  .cards-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cards-family { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+@media (pointer: coarse) {
+  .page-head .btn-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: min(100%, 440px);
+    gap: 8px;
+  }
+  .page-head .btn-row .btn {
+    width: 100%;
+    justify-content: center;
+    min-height: 44px;
+  }
+}
+@media (max-width: 700px) and (orientation: portrait) {
+  .page-head { flex-direction: column; align-items: stretch; }
+  .page-head .btn-row { width: 100%; }
+}
+@media (max-width: 520px) {
+  .bn-item { letter-spacing: 0; overflow: hidden; line-height: 1.05; }
+}
+@media (max-width: 900px) and (orientation: portrait),
+       (orientation: landscape) and (max-height: 520px) {
+  .tg-schematic,
+  .tg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-right: 0; }
+}
+@media (pointer: coarse) {
+  #tv-graphic, #tv-table {
+    min-height: 44px;
+    padding: 8px 14px;
+    font-size: 14px;
+    justify-content: center;
+  }
+  .btn-row:has(#tv-graphic) {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    max-width: 420px;
+  }
+}
+@media (pointer: coarse) and (max-width: 700px) {
+  :root { --nav-label: 11px; --nav-item-h: 56px; }
+}
+@media (pointer: coarse) and (min-width: 700px) and (min-height: 700px) {
+  #tv-graphic, #tv-table,
+  .page-head .btn-row .btn { min-height: 48px; font-size: 15px; }
+  :root { --nav-label: 12px; --nav-item-h: 64px; }
+}
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 520px) {
+  :root { --nav-label: 11px; --nav-item-h: 52px; }
+}
+
+/* Faint sounding tanks behind the page. The fill ghosts through the cards;
+   the figures stay on the card colour. */
+body::before {
+  content: "";
+  position: fixed;
+  top: 8vh;
+  right: -4vw;
+  width: min(420px, 78vw);
+  height: min(560px, 78vh);
+  z-index: 0;
+  pointer-events: none;
+  background: var(--brass);
+  -webkit-mask: url("../icons/wash-tanks.svg") center / contain no-repeat;
+  mask: url("../icons/wash-tanks.svg") center / contain no-repeat;
+  opacity: 0.3;
+  animation: tc-level 26s ease-in-out infinite;
+}
+html.bright body::before { opacity: 0.16; }
+html.prism body::before,
+html.astrolabe body::before { opacity: 0.26; }
+.app-shell { position: relative; z-index: 1; }
+.card,
+.form-panel,
+.result-panel,
+.pdf-upload-card {
+  background-color: color-mix(in srgb, var(--bg-card) 86%, transparent);
+}
+@keyframes tc-level {
+  0%, 100% { transform: translate3d(0, 8px, 0); }
+  50% { transform: translate3d(0, -10px, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body::before { animation: none; }
+}
+@media print {
+  body::before { display: none !important; }
 }

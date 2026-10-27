@@ -81,19 +81,37 @@ html.prism .loading-splash-label { color: #7eb8ae; }
 html.astrolabe .loading-splash-label { color: #a89a82; }
 
 .loading-splash-kicker {
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  opacity: 0.75;
-  margin-bottom: 0.35rem;
+  margin-top: 0.35rem;
+  font-family: "Segoe UI", "Segoe UI Variable Text", system-ui, sans-serif;
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  text-align: center;
+  color: var(--paper, #e9e4d6);
+}
+
+html.bright .loading-splash-kicker { color: #122238; }
+html.prism .loading-splash-kicker { color: #e6fff8; }
+html.astrolabe .loading-splash-kicker { color: #f4efe4; }
+
+.loading-splash-detail {
+  margin-top: 0.45rem;
+  max-width: 26rem;
+  text-align: center;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--muted, #a9a292);
 }
 
 .loading-splash-track {
-  width: min(16rem, 70vw);
-  height: 3px;
-  border-radius: 2px;
-  background: rgba(233, 228, 214, 0.12);
+  width: min(22rem, 78vw);
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(233, 228, 214, 0.16);
   overflow: hidden;
+  border: 1px solid rgba(233, 228, 214, 0.18);
 }
 
 html.bright .loading-splash-track { background: rgba(18, 34, 56, 0.12); }
@@ -101,9 +119,14 @@ html.bright .loading-splash-track { background: rgba(18, 34, 56, 0.12); }
 .loading-splash-track-bar {
   height: 100%;
   width: 38%;
-  border-radius: 2px;
+  border-radius: 3px;
   background: linear-gradient(90deg, transparent, var(--brass, #c9a227), transparent);
   animation: loading-splash-slide 1.35s ease-in-out infinite;
+}
+
+.loading-splash-track.is-determinate .loading-splash-track-bar {
+  background: var(--brass, #c9a227);
+  border-radius: 3px;
 }
 
 @keyframes loading-splash-slide {

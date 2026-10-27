@@ -529,14 +529,11 @@ function renderMoreNav() {
     } else {
       sw.onchange = async (e) => {
         const id = e.target.value;
-        if (!id || id === STATE.activeVesselId) return;
-        try { await flushUnsavedTankWork(); } catch (err) { console.warn('Save before vessel change:', err && err.message); }
-        await Api.setActive(id);
-        STATE.activeVesselId = id;
-        await reloadBundle();
+        const ok = await activateTankVessel(id);
+        if (!ok) return;
         closeMoreSheet();
         navigate('dashboard');
-        showToast('Loaded vessel');
+        showToast(tankShipName() ? `Loaded ${tankShipName()}` : 'Loaded vessel');
       };
     }
   }
@@ -598,6 +595,48 @@ async function persistPart(part, data) {
   }
 }
 
+function tankShipName(id) {
+  const vid = id || STATE.activeVesselId;
+  const v = (STATE.vessels || []).find((x) => x.id === vid);
+  return (v && v.name) || '';
+}
+
+function tankBundleSummary(bundle) {
+  const tanks = bundle && bundle.tanks ? bundle.tanks : {};
+  let n = 0;
+  Object.keys(tanks).forEach((k) => { n += (tanks[k] || []).length; });
+  const readings = bundle && bundle.readings ? Object.keys(bundle.readings).length : 0;
+  return { tanks: n, readings };
+}
+
+function showTankLoad(label, pct, ship) {
+  if (!window.LoadingSplash) return;
+  const name = ship || tankShipName();
+  LoadingSplash.show('tank-load', label, { kicker: name, pct });
+}
+
+function hideTankLoadSoon() {
+  if (!window.LoadingSplash) return;
+  window.setTimeout(() => LoadingSplash.hide('tank-load'), 420);
+}
+
+async function activateTankVessel(id) {
+  if (!id || id === STATE.activeVesselId) return false;
+  const ship = tankShipName(id) || 'the ship';
+  showTankLoad('Saving the open ship…', 8, ship);
+  try { await flushUnsavedTankWork(); } catch (err) { console.warn('Save before vessel change:', err && err.message); }
+  showTankLoad(`Opening ${ship}…`, 28, ship);
+  await Api.setActive(id);
+  STATE.activeVesselId = id;
+  showTankLoad(`Loading ${ship} tanks and soundings…`, 55, ship);
+  await reloadBundle();
+  const sum = tankBundleSummary(STATE.bundle);
+  const named = tankShipName() || ship;
+  showTankLoad(`${named} · ${sum.tanks} tanks, ${sum.readings} soundings`, 100, named);
+  hideTankLoadSoon();
+  return true;
+}
+
 async function reloadBundle() {
   if (!STATE.activeVesselId) { STATE.bundle = null; return; }
   STATE.bundle = await Api.getVessel(STATE.activeVesselId);
@@ -653,7 +692,8 @@ function renderNav() {
     document.documentElement.classList.toggle('tc-top-nav', topNav);
   } catch (_) {}
 
-  /* No Tank Chief title header — vessel name only when not AIO-embedded. */
+  /* Vessel switcher stays in the sidebar when Tank Chief runs on its own.
+     The title block is the masthead, the same header Voyage Chief uses. */
   if (!isAioEmbedded()) {
     const brand = document.createElement('div');
     brand.className = 'brand';
@@ -815,14 +855,58 @@ function renderNav() {
   if (vesselSwitcher) {
     vesselSwitcher.onchange = async (e) => {
       const id = e.target.value;
-      if (!id || id === STATE.activeVesselId) return;
-      try { await flushUnsavedTankWork(); } catch (err) { console.warn('Save before vessel change:', err && err.message); }
-      await Api.setActive(id);
-      STATE.activeVesselId = id;
-      await reloadBundle();
+      const ok = await activateTankVessel(id);
+      if (!ok) return;
       navigate('dashboard');
-      showToast('Loaded vessel');
+      showToast(tankShipName() ? `Loaded ${tankShipName()}` : 'Loaded vessel');
     };
+  }
+}
+
+function renderMasthead() {
+  const label = document.getElementById('activeVesselLabel');
+  const name = vesselName();
+  if (label) {
+    label.textContent = (name && name !== 'No vessel')
+      ? (name + ' — Tank Sounding & Bunkering')
+      : 'Engine Department — Tank Sounding & Bunkering';
+  }
+  const byline = document.getElementById('appByline');
+  if (byline && window.Branding && typeof Branding.authorLine === 'function') {
+    byline.textContent = Branding.authorLine();
+  }
+  const db = document.getElementById('dbStatus');
+  if (db) {
+    const local = !window.Api || typeof Api.getTransport !== 'function' || Api.getTransport() === 'local';
+    if (!STATE.online && !local) db.textContent = '● offline — saved on this device';
+    else if (local) db.textContent = '● local database ready';
+    else db.textContent = '● server database ready';
+  }
+  const syncEl = document.getElementById('syncStatus');
+  if (syncEl) {
+    const url = STATE.settings && STATE.settings.syncUrl ? String(STATE.settings.syncUrl).trim() : '';
+    syncEl.className = '';
+    if (!url) syncEl.textContent = '○ sync not configured';
+    else if (!STATE.online) {
+      syncEl.textContent = '● offline';
+      syncEl.className = 'pending';
+    } else {
+      syncEl.textContent = '● ready to sync';
+      syncEl.className = 'online';
+    }
+  }
+  const ver = document.getElementById('appVersion');
+  if (ver) {
+    const raw = (window.Branding && Branding.APP_VERSION) ? String(Branding.APP_VERSION) : '';
+    ver.textContent = raw ? (raw.charAt(0) === 'v' || raw.charAt(0) === 'V' ? raw : ('v' + raw)) : '';
+  }
+  if (window.OfflineDB && typeof OfflineDB.queueAll === 'function') {
+    OfflineDB.queueAll().then((items) => {
+      const el = document.getElementById('syncStatus');
+      if (!el || !items || !items.length) return;
+      el.textContent = '● changes pending';
+      el.className = 'pending';
+    }).catch(() => {});
   }
 }
 
@@ -831,6 +915,7 @@ function render() {
   try { if (window.ChengClockPicker) ChengClockPicker.close(); } catch (_) {}
   renderNav();
   syncBottomNav();
+  renderMasthead();
   const main = document.getElementById('main');
   main.innerHTML = '';
 
@@ -966,7 +1051,7 @@ function renderDashboard(main) {
 
   let grandVol = 0, grandCap = 0, grandWeight = 0, totalTanks = 0, readTanks = 0;
   const cards = document.createElement('div');
-  cards.className = 'cards-row';
+  cards.className = 'cards-row cards-family';
   for (const c of CATS) {
     const t = categoryTotals(c.id);
     grandVol += t.volume; grandCap += t.capacity; grandWeight += t.weight;
@@ -994,7 +1079,7 @@ function renderDashboard(main) {
     </div>`;
   }
   const summary = document.createElement('div');
-  summary.className = 'cards-row';
+  summary.className = 'cards-row cards-summary';
   summary.innerHTML = `
     <div class="card"><div class="label">Total Volume</div><div class="value">${fmt(grandVol,1)}<span class="unit">m³</span></div></div>
     <div class="card"><div class="label">Total Weight</div><div class="value">${fmt(grandWeight,1)}<span class="unit">MT</span></div></div>
@@ -1196,16 +1281,16 @@ function makeTankGraphicCard(t) {
   card.onclick = () => navigate(t.category, t.id);
   const role = TankGraphics.roleOf(t);
   card.title = `${t.name} — ${TankGraphics.ROLE_MEANING[role] || ''}`;
+  const details = {
+    grade: TankGraphics.contentLabel(t),
+    pct: pct != null ? fmt(pct, 0) + '%' : '—',
+    volume: r ? fmt(r.result.volumeObserved, 1) + ' m³' : '',
+    weight: r?.result?.weightMT != null ? fmt(r.result.weightMT, 1) + ' MT' : '',
+    temp: r?.tempC != null && r.tempC !== '' ? fmt(r.tempC, 0) + '°C' : '',
+  };
   card.innerHTML = `
     <div class="tg-name">${escapeHtml(t.name)}</div>
-    <div class="tg-art">${TankGraphics.tankSvg(t, pct, { safeFill: t.category === 'fuel' ? 85 : null })}
-      <div class="tg-pct">${pct != null ? fmt(pct, 0) + '%' : '—'}</div>
-    </div>
-    <div class="tg-stats">
-      <span class="tg-chip" style="--tg-chip:${TankGraphics.liquidColour(t)}">${escapeHtml(TankGraphics.contentLabel(t))}</span>
-      <span>${r ? fmt(r.result.volumeObserved, 1) : '–'} m³</span>
-      <span>${r?.tempC != null && r.tempC !== '' ? fmt(r.tempC, 1) + ' °C' : '– °C'}</span>
-      <span>${r?.result?.weightMT != null ? fmt(r.result.weightMT, 2) + ' MT' : '– MT'}</span>
+    <div class="tg-art">${TankGraphics.tankSvg(t, pct, { safeFill: t.category === 'fuel' ? 85 : null, details })}
     </div>`;
   return card;
 }
@@ -1961,7 +2046,9 @@ function emphasizeResult(text){
 function renderResultSteps(panel, tank, r, inputs) {
   const pct = r.fillPercent;
   const cls = fillStatusClass(pct);
-  const color = cls === 'bad' ? 'var(--bad)' : cls === 'warn' ? 'var(--warn)' : 'var(--good)';
+  const pipe = (typeof TankGraphics !== 'undefined' && TankGraphics.liquidColour)
+    ? TankGraphics.liquidColour(tank) : (cls === 'bad' ? 'var(--bad)' : cls === 'warn' ? 'var(--warn)' : 'var(--good)');
+  const color = pipe;
   const circ = 2 * Math.PI * 34;
   const dash = Math.max(0, Math.min(100, pct || 0)) / 100 * circ;
   panel.innerHTML = `
@@ -5439,6 +5526,7 @@ async function boot() {
       dot.classList.toggle('online', online);
       dot.classList.toggle('offline', !online);
     }
+    renderMasthead();
   });
 
   const toggle = document.getElementById('menu-toggle');
@@ -5475,13 +5563,28 @@ async function boot() {
   });
 
   try {
-    if (window.LoadingSplash) LoadingSplash.update(LoadingSplash.BOOT_ID, 'Loading vessel data…');
+    if (window.LoadingSplash) LoadingSplash.update(LoadingSplash.BOOT_ID, 'Reading the ship list…', { pct: 12 });
     const st = await Api.getStatus();
     STATE.vessels = st.vessels || [];
     STATE.activeVesselId = st.activeVesselId;
     STATE.settings = st.settings || {};
     STATE.online = true;
-    if (STATE.activeVesselId) await reloadBundle();
+    if (STATE.activeVesselId) {
+      const opening = tankShipName();
+      if (window.LoadingSplash) {
+        LoadingSplash.update(LoadingSplash.BOOT_ID, opening ? `Loading ${opening} tanks and soundings…` : 'Loading tanks and soundings…', {
+          kicker: opening, pct: 48
+        });
+      }
+      await reloadBundle();
+      const sum = tankBundleSummary(STATE.bundle);
+      const named = tankShipName() || opening;
+      if (window.LoadingSplash) {
+        LoadingSplash.update(LoadingSplash.BOOT_ID, named
+          ? `${named} · ${sum.tanks} tanks, ${sum.readings} soundings`
+          : 'Ship data is ready', { kicker: named, pct: 100 });
+      }
+    }
     /* Manual sync only — queued offline writes wait for Flush / Push / Pull. */
   } catch (e) {
     STATE.online = false;
@@ -5492,7 +5595,20 @@ async function boot() {
       STATE.settings = st.settings || {};
     }
     if (STATE.activeVesselId) {
+      const opening = tankShipName();
+      if (window.LoadingSplash) {
+        LoadingSplash.update(LoadingSplash.BOOT_ID, opening ? `Loading saved data for ${opening}…` : 'Loading saved ship data…', {
+          kicker: opening, pct: 60
+        });
+      }
       STATE.bundle = await OfflineDB.idbGet('vessel:' + STATE.activeVesselId);
+      const sum = tankBundleSummary(STATE.bundle);
+      const named = tankShipName() || opening;
+      if (window.LoadingSplash) {
+        LoadingSplash.update(LoadingSplash.BOOT_ID, named
+          ? `${named} · ${sum.tanks} tanks, ${sum.readings} soundings`
+          : 'Saved ship data is ready', { kicker: named, pct: 100 });
+      }
     }
   }
 
