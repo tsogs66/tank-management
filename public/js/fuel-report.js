@@ -558,7 +558,7 @@ const FuelReport = (() => {
         <p class="hint" style="margin-top:8px;">Drafts stay editable. Filed reports can be reprinted or loaded.</p>
         <div class="scroll-x"><table class="data-table">
           <thead><tr><th>Saved</th><th>Type</th><th>Voyage</th><th>Port</th><th>Total MT</th><th></th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="6" class="empty-state">Nothing saved yet — use Save only for a draft, or Print &amp; Save for a filed report</td></tr>'}</tbody>
+          <tbody>${rows || '<tr><td colspan="6" class="empty-state">Nothing saved yet — use Save only to file this report, or Print &amp; Save to file it and print</td></tr>'}</tbody>
         </table></div>
       </details>
     </div>`;
@@ -771,7 +771,7 @@ const FuelReport = (() => {
     });
 
     document.getElementById('fr-print-save').onclick = () => saveReport({ snapshot: true, print: true });
-    document.getElementById('fr-save').onclick = () => saveReport({ snapshot: false, print: false });
+    document.getElementById('fr-save').onclick = () => saveReport({ snapshot: true, print: false });
     document.getElementById('fr-main-menu').onclick = () => navigate('dashboard');
     document.getElementById('fr-print-only').onclick = () => printReport(recompute());
     document.getElementById('fr-fill-logbook-rob')?.addEventListener('click', () => {
@@ -832,6 +832,17 @@ const FuelReport = (() => {
 
   /* ---------- save ---------- */
 
+  function sameSavedForm(a, b) {
+    const strip = (form) => {
+      if (!form || typeof form !== 'object') return form;
+      const copy = { ...form };
+      delete copy.updatedAt;
+      return copy;
+    };
+    try { return JSON.stringify(strip(a)) === JSON.stringify(strip(b)); }
+    catch (_) { return false; }
+  }
+
   async function saveReport({ snapshot = false, print = false, quiet = false } = {}) {
     const computed = recompute();
     const bundle = currentBundle();
@@ -841,9 +852,19 @@ const FuelReport = (() => {
     bundle.fuelReport = form;
     const gradesChanged = Core.applyCarriedFuelGrades(bundle, form);
     bundle.readings = Core.readingsFromReport(bundle, computed);
+    let fileSnapshot = !!snapshot;
     if (snapshot) {
-      bundle.reportHistory = [Core.snapshotFromReport(computed), ...(bundle.reportHistory || [])].slice(0, 50);
+      const entry = Core.snapshotFromReport(computed);
+      const prev = (bundle.reportHistory || [])[0];
+      const sameForm = prev && prev.form && entry.form && sameSavedForm(prev.form, entry.form);
+      if (!sameForm) {
+        bundle.reportHistory = [entry, ...(bundle.reportHistory || [])].slice(0, 50);
+        body.snapshotEntry = entry;
+      } else {
+        fileSnapshot = false;
+      }
     }
+    body.snapshot = fileSnapshot;
     await OfflineDB.idbSet('vessel:' + STATE.activeVesselId, bundle);
     if (gradesChanged.tanks && typeof persistPart === 'function') {
       await persistPart('tanks', bundle.tanks);
@@ -879,8 +900,18 @@ const FuelReport = (() => {
   }
 
   async function flushIfDirty() {
-    if (!view.dirty || !view.form) return;
-    await saveReport({ snapshot: false, print: false, quiet: true });
+    const bundle = currentBundle();
+    if (view.dirty && view.form) {
+      await saveReport({ snapshot: true, print: false, quiet: true });
+      return;
+    }
+    /* A Save only that used to file a draft only still has to become a saved
+       report before a server check, or the push leaves it behind. */
+    if (!bundle || !bundle.fuelReport) return;
+    const prev = (bundle.reportHistory || [])[0];
+    if (prev && prev.form && sameSavedForm(prev.form, bundle.fuelReport)) return;
+    view.form = bundle.fuelReport;
+    await saveReport({ snapshot: true, print: false, quiet: true });
   }
 
   /* ---------- printed document ---------- */

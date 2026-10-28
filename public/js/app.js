@@ -740,6 +740,61 @@ async function adoptCarriedFuelGrades() {
   if (changed.form && bundle.fuelReport) await persistPart('fuelReport', bundle.fuelReport);
 }
 
+function sameSavedForm(a, b) {
+  const strip = (form) => {
+    if (!form || typeof form !== 'object') return form;
+    const copy = { ...form };
+    delete copy.updatedAt;
+    return copy;
+  };
+  try { return JSON.stringify(strip(a)) === JSON.stringify(strip(b)); }
+  catch (_) { return false; }
+}
+
+async function fileVoyageReportSnapshot(voyage) {
+  if (!STATE.bundle || !voyage) return;
+  const form = { voyage, fuelReport: STATE.bundle.fuelReport || null };
+  const prev = (STATE.bundle.voyageHistory || [])[0];
+  if (prev && sameSavedForm(prev.form, form)) return;
+  const entry = {
+    id: `voy_${Date.now().toString(36)}`,
+    savedAt: new Date().toISOString(),
+    voyageNo: voyage.voyageNo || '',
+    port: voyage.port || '',
+    reportType: voyage.reportType || '',
+    date: voyage.date || '',
+    form,
+  };
+  STATE.bundle.voyageHistory = [entry, ...(STATE.bundle.voyageHistory || [])].slice(0, 50);
+  await persistPart('voyageHistory', STATE.bundle.voyageHistory);
+}
+
+async function fileTankSummarySnapshot(formOverride) {
+  if (!STATE.bundle) return;
+  const voyage = (formOverride && formOverride.voyage) || STATE.bundle.voyage || {};
+  const form = formOverride || {
+    voyage: { ...voyage },
+    fuelReport: typeof voyageFuelForm === 'function' ? voyageFuelForm(voyage) : null,
+    updatedAt: new Date().toISOString(),
+  };
+  if (!form.updatedAt) form.updatedAt = new Date().toISOString();
+  STATE.bundle.tankSummaryDraft = form;
+  await persistPart('tankSummaryDraft', form);
+  const prev = (STATE.bundle.tankSummaryHistory || [])[0];
+  if (prev && sameSavedForm(prev.form, form)) return;
+  const entry = {
+    id: `tsum_${Date.now().toString(36)}`,
+    savedAt: form.updatedAt,
+    voyageNo: voyage.voyageNo || '',
+    port: voyage.port || '',
+    reportType: 'Tank Summary',
+    date: voyage.date || '',
+    form,
+  };
+  STATE.bundle.tankSummaryHistory = [entry, ...(STATE.bundle.tankSummaryHistory || [])].slice(0, 50);
+  await persistPart('tankSummaryHistory', STATE.bundle.tankSummaryHistory);
+}
+
 async function flushUnsavedTankWork() {
   if (typeof window.flushOpenTankReading === 'function') {
     try { await window.flushOpenTankReading(); } catch (err) { console.warn(err); }
@@ -772,6 +827,14 @@ async function flushUnsavedTankWork() {
   }
   if (document.getElementById('btn-save-voyage-plan') && STATE.bundle && STATE.bundle.bunkering) {
     await persistPart('bunkering', STATE.bundle.bunkering);
+  }
+  if (STATE.bundle && (document.getElementById('btn-tank-summary-save') || STATE.bundle.tankSummaryDraft)) {
+    try {
+      await fileTankSummarySnapshot(document.getElementById('btn-tank-summary-save') ? null : STATE.bundle.tankSummaryDraft);
+    } catch (err) { console.warn(err); }
+  }
+  if (document.getElementById('v-voyage') && STATE.bundle && STATE.bundle.voyage) {
+    try { await fileVoyageReportSnapshot(STATE.bundle.voyage); } catch (err) { console.warn(err); }
   }
 }
 window.flushUnsavedTankWork = flushUnsavedTankWork;
@@ -1144,7 +1207,7 @@ function renderDashboard(main) {
   </div>
   <div class="btn-row no-print">
     <button class="btn primary" id="btn-tank-summary-print">Print Tank Summary</button>
-    <button class="btn" id="btn-tank-summary-save">Save draft</button>
+    <button class="btn" id="btn-tank-summary-save">Save</button>
   </div></div>`;
 
   let grandVol = 0, grandCap = 0, grandWeight = 0, totalTanks = 0, readTanks = 0;
@@ -1198,7 +1261,7 @@ function renderDashboard(main) {
       date: v.date,
       savedAt: STATE.bundle.tankSummaryDraft.updatedAt,
       totalMT: grandWeight,
-    } : null, 'Nothing saved yet — use Save draft, or Print Tank Summary to file a report')}`;
+    } : null, 'Nothing saved yet — use Save to file this report, or Print Tank Summary to file it and print')}`;
   main.appendChild(histPanel);
 
   const printTankSummary = async ({ saveSnapshot = false, formOverride = null } = {}) => {
@@ -1247,14 +1310,13 @@ function renderDashboard(main) {
   }
   if (btnSave) {
     btnSave.onclick = async () => {
-      const form = voyageFuelForm(STATE.bundle.voyage || {});
-      STATE.bundle.tankSummaryDraft = {
+      const form = {
         voyage: { ...(STATE.bundle.voyage || {}) },
-        fuelReport: form,
+        fuelReport: voyageFuelForm(STATE.bundle.voyage || {}),
         updatedAt: new Date().toISOString(),
       };
-      await persistPart('tankSummaryDraft', STATE.bundle.tankSummaryDraft);
-      showToast('Tank summary draft saved');
+      await fileTankSummarySnapshot(form);
+      showToast('Tank summary saved');
       navigate('dashboard');
     };
   }
@@ -4377,7 +4439,7 @@ function renderReport(main) {
           date: v.date,
           savedAt: v.updatedAt,
           totalMT: gWt,
-        } : null, 'Nothing saved yet — use Save only for a draft, or Print &amp; Save for a filed report')}
+        } : null, 'Nothing saved yet — use Save only to file this report, or Print &amp; Save to file it and print')}
       </details>
     </div>`;
 
@@ -4428,7 +4490,8 @@ function renderReport(main) {
   wrap.querySelector('#btn-save-voy').onclick = async () => {
     const voyage = readVoyageFromForm();
     await persistPart('voyage', voyage);
-    showToast('Draft saved');
+    await fileVoyageReportSnapshot(voyage);
+    showToast('Voyage report saved');
     navigate('report');
   };
 
