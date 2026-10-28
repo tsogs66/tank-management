@@ -81,4 +81,64 @@ is(synced.readings.e.reading, 5, 'a lower revision still brings a gauging that e
 is(synced.readings.b.reading, 2, 'keeping the local revision still keeps local gaugings');
 is(synced.reportHistory.some((r) => r.id === 'r3'), true, 'a lower revision still brings a saved report');
 
+store.saveVesselPart(id, 'bunkerHistory', {
+  plans: [{ id: 'plan-local', savedAt: '2026-10-11T00:00:00.000Z', port: 'Manila', form: { header: { port: 'Manila' } } }],
+  after: [],
+  summaries: [],
+});
+const exported = store.exportBackup();
+is(
+  exported.vessels[id].bunkerHistory.plans.some((p) => p.id === 'plan-local'),
+  true,
+  'backup carries the bunker monitoring plan'
+);
+
+const userRoot = path.join(dataDir, 'users', 'chief');
+const userVessel = path.join(userRoot, 'vessels', id);
+fs.mkdirSync(userVessel, { recursive: true });
+fs.writeFileSync(path.join(userRoot, 'vessels-index.json'), JSON.stringify({
+  vessels: [{ id, name: 'MV Live Parts', imo: '' }],
+}));
+fs.writeFileSync(path.join(userVessel, 'vessel.json'), JSON.stringify({ id, name: 'MV Live Parts' }));
+fs.writeFileSync(path.join(userVessel, 'meta.json'), JSON.stringify({ revision: 0 }));
+fs.writeFileSync(path.join(userVessel, 'bunker-history.json'), JSON.stringify({
+  plans: [],
+  after: [{ id: 'after-user', savedAt: '2026-10-12T00:00:00.000Z', port: 'Singapore' }],
+  summaries: [{ id: 'sum-user', savedAt: '2026-10-12T01:00:00.000Z', port: 'Singapore' }],
+}));
+
+const pushed = store.syncPushBundle();
+const filed = pushed.vessels[id].bunkerHistory;
+is(filed.plans.some((p) => p.id === 'plan-local'), true, 'sync upload keeps the bunker plan from the newer copy');
+is(filed.summaries.some((p) => p.id === 'sum-user'), true, 'sync upload keeps a bunker summary that exists only on the older copy');
+is(filed.after.some((p) => p.id === 'after-user'), true, 'sync upload keeps a bunker delivery report from the other database');
+
+const incoming = JSON.parse(JSON.stringify(pushed));
+incoming.vessels[id].meta = { ...(incoming.vessels[id].meta || {}), revision: 999 };
+incoming.vessels[id].bunkerHistory = {
+  plans: [{ id: 'plan-peer', savedAt: '2026-10-13T00:00:00.000Z', port: 'Busan' }],
+  after: [],
+  summaries: [],
+};
+store.applySyncPayload(incoming);
+const office = JSON.parse(fs.readFileSync(path.join(userVessel, 'bunker-history.json'), 'utf8'));
+is(office.plans.some((p) => p.id === 'plan-peer'), true, 'a download files the bunker plan in the license folder as well as the root');
+is(office.summaries.some((p) => p.id === 'sum-user'), true, 'downloading the peer plan keeps the office bunker summary');
+const rootAgain = store.getVesselBundle(id).bunkerHistory;
+is(rootAgain.plans.some((p) => p.id === 'plan-local'), true, 'the saved bunker plan survives the peer download');
+is(rootAgain.plans.some((p) => p.id === 'plan-peer'), true, 'the peer bunker plan is stored after download');
+
+const roundTrip = store.exportBackup();
+const freshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tank-live-restore-'));
+process.env.TMS_DATA_DIR = freshDir;
+process.env.CHENG_PRO_DATA_DIR = freshDir;
+delete require.cache[require.resolve('../public/js/store-core.js')];
+delete require.cache[require.resolve('../server/store.js')];
+const restored = require('../server/store.js');
+restored.importBackup(roundTrip, { merge: true });
+const back = restored.getVesselBundle(id).bunkerHistory;
+is(back.plans.map((p) => p.id).sort(), ['plan-local', 'plan-peer'], 'restore brings every saved bunker plan');
+is(back.summaries.some((p) => p.id === 'sum-user'), true, 'restore brings the bunker summary');
+is(back.after.some((p) => p.id === 'after-user'), true, 'restore brings the bunker delivery report');
+
 console.log('live parts merge ok (' + pass + ')');
