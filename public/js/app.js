@@ -4924,8 +4924,9 @@ function renderSettings(main) {
 
   document.getElementById('btn-backup').onclick = async () => {
     setSettingsBusy(true);
-    Progress.start(progressHost(), 'Downloading backup…', 'Preparing the full database…');
+    Progress.start(progressHost(), 'Downloading backup…', 'Writing open gaugings and drafts…');
     try {
+      try { await flushUnsavedTankWork(); } catch (err) { console.warn(err); }
       const backup = await Api.backup((pct, phase) => {
         if (phase === 'starting' || phase === 'reading') {
           Progress.set(null, 'Preparing the full database…');
@@ -5051,8 +5052,9 @@ function renderSettings(main) {
     const token = document.getElementById('sync-token').value.trim();
     if (!url) { showToast('Enter a peer sync URL'); return; }
     setSettingsBusy(true);
-    Progress.start(progressHost(), 'Pulling from peer…', `Connecting to ${url}…`);
+    Progress.start(progressHost(), 'Pulling from peer…', 'Writing open gaugings and drafts…');
     try {
+      try { await flushUnsavedTankWork(); } catch (err) { console.warn(err); }
       Progress.set(null, 'Downloading vessels from peer…');
       const res = await Api.syncPull(url, token);
       if (res.warning) {
@@ -5097,8 +5099,9 @@ function renderSettings(main) {
     const token = document.getElementById('sync-token').value.trim();
     if (!url) { showToast('Enter a peer sync URL'); return; }
     setSettingsBusy(true);
-    Progress.start(progressHost(), 'Pushing to peer…', 'Preparing local vessels…');
+    Progress.start(progressHost(), 'Pushing to peer…', 'Writing open gaugings and drafts…');
     try {
+      try { await flushUnsavedTankWork(); } catch (err) { console.warn(err); }
       Progress.set(null, `Uploading to ${url}…`);
       const res = await Api.syncPush(url, token);
       const remoteCount = (res.remote && res.remote.results) ? res.remote.results.length : null;
@@ -5153,6 +5156,7 @@ function renderSettings(main) {
     if (!STATE.activeVesselId) { showToast('No active vessel'); return; }
     setSettingsBusy(true);
     try {
+      try { await flushUnsavedTankWork(); } catch (err) { console.warn(err); }
       let backup;
       if (Api.getTransport() === 'local' && Api.canUseLocal() && window.StoreCore && StoreCore.exportVesselBackup) {
         backup = StoreCore.exportVesselBackup(STATE.activeVesselId);

@@ -18,7 +18,7 @@
   --warn: #c99a53;
   --bad: #e06a4c;
   --fuel: #c36a39;
-  --lube: #ea8633;
+  --lube: #F0C14A;
   --misc: #a9a292;
   --water: #348fdc;
   --radius: 10px;
@@ -49,7 +49,7 @@ html.bright {
   --warn: #8a5a1a;
   --bad: #b33a22;
   --fuel: #6b3a1f;
-  --lube: #c45a10;
+  --lube: #8A6408;
   --misc: #3d4a5c;
   --water: #1f6fb2;
   --brass: #8a5a1a;
@@ -77,7 +77,7 @@ html.prism {
   --warn: #e8c070;
   --bad: #e0705c;
   --fuel: #e8a040;
-  --lube: #ff9a4a;
+  --lube: #F0C14A;
   --misc: #7eb8ae;
   --water: #40c8e8;
   --brass: #e8c070;
@@ -132,7 +132,7 @@ html.astrolabe {
   --warn: #c9985a;
   --bad: #e0705c;
   --fuel: #c9985a;
-  --lube: #e09050;
+  --lube: #E6C15A;
   --misc: #a89a82;
   --water: #6eb0d4;
   --brass: #c9985a;

@@ -77,6 +77,9 @@ jobs:
       - name: Tank order
         run: node scripts/test-tank-order.js
 
+      - name: Gaugings and drafts survive backup merge and sync
+        run: node scripts/test-live-parts-merge.js
+
       # window.prompt() THROWS in Electron and does not exist in the Android
       # WebView. Both call sites are async handlers, so the throw became a
       # rejected promise nobody saw: "Create blank vessel" and "Clone active
