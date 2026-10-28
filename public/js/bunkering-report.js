@@ -79,16 +79,35 @@ const BunkerReports = (() => {
   async function saveChainPart(path, part, form, { snapshot = false, extra = {}, deferServer = false, quiet = false } = {}) {
     const b = bundle();
     let snapshotEntry = null;
+    let fileSnapshot = !!snapshot;
     const historyKey = snapshot ? historyKeyForPath(path) : null;
     if (historyKey) {
       try { snapshotEntry = localSnapshot(path, form); } catch (err) { console.warn(err); }
       if (snapshotEntry) {
         const h = bunkerHistory();
-        h[historyKey] = [snapshotEntry, ...(h[historyKey] || []).filter((s) => s && s.id !== snapshotEntry.id)].slice(0, 50);
-        b.bunkerHistory = h;
+        const list = h[historyKey] || [];
+        const prev = list[0];
+        const stripStamp = (form) => {
+          if (!form || typeof form !== 'object') return form;
+          const copy = { ...form };
+          delete copy.updatedAt;
+          return copy;
+        };
+        let sameForm = false;
+        try {
+          sameForm = !!(prev && prev.form && snapshotEntry.form
+            && JSON.stringify(stripStamp(prev.form)) === JSON.stringify(stripStamp(snapshotEntry.form)));
+        } catch (_) { sameForm = false; }
+        if (sameForm) {
+          fileSnapshot = false;
+          snapshotEntry = null;
+        } else {
+          h[historyKey] = [snapshotEntry, ...list.filter((s) => s && s.id !== snapshotEntry.id)].slice(0, 50);
+          b.bunkerHistory = h;
+        }
       }
     }
-    const body = { form, snapshot, snapshotEntry, ...extra };
+    const body = { form, snapshot: fileSnapshot, snapshotEntry, ...extra };
     b[part] = form;
     await OfflineDB.idbSet('vessel:' + STATE.activeVesselId, b);
     if (snapshotEntry && typeof persistPart === 'function') {
@@ -144,7 +163,7 @@ const BunkerReports = (() => {
       </td></tr>`).join('');
     return `<div class="scroll-x"><table class="data-table">
       <thead><tr><th>Saved</th><th>Voyage</th><th>Port</th><th>Result</th><th></th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="5" class="empty-state">Nothing saved yet — use Save only for a draft, or Print &amp; Save for a filed report</td></tr>'}</tbody>
+      <tbody>${rows || '<tr><td colspan="5" class="empty-state">Nothing saved yet — use Save only to file this report, or Print &amp; Save to file it and print</td></tr>'}</tbody>
     </table></div>`;
   }
 
@@ -1282,7 +1301,7 @@ const BunkerReports = (() => {
       }
     };
     document.getElementById('bp-save').onclick = () => saveChainPart('bunker-plan', 'bunkerPlan',
-      { ...view.plan, updatedAt: new Date().toISOString() });
+      { ...view.plan, updatedAt: new Date().toISOString() }, { snapshot: true });
     // Print without saving: no snapshot filed, nothing written to the vessel.
     document.getElementById('bp-print-only').onclick = () =>
       UI.printHtml(planPrintPages(recomputePlan()));
@@ -2045,7 +2064,7 @@ const BunkerReports = (() => {
       }
     };
     document.getElementById('ba-save').onclick = () => saveChainPart('bunker-after', 'bunkerAfter',
-      { ...view.after, updatedAt: new Date().toISOString() });
+      { ...view.after, updatedAt: new Date().toISOString() }, { snapshot: true });
     document.getElementById('ba-print-only').onclick = () =>
       UI.printHtml(afterPrintPages(recomputeAfter()));
     document.getElementById('ba-menu').onclick = () => navigate('dashboard');
@@ -2419,7 +2438,7 @@ const BunkerReports = (() => {
       }
     };
     document.getElementById('bs-save').onclick = () => saveChainPart('bunker-summary', 'bunkerSummary',
-      { ...view.summary, updatedAt: new Date().toISOString() });
+      { ...view.summary, updatedAt: new Date().toISOString() }, { snapshot: true });
     document.getElementById('bs-print-only').onclick = () =>
       UI.printHtml(summaryPrintPages(recomputeSummary()));
     document.getElementById('bs-menu').onclick = () => navigate('dashboard');
@@ -2591,14 +2610,18 @@ const BunkerReports = (() => {
   } catch (_) { /* ignore */ }
 
   async function flushOpenForms() {
-    if (document.getElementById('bp-save') && view.plan) {
-      await saveChainPart('bunker-plan', 'bunkerPlan', { ...view.plan, updatedAt: new Date().toISOString() }, { quiet: true });
+    const b = bundle();
+    const plan = (document.getElementById('bp-save') && view.plan) ? view.plan : (b && b.bunkerPlan);
+    const after = (document.getElementById('ba-save') && view.after) ? view.after : (b && b.bunkerAfter);
+    const summary = (document.getElementById('bs-save') && view.summary) ? view.summary : (b && b.bunkerSummary);
+    if (plan) {
+      await saveChainPart('bunker-plan', 'bunkerPlan', { ...plan, updatedAt: plan.updatedAt || new Date().toISOString() }, { snapshot: true, quiet: true });
     }
-    if (document.getElementById('ba-save') && view.after) {
-      await saveChainPart('bunker-after', 'bunkerAfter', { ...view.after, updatedAt: new Date().toISOString() }, { quiet: true });
+    if (after) {
+      await saveChainPart('bunker-after', 'bunkerAfter', { ...after, updatedAt: after.updatedAt || new Date().toISOString() }, { snapshot: true, quiet: true });
     }
-    if (document.getElementById('bs-save') && view.summary) {
-      await saveChainPart('bunker-summary', 'bunkerSummary', { ...view.summary, updatedAt: new Date().toISOString() }, { quiet: true });
+    if (summary) {
+      await saveChainPart('bunker-summary', 'bunkerSummary', { ...summary, updatedAt: summary.updatedAt || new Date().toISOString() }, { snapshot: true, quiet: true });
     }
   }
 
