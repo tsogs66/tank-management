@@ -58,12 +58,42 @@ const BunkerReports = (() => {
     return { plans: [], after: [], summaries: [], ...(bundle().bunkerHistory || {}) };
   }
 
+  function historyKeyForPath(path) {
+    if (path === 'bunker-plan') return 'plans';
+    if (path === 'bunker-after') return 'after';
+    if (path === 'bunker-summary') return 'summaries';
+    return null;
+  }
+
+  /** The filed row, built here so it is in the database before the print dialog
+   *  closes and before Push to peer runs. The server keeps this same id. */
+  function localSnapshot(path, form) {
+    const b = bundle();
+    if (path === 'bunker-plan') return Core.planSnapshot(Core.computeBunkerPlan(b, form, view.conversion));
+    if (path === 'bunker-after') return Core.afterSnapshot(Core.computeAfterBunkering(b, form, view.conversion));
+    if (path === 'bunker-summary') return Core.summarySnapshot(Core.computeBunkerSummary(b, form, null, view.conversion));
+    return null;
+  }
+
   /** Save a form part, keeping the offline cache and queue in step. */
   async function saveChainPart(path, part, form, { snapshot = false, extra = {}, deferServer = false, quiet = false } = {}) {
     const b = bundle();
-    const body = { form, snapshot, ...extra };
+    let snapshotEntry = null;
+    const historyKey = snapshot ? historyKeyForPath(path) : null;
+    if (historyKey) {
+      try { snapshotEntry = localSnapshot(path, form); } catch (err) { console.warn(err); }
+      if (snapshotEntry) {
+        const h = bunkerHistory();
+        h[historyKey] = [snapshotEntry, ...(h[historyKey] || []).filter((s) => s && s.id !== snapshotEntry.id)].slice(0, 50);
+        b.bunkerHistory = h;
+      }
+    }
+    const body = { form, snapshot, snapshotEntry, ...extra };
     b[part] = form;
     await OfflineDB.idbSet('vessel:' + STATE.activeVesselId, b);
+    if (snapshotEntry && typeof persistPart === 'function') {
+      try { await persistPart('bunkerHistory', b.bunkerHistory); } catch { /* the PUT below still files it */ }
+    }
 
     const pushServer = async () => {
       try {

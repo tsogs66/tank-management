@@ -1372,6 +1372,7 @@ function importBackup(backup, { merge = true } = {}) {
       lastImportedAt: now(),
     });
     if (priorLive) writeLiveParts(id, mergedLiveParts(priorLive, norm));
+    fanOutLiveParts(id, norm);
     byId.set(id, {
       id,
       name: vesselDoc.name || id,
@@ -1465,6 +1466,9 @@ function applySyncPayload(payload) {
       if (priorLive) writeLiveParts(id, mergedLiveParts(priorLive, remote));
       results.push({ id, action: 'kept-local', revision: localRev });
     }
+    /* The same saved reports land in every copy of this vessel — the legacy
+       root and each license folder — so a scoped screen sees what the peer sent. */
+    fanOutLiveParts(id, remote);
   }
   return results;
 }
@@ -1512,6 +1516,52 @@ function readVesselBundleAt(dataDir, id) {
   };
 }
 
+function readLivePartsAt(dataDir, id) {
+  if (!fs.existsSync(vesselDirAt(dataDir, id))) return null;
+  const file = (name, fallback) => readJson(vesselFileAt(dataDir, id, name), fallback);
+  return {
+    readings: file('readings.json', {}),
+    reportHistory: file('report-history.json', []),
+    voyageHistory: file('voyage-history.json', []),
+    tankSummaryHistory: file('tank-summary-history.json', []),
+    bunkerHistory: file('bunker-history.json', emptyBunkerHistory()),
+    fuelReport: file('fuel-report.json', null),
+    tankSummaryDraft: file('tank-summary-draft.json', null),
+    bunkerPlan: file('bunker-plan.json', null),
+    bunkerAfter: file('bunker-after.json', null),
+    bunkerSummary: file('bunker-summary.json', null),
+  };
+}
+
+function writeLivePartsAt(dataDir, id, parts) {
+  const put = (name, data) => writeJson(vesselFileAt(dataDir, id, name), data);
+  put('readings.json', parts.readings);
+  put('report-history.json', parts.reportHistory);
+  put('voyage-history.json', parts.voyageHistory);
+  put('tank-summary-history.json', parts.tankSummaryHistory);
+  put('bunker-history.json', parts.bunkerHistory);
+  put('fuel-report.json', parts.fuelReport);
+  put('tank-summary-draft.json', parts.tankSummaryDraft);
+  put('bunker-plan.json', parts.bunkerPlan);
+  put('bunker-after.json', parts.bunkerAfter);
+  put('bunker-summary.json', parts.bunkerSummary);
+}
+
+/** Copy gaugings, filed reports and open drafts into every database that
+ *  already holds this vessel. A push lands on the unscoped root; the licensed
+ *  folder is what the office screen reads. */
+function fanOutLiveParts(id, incoming) {
+  if (!incoming || !id) return;
+  const homes = [rootDataDir()];
+  for (const u of listUserDatabases()) homes.push(u.path);
+  for (const dataDir of homes) {
+    let prior = null;
+    try { prior = readLivePartsAt(dataDir, id); } catch { prior = null; }
+    if (!prior) continue;
+    writeLivePartsAt(dataDir, id, mergedLiveParts(prior, incoming));
+  }
+}
+
 /** Peer export without license scope must include all user databases, not empty root. */
 function syncPushBundleAggregate() {
   const mergedVessels = {};
@@ -1527,11 +1577,18 @@ function syncPushBundleAggregate() {
       if (!bundle) continue;
       const remoteRev = bundle.meta?.revision || 0;
       const existing = mergedVessels[v.id];
-      const existingRev = existing?.meta?.revision || 0;
-      if (!existing || remoteRev >= existingRev) {
+      if (!existing) {
         mergedVessels[v.id] = bundle;
         mergedIndexById.set(v.id, v);
+        continue;
       }
+      /* The newest vessel record wins, but saved reports are a union. A higher
+         revision that never saw this bunkering sheet must not drop it. */
+      const existingRev = existing.meta?.revision || 0;
+      const base = remoteRev >= existingRev ? bundle : existing;
+      const extra = base === bundle ? existing : bundle;
+      mergedVessels[v.id] = { ...base, ...mergedLiveParts(base, extra) };
+      if (remoteRev >= existingRev) mergedIndexById.set(v.id, v);
     }
   }
 

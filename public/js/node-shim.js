@@ -204,6 +204,61 @@ const NodeShim = (() => {
       })),
   };
 
+  /* The on-device server was written for Node, where Buffer is a global. A
+     phone has no such global, and Push to peer used to die with
+     "Buffer is not defined" before a single byte left the ship. */
+  function installBuffer() {
+    const root = typeof globalThis !== 'undefined' ? globalThis : self;
+    if (typeof root.Buffer !== 'undefined') return;
+    class SyncBytes extends Uint8Array {
+      toString(enc) {
+        if (enc && enc !== 'utf8' && enc !== 'utf-8') {
+          throw new Error('node-shim Buffer: only utf8');
+        }
+        if (typeof TextDecoder !== 'undefined') return new TextDecoder().decode(this);
+        let s = '';
+        for (let i = 0; i < this.length; i++) s += String.fromCharCode(this[i]);
+        try { return decodeURIComponent(escape(s)); } catch { return s; }
+      }
+    }
+    function fromString(text) {
+      const s = String(text);
+      if (typeof TextEncoder !== 'undefined') return new SyncBytes(new TextEncoder().encode(s));
+      const encoded = unescape(encodeURIComponent(s));
+      const out = new SyncBytes(encoded.length);
+      for (let i = 0; i < encoded.length; i++) out[i] = encoded.charCodeAt(i) & 255;
+      return out;
+    }
+    function asBytes(input) {
+      if (input instanceof SyncBytes) return input;
+      if (input instanceof Uint8Array) return new SyncBytes(input);
+      if (typeof input === 'string') return fromString(input);
+      if (input && typeof input.length === 'number') return new SyncBytes(input);
+      throw new Error('node-shim Buffer: cannot read these bytes');
+    }
+    function BufferPoly() {}
+    BufferPoly.from = function from(input, enc) {
+      if (typeof input === 'string') {
+        if (enc && enc !== 'utf8' && enc !== 'utf-8') throw new Error('node-shim Buffer.from: only utf8');
+        return fromString(input);
+      }
+      return asBytes(input);
+    };
+    BufferPoly.isBuffer = (v) => v instanceof SyncBytes;
+    BufferPoly.concat = (list) => {
+      const parts = (list || []).map(asBytes);
+      let n = 0;
+      for (const p of parts) n += p.length;
+      const out = new SyncBytes(n);
+      let o = 0;
+      for (const p of parts) { out.set(p, o); o += p.length; }
+      return out;
+    };
+    BufferPoly.alloc = (n) => new SyncBytes(Number(n) || 0);
+    root.Buffer = BufferPoly;
+  }
+  installBuffer();
+
   /** Everything the shim holds, for backup and for the parity test. */
   function snapshot() { return Object.fromEntries(files); }
   async function replace(map) {
