@@ -1547,18 +1547,53 @@ function writeLivePartsAt(dataDir, id, parts) {
   put('bunker-summary.json', parts.bunkerSummary);
 }
 
+function vesselHullSame(a, b) {
+  const imoOf = (v) => String((v && (v.imo || v.imoNo)) || '').replace(/\D/g, '');
+  const nameOf = (v) => String((v && (v.name || v.vesselName)) || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!a || !b) return false;
+  const ia = imoOf(a);
+  const ib = imoOf(b);
+  if (ia && ib) return ia === ib;
+  const na = nameOf(a);
+  const nb = nameOf(b);
+  return !!na && na === nb;
+}
+
 /** Copy gaugings, filed reports and open drafts into every database that
  *  already holds this vessel. A push lands on the unscoped root; the licensed
- *  folder is what the office screen reads. */
+ *  folder is what the office screen reads. The office copy may use a different
+ *  vessel id for the same hull, so a matching IMO or name receives the reports
+ *  as well. */
 function fanOutLiveParts(id, incoming) {
   if (!incoming || !id) return;
+  const incomingVessel = incoming.vessel || null;
   const homes = [rootDataDir()];
   for (const u of listUserDatabases()) homes.push(u.path);
   for (const dataDir of homes) {
-    let prior = null;
-    try { prior = readLivePartsAt(dataDir, id); } catch { prior = null; }
-    if (!prior) continue;
-    writeLivePartsAt(dataDir, id, mergedLiveParts(prior, incoming));
+    const targets = new Set();
+    try {
+      if (readLivePartsAt(dataDir, id)) targets.add(id);
+    } catch { /* this id is not in this database */ }
+    if (incomingVessel) {
+      const index = readJson(path.join(dataDir, 'vessels-index.json'), { vessels: [] });
+      for (const row of (index.vessels || [])) {
+        if (!row || !row.id || targets.has(row.id)) continue;
+        let profile = row;
+        try {
+          const doc = readJson(vesselFileAt(dataDir, row.id, 'vessel.json'), null);
+          if (doc) profile = doc;
+        } catch { /* the index row is enough to compare */ }
+        if (vesselHullSame(profile, incomingVessel) || vesselHullSame(row, incomingVessel)) {
+          targets.add(row.id);
+        }
+      }
+    }
+    for (const targetId of targets) {
+      let prior = null;
+      try { prior = readLivePartsAt(dataDir, targetId); } catch { prior = null; }
+      if (!prior) continue;
+      writeLivePartsAt(dataDir, targetId, mergedLiveParts(prior, incoming));
+    }
   }
 }
 
