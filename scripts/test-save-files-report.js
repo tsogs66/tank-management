@@ -20,6 +20,13 @@ assert.match(bunker, /bs-save'\)\.onclick = \(\) => saveChainPart\([\s\S]{0,240}
 assert.match(bunker, /async function flushOpenForms[\s\S]{0,900}snapshot: true/);
 assert.match(app, /async function fileVoyageReportSnapshot/);
 assert.match(app, /async function fileTankSummarySnapshot/);
+assert.match(app, /async function persistVisibleSavedReports/);
+assert.match(app, /async function uploadVisibleReportsToServer/);
+assert.match(app, /saved-reports\/merge/);
+const flushWork = app.slice(app.indexOf('async function flushUnsavedTankWork'), app.indexOf('window.flushUnsavedTankWork'));
+assert.match(flushWork, /Api\.flushQueue/);
+assert.match(flushWork, /persistVisibleSavedReports/);
+assert.match(flushWork, /uploadVisibleReportsToServer/);
 assert.match(app, /showToast\('Voyage report saved'\)/);
 assert.match(app, /showToast\('Tank summary saved'\)/);
 assert.doesNotMatch(app, /showToast\('Draft saved'\)/);

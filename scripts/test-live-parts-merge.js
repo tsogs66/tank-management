@@ -149,6 +149,16 @@ store.applySyncPayload(monitoring);
 const officeReports = JSON.parse(fs.readFileSync(path.join(officeOther, 'report-history.json'), 'utf8'));
 is(officeReports.some((r) => r.id === 'mon-1' && r.reportType === 'Monitoring'), true, 'a monitoring report reaches the office copy of the same ship');
 
+store.saveVesselPart(id, 'reportHistory', [{
+  id: 'mon-save',
+  savedAt: '2026-10-21T00:00:00.000Z',
+  reportType: 'Monitoring',
+  title: 'Monitoring',
+}]);
+const officeAfterSave = JSON.parse(fs.readFileSync(path.join(officeOther, 'report-history.json'), 'utf8'));
+is(officeAfterSave.some((r) => r.id === 'mon-save' && r.reportType === 'Monitoring'), true, 'saving a monitoring report reaches the office copy of the same ship');
+is(officeAfterSave.some((r) => r.id === 'mon-1'), true, 'saving another monitoring report keeps the one already on the office copy');
+
 const roundTrip = store.exportBackup();
 const freshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tank-live-restore-'));
 process.env.TMS_DATA_DIR = freshDir;

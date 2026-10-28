@@ -601,6 +601,20 @@ function saveVesselPart(id, part, data) {
   const merged = mergePartOnWrite(id, part, allowed[part], data);
   writeJson(vesselPath(id, allowed[part]), merged);
   touchVessel(id);
+  /* A saved monitoring report has to reach the office copy of this hull, not
+     only the folder the request happened to write. Fan-out is a copy of live
+     parts; it does not replace tanks or the vessel record. */
+  if (part === 'reportHistory' || part === 'voyageHistory' || part === 'tankSummaryHistory'
+      || part === 'bunkerHistory' || part === 'readings' || DRAFT_PARTS.indexOf(part) >= 0) {
+    try {
+      const live = readLiveParts(id);
+      let vessel = null;
+      try { vessel = readJson(vesselPath(id, 'vessel.json'), null); } catch (_) { vessel = null; }
+      if (live) fanOutLiveParts(id, Object.assign({ vessel: vessel }, live));
+    } catch (err) {
+      console.error('fan-out of saved reports failed', id, err && err.message);
+    }
+  }
   return merged;
 }
 

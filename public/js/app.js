@@ -795,6 +795,72 @@ async function fileTankSummarySnapshot(formOverride) {
   await persistPart('tankSummaryHistory', STATE.bundle.tankSummaryHistory);
 }
 
+/* The monitoring page can show a saved report that has not reached the
+   database the backup page reads — a save that was still queued, or a list
+   held only in this screen. An empty list is not returned, so a flush cannot
+   wipe a history the screen does not have. */
+function visibleSavedReportBody() {
+  if (!STATE.bundle || !STATE.activeVesselId) return null;
+  const b = STATE.bundle;
+  const bunker = b.bunkerHistory && typeof b.bunkerHistory === 'object'
+    ? b.bunkerHistory
+    : { plans: [], after: [], summaries: [] };
+  const body = {
+    reportHistory: Array.isArray(b.reportHistory) ? b.reportHistory : [],
+    voyageHistory: Array.isArray(b.voyageHistory) ? b.voyageHistory : [],
+    tankSummaryHistory: Array.isArray(b.tankSummaryHistory) ? b.tankSummaryHistory : [],
+    bunkerHistory: {
+      plans: Array.isArray(bunker.plans) ? bunker.plans : [],
+      after: Array.isArray(bunker.after) ? bunker.after : [],
+      summaries: Array.isArray(bunker.summaries) ? bunker.summaries : [],
+    },
+    readings: b.readings && typeof b.readings === 'object' && !Array.isArray(b.readings) ? b.readings : {},
+    fuelReport: b.fuelReport || null,
+    tankSummaryDraft: b.tankSummaryDraft || null,
+    bunkerPlan: b.bunkerPlan || null,
+    bunkerAfter: b.bunkerAfter || null,
+    bunkerSummary: b.bunkerSummary || null,
+  };
+  const bunkerCount = body.bunkerHistory.plans.length + body.bunkerHistory.after.length + body.bunkerHistory.summaries.length;
+  if (!body.reportHistory.length && !body.voyageHistory.length && !body.tankSummaryHistory.length
+      && !bunkerCount && !body.fuelReport) return null;
+  return body;
+}
+
+async function persistVisibleSavedReports() {
+  const body = visibleSavedReportBody();
+  if (!body || typeof Api === 'undefined' || !Api.request) return;
+  await Api.request(
+    '/api/vessels/' + encodeURIComponent(STATE.activeVesselId) + '/saved-reports/merge',
+    { method: 'POST', body },
+  );
+}
+
+/* Backup drops this frame after the flush, so a report that exists only on
+   the monitoring screen has to reach the server while the frame is still
+   open. On this device keeps its own copy; this post is the office server. */
+async function uploadVisibleReportsToServer() {
+  const body = visibleSavedReportBody();
+  if (!body) return;
+  let embedded = false;
+  try { embedded = !!(window.parent && window.parent !== window); } catch (_) { embedded = true; }
+  if (!embedded) return;
+  const headers = { 'Content-Type': 'application/json' };
+  try {
+    if (window.ChengLicense && typeof ChengLicense.authHeaders === 'function') {
+      Object.assign(headers, ChengLicense.authHeaders());
+    }
+  } catch (_) { /* unscoped */ }
+  const res = await fetch(
+    '/tanks/api/vessels/' + encodeURIComponent(STATE.activeVesselId) + '/saved-reports/merge',
+    { method: 'POST', headers, body: JSON.stringify(body) },
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || ('Server answered ' + res.status));
+  }
+}
+
 async function flushUnsavedTankWork() {
   if (typeof window.flushOpenTankReading === 'function') {
     try { await window.flushOpenTankReading(); } catch (err) { console.warn(err); }
@@ -836,6 +902,11 @@ async function flushUnsavedTankWork() {
   if (document.getElementById('v-voyage') && STATE.bundle && STATE.bundle.voyage) {
     try { await fileVoyageReportSnapshot(STATE.bundle.voyage); } catch (err) { console.warn(err); }
   }
+  try {
+    if (window.Api && typeof Api.flushQueue === 'function') await Api.flushQueue();
+  } catch (err) { console.warn('Queued tank saves:', err && err.message); }
+  try { await persistVisibleSavedReports(); } catch (err) { console.warn('Saving visible tank reports:', err && err.message); }
+  try { await uploadVisibleReportsToServer(); } catch (err) { console.warn('Uploading visible tank reports:', err && err.message); }
 }
 window.flushUnsavedTankWork = flushUnsavedTankWork;
 
