@@ -839,11 +839,15 @@ const FuelReport = (() => {
     const body = { form, snapshot, syncReadings: true };
 
     bundle.fuelReport = form;
+    const gradesChanged = Core.applyCarriedFuelGrades(bundle, form);
     bundle.readings = Core.readingsFromReport(bundle, computed);
     if (snapshot) {
       bundle.reportHistory = [Core.snapshotFromReport(computed), ...(bundle.reportHistory || [])].slice(0, 50);
     }
     await OfflineDB.idbSet('vessel:' + STATE.activeVesselId, bundle);
+    if (gradesChanged.tanks && typeof persistPart === 'function') {
+      await persistPart('tanks', bundle.tanks);
+    }
 
     const pushServer = async () => {
       try {

@@ -349,7 +349,13 @@ app.get('/api/reference/fuel-report-options', (req, res) => {
 /** Saved report form + everything computed from it. */
 app.get('/api/vessels/:id/fuel-report', (req, res) => {
   try {
-    const { bundle, computed } = buildFuelReport(req.params.id);
+    let { bundle, computed } = buildFuelReport(req.params.id);
+    const changed = fuelReport.applyCarriedFuelGrades(bundle, computed.form);
+    if (changed.tanks) store.saveVesselPart(req.params.id, 'tanks', bundle.tanks);
+    if (changed.form && computed.form) store.saveVesselPart(req.params.id, 'fuelReport', computed.form);
+    if (changed.tanks || changed.form) {
+      ({ bundle, computed } = buildFuelReport(req.params.id));
+    }
     res.json({ form: computed.form, computed, history: bundle.reportHistory || [] });
   } catch (e) {
     res.status(404).json({ error: e.message });
@@ -376,6 +382,8 @@ app.put('/api/vessels/:id/fuel-report', (req, res) => {
     const body = req.body || {};
     const { bundle, computed } = buildFuelReport(req.params.id, body.form || body);
     const form = { ...computed.form, updatedAt: new Date().toISOString() };
+    const gradesChanged = fuelReport.applyCarriedFuelGrades(bundle, form);
+    if (gradesChanged.tanks) store.saveVesselPart(req.params.id, 'tanks', bundle.tanks);
     store.saveVesselPart(req.params.id, 'fuelReport', form);
 
     if (body.syncReadings !== false) {

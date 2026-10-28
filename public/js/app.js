@@ -721,6 +721,23 @@ async function activateTankVessel(id) {
 async function reloadBundle() {
   if (!STATE.activeVesselId) { STATE.bundle = null; return; }
   STATE.bundle = await Api.getVessel(STATE.activeVesselId);
+  await adoptCarriedFuelGrades();
+}
+
+/** Store the fuel a tank is already carrying, so a later sync keeps that identity. */
+async function adoptCarriedFuelGrades() {
+  const bundle = STATE.bundle;
+  if (!bundle || typeof FuelReportCore === 'undefined' || typeof FuelReportCore.applyCarriedFuelGrades !== 'function') return;
+  let changed;
+  try {
+    changed = FuelReportCore.applyCarriedFuelGrades(bundle, bundle.fuelReport);
+  } catch (err) {
+    console.warn('Fuel grade identity:', err);
+    return;
+  }
+  if (!changed || (!changed.tanks && !changed.form)) return;
+  if (changed.tanks) await persistPart('tanks', bundle.tanks);
+  if (changed.form && bundle.fuelReport) await persistPart('fuelReport', bundle.fuelReport);
 }
 
 async function flushUnsavedTankWork() {
@@ -1354,6 +1371,13 @@ function allTanks() {
   return out;
 }
 
+function graphicTank(t) {
+  if (!t || typeof TankGraphics === 'undefined' || typeof TankGraphics.withIdentity !== 'function') return t;
+  const form = STATE.bundle && STATE.bundle.fuelReport;
+  const row = form && form.rows && form.rows[t.id];
+  return TankGraphics.withIdentity(t, row && row.fuelType);
+}
+
 function makeTankGraphicCard(t) {
   const r = getReading(t.id);
   const pct = r?.result?.fillPercent ?? null;
@@ -1361,9 +1385,10 @@ function makeTankGraphicCard(t) {
   card.className = 'tg-card clickable';
   card.onclick = () => navigate(t.category, t.id);
   const role = TankGraphics.roleOf(t);
+  const draw = graphicTank(t);
   card.title = `${t.name} — ${TankGraphics.ROLE_MEANING[role] || ''}`;
   const details = {
-    grade: TankGraphics.contentLabel(t),
+    grade: TankGraphics.contentLabel(draw),
     pct: pct != null ? fmt(pct, 0) + '%' : '—',
     volume: r ? fmt(r.result.volumeObserved, 1) + ' m³' : '',
     weight: r?.result?.weightMT != null ? fmt(r.result.weightMT, 1) + ' MT' : '',
@@ -1371,7 +1396,7 @@ function makeTankGraphicCard(t) {
   };
   card.innerHTML = `
     <div class="tg-name">${escapeHtml(t.name)}</div>
-    <div class="tg-art">${TankGraphics.tankSvg(t, pct, { safeFill: t.category === 'fuel' ? 85 : null, details })}
+    <div class="tg-art">${TankGraphics.tankSvg(draw, pct, { safeFill: t.category === 'fuel' ? 85 : null, details })}
     </div>`;
   return card;
 }

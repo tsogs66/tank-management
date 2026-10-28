@@ -74,13 +74,72 @@
     return '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
   }
 
+  /**
+   * Grade written on the tank plate. Dots and spaces are ignored so
+   * "M.G.O." and "L.S.M.G.O." match the same as "MGO" / "LSMGO".
+   * "LS H.F.O." is low-sulphur heavy fuel, not a distillate.
+   */
+  function fuelGradeFromName(name) {
+    const u = String(name || '').toUpperCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
+    if (!u) return null;
+    if (/\bLSMGO\b|LS\s*MGO/.test(u)) return 'lsmgo';
+    if (/\bMGO\b|GAS OIL/.test(u)) return 'mgo';
+    if (/\bMDO\b|\bDIESEL\b/.test(u)) return 'mdo';
+    if (/VLSFO|ULSFO|\bLSFO\b|LS HFO|LS FO/.test(u)) return 'lsfo';
+    if (/\bHFO\b/.test(u)) return 'hfo';
+    return null;
+  }
+
+  function isDistillateKey(grade) {
+    return grade === 'mdo' || grade === 'mgo' || grade === 'lsmgo';
+  }
+
+  /**
+   * Grade the drawing should use.
+   *
+   * A fuel the tank is carrying wins: an HFO tank transferred onto LSMGO
+   * paints as LSMGO, not leftover brown. A stored distillate wins over the
+   * plate. A plate that says MDO, MGO or LSMGO wins over a leftover hfo
+   * default. A stale report that still says HFO does not paint over that plate.
+   *
+   * The report bucket "mdo" is MDO/MGO. An MGO tank stays MGO.
+   */
+  function identityGrade(tank, carriedFuelType) {
+    const stored = String((tank && tank.fuelGrade) || '').toLowerCase().trim();
+    const inferred = fuelGradeFromName(tank && tank.name);
+    const carried = String(carriedFuelType || '').toLowerCase().trim();
+    const leftover = !stored || stored === 'hfo' || stored === 'other';
+
+    if (carried === 'lsmgo' || carried === 'lsfo' || carried === 'mgo') return carried;
+    if (carried === 'hfo') {
+      if (leftover && isDistillateKey(inferred)) return inferred;
+      return 'hfo';
+    }
+    if (carried === 'mdo') {
+      if (stored === 'mgo' || inferred === 'mgo') return 'mgo';
+      return 'mdo';
+    }
+    if (isDistillateKey(stored)) return stored;
+    if (isDistillateKey(inferred)) return inferred;
+    if (stored && stored !== 'other') return stored;
+    return inferred || stored || '';
+  }
+
+  /** Copy of the tank whose fuelGrade is the grade the drawing should show. */
+  function withIdentity(tank, carriedFuelType) {
+    if (!tank) return tank;
+    const grade = identityGrade(tank, carriedFuelType);
+    if (!grade || grade === String(tank.fuelGrade || '').toLowerCase().trim()) return tank;
+    return Object.assign({}, tank, { fuelGrade: grade });
+  }
+
   /** The colour this tank's contents print in. */
   function contentKey(tank) {
     if (!tank) return 'other';
     if (tank.category === 'water') return 'water';
     if (tank.category === 'lube') return 'lube';
     if (tank.category === 'misc') return 'misc';
-    const grade = String(tank.fuelGrade || '').toLowerCase();
+    const grade = String(identityGrade(tank, tank.carriedFuelType) || '').toLowerCase();
     if (CONTENT[grade]) return grade;
     if (/lsmgo/.test(grade)) return 'lsmgo';
     if (/mgo/.test(grade)) return 'mgo';
@@ -274,6 +333,7 @@
 
   return {
     tankSvg, liquidColour, baseColour, shade, contentLabel, contentKey, roleOf,
+    fuelGradeFromName, identityGrade, withIdentity,
     CONTENT, ROLE_MEANING, ROLE_SHADE,
   };
 });
