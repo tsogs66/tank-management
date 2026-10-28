@@ -207,6 +207,68 @@ function sectionForTank(tank) {
   return isDistillateGrade(resolvedFuelGrade(tank)) ? 'do' : 'fuel';
 }
 
+/**
+ * Grade stored on the tank when Monitoring says it is carrying `fuelType`.
+ * The "mdo" bucket is MDO/MGO: an MGO plate or an MGO grade stays mgo.
+ */
+function gradeForCarriedType(tank, fuelType) {
+  const id = String(fuelType || '').toLowerCase();
+  const stored = String((tank && tank.fuelGrade) || '').toLowerCase().trim();
+  const inferred = fuelGradeFromName(tank && tank.name);
+  if (id === 'mdo') {
+    if (stored === 'mgo' || inferred === 'mgo') return 'mgo';
+    return 'mdo';
+  }
+  if (id === 'hfo' || id === 'lsfo' || id === 'mgo' || id === 'lsmgo') return id;
+  return null;
+}
+
+/**
+ * Write the fuel the tank is carrying onto the tank record.
+ *
+ * An HFO tank whose Monitoring row is LSMGO stores lsmgo, so the drawing,
+ * the home section and a later sync all share that identity. A plate that
+ * says MDO/MGO/LSMGO with a leftover hfo grade is repaired the same way.
+ * A saved row that still says hfo only because the import defaulted the
+ * grade does not wipe that plate. Returns which parts changed.
+ */
+function applyCarriedFuelGrades(bundle, form) {
+  const tanks = bundle && bundle.tanks && bundle.tanks.fuel;
+  const rows = (form && form.rows) || {};
+  const changed = { tanks: false, form: false };
+  if (!Array.isArray(tanks)) return changed;
+  for (const tank of tanks) {
+    if (!tank || !tank.id) continue;
+    const row = rows[tank.id];
+    const carried = row && row.fuelType ? String(row.fuelType).toLowerCase() : '';
+    const stored = String(tank.fuelGrade || '').toLowerCase().trim();
+    const homeType = defaultFuelType(tank);
+    let next = null;
+    if (carried && carried !== homeType) {
+      const leftover = stored === '' || stored === 'hfo' || stored === 'other';
+      const named = fuelGradeFromName(tank.name);
+      if (carried === 'hfo' && leftover && isDistillateGrade(named)) {
+        next = named;
+        const repaired = defaultFuelType({ name: tank.name, fuelGrade: next, category: tank.category });
+        if (row.fuelType !== repaired) {
+          row.fuelType = repaired;
+          changed.form = true;
+        }
+      } else {
+        next = gradeForCarriedType(tank, carried);
+      }
+    } else if (stored === '' || stored === 'hfo' || stored === 'other') {
+      const resolved = resolvedFuelGrade(tank);
+      if (resolved && resolved !== stored) next = resolved;
+    }
+    if (next && next !== stored) {
+      tank.fuelGrade = next;
+      changed.tanks = true;
+    }
+  }
+  return changed;
+}
+
 /** The block a fuel type belongs in — MDO/MGO and LSMGO are diesel/gas oil. */
 function sectionForFuelType(fuelType) {
   const entry = FUEL_TYPES.find((f) => f.id === fuelType);
@@ -780,6 +842,8 @@ return {
   resolvedFuelGrade,
   isDistillateGrade,
   defaultFuelType,
+  gradeForCarriedType,
+  applyCarriedFuelGrades,
   sectionForTank,
   sectionForFuelType,
   sectionForRow,
