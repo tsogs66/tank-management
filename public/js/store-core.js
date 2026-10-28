@@ -620,11 +620,117 @@ function replaceVesselPart(id, part, data) {
 }
 
 /**
+ * The working sheet, not only the filed history.
+ *
+ * A sounding taken on the phone and a draft left open on the laptop are the
+ * same kind of record as a saved report: the copy that exists on only one
+ * side is kept, and where both sides have one the newer stamp wins. Sending
+ * the whole readings map used to replace the other side, so a sync whose
+ * revision was ahead wiped gaugings the revision did not know about.
+ */
+const DRAFT_PARTS = ['fuelReport', 'tankSummaryDraft', 'bunkerPlan', 'bunkerAfter', 'bunkerSummary'];
+
+function partStamp(item) {
+  if (!item || typeof item !== 'object') return '';
+  return String(item.savedAt || item.updatedAt || item.printedAt || item.createdAt || '');
+}
+
+function isBlankDraft(doc) {
+  if (doc == null || typeof doc !== 'object' || Array.isArray(doc)) return true;
+  return Object.keys(doc).length === 0;
+}
+
+/** Union tank gaugings by tank id. A tank sounded on only one side stays. */
+function mergeReadings(current, incoming) {
+  const base = current && typeof current === 'object' && !Array.isArray(current) ? current : {};
+  const next = incoming && typeof incoming === 'object' && !Array.isArray(incoming) ? incoming : {};
+  const out = { ...base };
+  Object.entries(next).forEach(([tankId, reading]) => {
+    if (!reading || typeof reading !== 'object') return;
+    const prev = out[tankId];
+    if (!prev || typeof prev !== 'object') {
+      out[tankId] = reading;
+      return;
+    }
+    const a = partStamp(prev);
+    const b = partStamp(reading);
+    if (!a || b >= a) out[tankId] = reading;
+  });
+  return out;
+}
+
+/** Keep a single open form. A blank side does not erase the side that has one. */
+function mergeDraftDoc(current, incoming) {
+  if (isBlankDraft(incoming)) return isBlankDraft(current) ? (incoming == null ? current : incoming) : current;
+  if (isBlankDraft(current)) return incoming;
+  const a = partStamp(current);
+  const b = partStamp(incoming);
+  if (!a || b >= a) return incoming;
+  return current;
+}
+
+function readLiveParts(id) {
+  if (!fs.existsSync(vesselDir(id))) return null;
+  return {
+    readings: readJson(vesselPath(id, 'readings.json'), {}),
+    reportHistory: readJson(vesselPath(id, 'report-history.json'), []),
+    voyageHistory: readJson(vesselPath(id, 'voyage-history.json'), []),
+    tankSummaryHistory: readJson(vesselPath(id, 'tank-summary-history.json'), []),
+    bunkerHistory: readJson(vesselPath(id, 'bunker-history.json'), emptyBunkerHistory()),
+    fuelReport: readJson(vesselPath(id, 'fuel-report.json'), null),
+    tankSummaryDraft: readJson(vesselPath(id, 'tank-summary-draft.json'), null),
+    bunkerPlan: readJson(vesselPath(id, 'bunker-plan.json'), null),
+    bunkerAfter: readJson(vesselPath(id, 'bunker-after.json'), null),
+    bunkerSummary: readJson(vesselPath(id, 'bunker-summary.json'), null),
+  };
+}
+
+function mergedLiveParts(current, incoming) {
+  const cur = current || {};
+  const inc = incoming || {};
+  const bunkerCur = cur.bunkerHistory || emptyBunkerHistory();
+  const bunkerInc = inc.bunkerHistory || {};
+  return {
+    readings: mergeReadings(cur.readings, inc.readings),
+    reportHistory: unionById(cur.reportHistory, inc.reportHistory, 'savedAt'),
+    voyageHistory: unionById(cur.voyageHistory, inc.voyageHistory, 'savedAt'),
+    tankSummaryHistory: unionById(cur.tankSummaryHistory, inc.tankSummaryHistory, 'savedAt'),
+    bunkerHistory: {
+      plans: unionById(bunkerCur.plans, bunkerInc.plans, 'savedAt'),
+      after: unionById(bunkerCur.after, bunkerInc.after, 'savedAt'),
+      summaries: unionById(bunkerCur.summaries, bunkerInc.summaries, 'savedAt'),
+    },
+    fuelReport: mergeDraftDoc(cur.fuelReport, inc.fuelReport),
+    tankSummaryDraft: mergeDraftDoc(cur.tankSummaryDraft, inc.tankSummaryDraft),
+    bunkerPlan: mergeDraftDoc(cur.bunkerPlan, inc.bunkerPlan),
+    bunkerAfter: mergeDraftDoc(cur.bunkerAfter, inc.bunkerAfter),
+    bunkerSummary: mergeDraftDoc(cur.bunkerSummary, inc.bunkerSummary),
+  };
+}
+
+function writeLiveParts(id, parts) {
+  writeJson(vesselPath(id, 'readings.json'), parts.readings);
+  writeJson(vesselPath(id, 'report-history.json'), parts.reportHistory);
+  writeJson(vesselPath(id, 'voyage-history.json'), parts.voyageHistory);
+  writeJson(vesselPath(id, 'tank-summary-history.json'), parts.tankSummaryHistory);
+  writeJson(vesselPath(id, 'bunker-history.json'), parts.bunkerHistory);
+  writeJson(vesselPath(id, 'fuel-report.json'), parts.fuelReport);
+  writeJson(vesselPath(id, 'tank-summary-draft.json'), parts.tankSummaryDraft);
+  writeJson(vesselPath(id, 'bunker-plan.json'), parts.bunkerPlan);
+  writeJson(vesselPath(id, 'bunker-after.json'), parts.bunkerAfter);
+  writeJson(vesselPath(id, 'bunker-summary.json'), parts.bunkerSummary);
+}
+
+/**
  * Saved reports and bunkering history only ever grow, so a write of them is a
  * contribution rather than a replacement. A tablet that was offline for a week
  * replays its queue holding the history as it was a week ago; overwriting with
  * that would delete every report the server gained in between. Union by id
  * instead, newest copy of a given id winning.
+ *
+ * The same rule covers the live gaugings and the open drafts. A write of the
+ * readings map, or of the sounding sheet, is a contribution of what that
+ * device has sounded — not a licence to drop what the other device sounded.
  *
  * Removal still works, because deletions go through their own DELETE route
  * rather than by sending a shorter list.
@@ -641,6 +747,12 @@ function mergePartOnWrite(id, part, file, data) {
       out[key] = unionById(current[key], incoming[key], 'savedAt');
     }
     return out;
+  }
+  if (part === 'readings') {
+    return mergeReadings(readJson(vesselPath(id, file), {}), data);
+  }
+  if (DRAFT_PARTS.indexOf(part) >= 0) {
+    return mergeDraftDoc(readJson(vesselPath(id, file), null), data);
   }
   return data;
 }
@@ -1228,6 +1340,7 @@ function importBackup(backup, { merge = true } = {}) {
     if (!bundle || typeof bundle !== 'object') continue;
     const norm = normalizeImportedBundle(bundle);
     const id = safeVesselId(rawId, norm.vessel?.name || bundle.name);
+    const priorLive = merge && fs.existsSync(vesselDir(id)) ? readLiveParts(id) : null;
     const dir = vesselDir(id);
     fs.mkdirSync(dir, { recursive: true });
     const vesselDoc = applyVesselProfileFields({
@@ -1258,6 +1371,7 @@ function importBackup(backup, { merge = true } = {}) {
       updatedAt: now(),
       lastImportedAt: now(),
     });
+    if (priorLive) writeLiveParts(id, mergedLiveParts(priorLive, norm));
     byId.set(id, {
       id,
       name: vesselDoc.name || id,
@@ -1299,6 +1413,7 @@ function applySyncPayload(payload) {
       : null;
     const remoteRev = remote.meta?.revision || 0;
     const localRev = localMeta?.revision || 0;
+    const priorLive = localMeta ? readLiveParts(id) : null;
     if (!localMeta || remoteRev >= localRev) {
       const dir = vesselDir(id);
       fs.mkdirSync(dir, { recursive: true });
@@ -1341,8 +1456,13 @@ function applySyncPayload(payload) {
       } else {
         touchVessel(id);
       }
+      if (priorLive) writeLiveParts(id, mergedLiveParts(priorLive, remote));
       results.push({ id, action: 'pulled', revision: remoteRev });
     } else {
+      /* The vessel record stays. Gaugings, filed reports and open drafts
+         still travel: a higher local revision must not hide a sounding that
+         exists only on the other side. */
+      if (priorLive) writeLiveParts(id, mergedLiveParts(priorLive, remote));
       results.push({ id, action: 'kept-local', revision: localRev });
     }
   }

@@ -21,22 +21,23 @@
 
   /* ---------- content colours ----------
    *
-   * ISO 14726 (identification colours for piping) is the family colour:
-   * brown for fuel, orange for oils other than fuel (lube), blue for fresh
-   * water, black for waste and bilge. Diesel is painted yellow, the colour
-   * many yards use so a distillate line is not the same brown as heavy fuel.
+   * Engine-room pipe colours, the ones a chief reads on the lines themselves.
+   * Residual fuel stays brown. Distillate is pale red (MDO), pale orange (MGO)
+   * or pale pink (LSMGO), so a diesel line is not the same brown as heavy fuel
+   * and the three distillates stay apart. Lubricating oil is yellow. Fresh
+   * water is blue. Waste and bilge stay black.
    *
    * Within a family the role still shades the fill (storage darkest, service
    * lightest) so the chain reads at a glance. That shading is for the screen,
-   * not an extra ISO band.
+   * not an extra pipe band. The same hexes paint the ROB gauges.
    */
   const CONTENT = {
-    hfo:   { fill: '#6B3A1F', label: 'HFO',   family: 'Fuel (ISO 14726 brown)' },
-    lsfo:  { fill: '#8A5530', label: 'LSFO',  family: 'Fuel (ISO 14726 brown)' },
-    mdo:   { fill: '#C8960A', label: 'MDO',   family: 'Diesel (shipyard yellow)' },
-    mgo:   { fill: '#E6A817', label: 'MGO',   family: 'Diesel (shipyard yellow)' },
-    lsmgo: { fill: '#F0C14A', label: 'LSMGO', family: 'Diesel (shipyard yellow)' },
-    lube:  { fill: '#E8771A', label: 'LUBE',  family: 'Lubricating oil (ISO 14726 orange)' },
+    hfo:   { fill: '#6B3A1F', label: 'HFO',   family: 'Fuel (brown)' },
+    lsfo:  { fill: '#8A5530', label: 'LSFO',  family: 'Fuel (brown)' },
+    mdo:   { fill: '#E07A7A', label: 'MDO',   family: 'Distillate (pale red)' },
+    mgo:   { fill: '#E8926A', label: 'MGO',   family: 'Distillate (pale orange)' },
+    lsmgo: { fill: '#E8A8B8', label: 'LSMGO', family: 'Distillate (pale pink)' },
+    lube:  { fill: '#F0C14A', label: 'LUBE',  family: 'Lubricating oil (yellow)' },
     water: { fill: '#1F6FB2', label: 'FW',    family: 'Fresh water (ISO 14726 blue)' },
     misc:  { fill: '#2A2E33', label: 'MISC',  family: 'Waste / bilge (ISO 14726 black)' },
     other: { fill: '#6B5230', label: '—',     family: 'Unclassified' },

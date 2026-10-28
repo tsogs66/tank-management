@@ -14,13 +14,23 @@ const bunker = fs.readFileSync(path.join(__dirname, '../public/js/bunkering-repo
 assert.match(app, /async function flushUnsavedTankWork/);
 assert.match(app, /window\.flushUnsavedTankWork = flushUnsavedTankWork/);
 assert.match(app, /flushOpenTankReading/);
-const switchers = app.split('await Api.setActive(id)');
-assert.ok(switchers.length >= 3, 'expected the list handlers plus the trailing call');
-switchers.slice(0, -1).forEach((chunk, i) => {
-  const tail = chunk.slice(-500);
-  assert.match(tail, /flushUnsavedTankWork/, 'setActive ' + i + ' is not preceded by a save');
-});
-assert.match(app, /data-load[\s\S]{0,220}flushUnsavedTankWork/);
+
+function between(src, start, end) {
+  const i = src.indexOf(start);
+  assert.ok(i >= 0, 'missing ' + start);
+  const j = src.indexOf(end, i + start.length);
+  assert.ok(j > i, 'missing ' + end + ' after ' + start);
+  return src.slice(i, j);
+}
+
+const activate = between(app, 'async function activateTankVessel', 'async function reloadBundle');
+assert.match(activate, /flushUnsavedTankWork[\s\S]{0,500}await Api\.setActive\(id\)/);
+const loadBtn = between(app, "querySelectorAll('[data-load]')", "querySelectorAll('[data-del]')");
+assert.match(loadBtn, /flushUnsavedTankWork[\s\S]{0,400}await Api\.setActive\(btn\.dataset\.load\)/);
+for (const id of ['btn-backup', 'btn-pull', 'btn-push', 'btn-export-vessel']) {
+  const chunk = between(app, `getElementById('${id}').onclick`, 'setSettingsBusy(false)');
+  assert.match(chunk, /flushUnsavedTankWork/, id + ' writes the open sheet before it runs');
+}
 assert.match(fuel, /async function flushIfDirty/);
 assert.match(bunker, /async function flushOpenForms/);
 console.log('save before vessel switch: ok');
