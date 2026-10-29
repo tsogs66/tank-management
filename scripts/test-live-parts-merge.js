@@ -157,6 +157,30 @@ store.saveVesselPart(id, 'reportHistory', [{
 }]);
 const officeAfterSave = JSON.parse(fs.readFileSync(path.join(officeOther, 'report-history.json'), 'utf8'));
 is(officeAfterSave.some((r) => r.id === 'mon-save' && r.reportType === 'Monitoring'), true, 'saving a monitoring report reaches the office copy of the same ship');
+
+store.updateVesselDetails(id, { imo: '9619799', name: 'MV Live Parts' });
+const uploaded = {
+  format: 'vessel-fuel-tms-sync',
+  vessels: {
+    'uploaded-copy': {
+      vessel: { id: 'uploaded-copy', name: 'M/V Live Parts', imo: '9619799' },
+      meta: { revision: 50 },
+      reportHistory: [{ id: 'from-server', savedAt: '2026-10-29T00:00:00.000Z', title: 'Uploaded' }],
+    },
+    stranger: {
+      vessel: { id: 'stranger', name: 'MV Other Ship', imo: '1234567' },
+      meta: { revision: 1 },
+      reportHistory: [{ id: 'not-mine', savedAt: '2026-10-29T00:00:00.000Z' }],
+    },
+  },
+};
+const picked = store.selectSyncVessels(uploaded, { id, name: 'MV Live Parts', imo: '9619799' });
+is(Object.keys(picked.vessels), ['uploaded-copy'], 'a pull for this ship ignores a different ship');
+const landed = store.applySyncPayload(picked);
+is(landed.some((r) => r.id === id && r.fromId === 'uploaded-copy'), true, 'files uploaded under another id land on this ship');
+is(store.listVessels().some((v) => v.id === 'uploaded-copy' || v.id === 'stranger'), false, 'the upload does not open a second ship');
+is(store.getVesselBundle(id).reportHistory.some((r) => r.id === 'from-server'), true, 'the uploaded report is on this ship');
+is(store.getVesselBundle(id).vessel.id, id, 'the ship keeps its own id');
 is(officeAfterSave.some((r) => r.id === 'mon-1'), true, 'saving another monitoring report keeps the one already on the office copy');
 
 const roundTrip = store.exportBackup();

@@ -1445,10 +1445,61 @@ function keepFilledPart(local, remote) {
   return out;
 }
 
-function applySyncPayload(payload) {
-  // Merge remote vessel revisions if newer
+/* True when this remote record is the ship the pull asked for.
+   An empty request still means the whole bundle, which is what an older
+   peer sends. Id matches first; the same hull (IMO, or the name when
+   neither side has one) matches a file that was uploaded under another id. */
+function syncVesselWanted(id, remote, wanted) {
+  if (!wanted || typeof wanted !== 'object') return true;
+  const wantId = String(wanted.id || '').trim();
+  const wantName = String(wanted.name || wanted.vesselName || '').trim();
+  const wantImo = String(wanted.imo || wanted.imoNo || '').replace(/\D/g, '');
+  if (!wantId && !wantName && !wantImo) return true;
+  const profile = Object.assign({ id: String(id) }, (remote && remote.vessel) || {});
+  if (wantId && (String(id) === wantId || String(profile.id || '') === wantId)) return true;
+  return vesselHullSame(profile, {
+    name: wantName,
+    vesselName: wantName,
+    imo: wantImo,
+    imoNo: wantImo,
+  });
+}
+
+function selectSyncVessels(payload, wanted) {
+  const vessels = {};
+  for (const [id, remote] of Object.entries((payload && payload.vessels) || {})) {
+    if (syncVesselWanted(id, remote, wanted)) vessels[id] = remote;
+  }
+  return Object.assign({}, payload || {}, { vessels });
+}
+
+/* The folder this device already keeps for the same hull. Files uploaded
+   under another id still belong to this ship, so they must not open a second one. */
+function syncTargetId(id, remote) {
+  if (fs.existsSync(vesselPath(id, 'meta.json')) || fs.existsSync(vesselPath(id, 'vessel.json'))) return id;
+  const incoming = Object.assign({ id }, (remote && remote.vessel) || {});
+  let index;
+  try { index = loadIndex(); } catch { return id; }
+  for (const row of (index.vessels || [])) {
+    if (!row || !row.id || row.id === id) continue;
+    let profile = row;
+    try {
+      const doc = readJson(vesselPath(row.id, 'vessel.json'), null);
+      if (doc) profile = doc;
+    } catch { /* the index row is enough to compare */ }
+    if (vesselHullSame(profile, incoming) || vesselHullSame(row, incoming)) return row.id;
+  }
+  return id;
+}
+
+function applySyncPayload(payload, options) {
+  // Merge remote vessel revisions if newer. A vessel argument keeps the pull
+  // on that ship: the files uploaded for it, not every ship on the server.
+  const wanted = options && options.vessel;
   const results = [];
-  for (const [id, remote] of Object.entries(payload.vessels || {})) {
+  const source = (wanted ? selectSyncVessels(payload, wanted) : (payload || {})).vessels || {};
+  for (const [rawId, remote] of Object.entries(source)) {
+    const id = syncTargetId(rawId, remote);
     const localMeta = fs.existsSync(vesselPath(id, 'meta.json'))
       ? readJson(vesselPath(id, 'meta.json'), { revision: 0 })
       : null;
@@ -1483,7 +1534,13 @@ function applySyncPayload(payload) {
         const dataKey = map[key];
         if (remote[dataKey] !== undefined) {
           const local = localMeta ? readJson(vesselPath(id, file), undefined) : undefined;
-          writeJson(vesselPath(id, file), keepFilledPart(local, remote[dataKey]));
+          let next = keepFilledPart(local, remote[dataKey]);
+          /* The folder id is the ship's id here. A file that arrived under
+             another id must not rename this vessel. */
+          if (dataKey === 'vessel' && next && typeof next === 'object' && !Array.isArray(next)) {
+            next = { ...next, id };
+          }
+          writeJson(vesselPath(id, file), next);
         }
       }
       const index = loadIndex();
@@ -1499,13 +1556,13 @@ function applySyncPayload(payload) {
         touchVessel(id);
       }
       if (priorLive) writeLiveParts(id, mergedLiveParts(priorLive, remote));
-      results.push({ id, action: 'pulled', revision: remoteRev });
+      results.push({ id, fromId: rawId === id ? undefined : rawId, action: 'pulled', revision: remoteRev });
     } else {
       /* The vessel record stays. Gaugings, filed reports and open drafts
          still travel: a higher local revision must not hide a sounding that
          exists only on the other side. */
       if (priorLive) writeLiveParts(id, mergedLiveParts(priorLive, remote));
-      results.push({ id, action: 'kept-local', revision: localRev });
+      results.push({ id, fromId: rawId === id ? undefined : rawId, action: 'kept-local', revision: localRev });
     }
     /* The same saved reports land in every copy of this vessel — the legacy
        root and each license folder — so a scoped screen sees what the peer sent. */
@@ -1835,6 +1892,7 @@ const api = {
   exportVesselBackup,
   importBackup,
   applySyncPayload,
+  selectSyncVessels,
   syncPushBundle,
   emptyTanks,
   emptyBunkerHistory,

@@ -5140,7 +5140,7 @@ function buildPrintIdentityPanel() {
 function setSettingsBusy(busy) {
   for (const id of [
     'btn-backup', 'btn-import', 'btn-pull', 'btn-push', 'btn-flush',
-    'btn-export-vessel', 'btn-import-vessel', 'btn-save-sync', 'api-transport', 'import-file', 'import-merge',
+    'btn-export-vessel', 'btn-import-vessel', 'btn-save-sync', 'import-file', 'import-merge',
   ]) {
     const el = document.getElementById(id);
     if (el) el.disabled = !!busy;
@@ -5170,15 +5170,6 @@ function renderSettings(main) {
       <button class="btn primary" id="btn-import">Import</button>
     </div>
     <div class="form-panel">
-      <div class="section-title" style="margin-top:0">Where this device keeps its records</div>
-      <div class="form-row"><label>Database</label>
-        <select id="api-transport">
-          <option value="local">On this device — works with no network</option>
-          <option value="server">On the server that served this page</option>
-        </select></div>
-      <div class="hint" data-transport-note style="margin-top:8px;color:var(--text-faint);font-size:12px"></div>
-    </div>
-    <div class="form-panel">
       <div class="section-title" style="margin-top:0">Remote sync (Proxmox / office)</div>
       <div class="form-row"><label>Peer sync URL</label>
         <input id="sync-url" value="${s.syncUrl||''}" placeholder="http://192.168.1.50:8080 or :3080"></div>
@@ -5193,7 +5184,7 @@ function renderSettings(main) {
       </div>
       <div class="hint" style="margin-top:8px;color:var(--text-faint);font-size:12px">
         ChEng AIO peer: <code>http://host:8080</code>. Standalone Tank Chief: <code>http://host:3080</code>.
-        Local and LXC instances can sync when either becomes reachable. Offline edits stay in IndexedDB until you press Flush, Push, or Pull.
+        Pull brings the files uploaded for the ship that is open. Push sends this ship's database. Offline edits stay until you press Flush, Push, or Pull.
       </div>
     </div>
     <div class="form-panel">
@@ -5281,30 +5272,11 @@ function renderSettings(main) {
     }
   };
 
-  /* Switching database is not a per-request fallback: the two hold separate
-     records, and a sounding saved to one is not in the other. So it asks, and
-     it reloads, rather than leaving the previous database's figures on screen
-     under the new one's name. */
-  const transportBox = document.getElementById('api-transport');
-  const transportNote = document.querySelector('[data-transport-note]');
-  if (transportBox) {
-    transportBox.value = Api.getTransport();
-    transportBox.disabled = !Api.canUseLocal();
-    transportNote.textContent = Api.getTransport() === 'local'
-      ? 'Records are on this device. Nothing is sent anywhere — use Push below to copy them to a server.'
-      : 'Records are on the server. This device shows a cached copy when the server is out of reach.';
-    transportBox.onchange = () => {
-      const mode = transportBox.value;
-      if (mode === Api.getTransport()) return;
-      const ask = mode === 'local'
-        ? 'Use this device\u2019s own records? The server\u2019s records are not copied across — '
-          + 'use Pull first if you want them here.'
-        : 'Use the server\u2019s records? Anything saved on this device stays here — '
-          + 'use Push first if you want it on the server.';
-      if (!confirm(ask)) { transportBox.value = Api.getTransport(); return; }
-      Api.setTransport(mode);
-      location.reload();
-    };
+  function activeVesselForSync() {
+    const vessel = (STATE.bundle && STATE.bundle.vessel) || {};
+    const id = STATE.activeVesselId || vessel.id || '';
+    if (!id && !vessel.name && !vessel.imo) return null;
+    return { id, name: vessel.name || '', imo: vessel.imo || '' };
   }
 
   document.getElementById('btn-save-sync').onclick = async () => {
@@ -5338,12 +5310,14 @@ function renderSettings(main) {
     const url = document.getElementById('sync-url').value.trim();
     const token = document.getElementById('sync-token').value.trim();
     if (!url) { showToast('Enter a peer sync URL'); return; }
+    const vessel = activeVesselForSync();
+    if (!vessel) { showToast('Open the vessel first. Pull brings the files uploaded for that ship.'); return; }
     setSettingsBusy(true);
-    Progress.start(progressHost(), 'Pulling from peer…', 'Writing open gaugings and drafts…');
+    Progress.start(progressHost(), 'Pulling this vessel…', 'Writing open gaugings and drafts…');
     try {
       try { await flushUnsavedTankWork(); } catch (err) { console.warn(err); }
-      Progress.set(null, 'Downloading vessels from peer…');
-      const res = await Api.syncPull(url, token);
+      Progress.set(null, 'Downloading this vessel\'s files…');
+      const res = await Api.syncPull(url, token, vessel);
       if (res.warning) {
         Progress.done(res.warning);
         showToast(res.warning);
