@@ -103,3 +103,54 @@ assert.strictEqual(
 );
 
 console.log('ok — MGO / LSMGO default to distillate, HFO stays residual, a moved tank takes the carried grade');
+
+/* Overview totals follow the monitoring sheet, not a stale sounding result. */
+{
+  const fs = require('fs');
+  const path = require('path');
+  const bundle = {
+    vessel: { name: 'Test', chiefEngineer: '' },
+    voyage: { draftFwd: 0, draftAft: 0, heel: 0 },
+    tanks: {
+      fuel: [
+        { id: 'h1', name: 'NO.1 HFO TK (P)', fuelGrade: 'lsfo', category: 'fuel', capacity: 100, calcType: 'gaugeDirect' },
+        { id: 'd1', name: 'MDO TK (P)', fuelGrade: 'lsmgo', category: 'fuel', capacity: 50, calcType: 'gaugeDirect' },
+      ],
+    },
+    readings: {
+      h1: { reading: 80, tempC: 15, density15: 0.98, result: { volumeObserved: 80, weightMT: 70 } },
+      d1: { reading: 40, tempC: 15, density15: 0.86, result: { volumeObserved: 40, weightMT: 30 } },
+    },
+  };
+  const form = Core.emptyFuelReport(bundle);
+  form.rows.h1.reading = 10;
+  form.rows.h1.unitValue = 0.98;
+  form.rows.h1.tempC = 15;
+  form.rows.d1.reading = 4;
+  form.rows.d1.unitValue = 0.86;
+  form.rows.d1.tempC = 15;
+  const computed = Core.computeFuelReport(bundle, form, null);
+  const fam = Core.familyTotalsFromComputed(computed);
+  const heavy = computed.sections.find((s) => s.id === 'fuel');
+  const distillate = computed.sections.find((s) => s.id === 'do');
+  assert.strictEqual(fam.fam.heavy.volume, heavy.totals.measuredM3);
+  assert.strictEqual(fam.fam.heavy.weight, heavy.totals.weightAirMT);
+  assert.strictEqual(fam.fam.distillate.volume, distillate.totals.measuredM3);
+  assert.strictEqual(fam.fam.distillate.weight, distillate.totals.weightAirMT);
+  assert.ok(Math.abs(fam.fam.heavy.volume - 10) < 0.001, 'sheet volume, not the stored 80 m³ reading');
+  assert.ok(Math.abs(fam.fam.distillate.volume - 4) < 0.001);
+  assert.notStrictEqual(fam.fam.heavy.weight, 70);
+
+  const appJs = fs.readFileSync(path.join(__dirname, '../public/js/app.js'), 'utf8');
+  const brand = fs.readFileSync(path.join(__dirname, '../public/js/branding.js'), 'utf8');
+  assert.ok(appJs.includes('function monitoringFuelComputed'), 'overview computes the monitoring sheet');
+  assert.ok(appJs.includes('familyTotalsFromComputed'), 'overview uses sheet section totals');
+  assert.ok(brand.includes('function printJobIsLandscape'), 'portrait unless the capacity book');
+  assert.ok(brand.includes('function stripNamedLandscapePage'), 'portrait html drops the landscape page');
+  assert.ok(brand.includes("landscape ? '@page landscape-sheet { size: A4 landscape; margin: 0; }' : ''"),
+    'landscape page is emitted only for a landscape job');
+  const sample = '@media print {\n@page landscape-sheet {\n  size: A4 landscape;\n  margin: 0;\n}\n@page { size: A4 portrait; margin: 0; }\n}';
+  const stripped = sample.replace(/@page\s+landscape-sheet\s*\{[^}]*\}/gi, '');
+  assert.ok(!/size:\s*A4\s+landscape/i.test(stripped), 'stripped portrait css has no landscape size');
+  console.log('ok — summary totals follow monitoring, portrait print drops the landscape page');
+}

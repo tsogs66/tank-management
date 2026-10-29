@@ -127,6 +127,7 @@ const FuelReport = (() => {
     const bundle = currentBundle();
     // A report loaded from the history panel survives the re-render that follows it.
     view.form = Core.normalizeForm(bundle, view.pendingForm || bundle.fuelReport);
+    view.vesselId = STATE.activeVesselId;
     view.pendingForm = null;
     view.dirty = false;
     await loadConversion();

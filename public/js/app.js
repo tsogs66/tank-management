@@ -1231,6 +1231,50 @@ function isDistillateFuel(tank) {
   return /\bLSMGO\b|\bMGO\b|\bMDO\b/.test(u);
 }
 
+let dashboardFuelRows = null;
+
+/**
+ * The sheet Tank Monitoring is showing. A live form wins, so the overview
+ * follows unsaved soundings; otherwise the saved fuel report is computed
+ * the same way that page computes it on open.
+ */
+function monitoringFuelComputed() {
+  const Core = window.FuelReportCore;
+  if (!Core || typeof Core.computeFuelReport !== 'function') return null;
+  try {
+    const live = window.FuelReport && window.FuelReport.view;
+    if (live && live.form && live.vesselId && live.vesselId === STATE.activeVesselId
+        && typeof window.FuelReport.recompute === 'function') {
+      return window.FuelReport.recompute();
+    }
+    const bundle = STATE.bundle;
+    if (!bundle || typeof Core.normalizeForm !== 'function') return null;
+    const form = Core.normalizeForm(bundle, bundle.fuelReport || Core.emptyFuelReport(bundle));
+    return Core.computeFuelReport(bundle, form, STATE.conversionTable || null);
+  } catch (err) {
+    console.warn('Monitoring totals', err);
+    return null;
+  }
+}
+
+function rememberMonitoringRows(computed) {
+  dashboardFuelRows = Object.create(null);
+  if (!computed) return;
+  for (const section of computed.sections || []) {
+    for (const row of section.rows || []) {
+      if (row && row.tankId) dashboardFuelRows[row.tankId] = row;
+    }
+  }
+}
+
+function monitoringFuelForm() {
+  const Core = window.FuelReportCore;
+  if (!Core) return null;
+  const live = window.FuelReport && window.FuelReport.view;
+  if (live && live.form && live.vesselId && live.vesselId === STATE.activeVesselId) return live.form;
+  return Core.normalizeForm(STATE.bundle, STATE.bundle.fuelReport || Core.emptyFuelReport(STATE.bundle));
+}
+
 function fuelFamilyTotals(tanks) {
   const out = {
     heavy: { capacity: 0, volume: 0, weight: 0, withReading: 0, count: 0 },
@@ -1300,11 +1344,37 @@ function renderDashboard(main) {
     <button class="btn" id="btn-tank-summary-save">Save</button>
   </div></div>`;
 
+  const monitoring = monitoringFuelComputed();
+  rememberMonitoringRows(monitoring);
+  const reportFam = monitoring && window.FuelReportCore
+    ? window.FuelReportCore.familyTotalsFromComputed(monitoring).fam
+    : null;
+
   let grandVol = 0, grandCap = 0, grandWeight = 0, totalTanks = 0, readTanks = 0;
   const cards = document.createElement('div');
   cards.className = 'cards-row cards-family';
   for (const c of CATS) {
     const t = categoryTotals(c.id);
+    if (c.id === 'fuel' && reportFam) {
+      grandVol += reportFam.heavy.volume + reportFam.distillate.volume;
+      grandWeight += reportFam.heavy.weight + reportFam.distillate.weight;
+      grandCap += reportFam.heavy.capacity + reportFam.distillate.capacity;
+      totalTanks += reportFam.heavy.count + reportFam.distillate.count;
+      readTanks += reportFam.heavy.withReading + reportFam.distillate.withReading;
+      const fam = reportFam;
+      const pct = (b) => (b.capacity ? (b.volume / b.capacity) * 100 : 0);
+      cards.innerHTML += `<div class="card">
+        <div class="label"><span class="cat-dot cat-fuel"></span>HFO / VLSFO</div>
+        <div class="value">${fmt(fam.heavy.volume,1)}<span class="unit">m³ / ${fmt(fam.heavy.capacity,0)}</span></div>
+        <div class="sub">${fmt(fam.heavy.weight,2)} MT · ${fam.heavy.withReading}/${fam.heavy.count} · ${fmt(pct(fam.heavy),1)}% full</div>
+      </div>`;
+      cards.innerHTML += `<div class="card">
+        <div class="label"><span class="cat-dot cat-fuel"></span>MDO / MGO / LSMGO</div>
+        <div class="value">${fmt(fam.distillate.volume,1)}<span class="unit">m³ / ${fmt(fam.distillate.capacity,0)}</span></div>
+        <div class="sub">${fmt(fam.distillate.weight,2)} MT · ${fam.distillate.withReading}/${fam.distillate.count} · ${fmt(pct(fam.distillate),1)}% full</div>
+      </div>`;
+      continue;
+    }
     grandVol += t.volume; grandCap += t.capacity; grandWeight += t.weight;
     totalTanks += t.count; readTanks += t.withReading;
     if (c.id === 'fuel') {
@@ -1361,7 +1431,7 @@ function renderDashboard(main) {
     const voyage = STATE.bundle.voyage || {};
     const form = formOverride && formOverride.fuelReport
       ? Core.normalizeForm(STATE.bundle, formOverride.fuelReport)
-      : voyageFuelForm(voyage);
+      : (monitoringFuelForm() || voyageFuelForm(voyage));
     if (form) form.header.reportType = form.header.reportType || 'Monitoring';
     const computed = Core.computeFuelReport(STATE.bundle, form, STATE.conversionTable);
     const pages = tankConditionPrintHtml(computed, 'TANK SUMMARY REPORT');
@@ -1402,7 +1472,7 @@ function renderDashboard(main) {
     btnSave.onclick = async () => {
       const form = {
         voyage: { ...(STATE.bundle.voyage || {}) },
-        fuelReport: voyageFuelForm(STATE.bundle.voyage || {}),
+        fuelReport: monitoringFuelForm() || voyageFuelForm(STATE.bundle.voyage || {}),
         updatedAt: new Date().toISOString(),
       };
       await fileTankSummarySnapshot(form);
@@ -1531,8 +1601,14 @@ function graphicTank(t) {
 }
 
 function makeTankGraphicCard(t) {
+  const sheet = t.category === 'fuel' && dashboardFuelRows ? dashboardFuelRows[t.id] : null;
   const r = getReading(t.id);
-  const pct = r?.result?.fillPercent ?? null;
+  const pct = sheet
+    ? (sheet.volumePercent != null ? sheet.volumePercent : null)
+    : (r?.result?.fillPercent ?? null);
+  const vol = sheet ? sheet.measuredM3 : (r ? r.result.volumeObserved : null);
+  const wt = sheet ? sheet.weightAirMT : (r?.result?.weightMT);
+  const temp = sheet && sheet.tempC !== '' && sheet.tempC != null ? sheet.tempC : r?.tempC;
   const card = document.createElement('div');
   card.className = 'tg-card clickable';
   card.onclick = () => navigate(t.category, t.id);
@@ -1542,9 +1618,9 @@ function makeTankGraphicCard(t) {
   const details = {
     grade: TankGraphics.contentLabel(draw),
     pct: pct != null ? fmt(pct, 0) + '%' : '—',
-    volume: r ? fmt(r.result.volumeObserved, 1) + ' m³' : '',
-    weight: r?.result?.weightMT != null ? fmt(r.result.weightMT, 1) + ' MT' : '',
-    temp: r?.tempC != null && r.tempC !== '' ? fmt(r.tempC, 0) + '°C' : '',
+    volume: vol != null ? fmt(vol, 1) + ' m³' : '',
+    weight: wt != null ? fmt(wt, 1) + ' MT' : '',
+    temp: temp != null && temp !== '' ? fmt(temp, 0) + '°C' : '',
   };
   card.innerHTML = `
     <div class="tg-name">${escapeHtml(t.name)}</div>
@@ -1761,8 +1837,16 @@ function buildTankTable(tanks) {
   </tr></thead>`;
   const tbody = document.createElement('tbody');
   for (const t of tanks) {
+    const sheet = t.category === 'fuel' && dashboardFuelRows ? dashboardFuelRows[t.id] : null;
     const r = getReading(t.id);
-    const pct = r?.result?.fillPercent ?? null;
+    const pct = sheet && sheet.volumePercent != null
+      ? sheet.volumePercent
+      : (r?.result?.fillPercent ?? null);
+    const vol = sheet ? sheet.measuredM3 : (r ? r.result.volumeObserved : null);
+    const wt = sheet ? sheet.weightAirMT : (r?.result?.weightMT);
+    const reading = sheet && sheet.reading !== '' && sheet.reading != null
+      ? sheet.reading
+      : (r ? r.reading : null);
     const cls = fillStatusClass(pct);
     const tr = document.createElement('tr');
     tr.className = 'clickable';
@@ -1773,10 +1857,10 @@ function buildTankTable(tanks) {
       <td>${t.side || '—'}</td>
       <td>${fmt(t.capacity,1)}</td>
       <td>${fmt((t.capacity||0)*0.85,1)}</td>
-      <td>${r ? fmt(r.reading, r.gaugeType === 'volume' ? 2 : 1) : '–'}</td>
-      <td>${r ? fmt(r.result.volumeObserved,2) : '–'}</td>
+      <td>${reading != null ? fmt(reading, r?.gaugeType === 'volume' || sheet?.directM3Input ? 2 : 1) : '–'}</td>
+      <td>${vol != null ? fmt(vol,2) : '–'}</td>
       <td>${pct != null ? `<div class="fillbar-wrap"><div class="fillbar-track"><div class="fillbar-fill" style="width:${Math.min(100,pct)}%;background:${cls==='bad'?'var(--bad)':cls==='warn'?'var(--warn)':'var(--good)'}"></div></div><span class="fillbar-pct">${fmt(pct,0)}%</span></div>` : '<span class="pill neutral">none</span>'}</td>
-      <td>${r?.result?.weightMT != null ? fmt(r.result.weightMT,2) : '–'}</td>`;
+      <td>${wt != null ? fmt(wt,2) : '–'}</td>`;
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
@@ -1821,6 +1905,7 @@ function categorySections(catId, tanks) {
 }
 
 function renderCategory(main, catId) {
+  if (catId === 'fuel') rememberMonitoringRows(monitoringFuelComputed());
   const c = CATS.find((x) => x.id === catId);
   const t = categoryTotals(catId);
   const tanks = TankOrder.sorted(STATE.bundle.tanks[catId] || []);
