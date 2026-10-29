@@ -65,22 +65,25 @@ const NodeShim = (() => {
   }
 
   async function hydrateFromIdb() {
-    files.clear();
-    dirs.clear();
-    dirs.add('/');
+    const nextFiles = new Map();
+    const nextDirs = new Set(['/']);
     await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE, 'readonly');
       const req = tx.objectStore(STORE).openCursor();
       req.onsuccess = () => {
         const cur = req.result;
         if (!cur) return resolve();
-        files.set(cur.key, cur.value);
+        nextFiles.set(cur.key, cur.value);
         let d = path.dirname(cur.key);
-        while (d && d !== '/' && !dirs.has(d)) { dirs.add(d); d = path.dirname(d); }
+        while (d && d !== '/' && !nextDirs.has(d)) { nextDirs.add(d); d = path.dirname(d); }
         cur.continue();
       };
       req.onerror = () => reject(req.error);
     });
+    files.clear();
+    for (const [k, v] of nextFiles) files.set(k, v);
+    dirs.clear();
+    for (const d of nextDirs) dirs.add(d);
   }
 
   /** Read every stored file into memory. Call once, before anything else. */

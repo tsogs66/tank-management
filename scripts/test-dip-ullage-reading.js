@@ -59,5 +59,8 @@ const LOCAL = fs.readFileSync(path.join(ROOT, 'public/js/local-api.js'), 'utf8')
 check('LocalApi re-reads IndexedDB before answering so a second window sees the save',
   /async function reload\(/.test(SHIM) && /NodeShim\.reload/.test(LOCAL));
 
+check('a failed IndexedDB read does not empty the tank files already in memory',
+  /const nextFiles = new Map\(\)/.test(SHIM));
+
 console.log(`\n${checks - failures}/${checks} passed`);
 process.exit(failures ? 1 : 0);
