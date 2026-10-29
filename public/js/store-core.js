@@ -554,7 +554,7 @@ function touchVessel(id) {
 
 function getVesselBundle(id) {
   if (!fs.existsSync(vesselDir(id))) throw new Error('Vessel not found');
-  return {
+  const bundle = {
     vessel: readJson(vesselPath(id, 'vessel.json')),
     tanks: readJson(vesselPath(id, 'tanks.json'), emptyTanks()),
     readings: readJson(vesselPath(id, 'readings.json'), {}),
@@ -574,6 +574,7 @@ function getVesselBundle(id) {
     assets: readJson(vesselPath(id, 'assets.json'), emptyAssets()),
     meta: readJson(vesselPath(id, 'meta.json'), {}),
   };
+  return adoptFilledTankBook(id, bundle);
 }
 
 function saveVesselPart(id, part, data) {
@@ -768,7 +769,92 @@ function mergePartOnWrite(id, part, file, data) {
   if (DRAFT_PARTS.indexOf(part) >= 0) {
     return mergeDraftDoc(readJson(vesselPath(id, file), null), data);
   }
+  /* An empty tank book must not replace a filled one. Update to the newest
+     used to copy this device's book upward as it stood, and a folder that
+     had only the ship's name wiped the calibration on the other side. */
+  if (part === 'tanks') {
+    return keepFilledPart(readJson(vesselPath(id, file), emptyTanks()), data);
+  }
   return data;
+}
+
+function tankCount(tanks) {
+  if (!tanks || typeof tanks !== 'object') return 0;
+  let n = 0;
+  Object.keys(tanks).forEach((key) => {
+    if (Array.isArray(tanks[key])) n += tanks[key].length;
+  });
+  return n;
+}
+
+/* Another folder for this hull that still has the tank book. The screen's
+   folder can be a bare record — history fanned out, tanks never copied —
+   while the root database or another id still holds the calibration. */
+function donorTankBook(id, profile) {
+  let rows = [];
+  try { rows = listVessels(); } catch (_) { return null; }
+  for (const row of rows) {
+    if (!row || !row.id || String(row.id) === String(id)) continue;
+    let doc = row;
+    try {
+      const saved = readJson(vesselPath(row.id, 'vessel.json'), null);
+      if (saved && typeof saved === 'object') doc = saved;
+    } catch (_) { /* the index row is enough */ }
+    const same = vesselHullSame(doc, profile) || vesselHullSame(row, profile);
+    if (!same) continue;
+    const tanks = readJson(vesselPath(row.id, 'tanks.json'), emptyTanks());
+    if (!tankCount(tanks)) continue;
+    return {
+      tanks,
+      readings: readJson(vesselPath(row.id, 'readings.json'), {}),
+      fuelReport: readJson(vesselPath(row.id, 'fuel-report.json'), null),
+    };
+  }
+  return null;
+}
+
+function adoptFilledTankBook(id, bundle) {
+  if (tankCount(bundle && bundle.tanks)) return bundle;
+  const profile = Object.assign({ id: String(id) }, (bundle && bundle.vessel) || {});
+  const here = activeDataDir();
+  let donor = donorTankBook(id, profile);
+  if (!donor) {
+    const scopes = [{ email: null, master: false, actAs: null }];
+    for (const user of listUserDatabases()) {
+      scopes.push({ email: user.emailSlug, master: true, actAs: user.emailSlug });
+    }
+    for (const scope of scopes) {
+      if (donor) break;
+      runWithUserScope(scope, () => {
+        if (activeDataDir() === here) return;
+        const found = donorTankBook(id, profile);
+        if (found) donor = found;
+        /* Same folder id in the other database: donorTankBook skips it. */
+        if (!donor) {
+          const tanks = readJson(vesselPath(id, 'tanks.json'), null);
+          if (tankCount(tanks)) {
+            donor = {
+              tanks,
+              readings: readJson(vesselPath(id, 'readings.json'), {}),
+              fuelReport: readJson(vesselPath(id, 'fuel-report.json'), null),
+            };
+          }
+        }
+      });
+    }
+  }
+  if (!donor) return bundle;
+  bundle.tanks = donor.tanks;
+  if (isEmptyPart(bundle.readings) && !isEmptyPart(donor.readings)) bundle.readings = donor.readings;
+  if (!bundle.fuelReport && donor.fuelReport) bundle.fuelReport = donor.fuelReport;
+  try {
+    writeJson(vesselPath(id, 'tanks.json'), bundle.tanks);
+    if (!isEmptyPart(bundle.readings)) writeJson(vesselPath(id, 'readings.json'), bundle.readings);
+    if (bundle.fuelReport) writeJson(vesselPath(id, 'fuel-report.json'), bundle.fuelReport);
+  } catch (err) {
+    console.error('adopt tank book', id, err && err.message);
+  }
+  return bundle;
 }
 
 /** Union two id-keyed lists, keeping whichever copy of an id is newer. */
