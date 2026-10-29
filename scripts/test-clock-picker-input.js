@@ -33,5 +33,9 @@ for (const file of candidates) {
     file + ': readout must not be user-select:none (blocks typing)');
   assert(/Opening on every focus painted a full-screen overlay/.test(src),
     file + ': time fields must not open the overlay on focus');
+  assert(/formatDatePartDisplay/.test(src),
+    file + ': date readout is mm/dd/yyyy');
+  assert(src.includes('\\d{1,2}'),
+    file + ': date parser accepts mm/dd/yyyy');
   console.log('ok —', path.relative(process.cwd(), file));
 }

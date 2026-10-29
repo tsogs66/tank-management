@@ -363,16 +363,10 @@ app.get('/api/reference/fuel-report-options', (req, res) => {
   });
 });
 
-/** Saved report form + everything computed from it. */
+/** Saved report form + everything computed from it. A GET must not rewrite the vessel. */
 app.get('/api/vessels/:id/fuel-report', (req, res) => {
   try {
-    let { bundle, computed } = buildFuelReport(req.params.id);
-    const changed = fuelReport.applyCarriedFuelGrades(bundle, computed.form);
-    if (changed.tanks) store.saveVesselPart(req.params.id, 'tanks', bundle.tanks);
-    if (changed.form && computed.form) store.saveVesselPart(req.params.id, 'fuelReport', computed.form);
-    if (changed.tanks || changed.form) {
-      ({ bundle, computed } = buildFuelReport(req.params.id));
-    }
+    const { bundle, computed } = buildFuelReport(req.params.id);
     res.json({ form: computed.form, computed, history: bundle.reportHistory || [] });
   } catch (e) {
     res.status(404).json({ error: e.message });
@@ -397,11 +391,17 @@ app.post('/api/vessels/:id/fuel-report/compute', (req, res) => {
 app.put('/api/vessels/:id/fuel-report', (req, res) => {
   try {
     const body = req.body || {};
-    const { bundle, computed } = buildFuelReport(req.params.id, body.form || body);
-    const form = { ...computed.form, updatedAt: new Date().toISOString() };
+    const built = buildFuelReport(req.params.id, body.form || body);
+    let bundle = built.bundle;
+    const form = { ...built.computed.form, updatedAt: new Date().toISOString() };
     const gradesChanged = fuelReport.applyCarriedFuelGrades(bundle, form);
     if (gradesChanged.tanks) store.saveVesselPart(req.params.id, 'tanks', bundle.tanks);
     store.saveVesselPart(req.params.id, 'fuelReport', form);
+    const recomputed = gradesChanged.tanks || gradesChanged.form
+      ? buildFuelReport(req.params.id, form)
+      : built;
+    bundle = recomputed.bundle;
+    const computed = recomputed.computed;
 
     if (body.syncReadings !== false) {
       store.saveVesselPart(req.params.id, 'readings', fuelReport.readingsFromReport(bundle, computed));

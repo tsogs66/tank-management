@@ -847,13 +847,13 @@ const FuelReport = (() => {
   }
 
   async function saveReport({ snapshot = false, print = false, quiet = false } = {}) {
-    const computed = recompute();
     const bundle = currentBundle();
     const form = { ...view.form, updatedAt: new Date().toISOString() };
     const body = { form, snapshot, syncReadings: true };
 
     bundle.fuelReport = form;
     const gradesChanged = Core.applyCarriedFuelGrades(bundle, form);
+    const computed = recompute();
     bundle.readings = Core.readingsFromReport(bundle, computed);
     if (typeof persistPart === 'function') {
       await persistPart('readings', bundle.readings);

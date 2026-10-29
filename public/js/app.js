@@ -721,6 +721,7 @@ async function activateTankVessel(id) {
 async function reloadBundle() {
   if (!STATE.activeVesselId) { STATE.bundle = null; return; }
   STATE.bundle = await Api.getVessel(STATE.activeVesselId);
+  await loadConversionTable();
   await adoptCarriedFuelGrades();
 }
 
@@ -738,6 +739,14 @@ async function adoptCarriedFuelGrades() {
   if (!changed || (!changed.tanks && !changed.form)) return;
   if (changed.tanks) await persistPart('tanks', bundle.tanks);
   if (changed.form && bundle.fuelReport) await persistPart('fuelReport', bundle.fuelReport);
+  try {
+    const form = FuelReportCore.normalizeForm(bundle, bundle.fuelReport || FuelReportCore.emptyFuelReport(bundle));
+    const computed = FuelReportCore.computeFuelReport(bundle, form, STATE.conversionTable || null);
+    bundle.readings = FuelReportCore.readingsFromReport(bundle, computed);
+    await persistPart('readings', bundle.readings);
+  } catch (err) {
+    console.warn('Fuel grade readings', err);
+  }
 }
 
 function sameSavedForm(a, b) {
@@ -1344,17 +1353,24 @@ function renderDashboard(main) {
     <button class="btn" id="btn-tank-summary-save">Save</button>
   </div></div>`;
 
-  dashboardFuelRows = null;
+  const monitoringComputed = monitoringFuelComputed();
+  rememberMonitoringRows(monitoringComputed);
+  const Core = window.FuelReportCore;
+  const fromSheet = monitoringComputed && Core && typeof Core.familyTotalsFromComputed === 'function'
+    ? Core.familyTotalsFromComputed(monitoringComputed)
+    : null;
 
   let grandVol = 0, grandCap = 0, grandWeight = 0, totalTanks = 0, readTanks = 0;
   const cards = document.createElement('div');
   cards.className = 'cards-row cards-family';
   for (const c of CATS) {
-    const t = categoryTotals(c.id);
-    grandVol += t.volume; grandCap += t.capacity; grandWeight += t.weight;
-    totalTanks += t.count; readTanks += t.withReading;
     if (c.id === 'fuel') {
-      const fam = fuelFamilyTotals(STATE.bundle.tanks.fuel || []);
+      const fam = (fromSheet && fromSheet.fam) || fuelFamilyTotals(STATE.bundle.tanks.fuel || []);
+      grandVol += fam.heavy.volume + fam.distillate.volume;
+      grandCap += fam.heavy.capacity + fam.distillate.capacity;
+      grandWeight += fam.heavy.weight + fam.distillate.weight;
+      totalTanks += fam.heavy.count + fam.distillate.count;
+      readTanks += fam.heavy.withReading + fam.distillate.withReading;
       const pct = (b) => (b.capacity ? (b.volume / b.capacity) * 100 : 0);
       cards.innerHTML += `<div class="card">
         <div class="label"><span class="cat-dot cat-fuel"></span>HFO / VLSFO</div>
@@ -1368,6 +1384,9 @@ function renderDashboard(main) {
       </div>`;
       continue;
     }
+    const t = categoryTotals(c.id);
+    grandVol += t.volume; grandCap += t.capacity; grandWeight += t.weight;
+    totalTanks += t.count; readTanks += t.withReading;
     const pct = t.capacity ? (t.volume / t.capacity) * 100 : 0;
     cards.innerHTML += `<div class="card">
       <div class="label"><span class="cat-dot cat-${c.id}"></span>${c.label}</div>
@@ -1881,7 +1900,8 @@ function categorySections(catId, tanks) {
 }
 
 function renderCategory(main, catId) {
-  dashboardFuelRows = null;
+  if (catId === 'fuel') rememberMonitoringRows(monitoringFuelComputed());
+  else dashboardFuelRows = null;
   const c = CATS.find((x) => x.id === catId);
   const t = categoryTotals(catId);
   const tanks = TankOrder.sorted(STATE.bundle.tanks[catId] || []);
@@ -5937,6 +5957,8 @@ async function boot() {
         });
       }
       STATE.bundle = await OfflineDB.idbGet('vessel:' + STATE.activeVesselId);
+      await loadConversionTable();
+      await adoptCarriedFuelGrades();
       const sum = tankBundleSummary(STATE.bundle);
       const named = tankShipName() || opening;
       if (window.LoadingSplash) {

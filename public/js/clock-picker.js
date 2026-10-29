@@ -140,9 +140,14 @@ input.ccp-bound{cursor:pointer}
   const DOW_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
   function parseDateParts(datePart) {
-    const m = String(datePart || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const s = String(datePart || '').trim();
+    let m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (m) {
       return { y: Number(m[1]), mo: Number(m[2]), d: Number(m[3]) };
+    }
+    m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m) {
+      return { y: Number(m[3]), mo: Number(m[1]), d: Number(m[2]) };
     }
     const now = new Date();
     return { y: now.getFullYear(), mo: now.getMonth() + 1, d: now.getDate() };
@@ -150,6 +155,10 @@ input.ccp-bound{cursor:pointer}
 
   function formatDatePart(y, mo, d) {
     return `${y}-${pad(mo)}-${pad(d)}`;
+  }
+
+  function formatDatePartDisplay(y, mo, d) {
+    return `${pad(mo)}/${pad(d)}/${y}`;
   }
 
   function daysInMonth(y, mo) {
@@ -218,11 +227,7 @@ input.ccp-bound{cursor:pointer}
   function writeValue(el, state) {
     const { h, m } = to24(state.h12, state.m, state.isPm);
     if (el.type === 'datetime-local') {
-      let datePart = state.datePart;
-      if (!datePart) {
-        const d = new Date();
-        datePart = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-      }
+      const datePart = formatDatePart(state.y, state.mo, state.d);
       el.value = `${datePart}T${pad(h)}:${pad(m)}`;
     } else if (el.type === 'time') {
       el.value = `${pad(h)}:${pad(m)}`;
@@ -525,7 +530,7 @@ input.ccp-bound{cursor:pointer}
       if (monthLabel) {
         monthLabel.textContent = `${MONTH_LABELS[mo - 1]} ${y}`;
       }
-      if (dateReadout) dateReadout.textContent = formatDatePart(state.y, state.mo, state.d);
+      if (dateReadout) dateReadout.textContent = formatDatePartDisplay(state.y, state.mo, state.d);
     }
 
     function clearDecor() {
