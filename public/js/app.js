@@ -851,9 +851,22 @@ async function uploadVisibleReportsToServer() {
       Object.assign(headers, ChengLicense.authHeaders());
     }
   } catch (_) { /* unscoped */ }
+  /* The office often keeps this hull under another vessel id. Posting by this
+     device's id put the reports in a folder the office screen never reads, so
+     find the server's record of the same ship first. No match: Backup creates
+     one when it updates, and this post would only make an orphan. */
+  const listRes = await fetch('/tanks/api/vessels', { headers });
+  if (!listRes.ok) return;
+  const list = ((await listRes.json()) || {}).vessels || [];
+  const mine = (STATE.bundle && STATE.bundle.vessel) || {};
+  const imoOf = (v) => String((v && (v.imo || v.imoNo)) || '').replace(/\D/g, '');
+  const nameOf = (v) => String((v && (v.name || v.vesselName)) || '').toUpperCase().replace(/^M\W*V\W*/, '').replace(/[^A-Z0-9]/g, '');
+  const sameHull = (v) => (imoOf(v) && imoOf(mine) ? imoOf(v) === imoOf(mine) : !!nameOf(v) && nameOf(v) === nameOf(mine));
+  const target = list.find((v) => v && v.id === STATE.activeVesselId) || list.find((v) => v && v.id && sameHull(v));
+  if (!target) return;
   const res = await fetch(
-    '/tanks/api/vessels/' + encodeURIComponent(STATE.activeVesselId) + '/saved-reports/merge',
-    { method: 'POST', headers, body: JSON.stringify(body) },
+    '/tanks/api/vessels/' + encodeURIComponent(target.id) + '/saved-reports/merge',
+    { method: 'POST', headers, body: JSON.stringify({ ...body, voyage: (STATE.bundle && STATE.bundle.voyage) || null }) },
   );
   if (!res.ok) {
     const text = await res.text();
@@ -878,8 +891,7 @@ async function flushUnsavedTankWork() {
       return el ? el.value : '';
     };
     const num = (id) => parseFloat(val(id)) || 0;
-    await persistPart('voyage', {
-      ...(STATE.bundle.voyage || {}),
+    const fields = {
       voyageNo: val('v-voyage'),
       port: val('v-port'),
       reportType: val('v-type'),
@@ -888,8 +900,15 @@ async function flushUnsavedTankWork() {
       heel: num('v-heel'),
       draftFwd: num('v-dfwd'),
       draftAft: num('v-daft'),
-      updatedAt: new Date().toISOString(),
-    });
+    };
+    /* Stamp the header only when it changed. A flush on every backup used to
+       mark an untouched sheet as just edited, which then outranked a newer
+       report saved on the other side. */
+    const prev = STATE.bundle.voyage || {};
+    const changed = Object.keys(fields).some((k) => String(prev[k] == null ? '' : prev[k]) !== String(fields[k]));
+    if (changed || !prev.updatedAt) {
+      await persistPart('voyage', { ...prev, ...fields, updatedAt: new Date().toISOString() });
+    }
   }
   if (document.getElementById('btn-save-voyage-plan') && STATE.bundle && STATE.bundle.bunkering) {
     await persistPart('bunkering', STATE.bundle.bunkering);
@@ -2033,6 +2052,12 @@ function renderTankDetail(main, tankId) {
   if (!tank) { main.innerHTML += '<div class="empty-state">Tank not found</div>'; return; }
   const existing = getReading(tankId) || {};
   const c = CATS.find((x) => x.id === tank.category);
+  /* How this reading was taken. The tank's method is only a default: Monitoring
+     records DIP or ULLAGE per row, and recalculating a dip of 0 as an ullage
+     of 0 turned an empty tank full on the overview and the home dashboard. */
+  const methodOf = (m) => (/dip|sound|depth/i.test(String(m || '')) ? 'dip' : 'ullage');
+  const initialMethod = methodOf(existing.entryMethod || tank.soundingMethod || 'sounding');
+  const methodWord = (m) => (m === 'dip' ? 'Dip' : 'Ullage');
 
   main.innerHTML += `<div class="back-link" id="tank-back-link" role="button" tabindex="0">← Back to ${escapeHtml(c.label)}</div>
   <div class="page-head"><div><h1>${tank.name}</h1>
@@ -2070,7 +2095,12 @@ function renderTankDetail(main, tankId) {
           <option value="meter" ${initialGT==='meter'?'selected':''}>Meter / ullage (calibration)</option>
           <option value="volume" ${initialGT==='volume'?'selected':''}>Volume gauge (m³ direct)</option>
         </select></div>` : ''}
-      <div class="form-row"><label id="reading-label">${initialGT==='volume'?'Actual volume (m³)':((tank.soundingMethod||'Reading') + ' (cm)')}</label>
+      ${directM3Tank ? '' : `<div class="form-row" id="method-row" style="${initialGT==='volume'?'display:none':''}"><label for="in-method">Measured by</label>
+        <select id="in-method">
+          <option value="dip" ${initialMethod==='dip'?'selected':''}>Dip — sounded from the bottom</option>
+          <option value="ullage" ${initialMethod==='ullage'?'selected':''}>Ullage — measured from the top</option>
+        </select></div>`}
+      <div class="form-row"><label id="reading-label">${initialGT==='volume'?'Actual volume (m³)':(methodWord(initialMethod) + ' (cm)')}</label>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <input type="number" step="any" id="in-reading" value="${existing.reading != null && existing.reading !== '' ? (initialGT==='volume' ? Number(existing.reading) : tableUnitsToCm(Number(existing.reading), tank)) : ''}">
         ${doubleInterp ? '<button type="button" class="btn small" id="btn-double-interp">Double interpolation…</button>' : ''}
@@ -2124,9 +2154,20 @@ function renderTankDetail(main, tankId) {
     showToast('Tank deleted');
   };
 
+  const methodSelect = document.getElementById('in-method');
+  const readingLabel = () => {
+    const gt = gaugeChoice ? document.getElementById('in-gaugetype').value : initialGT;
+    document.getElementById('reading-label').textContent = gt === 'volume'
+      ? 'Actual volume (m³)'
+      : methodWord(methodSelect ? methodSelect.value : initialMethod) + ' (cm)';
+  };
+  if (methodSelect) methodSelect.addEventListener('change', readingLabel);
   if (gaugeChoice) {
     document.getElementById('in-gaugetype').onchange = (e) => {
       document.getElementById('trimlist-row').style.display = e.target.value === 'volume' ? 'none' : '';
+      const mr = document.getElementById('method-row');
+      if (mr) mr.style.display = e.target.value === 'volume' ? 'none' : '';
+      readingLabel();
     };
   }
 
@@ -2170,7 +2211,9 @@ function renderTankDetail(main, tankId) {
       gaugeType,
       // The trim field is the signed table trim: positive down by the bow,
       // which is the side the book heads TRIM BY STEM.
-      entryMethod: tank.soundingMethod || 'sounding',
+      entryMethod: gaugeType === 'volume'
+        ? (tank.soundingMethod || 'sounding')
+        : (document.getElementById('in-method') ? document.getElementById('in-method').value : initialMethod),
     };
     let result;
     try {
