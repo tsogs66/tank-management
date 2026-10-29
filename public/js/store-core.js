@@ -1419,6 +1419,32 @@ function importBackup(backup, { merge = true } = {}) {
   };
 }
 
+/* Nothing in it: null, '', [], or an object holding only those. */
+function isEmptyPart(value) {
+  if (value == null || value === '') return true;
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value === 'object') return Object.values(value).every(isEmptyPart);
+  return false;
+}
+
+/* What a pulled part may replace. A copy that is empty where this one is
+   filled never wins: a server that first saw the ship through a saved-report
+   merge holds a bare record (no tanks, no plan), its revision climbs with each
+   merge, and pulling it then wrote that bare record over the ship's whole
+   setup. Keys the other copy filled still come across. */
+function keepFilledPart(local, remote) {
+  if (isEmptyPart(remote)) return isEmptyPart(local) ? remote : local;
+  if (isEmptyPart(local) || Array.isArray(remote) || typeof remote !== 'object'
+      || !local || Array.isArray(local) || typeof local !== 'object') {
+    return remote;
+  }
+  const out = { ...local };
+  Object.keys(remote).forEach((key) => {
+    if (!isEmptyPart(remote[key]) || isEmptyPart(local[key])) out[key] = remote[key];
+  });
+  return out;
+}
+
 function applySyncPayload(payload) {
   // Merge remote vessel revisions if newer
   const results = [];
@@ -1456,7 +1482,8 @@ function applySyncPayload(payload) {
         };
         const dataKey = map[key];
         if (remote[dataKey] !== undefined) {
-          writeJson(vesselPath(id, file), remote[dataKey]);
+          const local = localMeta ? readJson(vesselPath(id, file), undefined) : undefined;
+          writeJson(vesselPath(id, file), keepFilledPart(local, remote[dataKey]));
         }
       }
       const index = loadIndex();
