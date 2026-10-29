@@ -798,6 +798,32 @@ function readingsFromReport(bundle, computed) {
   return readings;
 }
 
+/**
+ * HFO/VLSFO and MO/MGO/LSMGO figures from a computed monitoring sheet.
+ *
+ * Home and the Tank Chief overview use these section totals — measured m³ and
+ * weight in air — so they show the same numbers as Tank Monitoring. Stored
+ * sounding results can disagree once the sheet's soundings or drafts change.
+ */
+function familyTotalsFromComputed(computed) {
+  const empty = () => ({ capacity: 0, volume: 0, weight: 0, withReading: 0, count: 0 });
+  const fam = { heavy: empty(), distillate: empty() };
+  const rows = [];
+  for (const section of (computed && computed.sections) || []) {
+    const distillate = section.id === 'do' || section.id === 'distillate';
+    const bucket = distillate ? fam.distillate : fam.heavy;
+    const list = section.rows || [];
+    const totals = section.totals || {};
+    bucket.count = totals.tanks != null ? totals.tanks : list.length;
+    bucket.capacity = num(totals.capacity100M3, 0) || 0;
+    bucket.volume = num(totals.measuredM3, 0) || 0;
+    bucket.weight = num(totals.weightAirMT, 0) || 0;
+    bucket.withReading = list.filter((r) => r && r.measuredM3 != null).length;
+    for (const row of list) rows.push({ row, distillate });
+  }
+  return { fam, rows };
+}
+
 /** Compact snapshot appended to the report history on "PRINT & SAVE". */
 function snapshotFromReport(computed) {
   return {
@@ -860,6 +886,7 @@ return {
   normalizeForm,
   computeRow,
   computeFuelReport,
+  familyTotalsFromComputed,
   readingsFromReport,
   snapshotFromReport,
 };

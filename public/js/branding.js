@@ -175,8 +175,25 @@ const Branding = (() => {
     return chunks.join('\n');
   }
 
+  /** Capacity book sets printing-calib. Every other sheet is portrait. */
+  function printJobIsLandscape(bodyClass) {
+    return /\bprinting-calib\b/.test(String(bodyClass || ''));
+  }
+
+  /**
+   * Android PrintManager and the AIO print bridge treat any
+   * "size: A4 landscape" in the document as a landscape job. Named landscape
+   * pages therefore have to stay out of portrait sheets (tank summary,
+   * tank condition, bunker plan).
+   */
+  function stripNamedLandscapePage(css) {
+    return String(css || '').replace(/@page\s+landscape-sheet\s*\{[^}]*\}/gi, '');
+  }
+
   function buildPrintableHtml(bodyHtml, bodyClass, title) {
-    const css = collectStylesCss();
+    const landscape = printJobIsLandscape(bodyClass);
+    let css = collectStylesCss();
+    if (!landscape) css = stripNamedLandscapePage(css);
     const fontsHref = fontStylesheetHref();
     return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title || APP_NAME}</title>
 <link rel="stylesheet" href="${fontsHref}">
@@ -186,7 +203,8 @@ ${css}
    margin must stay 0 — PrintManager paints the canvas into page margins,
    which became the thick black frame around Tank + Bunker Plan sheets. */
 @page { size: A4 portrait; margin: 0; }
-@page landscape-sheet { size: A4 landscape; margin: 0; }
+${landscape ? '@page landscape-sheet { size: A4 landscape; margin: 0; }' : ''}
+${landscape ? '' : 'body:not(.printing-calib) .calib-print-page, body:not(.printing-calib) .fr-tc-page { page: auto; }'}
 :root, html, body {
   color-scheme: only light !important;
   margin: 0 !important; padding: 0 !important;
