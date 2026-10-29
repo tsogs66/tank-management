@@ -51,6 +51,13 @@ const form = FuelReportCore.emptyFuelReport({
   readings: { fuel1: { reading: 0, entryMethod: 'dip', result: { volumeObserved: 0, weightMT: 0 } } },
 });
 check('empty monitoring sheet opens a dip reading as dip, not ullage', form.rows.fuel1.method === 'dip', form.rows.fuel1.method);
+check('computeRow uses the form method, then the stored entry method',
+  /normalizeMethod\(row\.method \|\| row\.entryMethod\)/.test(CORE));
+
+const SHIM = fs.readFileSync(path.join(ROOT, 'public/js/node-shim.js'), 'utf8');
+const LOCAL = fs.readFileSync(path.join(ROOT, 'public/js/local-api.js'), 'utf8');
+check('LocalApi re-reads IndexedDB before answering so a second window sees the save',
+  /async function reload\(/.test(SHIM) && /NodeShim\.reload/.test(LOCAL));
 
 console.log(`\n${checks - failures}/${checks} passed`);
 process.exit(failures ? 1 : 0);

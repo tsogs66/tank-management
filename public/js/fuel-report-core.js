@@ -434,7 +434,10 @@ function normalizeForm(bundle, form) {
   const src = form || {};
   const rows = {};
   for (const tank of fuelTanks(bundle)) {
-    rows[tank.id] = { ...base.rows[tank.id], ...((src.rows || {})[tank.id] || {}) };
+    const incoming = (src.rows || {})[tank.id] || {};
+    const row = { ...base.rows[tank.id], ...incoming };
+    if (!row.method) row.method = normalizeMethod(row.entryMethod || base.rows[tank.id].method);
+    rows[tank.id] = row;
   }
   return {
     header: { ...base.header, ...(src.header || {}) },
@@ -490,7 +493,7 @@ function computeRow(tank, rowForm, ctx) {
   const row = rowForm || {};
   const section = sectionForRow(tank, row);
   const fuelType = FUEL_TYPES.some((f) => f.id === row.fuelType) ? row.fuelType : defaultFuelType(tank);
-  const method = normalizeMethod(row.method);
+  const method = normalizeMethod(row.method || row.entryMethod);
   const unit = 'den15';
   const reading = num(row.reading);
   const tempC = num(row.tempC, 15);

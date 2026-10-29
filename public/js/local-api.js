@@ -116,6 +116,9 @@ const LocalApi = (() => {
   /** Answer one request, in the shape fetch() would have returned. */
   async function handle(method, rawPath, body) {
     await start();
+    if (NodeShim.reload) {
+      try { await NodeShim.reload(); } catch (_) { /* keep the copy already in memory */ }
+    }
     const [pathname, search] = String(rawPath).split('?');
     const query = Object.fromEntries(new URLSearchParams(search || ''));
 

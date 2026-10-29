@@ -64,9 +64,10 @@ const NodeShim = (() => {
     });
   }
 
-  /** Read every stored file into memory. Call once, before anything else. */
-  async function load() {
-    db = await open();
+  async function hydrateFromIdb() {
+    files.clear();
+    dirs.clear();
+    dirs.add('/');
     await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE, 'readonly');
       const req = tx.objectStore(STORE).openCursor();
@@ -80,6 +81,24 @@ const NodeShim = (() => {
       };
       req.onerror = () => reject(req.error);
     });
+  }
+
+  /** Read every stored file into memory. Call once, before anything else. */
+  async function load() {
+    db = await open();
+    await hydrateFromIdb();
+    return { files: files.size };
+  }
+
+  /**
+   * Re-read IndexedDB into this window's Map. The AIO shell and the Tank
+   * iframe each keep their own copy; a sounding saved in the iframe is on
+   * disk, not in the shell's Map, until this runs.
+   */
+  async function reload() {
+    await flush();
+    if (!db) return load();
+    await hydrateFromIdb();
     return { files: files.size };
   }
 
