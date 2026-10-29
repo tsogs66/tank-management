@@ -205,13 +205,13 @@
     {
       group: 'Backup',
       q: 'How do I copy the tanks to another PC, or hand them to the relief?',
-      purpose: 'The working copy is on this device until you export or push. Push to peer and Pull from peer move the tank database. Flush offline queue sends edits that were made with no link.',
+      purpose: 'The working copy follows the ship that is open. Push sends that ship to the server. Pull brings back the files uploaded for the same ship. Flush offline queue sends edits that were made with no link.',
       steps: [
         'Open More → Backup.',
         'Download the full backup, or Export active vessel for one ship. Keep the file.',
         'On the other device, Import. Leave Merge with existing vessels ticked if that device already has ships you want to keep.',
         'For a live server: set the peer URL (standalone Tank Chief is usually port 3080, ChEng AIO is usually port 8080), Save settings, Test connection.',
-        'Pull from peer brings the server here. Push to peer sends this device. Read the note on the page before you press either. Flush offline queue sends changes that waited offline.',
+        'Pull from peer brings the files uploaded for the ship that is open. Push to peer sends this device. Read the note on the page before you press either. Flush offline queue sends changes that waited offline.',
         'On the relief’s device, open Summary and confirm the latest readings and the latest saved report.'
       ],
       buttons: [
@@ -220,7 +220,7 @@
         'Import — merge or replace from a file',
         'Save settings — remembers the peer address and token',
         'Test connection — checks the peer before a push',
-        'Pull from peer — the server copy comes onto this device',
+        'Pull from peer — the files uploaded for this ship come back onto it',
         'Push to peer — this device goes to the server',
         'Flush offline queue — sends edits saved while offline'
       ],

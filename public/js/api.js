@@ -40,40 +40,31 @@ const Api = (() => {
 
   /* ------------------------------------------------------------ transport --
    *
-   * Two ways to reach the API, and which one is in use is a setting rather
-   * than a per-request guess.
-   *
-   *   server   the usual thing: HTTP to whatever served the page.
-   *   local    the routes run on this device, over its own database.
-   *
-   * Falling back from one to the other on a failed request would be worse than
-   * useless: the two have separate databases, and a request silently answered
-   * by the other one puts today's soundings in a place the user is not looking
-   * at. So the choice is explicit, it sticks, and moving records between the
-   * two is what Backup / Sync is for.
-   *
-   * The default is local where there is no server to talk to at all — the
-   * phone application, loaded from its own bundle rather than over http.
+   * The packaged phone keeps its working copy on the device. A page served by
+   * Tank Chief uses that server. There is no setting for it. Pull brings the
+   * files uploaded for the ship that is open back onto that same ship.
    */
-  const TRANSPORT_KEY = 'apiTransport';
   const servedOverHttp = /^https?:$/.test(location.protocol);
-  let transport = (() => {
-    try {
-      const saved = localStorage.getItem(TRANSPORT_KEY);
-      if (saved === 'local' || saved === 'server') return saved;
-    } catch { /* private mode: fall through to the default */ }
-    return servedOverHttp ? 'server' : 'local';
-  })();
 
-  function getTransport() { return transport; }
+  function packagedDevice() {
+    try { if (window.CHENG_PRO_BUNDLED) return true; } catch { /* ignore */ }
+    try {
+      if (window.parent && window.parent !== window && window.parent.CHENG_PRO_BUNDLED) return true;
+    } catch { /* the parent is another origin */ }
+    try {
+      const cap = window.Capacitor;
+      if (cap && ((cap.isNativePlatform && cap.isNativePlatform())
+        || (cap.getPlatform && cap.getPlatform() !== 'web'))) return true;
+    } catch { /* ignore */ }
+    return !servedOverHttp;
+  }
+
   function canUseLocal() { return typeof LocalApi !== 'undefined'; }
-  function setTransport(mode) {
-    if (mode !== 'local' && mode !== 'server') throw new Error(`Unknown transport: ${mode}`);
-    if (mode === 'local' && !canUseLocal()) throw new Error('This build has no on-device database');
-    transport = mode;
-    try { localStorage.setItem(TRANSPORT_KEY, mode); } catch { /* not fatal */ }
-    setOnline(mode === 'local' ? true : navigator.onLine);
-    return transport;
+  function getTransport() {
+    return packagedDevice() && canUseLocal() ? 'local' : 'server';
+  }
+  function setTransport() {
+    return getTransport();
   }
 
   /** Answer from the device, in the shape request() hands back. */
@@ -98,7 +89,7 @@ const Api = (() => {
   }
 
   async function request(path, opts = {}) {
-    if (transport === 'local' && canUseLocal()) return localRequest(path, opts);
+    if (getTransport() === 'local' && canUseLocal()) return localRequest(path, opts);
     const init = {
       method: opts.method || 'GET',
       headers: {
@@ -139,7 +130,7 @@ const Api = (() => {
     } catch (err) {
       const cached = await OfflineDB.idbGet('status');
       if (cached) { setOnline(false); return cached; }
-      if (transport === 'local' && canUseLocal()) {
+      if (getTransport() === 'local' && canUseLocal()) {
         throw new Error(err.message || 'Could not read the on-device database');
       }
       throw new Error('Offline and no cached status');
@@ -196,7 +187,7 @@ const Api = (() => {
    * waiting on the server, which is not measurable from here.
    */
   function upload(path, formData, onProgress) {
-    if (transport === 'local' && canUseLocal() && path === '/api/backup/import') {
+    if (getTransport() === 'local' && canUseLocal() && path === '/api/backup/import') {
       const file = formData.get('file');
       const merge = formData.get('merge') !== 'false';
       if (!file) return Promise.reject(new Error('Choose a backup file'));
@@ -242,7 +233,7 @@ const Api = (() => {
    * onProgress(pct|null, phase).
    */
   function download(path, onProgress) {
-    if (transport === 'local' && canUseLocal()) {
+    if (getTransport() === 'local' && canUseLocal()) {
       if (onProgress) onProgress(null, 'reading');
       return localRequest(path, { method: 'GET' });
     }
@@ -282,7 +273,7 @@ const Api = (() => {
     // On the device there is nothing to be offline from: the write has already
     // landed in the only database there is, so it must not also be queued for
     // some server to replay later.
-    if (transport === 'local' && canUseLocal()) return request(path, opts);
+    if (getTransport() === 'local' && canUseLocal()) return request(path, opts);
     if (!navigator.onLine) {
       if (typeof offlineApply === 'function') await offlineApply();
       await OfflineDB.queuePush({ path, opts });
@@ -315,7 +306,7 @@ const Api = (() => {
     if (window.Branding && Branding.isPrintHold && Branding.isPrintHold()) {
       return { flushed: 0, pending: -1, held: true };
     }
-    if (transport === 'local') return { flushed: 0, pending: 0, dropped: 0 };
+    if (getTransport() === 'local') return { flushed: 0, pending: 0, dropped: 0 };
     if (flushing) return { flushed: 0, busy: true };
     flushing = true;
     try {
@@ -360,7 +351,7 @@ const Api = (() => {
 
   /** Is the server itself reachable? Being on a network says nothing about it. */
   async function reachable() {
-    if (transport === 'local' && canUseLocal()) { setOnline(true); return true; }
+    if (getTransport() === 'local' && canUseLocal()) { setOnline(true); return true; }
     try {
       const res = await fetch(withPrefix('/api/health'), { cache: 'no-store' });
       const ok = res.ok;
@@ -421,9 +412,9 @@ const Api = (() => {
     getSettings: () => request('/api/settings'),
     saveSettings: (body) => request('/api/settings', { method: 'PUT', body }),
     backup: (onProgress) => download('/api/backup', onProgress),
-    syncPull: (syncUrl, syncApiToken) => request('/api/sync/pull', {
+    syncPull: (syncUrl, syncApiToken, vessel) => request('/api/sync/pull', {
       method: 'POST',
-      body: { syncUrl, syncApiToken },
+      body: { syncUrl, syncApiToken, vessel: vessel || undefined },
     }),
     syncPush: (syncUrl, syncApiToken) => request('/api/sync/push', {
       method: 'POST',
@@ -439,7 +430,7 @@ const Api = (() => {
       return request(`/api/vessels/${vesselId}/tanks/import-csv`, { method: 'POST', body: fd });
     },
     importBackup: async (file, merge = true, onProgress) => {
-      if (transport === 'local' && canUseLocal()) {
+      if (getTransport() === 'local' && canUseLocal()) {
         return importBackupLocal(file, merge, onProgress);
       }
       const fd = new FormData();

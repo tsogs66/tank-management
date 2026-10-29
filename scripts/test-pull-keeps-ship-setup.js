@@ -87,6 +87,29 @@ const tankCount = (b) => Object.values(b.tanks || {}).reduce((n, list) => n + (A
       && JSON.stringify(Object.keys(after.vessel).sort()) === JSON.stringify(Object.keys(device.vessel).sort()), JSON.stringify(after.vessel));
     check('gaugings kept', Object.keys(after.readings || {}).length === Object.keys(device.readings || {}).length);
     check('ship still listed', ((await L('/api/status')).vessels || []).some((v) => v.id === VID));
+
+    console.log('\nPull files uploaded for the same vessel under another id');
+    await L(`/api/vessels/${VID}`, { method: 'PUT', body: JSON.stringify({ imo: '9619799' }) });
+    const named = (await L(`/api/vessels/${VID}`)).vessel;
+    await S('/api/vessels', post({ id: 'server-copy', name: named.name, imo: '9619799' }));
+    await S('/api/vessels/server-copy/saved-reports/merge', post({
+      reportHistory: [{ id: 'uploaded-for-ship', savedAt: '2026-10-29T00:00:00.000Z', title: 'Uploaded' }],
+    }));
+    await S('/api/vessels', post({ id: 'other-ship', name: 'MV Other Ship', imo: '1234567' }));
+    await S('/api/vessels/other-ship/saved-reports/merge', post({
+      reportHistory: [{ id: 'not-this-ship', savedAt: '2026-10-29T00:00:00.000Z', title: 'Other' }],
+    }));
+    const again = await L('/api/sync/pull', post({
+      syncUrl: 'http://127.0.0.1:' + b.port,
+      syncApiToken: '',
+      vessel: { id: VID, name: named.name, imo: '9619799' },
+    }));
+    check('the other ship was not pulled', !(again.results || []).some((r) => r.id === 'other-ship' || r.fromId === 'other-ship'), JSON.stringify(again.results));
+    check('the uploaded copy landed on this ship', (again.results || []).some((r) => r.id === VID && r.fromId === 'server-copy'), JSON.stringify(again.results));
+    const home = await L(`/api/vessels/${VID}`);
+    check('the uploaded report is on this ship', (home.reportHistory || []).some((r) => r.id === 'uploaded-for-ship'));
+    check('no second ship was opened', !((await L('/api/status')).vessels || []).some((v) => v.id === 'server-copy' || v.id === 'other-ship'));
+    check('tanks still kept after the vessel pull', tankCount(home) === tankCount(device) && tankCount(device) > 0, tankCount(home));
   } finally {
     a.p.kill(); b.p.kill();
   }

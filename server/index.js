@@ -67,7 +67,24 @@ app.use(express.json({ limit: `${SINGLE_POST_LIMIT_MB}mb` }));
 app.use((req, res, next) => {
   const p = String(req.path || '');
   if (p === '/api/sync/probe' || p === '/api/sync/pull' || p === '/api/sync/push') {
-    return store.runWithUserScope({ email: null, master: false, actAs: null }, () => next());
+    /* The peer is reached with the sync token only. A license header that this
+       server cannot verify must not reject the pull — that is what made Backup
+       report an invalid signature. When the header is valid, write into that
+       license's vessels, which is the database the screen is reading. When
+       there is no header, keep the scope already set: on the phone that is the
+       signed-in folder, and forcing it empty was landing the files in a second
+       database the vessel never opened. */
+    const emailHdr = String(req.get('x-license-email') || '').trim();
+    const masterHdr = req.get('x-license-master') === '1';
+    if (!emailHdr && !masterHdr) return next();
+    const sink = { status() { return this; }, json() { return this; } };
+    const scope = parseScopedEntitlement(req, sink);
+    if (!scope) return next();
+    return store.runWithUserScope({
+      email: scope.email,
+      master: scope.master,
+      actAs: scope.actAs,
+    }, () => next());
   }
   /* Vessel library is a server-wide name/IMO catalog (all data/users/* plus root).
    * License headers on this GET only caused 401 entitlement failures and an empty
@@ -1710,7 +1727,25 @@ app.post('/api/sync/pull', asyncHandler(async (req, res) => {
       warning: 'Peer returned 0 vessels — add vessels on the peer or check its data folder',
     });
   }
-  const results = store.applySyncPayload(payload);
+  /* A pull is for the ship that is open. Files uploaded for that hull come
+     back onto it, including when the server stored them under another id.
+     An older caller that sends no vessel still receives the whole bundle. */
+  const wanted = req.body && req.body.vessel;
+  const scoped = store.selectSyncVessels(payload, wanted);
+  const matched = Object.keys(scoped.vessels || {}).length;
+  if (!matched) {
+    const named = wanted && (wanted.name || wanted.id || wanted.imo);
+    return res.json({
+      ok: true,
+      results: [],
+      from: url,
+      remoteCount: 0,
+      warning: named
+        ? 'The server has no tank files for this vessel. Files uploaded for the ship can be pulled while that ship is active.'
+        : 'Peer returned 0 vessels — add vessels on the peer or check its data folder',
+    });
+  }
+  const results = store.applySyncPayload(scoped);
   if (payload.settings) {
     const { syncUrl, syncApiToken, ...rest } = payload.settings;
     store.saveSettings(rest);
