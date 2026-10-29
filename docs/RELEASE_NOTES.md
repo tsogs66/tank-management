@@ -51,10 +51,11 @@ cannot work on a phone. Import on Windows and sync to the phone.
 
 ## Using a shared copy
 
-Both builds keep their own records. Under **Backup / Sync**, *Database* chooses
-whether this device keeps its records on itself or on a server. To share, set
-the server's address there, then **Pull** to bring records down or **Push** to
-send them up. Nothing is transmitted until you press one of them.
+Both builds keep their own records. A phone keeps them on the device. Windows
+and a page opened from the server use that server. Under **Backup / Sync**, set
+the other computer's address and token, then **Pull** to bring the open vessel's
+files down or **Push** to send this ship's database up. Nothing is transmitted
+until you press one of them.
 
 ---
 
