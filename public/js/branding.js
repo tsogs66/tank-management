@@ -8,6 +8,7 @@
  */
 const Branding = (() => {
   const APP_NAME = 'Tank Chief';
+  const APP_VERSION = '2.2.37';
   const AUTHORS = ['ts0gs', 'Marvin C. Endozo'];
 
   /** "ts0gs · Marvin C. Endozo" */
@@ -550,6 +551,7 @@ ${landscape ? '' : 'body:not(.printing-calib) .calib-print-page, body:not(.print
 
   return {
     APP_NAME,
+    APP_VERSION,
     AUTHORS,
     authorLine,
     creditLine,
