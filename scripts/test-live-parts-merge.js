@@ -183,6 +183,19 @@ is(store.getVesselBundle(id).reportHistory.some((r) => r.id === 'from-server'), 
 is(store.getVesselBundle(id).vessel.id, id, 'the ship keeps its own id');
 is(officeAfterSave.some((r) => r.id === 'mon-1'), true, 'saving another monitoring report keeps the one already on the office copy');
 
+store.saveVesselPart(id, 'tanks', {
+  fuel: [{ id: 'tk1', name: 'HFO 1', capacity: 100 }],
+  lube: [], misc: [], water: [],
+});
+store.saveVesselPart(id, 'tanks', { fuel: [], lube: [], misc: [], water: [] });
+is(store.getVesselBundle(id).tanks.fuel.map((t) => t.id), ['tk1'], 'an empty tank book does not replace a filled one');
+const bare = store.createVessel({ name: 'M/V Live Parts', imo: '9619799' });
+is(store.getVesselBundle(bare.id).tanks.fuel.map((t) => t.id), ['tk1'], 'opening the bare copy of this hull loads the tank book');
+store.setUserScope({ email: 'dev@cheng.local', master: false });
+const scoped = store.createVessel({ name: 'MV Live Parts', imo: '9619799' });
+is(store.getVesselBundle(scoped.id).tanks.fuel.map((t) => t.id), ['tk1'], 'the licensed folder loads the tank book kept at the root');
+store.setUserScope({ email: null, master: false });
+
 const roundTrip = store.exportBackup();
 const freshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tank-live-restore-'));
 process.env.TMS_DATA_DIR = freshDir;
