@@ -532,7 +532,9 @@ const FuelReport = (() => {
 
   function renderHistoryPanel(history) {
     const draftForm = view.form && view.form.updatedAt ? view.form : null;
-    const draft = draftForm ? [{
+    const latest = (history || []).find((s) => s && !s.isDraft && s.id !== '__draft__');
+    const showDraft = draftForm && !(latest && latest.form && sameSavedForm(latest.form, draftForm));
+    const draft = showDraft ? [{
       id: '__draft__',
       isDraft: true,
       savedAt: draftForm.updatedAt,
@@ -853,6 +855,9 @@ const FuelReport = (() => {
     bundle.fuelReport = form;
     const gradesChanged = Core.applyCarriedFuelGrades(bundle, form);
     bundle.readings = Core.readingsFromReport(bundle, computed);
+    if (typeof persistPart === 'function') {
+      await persistPart('readings', bundle.readings);
+    }
     let fileSnapshot = !!snapshot;
     if (snapshot) {
       const entry = Core.snapshotFromReport(computed);
@@ -898,6 +903,7 @@ const FuelReport = (() => {
       return;
     }
     await pushServer();
+    if (!quiet) navigate('fuel-report');
   }
 
   async function flushIfDirty() {

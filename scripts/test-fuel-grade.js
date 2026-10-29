@@ -143,8 +143,8 @@ console.log('ok — MGO / LSMGO default to distillate, HFO stays residual, a mov
 
   const appJs = fs.readFileSync(path.join(__dirname, '../public/js/app.js'), 'utf8');
   const brand = fs.readFileSync(path.join(__dirname, '../public/js/branding.js'), 'utf8');
-  assert.ok(appJs.includes('function monitoringFuelComputed'), 'overview computes the monitoring sheet');
-  assert.ok(appJs.includes('familyTotalsFromComputed'), 'overview uses sheet section totals');
+  assert.ok(appJs.includes('fuelFamilyTotals(STATE.bundle.tanks.fuel'), 'overview uses stored sounding totals');
+  assert.ok(!/reportFam = monitoring/.test(appJs), 'overview does not overlay monitoring sheet totals');
   assert.ok(brand.includes('function printJobIsLandscape'), 'portrait unless the capacity book');
   assert.ok(brand.includes('function stripNamedLandscapePage'), 'portrait html drops the landscape page');
   assert.ok(brand.includes("landscape ? '@page landscape-sheet { size: A4 landscape; margin: 0; }' : ''"),

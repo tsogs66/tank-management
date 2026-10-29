@@ -358,7 +358,7 @@ function defaultRow(tank, reading) {
   return {
     fuelType: defaultFuelType(tank),
     reading: r.reading != null ? r.reading : '',
-    method: normalizeMethod(tank.soundingMethod),
+    method: normalizeMethod(r.entryMethod || r.method || tank.soundingMethod),
     tempC: r.tempC != null ? r.tempC : '',
     unit: 'den15',
     unitValue: r.density15 != null ? r.density15 : '',

@@ -1344,37 +1344,13 @@ function renderDashboard(main) {
     <button class="btn" id="btn-tank-summary-save">Save</button>
   </div></div>`;
 
-  const monitoring = monitoringFuelComputed();
-  rememberMonitoringRows(monitoring);
-  const reportFam = monitoring && window.FuelReportCore
-    ? window.FuelReportCore.familyTotalsFromComputed(monitoring).fam
-    : null;
+  dashboardFuelRows = null;
 
   let grandVol = 0, grandCap = 0, grandWeight = 0, totalTanks = 0, readTanks = 0;
   const cards = document.createElement('div');
   cards.className = 'cards-row cards-family';
   for (const c of CATS) {
     const t = categoryTotals(c.id);
-    if (c.id === 'fuel' && reportFam) {
-      grandVol += reportFam.heavy.volume + reportFam.distillate.volume;
-      grandWeight += reportFam.heavy.weight + reportFam.distillate.weight;
-      grandCap += reportFam.heavy.capacity + reportFam.distillate.capacity;
-      totalTanks += reportFam.heavy.count + reportFam.distillate.count;
-      readTanks += reportFam.heavy.withReading + reportFam.distillate.withReading;
-      const fam = reportFam;
-      const pct = (b) => (b.capacity ? (b.volume / b.capacity) * 100 : 0);
-      cards.innerHTML += `<div class="card">
-        <div class="label"><span class="cat-dot cat-fuel"></span>HFO / VLSFO</div>
-        <div class="value">${fmt(fam.heavy.volume,1)}<span class="unit">m³ / ${fmt(fam.heavy.capacity,0)}</span></div>
-        <div class="sub">${fmt(fam.heavy.weight,2)} MT · ${fam.heavy.withReading}/${fam.heavy.count} · ${fmt(pct(fam.heavy),1)}% full</div>
-      </div>`;
-      cards.innerHTML += `<div class="card">
-        <div class="label"><span class="cat-dot cat-fuel"></span>MDO / MGO / LSMGO</div>
-        <div class="value">${fmt(fam.distillate.volume,1)}<span class="unit">m³ / ${fmt(fam.distillate.capacity,0)}</span></div>
-        <div class="sub">${fmt(fam.distillate.weight,2)} MT · ${fam.distillate.withReading}/${fam.distillate.count} · ${fmt(pct(fam.distillate),1)}% full</div>
-      </div>`;
-      continue;
-    }
     grandVol += t.volume; grandCap += t.capacity; grandWeight += t.weight;
     totalTanks += t.count; readTanks += t.withReading;
     if (c.id === 'fuel') {
@@ -1382,28 +1358,28 @@ function renderDashboard(main) {
       const pct = (b) => (b.capacity ? (b.volume / b.capacity) * 100 : 0);
       cards.innerHTML += `<div class="card">
         <div class="label"><span class="cat-dot cat-fuel"></span>HFO / VLSFO</div>
-        <div class="value">${fmt(fam.heavy.volume,1)}<span class="unit">m³ / ${fmt(fam.heavy.capacity,0)}</span></div>
-        <div class="sub">${fmt(fam.heavy.weight,2)} MT · ${fam.heavy.withReading}/${fam.heavy.count} · ${fmt(pct(fam.heavy),1)}% full</div>
+        <div class="value">${fmt(fam.heavy.weight,2)}<span class="unit">MT</span></div>
+        <div class="sub">${fmt(fam.heavy.volume,1)} m³ / ${fmt(fam.heavy.capacity,0)} · ${fam.heavy.withReading}/${fam.heavy.count} · ${fmt(pct(fam.heavy),1)}% full</div>
       </div>`;
       cards.innerHTML += `<div class="card">
         <div class="label"><span class="cat-dot cat-fuel"></span>MDO / MGO / LSMGO</div>
-        <div class="value">${fmt(fam.distillate.volume,1)}<span class="unit">m³ / ${fmt(fam.distillate.capacity,0)}</span></div>
-        <div class="sub">${fmt(fam.distillate.weight,2)} MT · ${fam.distillate.withReading}/${fam.distillate.count} · ${fmt(pct(fam.distillate),1)}% full</div>
+        <div class="value">${fmt(fam.distillate.weight,2)}<span class="unit">MT</span></div>
+        <div class="sub">${fmt(fam.distillate.volume,1)} m³ / ${fmt(fam.distillate.capacity,0)} · ${fam.distillate.withReading}/${fam.distillate.count} · ${fmt(pct(fam.distillate),1)}% full</div>
       </div>`;
       continue;
     }
     const pct = t.capacity ? (t.volume / t.capacity) * 100 : 0;
     cards.innerHTML += `<div class="card">
       <div class="label"><span class="cat-dot cat-${c.id}"></span>${c.label}</div>
-      <div class="value">${fmt(t.volume,1)}<span class="unit">m³ / ${fmt(t.capacity,0)}</span></div>
-      <div class="sub">${t.withReading}/${t.count} logged · ${fmt(pct,1)}% full</div>
+      <div class="value">${t.weight ? fmt(t.weight,2) : fmt(t.volume,1)}<span class="unit">${t.weight ? 'MT' : 'm³ / ' + fmt(t.capacity,0)}</span></div>
+      <div class="sub">${t.weight ? fmt(t.volume,1) + ' m³ / ' + fmt(t.capacity,0) + ' · ' : ''}${t.withReading}/${t.count} logged · ${fmt(pct,1)}% full</div>
     </div>`;
   }
   const summary = document.createElement('div');
   summary.className = 'cards-row cards-summary';
   summary.innerHTML = `
-    <div class="card"><div class="label">Total Volume</div><div class="value">${fmt(grandVol,1)}<span class="unit">m³</span></div></div>
     <div class="card"><div class="label">Total Weight</div><div class="value">${fmt(grandWeight,1)}<span class="unit">MT</span></div></div>
+    <div class="card"><div class="label">Total Volume</div><div class="value">${fmt(grandVol,1)}<span class="unit">m³</span></div></div>
     <div class="card"><div class="label">Readings</div><div class="value">${readTanks}<span class="unit">/ ${totalTanks}</span></div></div>`;
   main.appendChild(summary);
   main.appendChild(cards);
@@ -1905,7 +1881,7 @@ function categorySections(catId, tanks) {
 }
 
 function renderCategory(main, catId) {
-  if (catId === 'fuel') rememberMonitoringRows(monitoringFuelComputed());
+  dashboardFuelRows = null;
   const c = CATS.find((x) => x.id === catId);
   const t = categoryTotals(catId);
   const tanks = TankOrder.sorted(STATE.bundle.tanks[catId] || []);
@@ -4477,7 +4453,9 @@ function tankConditionPrintHtml(computed, title) {
 }
 
 function historyTableHtml(list, draftEntry, emptyMsg) {
-  const draft = draftEntry && draftEntry.form ? [{
+  const latest = (list || []).find((s) => s && !s.isDraft && s.id !== '__draft__');
+  const hideDraft = draftEntry && latest && latest.form && sameSavedForm(latest.form, draftEntry.form);
+  const draft = draftEntry && draftEntry.form && !hideDraft ? [{
     ...draftEntry,
     id: draftEntry.id || '__draft__',
     isDraft: true,

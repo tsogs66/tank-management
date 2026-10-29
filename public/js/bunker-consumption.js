@@ -182,9 +182,9 @@ const BunkerConsumption = (function () {
   }
   function resultCardsHtml(sum) {
     return [
-      resultCard('Days at Port / Anchor', fmtN(sum.daysPort, 3), 'days'),
-      resultCard('Days at Sea', fmtN(sum.daysSea, 3), 'days'),
-      resultCard('Total Distance', fmtN(sum.totalDist, 2), 'NM'),
+      resultCard('Days at Port / Anchor', fmtN(sum.daysPort, 1), 'days'),
+      resultCard('Days at Sea', fmtN(sum.daysSea, 1), 'days'),
+      resultCard('Total Distance', fmtN(sum.totalDist, 0), 'NM'),
       resultCard('Total Consumption', fmtFuel(sum.totalCons), 'MT'),
       resultCard('Total Margin', fmtFuel(sum.margin), 'MT'),
       resultCard('Required Quantity', fmtFuel(sum.required), 'MT'),
@@ -455,9 +455,9 @@ const BunkerConsumption = (function () {
           ${printMetaGrid([
             { label: 'Current ROB', value: side.currentRob == null ? '—' : fmtFuel(side.currentRob) + ' MT' },
             { label: 'Qty to Receive', value: side.qtyReceive == null ? '—' : fmtFuel(side.qtyReceive) + ' MT' },
-            { label: 'Days Port', value: fmtN(sum.daysPort, 3) },
-            { label: 'Days Sea', value: fmtN(sum.daysSea, 3) },
-            { label: 'Total Distance', value: fmtN(sum.totalDist, 2) + ' nm' },
+            { label: 'Days Port', value: fmtN(sum.daysPort, 1) },
+            { label: 'Days Sea', value: fmtN(sum.daysSea, 1) },
+            { label: 'Total Distance', value: fmtN(sum.totalDist, 0) + ' nm' },
             { label: 'Total Consumption', value: fmtFuel(sum.totalCons) + ' MT' },
             { label: 'Total Margin', value: fmtFuel(sum.margin) + ' MT' },
             { label: 'Required Quantity', value: fmtFuel(sum.required) + ' MT' },

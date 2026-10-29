@@ -31,5 +31,7 @@ for (const file of candidates) {
     file + ': close() must remove orphan overlays');
   assert(!/user-select:none/.test(src.match(/\.ccp-readout\{[^}]+\}/)?.[0] || ''),
     file + ': readout must not be user-select:none (blocks typing)');
+  assert(/Opening on every focus painted a full-screen overlay/.test(src),
+    file + ': time fields must not open the overlay on focus');
   console.log('ok —', path.relative(process.cwd(), file));
 }

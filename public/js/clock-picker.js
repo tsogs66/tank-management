@@ -921,11 +921,13 @@ input.ccp-bound{cursor:pointer}
       ev.preventDefault();
       open(el);
     });
-    el.addEventListener('focus', (ev) => {
+    el.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
       ev.preventDefault();
-      try { el.blur(); } catch (_) {}
       open(el);
     });
+    /* Opening on every focus painted a full-screen overlay the first time a
+       page with a time field loaded, and nothing on the sheet could be typed. */
   }
 
   function enhance(root) {

@@ -140,8 +140,21 @@ const BunkerReports = (() => {
     return pushServer();
   }
 
+  function sameSavedForm(a, b) {
+    const strip = (form) => {
+      if (!form || typeof form !== 'object') return form;
+      const copy = { ...form };
+      delete copy.updatedAt;
+      return copy;
+    };
+    try { return JSON.stringify(strip(a)) === JSON.stringify(strip(b)); }
+    catch (_) { return false; }
+  }
+
   function historyRows(list, kind, draftEntry) {
-    const draft = draftEntry && draftEntry.form ? [{
+    const latest = (list || []).find((s) => s && !s.isDraft && s.id !== '__draft__');
+    const hideDraft = draftEntry && latest && latest.form && sameSavedForm(latest.form, draftEntry.form);
+    const draft = draftEntry && draftEntry.form && !hideDraft ? [{
       ...draftEntry,
       id: draftEntry.id || '__draft__',
       isDraft: true,

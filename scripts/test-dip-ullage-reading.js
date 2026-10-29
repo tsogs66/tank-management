@@ -42,5 +42,15 @@ check('label follows the choice', /methodWord\(methodSelect \? methodSelect\.val
 check('calculates with the chosen method, not the tank default',
   /entryMethod: gaugeType === 'volume'[\s\S]{0,160}getElementById\('in-method'\)\.value : initialMethod/.test(detail));
 
+const CORE = fs.readFileSync(path.join(ROOT, 'public/js/fuel-report-core.js'), 'utf8').replace(/\r\n/g, '\n');
+check('monitoring default row uses the stored sounding method',
+  /method:\s*normalizeMethod\(r\.entryMethod \|\| r\.method \|\| tank\.soundingMethod\)/.test(CORE));
+const FuelReportCore = require(path.join(ROOT, 'public/js/fuel-report-core.js'));
+const form = FuelReportCore.emptyFuelReport({
+  tanks: { fuel: [{ id: 'fuel1', name: 'NO.1 HFO TK', soundingMethod: 'ullage', capacity: 100, category: 'fuel' }] },
+  readings: { fuel1: { reading: 0, entryMethod: 'dip', result: { volumeObserved: 0, weightMT: 0 } } },
+});
+check('empty monitoring sheet opens a dip reading as dip, not ullage', form.rows.fuel1.method === 'dip', form.rows.fuel1.method);
+
 console.log(`\n${checks - failures}/${checks} passed`);
 process.exit(failures ? 1 : 0);
