@@ -79,10 +79,74 @@ const FuelReport = (() => {
   };
 
   function currentBundle() {
+    return overlayAioIdentity(STATE.bundle);
+  }
+
+  /**
+   * Inside ChEng AIO, Vessel Setup owns the Chief Engineer name and signature.
+   * Tank folder ids often differ from the shell id, so the iframe's own
+   * vessel.json can be empty or stale even after the engineer saved the hub.
+   * Standalone Tank Chief keeps reading its own Vessel Setup — this returns
+   * null when there is no AIO parent.
+   */
+  function aioPrintIdentity() {
+    try {
+      const parentWin = window.parent;
+      if (!parentWin || parentWin === window) return null;
+      const vesselApi = parentWin.ChengPro && parentWin.ChengPro.vessel;
+      if (!vesselApi || typeof vesselApi.getActive !== 'function') return null;
+      const v = vesselApi.getActive();
+      if (!v) return null;
+      let assets = null;
+      if (typeof vesselApi.getAssets === 'function') assets = vesselApi.getAssets();
+      else if (v.assets) assets = v.assets;
+      const chiefEngineer = String(v.chiefEngineer || '').trim();
+      const sigs = (assets && assets.chEngSignatures && typeof assets.chEngSignatures === 'object')
+        ? assets.chEngSignatures : null;
+      const logo = assets && assets.vesselLogo ? assets.vesselLogo : null;
+      if (!chiefEngineer && !sigs && !logo) return null;
+      return { chiefEngineer, assets: { vesselLogo: logo, chEngSignatures: sigs || {} } };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function overlayAioIdentity(bundle) {
+    if (!bundle) return bundle;
+    const aio = aioPrintIdentity();
+    if (!aio) return bundle;
+    const vessel = Object.assign({}, bundle.vessel || {});
+    if (aio.chiefEngineer) vessel.chiefEngineer = aio.chiefEngineer;
+    const localAssets = bundle.assets && typeof bundle.assets === 'object'
+      ? bundle.assets : { vesselLogo: null, chEngSignatures: {} };
+    const aioSigs = (aio.assets && aio.assets.chEngSignatures) || {};
+    const chEngSignatures = Object.assign({}, localAssets.chEngSignatures || {});
+    for (const [key, url] of Object.entries(aioSigs)) {
+      if (typeof url !== 'string' || !url) continue;
+      const raw = String(key).trim();
+      if (!raw) continue;
+      chEngSignatures[raw] = url;
+      chEngSignatures[raw.toLowerCase()] = url;
+    }
+    const assets = {
+      vesselLogo: (aio.assets && aio.assets.vesselLogo) || localAssets.vesselLogo || null,
+      chEngSignatures,
+    };
+    return Object.assign({}, bundle, { vessel, assets });
+  }
+
+  function applyAioIdentity() {
+    if (!window.STATE || !STATE.bundle) return STATE && STATE.bundle;
+    STATE.bundle = overlayAioIdentity(STATE.bundle);
+    const aio = aioPrintIdentity();
+    if (aio && aio.chiefEngineer && view.form && view.form.signature) {
+      view.form.signature.preparedBy = aio.chiefEngineer;
+    }
     return STATE.bundle;
   }
 
   function recompute() {
+    applyAioIdentity();
     view.computed = Core.computeFuelReport(currentBundle(), view.form, view.conversion);
     return view.computed;
   }
@@ -1790,6 +1854,9 @@ const FuelReport = (() => {
     signatureKey,
     vesselChiefEngineer,
     vesselAssets,
+    overlayAioIdentity,
+    applyAioIdentity,
+    aioPrintIdentity,
     sheetTableHtml: renderSectionPanel,
     bindSheetPopups,
     openSheetPopup,

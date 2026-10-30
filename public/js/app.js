@@ -721,6 +721,9 @@ async function activateTankVessel(id) {
 async function reloadBundle() {
   if (!STATE.activeVesselId) { STATE.bundle = null; return; }
   STATE.bundle = await Api.getVessel(STATE.activeVesselId);
+  if (window.FuelReport && typeof FuelReport.applyAioIdentity === 'function') {
+    FuelReport.applyAioIdentity();
+  }
   await loadConversionTable();
   await adoptCarriedFuelGrades();
 }
@@ -1247,6 +1250,13 @@ let dashboardFuelRows = null;
  * follows unsaved soundings; otherwise the saved fuel report is computed
  * the same way that page computes it on open.
  */
+function identityBundle(bundle) {
+  if (window.FuelReport && typeof FuelReport.overlayAioIdentity === 'function') {
+    return FuelReport.overlayAioIdentity(bundle);
+  }
+  return bundle;
+}
+
 function monitoringFuelComputed() {
   const Core = window.FuelReportCore;
   if (!Core || typeof Core.computeFuelReport !== 'function') return null;
@@ -1256,7 +1266,7 @@ function monitoringFuelComputed() {
         && typeof window.FuelReport.recompute === 'function') {
       return window.FuelReport.recompute();
     }
-    const bundle = STATE.bundle;
+    const bundle = identityBundle(STATE.bundle);
     if (!bundle || typeof Core.normalizeForm !== 'function') return null;
     const form = Core.normalizeForm(bundle, bundle.fuelReport || Core.emptyFuelReport(bundle));
     return Core.computeFuelReport(bundle, form, STATE.conversionTable || null);
@@ -1281,7 +1291,8 @@ function monitoringFuelForm() {
   if (!Core) return null;
   const live = window.FuelReport && window.FuelReport.view;
   if (live && live.form && live.vesselId && live.vesselId === STATE.activeVesselId) return live.form;
-  return Core.normalizeForm(STATE.bundle, STATE.bundle.fuelReport || Core.emptyFuelReport(STATE.bundle));
+  const bundle = identityBundle(STATE.bundle);
+  return Core.normalizeForm(bundle, bundle.fuelReport || Core.emptyFuelReport(bundle));
 }
 
 function fuelFamilyTotals(tanks) {
@@ -1424,11 +1435,12 @@ function renderDashboard(main) {
     if (!Core || !window.FuelReport) { showToast('Fuel report module not loaded'); return; }
     await loadConversionTable();
     const voyage = STATE.bundle.voyage || {};
+    const bundle = identityBundle(STATE.bundle);
     const form = formOverride && formOverride.fuelReport
-      ? Core.normalizeForm(STATE.bundle, formOverride.fuelReport)
+      ? Core.normalizeForm(bundle, formOverride.fuelReport)
       : (monitoringFuelForm() || voyageFuelForm(voyage));
     if (form) form.header.reportType = form.header.reportType || 'Monitoring';
-    const computed = Core.computeFuelReport(STATE.bundle, form, STATE.conversionTable);
+    const computed = Core.computeFuelReport(bundle, form, STATE.conversionTable);
     const pages = tankConditionPrintHtml(computed, 'TANK SUMMARY REPORT');
     if (saveSnapshot) {
       const entry = {
@@ -4431,7 +4443,7 @@ function voyageReportTypes(current) {
 function voyageFuelForm(voyage) {
   const Core = window.FuelReportCore;
   if (!Core) return null;
-  const b = STATE.bundle;
+  const b = identityBundle(STATE.bundle);
   const form = Core.normalizeForm(b, b.fuelReport || Core.emptyFuelReport(b));
   const v = voyage || b.voyage || {};
   form.header = {
@@ -4645,7 +4657,7 @@ function renderReport(main) {
   const printVoyage = async (voyage, { saveSnapshot = false } = {}) => {
     await loadConversionTable();
     const form = voyageFuelForm(voyage);
-    const computed = Core.computeFuelReport(STATE.bundle, form, STATE.conversionTable);
+    const computed = Core.computeFuelReport(identityBundle(STATE.bundle), form, STATE.conversionTable);
     const pages = tankConditionPrintHtml(computed, 'VOYAGE REPORT');
     if (saveSnapshot) {
       const entry = {

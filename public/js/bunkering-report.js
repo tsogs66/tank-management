@@ -26,6 +26,9 @@ const BunkerReports = (() => {
   };
 
   function bundle() {
+    if (window.FuelReport && typeof FuelReport.overlayAioIdentity === 'function') {
+      return FuelReport.overlayAioIdentity(STATE.bundle);
+    }
     return STATE.bundle;
   }
 

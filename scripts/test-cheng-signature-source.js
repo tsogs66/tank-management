@@ -98,6 +98,12 @@ check('and the image is looked up by that name, so a reprint is honest',
   /function signatureFor\(name\)/.test(UI), true);
 check('tank condition prints through the same block',
   /UI\.printSignatureBlock\(computed\.signature && computed\.signature\.preparedBy/.test(APP), true);
+check('AIO Vessel Setup overlays the Chief Engineer onto the tank bundle',
+  /function overlayAioIdentity\(/.test(UI), true);
+check('print helpers read that overlay, not the raw tank folder',
+  /return overlayAioIdentity\(STATE\.bundle\)/.test(UI), true);
+check('and the live working sheet takes the AIO name',
+  /function applyAioIdentity\(/.test(UI) && /view\.form\.signature\.preparedBy = aio\.chiefEngineer/.test(UI), true);
 
 console.log(fails ? `\nFAILED — ${fails} of ${checks} checks` : `\nPASSED — ${checks} checks`);
 process.exit(fails ? 1 : 0);
