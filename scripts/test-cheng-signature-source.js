@@ -24,6 +24,8 @@ const ROOT = path.join(__dirname, '..');
 const CORE = require(path.join(ROOT, 'public/js/fuel-report-core.js'));
 const UI = fs.readFileSync(path.join(ROOT, 'public/js/fuel-report.js'), 'utf8');
 const APP = fs.readFileSync(path.join(ROOT, 'public/js/app.js'), 'utf8');
+const BRANDING = fs.readFileSync(path.join(ROOT, 'public/js/branding.js'), 'utf8');
+const CSS = fs.readFileSync(path.join(ROOT, 'public/css/app.css'), 'utf8');
 
 let fails = 0, checks = 0;
 function check(label, actual, expected) {
@@ -104,6 +106,13 @@ check('print helpers read that overlay, not the raw tank folder',
   /return overlayAioIdentity\(STATE\.bundle\)/.test(UI), true);
 check('and the live working sheet takes the AIO name',
   /function applyAioIdentity\(/.test(UI) && /view\.form\.signature\.preparedBy = aio\.chiefEngineer/.test(UI), true);
+check('signature lookup is loose so a spelling variant still finds the image',
+  /function looseSignatureKey\(/.test(UI) && /looseSignatureKey\(k\) === loose/.test(UI), true);
+check('Android print does not absolutely-position the signature image',
+  /\.fr-print-sign-space img \{[\s\S]{0,280}position: static/.test(BRANDING), true);
+check('and the sheet CSS uses flex instead of transform',
+  /\.fr-print-sign-space \{[\s\S]{0,180}display: flex/.test(CSS)
+    && !/\.fr-print-sign-space img \{[\s\S]{0,120}transform: translateX/.test(CSS), true);
 
 console.log(fails ? `\nFAILED — ${fails} of ${checks} checks` : `\nPASSED — ${checks} checks`);
 process.exit(fails ? 1 : 0);

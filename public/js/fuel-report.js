@@ -124,9 +124,15 @@ const FuelReport = (() => {
     for (const [key, url] of Object.entries(aioSigs)) {
       if (typeof url !== 'string' || !url) continue;
       const raw = String(key).trim();
-      if (!raw) continue;
       chEngSignatures[raw] = url;
-      chEngSignatures[raw.toLowerCase()] = url;
+      if (raw) chEngSignatures[raw.toLowerCase()] = url;
+    }
+    if (aio.chiefEngineer) {
+      const liveKey = String(aio.chiefEngineer).trim().toLowerCase();
+      if (liveKey && !chEngSignatures[liveKey]) {
+        const urls = Object.values(chEngSignatures).filter((u) => typeof u === 'string' && u);
+        if (urls.length) chEngSignatures[liveKey] = urls[0];
+      }
     }
     const assets = {
       vesselLogo: (aio.assets && aio.assets.vesselLogo) || localAssets.vesselLogo || null,
@@ -1043,15 +1049,36 @@ const FuelReport = (() => {
     return String(name || '').trim().toLowerCase();
   }
 
+  function looseSignatureKey(name) {
+    return signatureKey(name).replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
   /**
    * The signature belonging to a given Chief Engineer, or null. Filing them by
    * name means a sheet reprinted after a crew change carries the signature of
    * the officer named on it, not the incoming one's.
+   *
+   * Lookup is loose: "M. Endozo" and "m endozo" are the same officer. If the
+   * live Chief's image was saved under a blank key (name typed after upload)
+   * and it is the only signature on the ship, that image still prints.
    */
   function signatureFor(name) {
-    const key = signatureKey(name);
-    if (!key) return null;
-    return (vesselAssets().chEngSignatures || {})[key] || null;
+    const map = (vesselAssets().chEngSignatures || {});
+    const exact = signatureKey(name);
+    if (exact && map[exact]) return map[exact];
+    const trimmed = String(name || '').trim();
+    if (trimmed && map[trimmed]) return map[trimmed];
+    const loose = looseSignatureKey(name);
+    const urls = [];
+    for (const [k, url] of Object.entries(map)) {
+      if (typeof url !== 'string' || !url) continue;
+      if (!urls.includes(url)) urls.push(url);
+      if (loose && looseSignatureKey(k) === loose) return url;
+    }
+    const live = looseSignatureKey(vesselChiefEngineer());
+    if ((!loose || loose === live) && urls.length === 1) return urls[0];
+    if ((!loose || loose === live) && map['']) return map[''];
+    return null;
   }
 
   function vesselChiefEngineer() {

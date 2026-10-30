@@ -1965,10 +1965,11 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     flex: 0 0 62mm; font-size: 8pt; text-align: center;
   }
   .fr-print-sign-space {
-    position: relative; height: 15mm; width: 62mm;
+    height: 15mm; width: 62mm;
+    display: flex; align-items: flex-end; justify-content: center;
   }
   .fr-print-sign-space img {
-    position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
+    display: block;
     max-height: 15mm; max-width: 62mm; object-fit: contain;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }

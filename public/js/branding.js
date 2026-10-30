@@ -8,7 +8,7 @@
  */
 const Branding = (() => {
   const APP_NAME = 'Tank Chief';
-  const APP_VERSION = '2.2.38';
+  const APP_VERSION = '2.2.39';
   const AUTHORS = ['ts0gs', 'Marvin C. Endozo'];
 
   /** "ts0gs · Marvin C. Endozo" */
@@ -255,11 +255,12 @@ ${landscape ? '' : 'body:not(.printing-calib) .calib-print-page, body:not(.print
 .fr-tc-signoff .fr-print-signrow { justify-content: flex-start !important; margin-top: 0 !important; }
 .fr-print-sign { flex: 0 0 62mm !important; font-size: 8pt !important; text-align: center !important; }
 .fr-print-sign-space {
-  position: relative !important; height: 15mm !important; width: 62mm !important;
+  height: 15mm !important; width: 62mm !important;
+  display: flex !important; align-items: flex-end !important; justify-content: center !important;
 }
 .fr-print-sign-space img {
-  position: absolute !important; left: 50% !important; bottom: 0 !important;
-  transform: translateX(-50%) !important;
+  position: static !important; left: auto !important; transform: none !important;
+  display: block !important;
   max-height: 15mm !important; max-width: 62mm !important; object-fit: contain !important;
   -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
 }
