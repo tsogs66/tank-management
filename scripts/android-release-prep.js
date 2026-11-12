@@ -83,7 +83,8 @@ if (fs.existsSync(manifestPath)) {
     manifest = manifest.replace(
       '</manifest>',
       '    <queries>\n        <intent>\n            <action android:name="android.intent.action.INSERT" />\n'
-      + '            <data android:mimeType="vnd.android.cursor.dir/event" />\n        </intent>\n    </queries>\n</manifest>'
+      + '            <data android:mimeType="vnd.android.cursor.dir/event" />\n        </intent>\n'
+      + '        <intent>\n            <action android:name="android.intent.action.TTS_SERVICE" />\n        </intent>\n    </queries>\n</manifest>'
     );
   }
   fs.writeFileSync(manifestPath, manifest);

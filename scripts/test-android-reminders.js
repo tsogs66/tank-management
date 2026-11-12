@@ -44,11 +44,16 @@ run();
 const manifest2 = fs.readFileSync(path.join(main, 'AndroidManifest.xml'), 'utf8');
 
 console.log('\nthe project');
-for (const f of ['ReminderScheduler', 'ReminderReceiver', 'ReminderBootReceiver', 'ReminderBridge', 'MainActivity']) {
+for (const f of ['ReminderScheduler', 'ReminderReceiver', 'ReminderBootReceiver', 'ReminderBridge', 'SpeechBridge', 'MainActivity']) {
   check(f + '.java is generated', fs.existsSync(path.join(pkgDir, f + '.java')));
 }
 const activity = fs.readFileSync(path.join(pkgDir, 'MainActivity.java'), 'utf8');
 check('the page can reach the bridge as ChengAndroidReminders', /addJavascriptInterface\(new ReminderBridge\(this\), "ChengAndroidReminders"\)/.test(activity));
+check('the page can reach the tablet\'s own speech engine as ChengAndroidSpeech', /addJavascriptInterface\(new SpeechBridge\(this, webView\), "ChengAndroidSpeech"\)/.test(activity));
+const speechSrc = fs.readFileSync(path.join(pkgDir, 'SpeechBridge.java'), 'utf8');
+check('speech uses the Android TextToSpeech engine', /new TextToSpeech\(/.test(speechSrc));
+check('and prefers a voice stored on the device, since an online one says nothing at sea', /isNetworkConnectionRequired\(\)\) continue/.test(speechSrc));
+check('and tells the page when the order is spoken', /cheng-tts/.test(speechSrc));
 const sched = fs.readFileSync(path.join(pkgDir, 'ReminderScheduler.java'), 'utf8');
 check('alarms go to the system clock (rings in Doze, needs no exact-alarm permission)', /setAlarmClock/.test(sched));
 check('the whole set is replaced on each sync', /cancel\(ctx, stored\(ctx\)\)/.test(sched));
@@ -63,6 +68,7 @@ for (const perm of ['POST_NOTIFICATIONS', 'RECEIVE_BOOT_COMPLETED']) {
 check('the alarm receiver is registered, and private', /<receiver android:name="\.ReminderReceiver" android:exported="false"/.test(manifest1));
 check('the boot receiver puts alarms back after a reboot and an update',
   /BOOT_COMPLETED/.test(manifest1) && /MY_PACKAGE_REPLACED/.test(manifest1));
+check('the speech engines are visible to the app on Android 11+, or it cannot start one', /android\.intent\.action\.TTS_SERVICE/.test(manifest1));
 check('the calendar app stays visible to the check on Android 11+', /android\.intent\.action\.INSERT/.test(manifest1));
 check('running the prep again changes nothing', manifest1 === manifest2);
 check('and adds no second receiver', (manifest2.match(/\.ReminderReceiver"/g) || []).length === 1);
@@ -74,7 +80,7 @@ if (jar && fs.existsSync(jar)) {
   fs.mkdirSync(stub, { recursive: true });
   fs.writeFileSync(path.join(stub, 'AppCompatActivity.java'), 'package androidx.appcompat.app; public class AppCompatActivity extends android.app.Activity {}');
   const cap = process.env.CAPACITOR_JAR;
-  const reminderFiles = ['ReminderScheduler', 'ReminderReceiver', 'ReminderBootReceiver', 'ReminderBridge'].map((f) => path.join(pkgDir, f + '.java'));
+  const reminderFiles = ['ReminderScheduler', 'ReminderReceiver', 'ReminderBootReceiver', 'ReminderBridge', 'SpeechBridge'].map((f) => path.join(pkgDir, f + '.java'));
   const holder = path.join(pkgDir, 'MainActivity.java');
   if (!cap) fs.writeFileSync(holder, 'package cloud.tsogs.tankmanagement; public class MainActivity extends android.app.Activity {}');
   const out = path.join(tmp, 'out');
