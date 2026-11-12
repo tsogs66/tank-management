@@ -19,6 +19,8 @@
 const path = require('path');
 const fs = require('fs');
 const { app, BrowserWindow, shell, dialog, Menu, ipcMain } = require('electron');
+/* Windows shows a toast only for an app that has an id; use the installer's. */
+if (process.platform === 'win32') app.setAppUserModelId('cloud.tsogs.tankmanagement');
 
 function portableBaseDir() {
   if (process.env.PORTABLE_EXECUTABLE_DIR) {
@@ -134,6 +136,28 @@ function filtersForName(filename, mime) {
   }
   return [{ name: 'All files', extensions: ['*'] }];
 }
+
+/* Note alarms (rung while the program runs) and the calendar hand-off. */
+const { createReminders } = require('./reminders');
+const reminders = createReminders({
+  notify(alarm) {
+    const { Notification } = require('electron');
+    if (Notification.isSupported()) {
+      new Notification({ title: alarm.title, body: alarm.body || 'Alarm', silent: false, urgency: 'critical' }).show();
+    }
+    try {
+      if (win && !win.isDestroyed()) win.flashFrame(true);
+    } catch { /* ignore */ }
+    shell.beep();
+  },
+  tmpDir: app.getPath('temp'),
+  mkdir: (dir) => fs.promises.mkdir(dir, { recursive: true }),
+  writeFile: (file, text) => fs.promises.writeFile(file, text, 'utf8'),
+  openFile: (file) => shell.openPath(file),
+});
+ipcMain.handle('cheng-reminders-sync', (_event, list) => reminders.sync(list));
+ipcMain.handle('cheng-reminders-calendar', (_event, payload = {}) =>
+  reminders.openCalendar(payload.filename, payload.text));
 
 /* File System Access write crashes Electron — backups go through this dialog. */
 ipcMain.handle('cheng-save-text', async (event, payload = {}) => {

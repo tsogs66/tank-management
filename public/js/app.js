@@ -1498,22 +1498,17 @@ function renderDashboard(main) {
       savedAt: STATE.bundle.tankSummaryDraft.updatedAt,
       totalMT: grandWeight,
     } : null, 'Nothing saved yet — use Save to file this report, or Print Tank Summary to file it and print')}`;
-  /* Inside ChEng AIO the dashboard is the first screen of the day, and this
-     list of filed reports pushed the tank cards a screen down. It stays out of
-     the way until it is asked for. Open state is held for the session so a
-     Load or Delete inside it does not fold it shut under the finger. */
-  if (isAioEmbedded()) {
-    histPanel.innerHTML = `
-      <details class="ts-fold" id="ts-fold"${STATE.tankSummaryOpen ? ' open' : ''}>
-        <summary><span class="section-title">Tank Summary Report</span><span class="ts-fold-hint"></span></summary>
-        ${summaryBody}
-      </details>`;
-    const fold = histPanel.querySelector('#ts-fold');
-    if (fold) fold.addEventListener('toggle', () => { STATE.tankSummaryOpen = fold.open; });
-  } else {
-    histPanel.innerHTML = `
-      <div class="section-title" style="margin-top:0">Tank Summary Report</div>${summaryBody}`;
-  }
+  /* The dashboard is the first screen of the day, and this list of filed
+     reports pushed the tank cards a screen down. It stays out of the way until
+     it is asked for. Open state is held for the session so a Load or Delete
+     inside it does not fold it shut under the finger. */
+  histPanel.innerHTML = `
+    <details class="ts-fold" id="ts-fold"${STATE.tankSummaryOpen ? ' open' : ''}>
+      <summary><span class="section-title">Tank Summary Report</span><span class="ts-fold-hint"></span></summary>
+      ${summaryBody}
+    </details>`;
+  const fold = histPanel.querySelector('#ts-fold');
+  if (fold) fold.addEventListener('toggle', () => { STATE.tankSummaryOpen = fold.open; });
   main.appendChild(histPanel);
 
   const printTankSummary = async ({ saveSnapshot = false, formOverride = null } = {}) => {

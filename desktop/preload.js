@@ -19,3 +19,17 @@ contextBridge.exposeInMainWorld('ChengDesktopFiles', {
     });
   },
 });
+
+/** Notes: alarms rung by the desktop app, and the calendar hand-off. */
+contextBridge.exposeInMainWorld('ChengDesktopReminders', {
+  sync(list) {
+    return ipcRenderer.invoke('cheng-reminders-sync', Array.isArray(list) ? list : []);
+  },
+  /** @returns {Promise<string>} The calendar file that was opened, or '' if it could not be. */
+  openCalendar(filename, text) {
+    return ipcRenderer.invoke('cheng-reminders-calendar', {
+      filename: String(filename || ''),
+      text: String(text ?? ''),
+    });
+  },
+});

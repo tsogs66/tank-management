@@ -59,6 +59,12 @@ jobs:
       - name: Bunkering valve alarm
         run: node scripts/test-bunker-alert.js
 
+      - name: Note calendar and alarm
+        run: |
+          node scripts/test-note-reminders.js
+          node scripts/test-desktop-reminders.js
+          node scripts/test-android-reminders.js
+
       - name: Double interpolation against a real calibration book
         run: node scripts/test-double-interp.js
 
