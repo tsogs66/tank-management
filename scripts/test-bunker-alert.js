@@ -9,7 +9,7 @@
  * keep ringing, a tank close to target must not be drowned out by one that is
  * only close to the limit, and the voice must not talk over itself.
  *
- * Run: node scripts/test-bunker-alert.js
+ * Run: node modules/tanks/scripts/test-bunker-alert.js
  */
 'use strict';
 
@@ -191,6 +191,51 @@ console.log('\nthe constants are the ones asked for');
 check('five minutes', Alert.WINDOW_MIN, 5);
 check('85%', Alert.LIMIT_PERCENT, 85);
 check('the voice repeats every thirty seconds', Alert.REPEAT_MS, 30000);
+
+console.log('\nthe voice: a calm, firm officer, not a navigation app');
+const V = (name, lang, local) => ({ name, lang: lang || 'en-GB', localService: local !== false });
+const pool = [
+  V('Microsoft Zira - English (United States)', 'en-US'),
+  V('Samantha', 'en-US'),
+  V('Google UK English Female', 'en-GB', false),
+  V('Google UK English Male', 'en-GB', false),
+  V('Microsoft Ryan Online (Natural) - English (United Kingdom)', 'en-GB', false),
+  V('Daniel', 'en-GB'),
+  V('Thomas', 'fr-FR'),
+  V('eSpeak English', 'en'),
+];
+check('a natural British male voice beats every other', Alert.pickVoice(pool).name, 'Microsoft Ryan Online (Natural) - English (United Kingdom)');
+check('without it, a local deep male voice (Daniel) over a female one',
+  Alert.pickVoice(pool.filter((v) => !/Ryan|Google/.test(v.name))).name, 'Daniel');
+check('a female voice is never preferred while a male one exists',
+  /Zira|Samantha|Female/.test(Alert.pickVoice(pool.filter((v) => !/Ryan/.test(v.name))).name), false);
+check('a natural female voice does not outrank a plain neutral one',
+  Alert.pickVoice([V('Microsoft Aria Online (Natural)', 'en-US', false), V('Voice 7', 'en-US')]).name, 'Voice 7');
+check('a French voice is never used, however good its name', Alert.scoreVoice(V('Thomas', 'fr-FR')), -Infinity);
+check('a robotic engine is the last resort', Alert.scoreVoice(V('eSpeak English', 'en')) < Alert.scoreVoice(V('Zira', 'en-US')), true);
+check('only robotic and female voices: still one is picked, not none', Alert.pickVoice([V('Samantha', 'en-US')]).name, 'Samantha');
+check('no English voice at all: leave it to the device default', Alert.pickVoice([V('Thomas', 'fr-FR')]), null);
+check('no voices yet (they load late): null, not a crash', Alert.pickVoice([]), null);
+check('lang with an underscore is read as English', Alert.scoreVoice(V('Daniel', 'en_GB')) > 0, true);
+const male = Alert.deliveryFor(V('Daniel'));
+const unknown = Alert.deliveryFor(V('Voice 7', 'en-US'));
+check('slow and firm', male.rate < 0.95 && male.rate >= 0.8, true);
+check('lower than normal pitch', male.pitch < 1, true);
+check('a voice not known to be male is lowered further', unknown.pitch < male.pitch, true);
+check('a female voice is not mistaken for male', Alert.deliveryFor(V('Samantha')).pitch, unknown.pitch);
+check('the order is given in phrases, with the pauses where an officer puts them',
+  Alert.phrases('Chief, Number 1 H F O TANK port at 80 percent, prepare to close the valve now.'),
+  ['Chief', 'Number 1 H F O TANK port at 80 percent', 'prepare to close the valve now.']);
+check('a single phrase stays whole', Alert.phrases('Prepare to close the valve now.'), ['Prepare to close the valve now.']);
+check('empty is nothing to say', Alert.phrases(''), []);
+check('the words are the chief\'s, unchanged by phrasing',
+  Alert.phrases(Alert.speech(a80)).join(', '), Alert.speech(a80));
+
+console.log('\nthe engine-room horn stays soft');
+check('quiet enough to sit under a voice', Alert.BED.level <= 0.1, true);
+check('and quieter still while the voice speaks', Alert.BED.duck < Alert.BED.level / 2, true);
+check('a slow pulse, not a siren', Alert.BED.pulseHz > 0.3 && Alert.BED.pulseHz < 1.5, true);
+check('a low horn', Alert.BED.toneHz < 300, true);
 
 console.log(fails ? `\nFAILED — ${fails} of ${checks} checks` : `\nPASSED — ${checks} checks`);
 process.exit(fails ? 1 : 0);
