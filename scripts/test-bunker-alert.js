@@ -192,7 +192,7 @@ check('five minutes', Alert.WINDOW_MIN, 5);
 check('85%', Alert.LIMIT_PERCENT, 85);
 check('the voice repeats every thirty seconds', Alert.REPEAT_MS, 30000);
 
-console.log('\nthe voice: a calm, firm officer, not a navigation app');
+console.log('\nthe voice: a calm, firm officer, and one that works at sea');
 const V = (name, lang, local) => ({ name, lang: lang || 'en-GB', localService: local !== false });
 const pool = [
   V('Microsoft Zira - English (United States)', 'en-US'),
@@ -204,23 +204,29 @@ const pool = [
   V('Thomas', 'fr-FR'),
   V('eSpeak English', 'en'),
 ];
-check('a natural British male voice beats every other', Alert.pickVoice(pool).name, 'Microsoft Ryan Online (Natural) - English (United Kingdom)');
-check('without it, a local deep male voice (Daniel) over a female one',
-  Alert.pickVoice(pool.filter((v) => !/Ryan|Google/.test(v.name))).name, 'Daniel');
+check('a voice stored on the device beats a better one that needs the internet', Alert.pickVoice(pool).name, 'Daniel');
+check('a natural online voice is no use with no connection',
+  Alert.pickVoice([V('Microsoft Ryan Online (Natural) - English (United Kingdom)', 'en-GB', false), V('Voice 7', 'en-US')]).name, 'Voice 7');
+check('Android network voices are passed over for the local one',
+  Alert.pickVoice([V('en-gb-x-gbd-network', 'en-GB', false), V('en-gb-x-gbb-local', 'en-GB', true)]).name, 'en-gb-x-gbb-local');
+check('a natural voice stored locally is preferred among local ones',
+  Alert.pickVoice([V('Daniel', 'en-GB'), V('Microsoft Guy (Natural) - English (United States)', 'en-US')]).name, 'Microsoft Guy (Natural) - English (United States)');
+check('a voice that already failed is not chosen again',
+  Alert.pickVoice([V('Daniel', 'en-GB'), V('Alex', 'en-US')], new Set(['Daniel'])).name, 'Alex');
 check('a female voice is never preferred while a male one exists',
-  /Zira|Samantha|Female/.test(Alert.pickVoice(pool.filter((v) => !/Ryan/.test(v.name))).name), false);
+  /Zira|Samantha|Female/.test(Alert.pickVoice(pool.filter((v) => v.localService)).name), false);
 check('a natural female voice does not outrank a plain neutral one',
-  Alert.pickVoice([V('Microsoft Aria Online (Natural)', 'en-US', false), V('Voice 7', 'en-US')]).name, 'Voice 7');
+  Alert.pickVoice([V('Microsoft Aria (Natural)', 'en-US'), V('Voice 7', 'en-US')]).name, 'Voice 7');
 check('a French voice is never used, however good its name', Alert.scoreVoice(V('Thomas', 'fr-FR')), -Infinity);
 check('a robotic engine is the last resort', Alert.scoreVoice(V('eSpeak English', 'en')) < Alert.scoreVoice(V('Zira', 'en-US')), true);
-check('only robotic and female voices: still one is picked, not none', Alert.pickVoice([V('Samantha', 'en-US')]).name, 'Samantha');
+check('only online voices: still one is picked, not none', Alert.pickVoice([V('Google UK English Male', 'en-GB', false)]).name, 'Google UK English Male');
 check('no English voice at all: leave it to the device default', Alert.pickVoice([V('Thomas', 'fr-FR')]), null);
 check('no voices yet (they load late): null, not a crash', Alert.pickVoice([]), null);
 check('lang with an underscore is read as English', Alert.scoreVoice(V('Daniel', 'en_GB')) > 0, true);
 const male = Alert.deliveryFor(V('Daniel'));
 const unknown = Alert.deliveryFor(V('Voice 7', 'en-US'));
-check('slow and firm', male.rate < 0.95 && male.rate >= 0.8, true);
-check('lower than normal pitch', male.pitch < 1, true);
+check('measured, not slow', male.rate < 1 && male.rate >= 0.8, true);
+check('lower than normal pitch, but not so low a phone speaker loses it', male.pitch < 1 && male.pitch >= 0.8, true);
 check('a voice not known to be male is lowered further', unknown.pitch < male.pitch, true);
 check('a female voice is not mistaken for male', Alert.deliveryFor(V('Samantha')).pitch, unknown.pitch);
 check('the order is given in phrases, with the pauses where an officer puts them',
@@ -231,11 +237,11 @@ check('empty is nothing to say', Alert.phrases(''), []);
 check('the words are the chief\'s, unchanged by phrasing',
   Alert.phrases(Alert.speech(a80)).join(', '), Alert.speech(a80));
 
-console.log('\nthe engine-room horn stays soft');
-check('quiet enough to sit under a voice', Alert.BED.level <= 0.1, true);
-check('and quieter still while the voice speaks', Alert.BED.duck < Alert.BED.level / 2, true);
-check('a slow pulse, not a siren', Alert.BED.pulseHz > 0.3 && Alert.BED.pulseHz < 1.5, true);
-check('a low horn', Alert.BED.toneHz < 300, true);
+console.log('\nthe horn can be heard on a phone, and the voice over it');
+check('pitched where phone speakers are loudest, not in the bass they cannot play', Alert.BED.toneHz >= 700 && Alert.BED.toneHz <= 1500, true);
+check('loud enough to notice on a phone', Alert.BED.level >= 0.15 && Alert.BED.level <= 0.4, true);
+check('and well down while the voice speaks, so the words come through', Alert.BED.duck <= Alert.BED.level / 3, true);
+check('pulsing quickly enough to catch the ear', Alert.BED.pulseHz >= 1.2 && Alert.BED.pulseHz <= 3, true);
 
 console.log(fails ? `\nFAILED — ${fails} of ${checks} checks` : `\nPASSED — ${checks} checks`);
 process.exit(fails ? 1 : 0);
