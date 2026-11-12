@@ -304,6 +304,153 @@ public class ReminderBridge {
 }
 `;
 
+
+const SPEECH = `package ${PKG};
+
+import android.app.Activity;
+import android.content.Context;
+import android.media.AudioAttributes;
+import android.os.Bundle;
+import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
+import android.speech.tts.Voice;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebView;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+
+/**
+ * The Android WebView does not speak. Chrome's speechSynthesis is there in a
+ * browser, but inside this app it either does not exist or has no voices, so
+ * the bunkering warning was a horn and nothing else. The tablet's own
+ * text-to-speech engine (Samsung's or Google's) is reached here instead.
+ *
+ * It prefers a voice stored on the device: one that has to be fetched from a
+ * server says nothing at sea. The page is told when the order has been spoken
+ * (the event cheng-tts) so the horn can come back up.
+ */
+public class SpeechBridge {
+  private final WebView web;
+  private TextToSpeech tts;
+  private volatile String state = "starting";
+  private final List<Runnable> waiting = new ArrayList<>();
+
+  SpeechBridge(Activity activity, WebView web) {
+    this.web = web;
+    try {
+      tts = new TextToSpeech(activity.getApplicationContext(), status -> {
+        if (status != TextToSpeech.SUCCESS) {
+          state = "unavailable";
+          return;
+        }
+        configure();
+        state = "ready";
+        List<Runnable> run;
+        synchronized (waiting) {
+          run = new ArrayList<>(waiting);
+          waiting.clear();
+        }
+        for (Runnable r : run) r.run();
+      });
+    } catch (Exception e) {
+      state = "unavailable";
+    }
+  }
+
+  private void configure() {
+    try {
+      tts.setAudioAttributes(new AudioAttributes.Builder()
+          .setUsage(AudioAttributes.USAGE_MEDIA)
+          .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+          .build());
+      Voice best = null;
+      int bestScore = Integer.MIN_VALUE;
+      Set<Voice> voices = tts.getVoices();
+      if (voices != null) {
+        for (Voice v : voices) {
+          Locale l = v.getLocale();
+          if (l == null || !"en".equalsIgnoreCase(l.getLanguage())) continue;
+          if (v.isNetworkConnectionRequired()) continue;
+          if (v.getFeatures() != null && v.getFeatures().contains("notInstalled")) continue;
+          int score = v.getQuality();
+          if ("GB".equalsIgnoreCase(l.getCountry())) score += 50;
+          if (score > bestScore) {
+            bestScore = score;
+            best = v;
+          }
+        }
+      }
+      if (best != null) {
+        tts.setVoice(best);
+      } else if (tts.isLanguageAvailable(Locale.UK) >= TextToSpeech.LANG_AVAILABLE) {
+        tts.setLanguage(Locale.UK);
+      } else {
+        tts.setLanguage(Locale.US);
+      }
+      tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+        @Override public void onStart(String id) {}
+        @Override public void onDone(String id) { finished(id, "done"); }
+        @Override public void onError(String id) { finished(id, "error"); }
+      });
+    } catch (Exception ignored) {
+      /* the default voice still speaks */
+    }
+  }
+
+  private void finished(String id, String how) {
+    if (id == null || !id.endsWith(":last") || web == null) return;
+    web.post(() -> web.evaluateJavascript(
+        "try{window.dispatchEvent(new CustomEvent('cheng-tts',{detail:{state:'" + how + "'}}));}catch(e){}", null));
+  }
+
+  /** "ready", "starting" (the engine is still binding) or "unavailable" (no engine). */
+  @JavascriptInterface
+  public String status() {
+    return state;
+  }
+
+  /**
+   * Speaks the phrases in order, a short pause between them. Returns false
+   * when this device has no speech engine, so the page can try another way.
+   */
+  @JavascriptInterface
+  public boolean speak(final String phrasesJoined, final float rate, final float pitch) {
+    if ("unavailable".equals(state) || tts == null) return false;
+    final Runnable go = () -> {
+      try {
+        tts.stop();
+        tts.setSpeechRate(rate > 0 ? rate : 0.9f);
+        tts.setPitch(pitch > 0 ? pitch : 0.9f);
+        String[] parts = phrasesJoined == null ? new String[0] : phrasesJoined.split("\\\\|");
+        String stamp = String.valueOf(System.nanoTime());
+        for (int i = 0; i < parts.length; i++) {
+          boolean last = i == parts.length - 1;
+          Bundle params = new Bundle();
+          params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1f);
+          tts.speak(parts[i], TextToSpeech.QUEUE_ADD, params, stamp + ":" + i + (last ? ":last" : ""));
+          if (!last) tts.playSilentUtterance(220, TextToSpeech.QUEUE_ADD, stamp + ":gap" + i);
+        }
+      } catch (Exception ignored) {
+      }
+    };
+    if ("starting".equals(state)) {
+      synchronized (waiting) { waiting.add(go); }
+    } else {
+      go.run();
+    }
+    return true;
+  }
+
+  @JavascriptInterface
+  public void stop() {
+    try { if (tts != null) tts.stop(); } catch (Exception ignored) { }
+  }
+}
+`;
+
 /** Manifest additions: permissions, and the two receivers. */
 const PERMISSIONS = [
   'android.permission.POST_NOTIFICATIONS',
@@ -328,6 +475,7 @@ module.exports = {
     'ReminderReceiver.java': RECEIVER,
     'ReminderBootReceiver.java': BOOT,
     'ReminderBridge.java': BRIDGE,
+    'SpeechBridge.java': SPEECH,
   },
   PERMISSIONS,
   RECEIVERS,

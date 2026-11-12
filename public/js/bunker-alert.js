@@ -281,6 +281,8 @@ const ui = {
   voice: null,
   voiceCount: -1,
   speaking: 0,
+  nativePending: 0,
+  noVoice: false,
   badVoices: null,
   lastRows: [],
   shellActive: false,
@@ -351,7 +353,7 @@ function bedOn() {
     if (!ctx) return;
     const master = ctx.createGain();
     master.gain.setValueAtTime(0.0001, ctx.currentTime);
-    master.gain.exponentialRampToValueAtTime(ui.speaking ? BED.duck : BED.level, ctx.currentTime + 0.3);
+    master.gain.exponentialRampToValueAtTime((ui.speaking || ui.nativePending) ? BED.duck : BED.level, ctx.currentTime + 0.3);
     master.connect(ctx.destination);
 
     /* The horn: a fifth apart, softened, pulsing slowly. */
@@ -459,8 +461,35 @@ function chooseVoice() {
  * an error), the device's own default voice says it instead, and the silent
  * one is not chosen again.
  */
+/**
+ * The Android app's own speech engine. The app's WebView has no working
+ * speechSynthesis, which is why the warning there was a horn and nothing else.
+ */
+function nativeSpeak(text) {
+  try {
+    const nb = typeof window !== 'undefined' && window.ChengAndroidSpeech;
+    if (!nb || typeof nb.speak !== 'function') return false;
+    if (typeof nb.status === 'function' && nb.status() === 'unavailable') return false;
+    const d = deliveryFor(null);
+    const parts = phrases(text).map((p) => p.replace(/\|/g, ' '));
+    if (!parts.length) return false;
+    duck(true);
+    ui.nativePending += 1;
+    setTimeout(() => releaseNative(), 15000);
+    if (!nb.speak(parts.join('|'), d.rate, d.pitch)) { releaseNative(); return false; }
+    return true;
+  } catch (_) { return false; }
+}
+
+function releaseNative() {
+  if (ui.nativePending > 0) ui.nativePending -= 1;
+  if (!ui.nativePending && !ui.speaking) duck(false);
+}
+
 function speak(text, retry) {
-  if (!canSpeak()) return false;
+  if (!retry && nativeSpeak(text)) { ui.noVoice = false; return true; }
+  if (!canSpeak()) { ui.noVoice = true; paintBanner(currentAlerts(), !!ui.test && !ui.alerts.length); return false; }
+  ui.noVoice = false;
   try {
     const voice = retry ? null : chooseVoice();
     const d = deliveryFor(voice);
@@ -563,7 +592,9 @@ function paintBanner(alerts, testing) {
     + `<span class="ba-sub">${esc(detail(a))}</span></div>`).join('');
   const bar = `<div class="ba-bar">${testing ? '<span class="ba-tag">TEST</span>' : '<span class="ba-tag">WARNING</span>'}`
     + `<button type="button" data-ba-silence${silenced ? ' disabled' : ''}>${silenced ? 'Sound silenced' : 'Silence sound'}</button></div>`;
-  const html = lines + bar;
+  const note = ui.noVoice
+    ? '<div class="ba-line"><span class="ba-sub">No voice on this device — install a text-to-speech engine (Samsung or Google) in Settings</span></div>' : '';
+  const html = lines + note + bar;
   if (el.dataset.sig !== html) {
     el.innerHTML = html;
     el.dataset.sig = html;
@@ -649,6 +680,7 @@ function silence() {
   const shown = currentAlerts();
   ui.planner.silence(shown);
   bedOff();
+  try { if (window.ChengAndroidSpeech && window.ChengAndroidSpeech.stop) window.ChengAndroidSpeech.stop(); } catch (_) { /* ignore */ }
   try { if (canSpeak()) window.speechSynthesis.cancel(); } catch (_) { /* ignore */ }
   paintBanner(shown, !!ui.test && !ui.alerts.length);
 }
@@ -691,11 +723,16 @@ function clear() {
   bannerEl(false);
   document.querySelectorAll('tr.bp-alert').forEach((tr) => tr.classList.remove('bp-alert'));
   try { if (canSpeak()) window.speechSynthesis.cancel(); } catch (_) { /* ignore */ }
+  try { if (window.ChengAndroidSpeech && window.ChengAndroidSpeech.stop) window.ChengAndroidSpeech.stop(); } catch (_) { /* ignore */ }
   tellShell([]);
 }
 
 if (typeof document !== 'undefined') {
   document.addEventListener('pointerdown', prime, { capture: true, once: true });
+}
+/* The Android app tells the page when the order has been spoken. */
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('cheng-tts', () => releaseNative());
 }
 
 return {
