@@ -481,6 +481,129 @@ html, body{
     }
   }
 
+  /* The sheet is a fixed A4-landscape page, 297 x 210 mm, plus the 16px margin
+     the screen stylesheet puts around it. Measured once so the popup can scale
+     it to whatever window it is in. */
+  const SHEET_W = 1160;
+  const SHEET_H = 830;
+
+  function ensurePopupStyle() {
+    if (document.getElementById('tsc-pop-style')) return;
+    const style = document.createElement('style');
+    style.id = 'tsc-pop-style';
+    style.textContent = [
+      '.tsc-pop{position:fixed;inset:0;z-index:9500;display:flex;align-items:stretch;justify-content:center;',
+      'padding:max(10px,env(safe-area-inset-top,0px)) 10px max(10px,env(safe-area-inset-bottom,0px));',
+      'background:rgba(4,10,18,.72);}',
+      '.tsc-pop-win{display:flex;flex-direction:column;width:min(1240px,100%);min-height:0;',
+      'background:var(--bg-panel,#122238);color:var(--text,#e9e4d6);border:1px solid var(--border,rgba(233,228,214,.16));',
+      'border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.45);overflow:hidden;}',
+      '.tsc-pop-bar{display:flex;align-items:center;gap:8px;padding:10px 12px;flex:0 0 auto;',
+      'border-bottom:1px solid var(--border,rgba(233,228,214,.16));}',
+      '.tsc-pop-bar h2{margin:0;font-size:15px;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+      '.tsc-pop-body{flex:1 1 auto;min-height:0;overflow:auto;background:#e8e8e8;padding:8px;}',
+      '.tsc-pop-stage{position:relative;margin:0 auto;}',
+      '.tsc-pop-frame{position:absolute;left:0;top:0;border:0;background:#fff;transform-origin:0 0;}'
+    ].join('');
+    document.head.appendChild(style);
+  }
+
+  /**
+   * Show a finished HTML document in a popup inside the program.
+   *
+   * window.open() is the wrong tool in both places this runs: the Windows
+   * desktop build hands a new window to the system browser, and the Android
+   * WebView blocks it outright ("Allow pop-ups"). The document goes into a
+   * sandboxed frame in a dialog instead, scaled down to fit the window — the
+   * sheet is a fixed A4 landscape page and would otherwise be clipped on
+   * anything narrower than a desktop.
+   *
+   * Appended to document.body for the same reason every overlay here is: one
+   * parked inside a hidden page renders at 0x0 while still reporting itself open.
+   */
+  function showPreview(html, title, opts) {
+    ensurePopupStyle();
+    const existing = document.getElementById('tsc-pop');
+    if (existing) existing.remove();
+    const heading = title || 'Preview';
+    const restoreFocus = document.activeElement;
+
+    const pop = document.createElement('div');
+    pop.id = 'tsc-pop';
+    pop.className = 'tsc-pop no-print';
+    pop.setAttribute('role', 'dialog');
+    pop.setAttribute('aria-modal', 'true');
+    pop.setAttribute('aria-label', heading);
+    pop.innerHTML = `<div class="tsc-pop-win">
+      <div class="tsc-pop-bar">
+        <h2>${esc(heading)}</h2>
+        <button type="button" class="btn small" id="tsc-pop-zoom" aria-pressed="false" title="Switch between fitting the sheet to the window and life size">100%</button>
+        ${opts && opts.onPrint ? '<button type="button" class="btn small" id="tsc-pop-print">Print</button>' : ''}
+        <button type="button" class="btn small primary" id="tsc-pop-close">Close</button>
+      </div>
+      <div class="tsc-pop-body" id="tsc-pop-body"><div class="tsc-pop-stage" id="tsc-pop-stage">
+        <iframe class="tsc-pop-frame" id="tsc-pop-frame" title="${esc(heading)}" sandbox="allow-scripts"></iframe>
+      </div></div></div>`;
+    document.body.appendChild(pop);
+
+    const body = pop.querySelector('#tsc-pop-body');
+    const stage = pop.querySelector('#tsc-pop-stage');
+    const frame = pop.querySelector('#tsc-pop-frame');
+    frame.style.width = SHEET_W + 'px';
+    frame.style.height = SHEET_H + 'px';
+    frame.srcdoc = html;
+
+    let lifeSize = false;
+    const zoomBtn = pop.querySelector('#tsc-pop-zoom');
+    const fit = () => {
+      /* Fit to the width of the window, never enlarge past life size. On a
+         phone that is a miniature, so the toggle gives the page itself, to be
+         panned with a finger. */
+      const room = Math.max(120, body.clientWidth - 16);
+      const scale = lifeSize ? 1 : Math.min(1, room / SHEET_W);
+      frame.style.transform = `scale(${scale})`;
+      stage.style.width = Math.round(SHEET_W * scale) + 'px';
+      stage.style.height = Math.round(SHEET_H * scale) + 'px';
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    zoomBtn.onclick = () => {
+      lifeSize = !lifeSize;
+      zoomBtn.textContent = lifeSize ? 'Fit' : '100%';
+      zoomBtn.setAttribute('aria-pressed', lifeSize ? 'true' : 'false');
+      fit();
+    };
+
+    const closeBtn = pop.querySelector('#tsc-pop-close');
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      window.removeEventListener('resize', fit);
+      document.removeEventListener('keydown', onKey, true);
+      pop.remove();
+      try { if (restoreFocus && restoreFocus.focus) restoreFocus.focus(); } catch (_) { /* ignore */ }
+    };
+    function onKey(ev) {
+      if (ev.key === 'Escape') { ev.preventDefault(); close(); return; }
+      if (ev.key !== 'Tab') return;
+      /* Keep Tab inside the dialog. */
+      const stops = [...pop.querySelectorAll('button')];
+      if (!stops.length) return;
+      const first = stops[0];
+      const last = stops[stops.length - 1];
+      if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+      else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+    }
+    document.addEventListener('keydown', onKey, true);
+    closeBtn.onclick = close;
+    pop.addEventListener('mousedown', (ev) => { if (ev.target === pop) close(); });
+    const printBtn = pop.querySelector('#tsc-pop-print');
+    if (printBtn) printBtn.onclick = () => { try { opts.onPrint(); } catch (err) { console.error(err); } };
+    setTimeout(() => { try { closeBtn.focus(); } catch (_) { /* ignore */ } }, 0);
+    return { close, element: pop };
+  }
+
   function previewSample(bundle) {
     const tanks = fuelTanks(bundle);
     const page = buildPageHtml(bundle, {
@@ -495,15 +618,13 @@ html, body{
       sampleBy: 'C/E',
       tanks: tanks.length ? tanks : [{ name: 'NO.1 H.F.O. TANK (P)' }, { name: 'NO.1 H.F.O. TANK (S)' }],
     });
-    const html = buildPrintDocument(page, { title: 'Tank Sounding Card — Sample' });
-    const win = window.open('', '_blank', 'noopener,noreferrer,width=1100,height=800');
-    if (!win) {
-      alert('Allow pop-ups to show the sample.');
-      return;
-    }
-    win.document.open();
-    win.document.write(html);
-    win.document.close();
+    const title = 'Tank Sounding Card — Sample';
+    const html = buildPrintDocument(page, { title });
+    return showPreview(html, title, {
+      onPrint: () => {
+        if (typeof Branding !== 'undefined' && Branding.printHtmlDocument) Branding.printHtmlDocument(html, title);
+      },
+    });
   }
 
   function renderPage(main, bundle) {
@@ -535,6 +656,7 @@ html, body{
     buildPrintDocument,
     printBlank,
     previewSample,
+    showPreview,
     renderPage,
   };
 })();

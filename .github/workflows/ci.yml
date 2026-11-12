@@ -56,6 +56,9 @@ jobs:
       # The calculation the whole program exists for. The figures are a real
       # calibration book, so a regression shows up as a wrong tonnage here
       # rather than on a signed sheet.
+      - name: Bunkering valve alarm
+        run: node scripts/test-bunker-alert.js
+
       - name: Double interpolation against a real calibration book
         run: node scripts/test-double-interp.js
 

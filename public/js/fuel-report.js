@@ -212,7 +212,7 @@ const FuelReport = (() => {
         <button class="btn primary" id="fr-print-save">PRINT &amp; SAVE</button>
         <button class="btn" id="fr-save">Save only</button>
         <button class="btn" id="fr-print-only">Print only</button>
-        <button class="btn" id="fr-main-menu">MAIN MENU</button>
+        ${(typeof isAioEmbedded === 'function' && isAioEmbedded()) ? '' : '<button class="btn" id="fr-main-menu">MAIN MENU</button>'}
       </div>
     </div>`;
 
@@ -845,7 +845,8 @@ const FuelReport = (() => {
 
     document.getElementById('fr-print-save').onclick = () => saveReport({ snapshot: true, print: true });
     document.getElementById('fr-save').onclick = () => saveReport({ snapshot: true, print: false });
-    document.getElementById('fr-main-menu').onclick = () => navigate('dashboard');
+    const frMenu = document.getElementById('fr-main-menu');
+    if (frMenu) frMenu.onclick = () => navigate('dashboard');
     document.getElementById('fr-print-only').onclick = () => printReport(recompute());
     document.getElementById('fr-fill-logbook-rob')?.addEventListener('click', () => {
       fillLogbookFromVoyageRob();

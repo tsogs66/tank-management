@@ -468,6 +468,30 @@ function isBunkerOpsEmbed() {
 }
 
 /**
+ * Ask the ChEng AIO shell to open one of its own pages.
+ *
+ * The two planning screens are hidden from this menu inside AIO because the
+ * shell opens the very same sheet in its own frame, and showing the page here
+ * as well would put one calculation in two places in one window. A menu entry
+ * that hands the request to the shell gets the operator there without that
+ * duplicate: the shell's page opens, this one steps aside.
+ */
+function openInAioShell(moduleId) {
+  try {
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: 'chengaio-navigate', module: moduleId }, '*');
+      return true;
+    }
+  } catch (_) { /* ignore */ }
+  return false;
+}
+
+/** The AIO-only "Bunkering Plan" entry — false in the plan's own embed and standalone. */
+function aioBunkeringPlanLink() {
+  return isAioEmbedded() && !isBunkerOpsEmbed();
+}
+
+/**
  * The two planning screens — Bunker Plan (the fill sequence and monitoring
  * sheet) and Bunker Consumption (the voyage fuel calculation) — are hidden
  * from this menu whenever ChEng AIO is the shell. The suite has its own
@@ -571,6 +595,19 @@ function renderMoreNav() {
   grid.appendChild(mk('add-tank', 'Add Tank', '+'));
   grid.appendChild(mk('calibration', 'Calibration', '☰'));
   if (bunkerPlanNavAllowed()) grid.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
+  if (aioBunkeringPlanLink()) {
+    const link = document.createElement('button');
+    link.type = 'button';
+    link.className = 'bn-more-item';
+    link.dataset.aioLink = 'bunkeringplan';
+    link.setAttribute('aria-label', 'Bunkering Plan');
+    link.innerHTML = '<span class="bn-ic" aria-hidden="true">📈</span><span>Bunkering Plan</span>';
+    link.onclick = () => {
+      closeMoreSheet();
+      if (!openInAioShell('bunkeringplan')) showToast('Open Bunkering Plan from the ChEng AIO menu');
+    };
+    grid.appendChild(link);
+  }
   if (bunkerConsumptionNavAllowed()) {
     grid.appendChild(mk('bunker-consumption', 'Cons.', '📊'));
   }
@@ -622,6 +659,31 @@ function renderMoreNav() {
 
 /** Pages that were folded into another screen; old links still land somewhere sensible. */
 const PAGE_ALIASES = { bunkering: 'bunker-plan' };
+
+/**
+ * Pages another program may open straight to with ?page=.
+ *
+ * ChEng AIO's bunker-file bar sends the operator from the Bunkering Plan to
+ * "After survey" and "BDN summary" here, and Home links to others. Only
+ * fuel-report was ever honoured, so every other id fell through to the
+ * dashboard with the right address in the frame and the wrong page on screen.
+ *
+ * The two plan pages are left out on purpose: inside ChEng AIO they belong to
+ * the shell's own Bunkering Plan and Consumption Plan entries, and navigate()
+ * already turns a request for them into a pointer to that menu.
+ */
+const BOOT_PAGES = new Set([
+  'dashboard', 'fuel-report', 'bunker-after', 'bunker-summary', 'report',
+  'sounding-card', 'calibration', 'add-tank', 'vcf-wcf', 'iso8217', 'settings', 'about',
+]);
+const BOOT_PAGE_ALIASES = { monitoring: 'fuel-report' };
+
+function bootPageFromQuery(search) {
+  const raw = new URLSearchParams(search || '').get('page');
+  if (!raw) return null;
+  const page = BOOT_PAGE_ALIASES[raw] || raw;
+  return BOOT_PAGES.has(page) ? page : null;
+}
 
 function navigate(page, tankId = null) {
   try { if (window.ChengClockPicker) ChengClockPicker.close(); } catch (_) {}
@@ -1034,6 +1096,15 @@ function renderNav() {
   group('Fuel Management', (body) => {
     body.appendChild(mk('fuel-report', 'Monitoring', '🧾'));
     if (bunkerPlanNavAllowed()) body.appendChild(mk('bunker-plan', 'Bunker Plan', '📈'));
+    if (aioBunkeringPlanLink()) {
+      const link = mk('bunker-plan', 'Bunkering Plan', '📈');
+      link.dataset.aioLink = 'bunkeringplan';
+      link.onclick = () => {
+        if (topNav) closeTopNavMenus();
+        if (!openInAioShell('bunkeringplan')) showToast('Open Bunkering Plan from the ChEng AIO menu');
+      };
+      body.appendChild(link);
+    }
     if (bunkerConsumptionNavAllowed()) body.appendChild(mk('bunker-consumption', 'Bunker Consumption', '📊'));
     body.appendChild(mk('bunker-after', 'Bunkering', '📥'));
     body.appendChild(mk('bunker-summary', 'Bunker Summary', '📑'));
@@ -1416,8 +1487,7 @@ function renderDashboard(main) {
 
   const histPanel = document.createElement('div');
   histPanel.className = 'form-panel no-print';
-  histPanel.innerHTML = `
-    <div class="section-title" style="margin-top:0">Tank Summary Report</div>
+  const summaryBody = `
     <p class="hint" style="margin-top:0">Printable overview in Tank Condition format. Drafts stay editable; filed reports can be reprinted or loaded.</p>
     ${historyTableHtml(STATE.bundle.tankSummaryHistory || [], STATE.bundle.tankSummaryDraft && STATE.bundle.tankSummaryDraft.updatedAt ? {
       form: STATE.bundle.tankSummaryDraft,
@@ -1428,6 +1498,22 @@ function renderDashboard(main) {
       savedAt: STATE.bundle.tankSummaryDraft.updatedAt,
       totalMT: grandWeight,
     } : null, 'Nothing saved yet — use Save to file this report, or Print Tank Summary to file it and print')}`;
+  /* Inside ChEng AIO the dashboard is the first screen of the day, and this
+     list of filed reports pushed the tank cards a screen down. It stays out of
+     the way until it is asked for. Open state is held for the session so a
+     Load or Delete inside it does not fold it shut under the finger. */
+  if (isAioEmbedded()) {
+    histPanel.innerHTML = `
+      <details class="ts-fold" id="ts-fold"${STATE.tankSummaryOpen ? ' open' : ''}>
+        <summary><span class="section-title">Tank Summary Report</span><span class="ts-fold-hint"></span></summary>
+        ${summaryBody}
+      </details>`;
+    const fold = histPanel.querySelector('#ts-fold');
+    if (fold) fold.addEventListener('toggle', () => { STATE.tankSummaryOpen = fold.open; });
+  } else {
+    histPanel.innerHTML = `
+      <div class="section-title" style="margin-top:0">Tank Summary Report</div>${summaryBody}`;
+  }
   main.appendChild(histPanel);
 
   const printTankSummary = async ({ saveSnapshot = false, formOverride = null } = {}) => {
@@ -5995,10 +6081,12 @@ async function boot() {
     navigate('bunker-plan');
   } else {
     try {
-      const qsPage = new URLSearchParams(location.search).get('page');
-      if (qsPage === 'fuel-report' || qsPage === 'monitoring') navigate('fuel-report');
+      const wanted = bootPageFromQuery(location.search);
+      if (wanted) navigate(wanted);
     } catch { /* ignore */ }
   }
+  /* Fuel may already be going aboard from before the app was reopened. */
+  try { if (window.BunkerReports) BunkerReports.resumeAlerts(); } catch (_) {}
   startSyncLoop();
 }
 

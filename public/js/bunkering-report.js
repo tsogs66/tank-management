@@ -288,6 +288,50 @@ const BunkerReports = (() => {
     if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
   }
 
+  /**
+   * "Prepare to close the valve": light the tank, the screen edge, and speak,
+   * five minutes before a tank reaches its target or the 85% limit. The
+   * decision lives in BunkerAlert; this only hands it the plan's own rows.
+   */
+  function updateBunkerAlerts() {
+    if (typeof BunkerAlert === 'undefined' || !view.planComputed) return;
+    try { BunkerAlert.update(view.planComputed.rows, { now: Date.now() }); } catch (_) { /* never let the alarm break the sheet */ }
+  }
+
+  /**
+   * Keep watching after the operator leaves the sheet. Opening another Tank
+   * page while fuel is still going aboard must not turn the alarm off — the
+   * clock behind it does not stop, so neither does the watch. It reads the
+   * plan as filed in the ship's own record rather than the page's copy, so a
+   * ship change cannot leave one vessel's tanks being judged against
+   * another's.
+   */
+  let alertMonitor = null;
+  function stopBackgroundMonitor() {
+    if (alertMonitor) { clearInterval(alertMonitor); alertMonitor = null; }
+  }
+  function startBackgroundMonitor() {
+    if (alertMonitor || typeof BunkerAlert === 'undefined') return;
+    const tick = async () => {
+      /* The sheet is back on screen: its own ticker takes over. */
+      if (view.page === 'bunker-plan' && document.getElementById('bp-clock-toggle')) {
+        stopBackgroundMonitor();
+        return;
+      }
+      try {
+        const b = bundle();
+        if (!b) { BunkerAlert.clear(); stopBackgroundMonitor(); return; }
+        await loadConversion();
+        const plan = Core.normalizePlan(b, b.bunkerPlan, view.conversion);
+        if (!planClockLive(plan)) { BunkerAlert.clear(); stopBackgroundMonitor(); return; }
+        const c = Core.computeBunkerPlan(b, plan, view.conversion);
+        BunkerAlert.update(c.rows, { now: Date.now() });
+      } catch (_) { /* try again on the next beat */ }
+    };
+    alertMonitor = setInterval(tick, 5000);
+    tick();
+  }
+
   /** True while the overall pump or any tank valve clock is live. */
   function planClockLive(plan) {
     const p = plan || view.plan;
@@ -323,6 +367,15 @@ const BunkerReports = (() => {
     else push();
   }
 
+  /* Inside ChEng AIO the shell already has a Dashboard button at the top right,
+     so a MAIN MENU button on these sheets is a second, worse way out: it drops
+     into Tank Chief's own dashboard. Standalone Tank Chief has no such button
+     and keeps it. */
+  function mainMenuButton(id) {
+    const inAio = typeof isAioEmbedded === 'function' && isAioEmbedded();
+    return inAio ? '' : `<button class="btn" id="${id}">MAIN MENU</button>`;
+  }
+
   /**
    * Ask the ChEng AIO shell to change page. Inside the bunker-ops iframe there is
    * no Tank sidebar, so MAIN MENU must leave the embed rather than open Tank's
@@ -351,12 +404,12 @@ const BunkerReports = (() => {
     const alive = () => view.page === 'bunker-plan' && document.getElementById('bp-clock-toggle');
 
     tickTimer = setInterval(() => {
-      if (!alive()) { stopClockTicker(); return; }
+      if (!alive()) { stopClockTicker(); startBackgroundMonitor(); return; }
       if (!tickClockOnly()) stopClockTicker();
     }, 1000);
 
     clockTimer = setInterval(() => {
-      if (!alive()) { stopClockTicker(); return; }
+      if (!alive()) { stopClockTicker(); startBackgroundMonitor(); return; }
       const c = Core.computeBunkerPlan(bundle(), view.plan, view.conversion);
       if (!c.monitoring.clock.running && !c.monitoring.tanksFilling) return;
       refreshPlan();
@@ -374,6 +427,9 @@ const BunkerReports = (() => {
    * rather than burn a timer over a finished operation.
    */
   function tickClockOnly() {
+    /* The projections carry absolute times, so the minutes left keep counting
+       down between the slower full recomputes. */
+    updateBunkerAlerts();
     let anyRunning = false;
     const clock = Core.pumpingClock(view.plan, 0, null);
     if (clock.running) {
@@ -401,11 +457,15 @@ const BunkerReports = (() => {
 
   function recomputePlan() {
     view.computed = Core.computeBunkerPlan(bundle(), view.plan, view.conversion);
+    /* view.computed is shared with the after-survey and summary pages, which
+       store results of a different shape. The alarm reads the plan's own. */
+    view.planComputed = view.computed;
     return view.computed;
   }
 
   async function renderPlan(main) {
     view.page = 'bunker-plan';
+    stopBackgroundMonitor();
     await loadConversion();
     const b = bundle();
     view.plan = Core.normalizePlan(b, view.pendingPlan || b.bunkerPlan, view.conversion);
@@ -420,7 +480,7 @@ const BunkerReports = (() => {
         <button class="btn" id="bp-save">Save only</button>
         <button class="btn" id="bp-print-only">Print only</button>
         <button class="btn" id="bp-new">NEW PLAN</button>
-        <button class="btn" id="bp-menu">MAIN MENU</button>
+        ${mainMenuButton('bp-menu')}
       </div></div>`;
 
     const wrap = document.createElement('div');
@@ -622,6 +682,7 @@ const BunkerReports = (() => {
             </div>
             <div class="btn-row bp-clock-actions">
               <button class="btn small" id="bp-finish">Finish bunkering</button>
+              <button class="btn small" id="bp-alert-test" title="Sound the valve warning now, so the volume and the voice can be checked before fuel is on the way">Test alarm</button>
             </div>
           </div>
 
@@ -1016,7 +1077,7 @@ const BunkerReports = (() => {
         ? `${esc(r.estimatedFrom)}, ${esc(r.estimatedAgeLabel)} ago`
         : 'just opened';
       const method = r.startingMethod ? `<i>${esc(r.startingMethod)}</i>` : '';
-      return `<tr class="${r.estimatedOverLimit ? 'bp-est-over' : ''}">
+      return `<tr data-bp-est-slot="${r.slot - 1}" class="${r.estimatedOverLimit ? 'bp-est-over' : ''}">
         <th class="fr-tank-name">${esc(r.name)}</th>
         <td>${n(r.estimateRateMTPerHour, 1)}</td>
         <td class="bp-est-figure">${n(FRCore.mmToCm(r.estimatedSoundingMM), 1)}${method}</td>
@@ -1191,6 +1252,7 @@ const BunkerReports = (() => {
       finish.title = clock.completed ? 'The transfer is already finished.'
         : (!clock.started ? 'Start pumping first.' : '');
     }
+    updateBunkerAlerts();
   }
 
   /**
@@ -1321,7 +1383,8 @@ const BunkerReports = (() => {
     // Print without saving: no snapshot filed, nothing written to the vessel.
     document.getElementById('bp-print-only').onclick = () =>
       UI.printHtml(planPrintPages(recomputePlan()));
-    document.getElementById('bp-menu').onclick = () => {
+    const bpMenu = document.getElementById('bp-menu');
+    if (bpMenu) bpMenu.onclick = () => {
       /* Bunker-ops embed under ChEng AIO: leave the embed for AIO Home — do not
          dump into Tank's dashboard (no in-iframe way back to the plan). */
       if (typeof isBunkerOpsEmbed === 'function' && isBunkerOpsEmbed()) {
@@ -1369,6 +1432,8 @@ const BunkerReports = (() => {
     };
 
     document.getElementById('bp-clock-toggle').onclick = () => {
+      /* The first touch of the day: let the browser allow the tone and the voice. */
+      if (typeof BunkerAlert !== 'undefined') BunkerAlert.prime();
       const clock = Core.pumpingClock(view.plan, 0, null);
       const nowIso = new Date().toISOString();
       if (clock.completed) {
@@ -1422,6 +1487,14 @@ const BunkerReports = (() => {
       startClockTicker();
       persistPlanClock();
     };
+    const alertTest = document.getElementById('bp-alert-test');
+    if (alertTest) {
+      alertTest.onclick = () => {
+        if (typeof BunkerAlert === 'undefined') return;
+        const named = ((view.planComputed && view.planComputed.rows) || []).find((r) => r.tankId);
+        BunkerAlert.test(named ? named.name : undefined);
+      };
+    }
     document.getElementById('bp-clock-reset').onclick = () => {
       view.plan.startedAt = null;
       view.plan.pausedAt = null;
@@ -1874,7 +1947,7 @@ const BunkerReports = (() => {
         <button class="btn primary" id="ba-print-save">PRINT &amp; SAVE</button>
         <button class="btn" id="ba-save">Save only</button>
         <button class="btn" id="ba-print-only">Print only</button>
-        <button class="btn" id="ba-menu">MAIN MENU</button>
+        ${mainMenuButton('ba-menu')}
       </div></div>`;
 
     const wrap = document.createElement('div');
@@ -2083,7 +2156,8 @@ const BunkerReports = (() => {
       { ...view.after, updatedAt: new Date().toISOString() }, { snapshot: true });
     document.getElementById('ba-print-only').onclick = () =>
       UI.printHtml(afterPrintPages(recomputeAfter()));
-    document.getElementById('ba-menu').onclick = () => navigate('dashboard');
+    const baMenu = document.getElementById('ba-menu');
+    if (baMenu) baMenu.onclick = () => navigate('dashboard');
 
     bindHistory(wrap, 'after', (entry) => {
       view.pendingAfter = entry.form;
@@ -2163,7 +2237,7 @@ const BunkerReports = (() => {
         <button class="btn" id="bs-save">Save only</button>
         <button class="btn" id="bs-print-only">Print only</button>
         <button class="btn" id="bs-new">NEW REPORT</button>
-        <button class="btn" id="bs-menu">MAIN MENU</button>
+        ${mainMenuButton('bs-menu')}
       </div></div>`;
 
     const wrap = document.createElement('div');
@@ -2457,7 +2531,8 @@ const BunkerReports = (() => {
       { ...view.summary, updatedAt: new Date().toISOString() }, { snapshot: true });
     document.getElementById('bs-print-only').onclick = () =>
       UI.printHtml(summaryPrintPages(recomputeSummary()));
-    document.getElementById('bs-menu').onclick = () => navigate('dashboard');
+    const bsMenu = document.getElementById('bs-menu');
+    if (bsMenu) bsMenu.onclick = () => navigate('dashboard');
     document.getElementById('bs-new').onclick = () => {
       if (!confirm('Start a new summary? The current paperwork is cleared.')) return;
       view.pendingSummary = Core.emptySummary(bundle());
@@ -2652,6 +2727,7 @@ const BunkerReports = (() => {
     view,
     planClockLive,
     persistPlanClock,
+    resumeAlerts: startBackgroundMonitor,
   };
 })();
 
