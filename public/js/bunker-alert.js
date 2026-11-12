@@ -201,6 +201,65 @@ function createVoicePlanner(opts) {
 }
 
 /* ======================================================================== *
+ * The voice. A ship's alarm is heard over machinery, by a man with his hands
+ * full: it should sound like a calm, firm officer, not a navigation app. What
+ * voices exist is up to the device, so the best one on offer is chosen — a
+ * natural, deeper English voice where there is one — and delivered slowly,
+ * a phrase at a time, the way an order is given.
+ * ======================================================================== */
+
+const NATURAL = /natural|neural|online|premium|enhanced|studio|wavenet|multilingual/i;
+const MALE = /\b(daniel|george|guy|ryan|david|mark|james|alex|oliver|arthur|thomas|fred|tom|aaron|brian|christopher|eric|roger|steffan|davis|jason|tony|andrew|liam|male)\b/i;
+const FEMALE = /\b(female|samantha|zira|hazel|susan|karen|moira|tessa|victoria|aria|jenny|libby|sonia|emma|michelle|catherine|serena|fiona|siri|allison|kate|nicky|amy|joanna|salli|ava|ana)\b/i;
+const ROBOTIC = /espeak|compact|festival|robot|pico/i;
+
+/** How well a voice suits a captain giving an order; higher is better, -Infinity is unusable. */
+function scoreVoice(v) {
+  if (!v) return -Infinity;
+  const name = String(v.name || '');
+  const lang = String(v.lang || '').replace('_', '-');
+  if (!/^en/i.test(lang)) return -Infinity;
+  let score = 100;
+  if (/^en-gb/i.test(lang)) score += 12;
+  else if (/^en-(au|ie|za|nz)/i.test(lang)) score += 6;
+  if (NATURAL.test(name)) score += 60;
+  if (/google/i.test(name)) score += 30;
+  if (MALE.test(name)) score += 45;
+  if (FEMALE.test(name)) score -= 80;
+  if (ROBOTIC.test(name)) score -= 120;
+  if (v.localService === false && !NATURAL.test(name) && !/google/i.test(name)) score -= 5;
+  return score;
+}
+
+/** The best voice among those the device offers, or null to leave it to the default. */
+function pickVoice(voices) {
+  let best = null;
+  let bestScore = -Infinity;
+  for (const v of voices || []) {
+    const sc = scoreVoice(v);
+    if (sc > bestScore) { best = v; bestScore = sc; }
+  }
+  return bestScore > -Infinity ? best : null;
+}
+
+/** Pitch and pace for the chosen voice: lower and slower, firm. A voice already male needs less pitch taken off. */
+function deliveryFor(voice) {
+  const male = !!voice && MALE.test(String(voice.name || '')) && !FEMALE.test(String(voice.name || ''));
+  return { rate: 0.88, pitch: male ? 0.82 : 0.72 };
+}
+
+/** The order in phrases, so the pauses fall where an officer would put them. */
+function phrases(text) {
+  return String(text == null ? '' : text)
+    .split(/,\s*/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+/* The engine-room bed: how loud, how fast it pulses, how far it gives way to the voice. */
+const BED = { level: 0.07, duck: 0.025, pulseHz: 0.8, toneHz: 233, rumbleHz: 140 };
+
+/* ======================================================================== *
  * Browser side. Nothing below runs under Node.
  * ======================================================================== */
 
@@ -210,7 +269,10 @@ const ui = {
   test: null,
   audio: null,
   primed: false,
-  beeped: false,
+  bed: null,
+  voice: null,
+  voiceCount: -1,
+  speaking: 0,
   lastRows: [],
   shellActive: false,
 };
@@ -259,29 +321,110 @@ function esc(value) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-/** A tone first, so the room looks up before the voice says which tank. */
-function beep() {
+function audioCtx() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  if (!ui.audio) ui.audio = new AC();
+  if (ui.audio.state === 'suspended' && ui.audio.resume) ui.audio.resume();
+  return ui.audio;
+}
+
+/**
+ * The engine-room alarm, kept low under the voice: a slow pulsing horn over a
+ * deep machinery rumble. It starts when the first tank is inside its window
+ * and runs until the warning clears or is silenced, giving way to the voice
+ * while it speaks so every word is clear.
+ */
+function bedOn() {
   try {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return;
-    if (!ui.audio) ui.audio = new AC();
-    const ctx = ui.audio;
-    if (ctx.state === 'suspended' && ctx.resume) ctx.resume();
-    const t0 = ctx.currentTime;
-    [[880, 0], [660, 0.28]].forEach(([freq, at]) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'square';
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.0001, t0 + at);
-      gain.gain.exponentialRampToValueAtTime(0.22, t0 + at + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + at + 0.26);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(t0 + at);
-      osc.stop(t0 + at + 0.28);
+    if (ui.bed) return;
+    const ctx = audioCtx();
+    if (!ctx) return;
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0.0001, ctx.currentTime);
+    master.gain.exponentialRampToValueAtTime(BED.level, ctx.currentTime + 0.6);
+    master.connect(ctx.destination);
+
+    /* The horn: a fifth apart, softened, pulsing slowly. */
+    const horn = ctx.createGain();
+    horn.gain.value = 0.5;
+    const lfo = ctx.createOscillator();
+    const depth = ctx.createGain();
+    lfo.type = 'sine';
+    lfo.frequency.value = BED.pulseHz;
+    depth.gain.value = 0.5;
+    lfo.connect(depth);
+    depth.connect(horn.gain);
+    const soften = ctx.createBiquadFilter();
+    soften.type = 'lowpass';
+    soften.frequency.value = 650;
+    horn.connect(soften);
+    soften.connect(master);
+    const oscs = [lfo];
+    [[BED.toneHz, 'sawtooth', 0.55], [BED.toneHz * 1.5, 'triangle', 0.35]].forEach(([freq, type, level]) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = type;
+      o.frequency.value = freq;
+      g.gain.value = level;
+      o.connect(g);
+      g.connect(horn);
+      oscs.push(o);
     });
-  } catch (_) { /* a missing tone must not stop the voice */ }
+
+    /* The machinery: brown noise through a low filter. */
+    const len = ctx.sampleRate * 2;
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < len; i++) {
+      const white = Math.random() * 2 - 1;
+      last = (last + 0.02 * white) / 1.02;
+      data[i] = last * 3.5;
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = buf;
+    noise.loop = true;
+    const low = ctx.createBiquadFilter();
+    low.type = 'lowpass';
+    low.frequency.value = BED.rumbleHz;
+    const rumble = ctx.createGain();
+    rumble.gain.value = 1.4;
+    noise.connect(low);
+    low.connect(rumble);
+    rumble.connect(master);
+
+    oscs.forEach((o) => o.start());
+    noise.start();
+    ui.bed = { master, oscs, noise, ctx };
+  } catch (_) { ui.bed = null; /* no tone: the screen and the voice still warn */ }
+}
+
+function bedOff() {
+  const bed = ui.bed;
+  if (!bed) return;
+  ui.bed = null;
+  try {
+    const t = bed.ctx.currentTime;
+    bed.master.gain.cancelScheduledValues(t);
+    bed.master.gain.setValueAtTime(Math.max(bed.master.gain.value, 0.0001), t);
+    bed.master.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+    setTimeout(() => {
+      try { bed.oscs.forEach((o) => o.stop()); bed.noise.stop(); bed.master.disconnect(); } catch (_) { /* ignore */ }
+    }, 500);
+  } catch (_) { /* ignore */ }
+}
+
+/** Let the horn give way to the voice, and come back after it. */
+function duck(on) {
+  const bed = ui.bed;
+  if (!bed) return;
+  try {
+    const t = bed.ctx.currentTime;
+    bed.master.gain.cancelScheduledValues(t);
+    bed.master.gain.setValueAtTime(Math.max(bed.master.gain.value, 0.0001), t);
+    bed.master.gain.exponentialRampToValueAtTime(on ? BED.duck : BED.level, t + 0.25);
+  } catch (_) { /* ignore */ }
 }
 
 function canSpeak() {
@@ -289,16 +432,43 @@ function canSpeak() {
     && typeof window.SpeechSynthesisUtterance === 'function';
 }
 
+function chooseVoice() {
+  try {
+    const list = window.speechSynthesis.getVoices() || [];
+    if (list.length !== ui.voiceCount) {
+      ui.voiceCount = list.length;
+      ui.voice = pickVoice(list);
+    }
+  } catch (_) { /* default voice */ }
+  return ui.voice;
+}
+
 function speak(text) {
   if (!canSpeak()) return false;
   try {
-    const u = new window.SpeechSynthesisUtterance(text);
-    u.lang = (document.documentElement.lang && document.documentElement.lang.length > 1)
+    const voice = chooseVoice();
+    const d = deliveryFor(voice);
+    const parts = phrases(text);
+    const lang = (document.documentElement.lang && document.documentElement.lang.length > 1)
       ? document.documentElement.lang : 'en-US';
-    u.rate = 0.95;
-    u.pitch = 1;
-    u.volume = 1;
-    window.speechSynthesis.speak(u);
+    const release = () => { ui.speaking = Math.max(0, ui.speaking - 1); if (!ui.speaking) duck(false); };
+    parts.forEach((part, i) => {
+      const last = i === parts.length - 1;
+      const u = new window.SpeechSynthesisUtterance(last ? part : part + ',');
+      if (voice) { u.voice = voice; u.lang = voice.lang || lang; } else { u.lang = lang; }
+      /* The last phrase is the order itself: a touch slower and lower. */
+      u.rate = last ? d.rate - 0.05 : d.rate;
+      u.pitch = last ? d.pitch - 0.04 : d.pitch;
+      u.volume = 1;
+      ui.speaking += 1;
+      let done = false;
+      const end = () => { if (!done) { done = true; release(); } };
+      u.onstart = () => duck(true);
+      u.onend = end;
+      u.onerror = end;
+      setTimeout(end, 15000);
+      window.speechSynthesis.speak(u);
+    });
     return true;
   } catch (_) { return false; }
 }
@@ -312,18 +482,16 @@ function speak(text) {
 function prime() {
   if (!hasDom() || ui.primed) return;
   ui.primed = true;
-  try {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (AC) {
-      if (!ui.audio) ui.audio = new AC();
-      if (ui.audio.state === 'suspended' && ui.audio.resume) ui.audio.resume();
-    }
-  } catch (_) { /* ignore */ }
+  try { audioCtx(); } catch (_) { /* ignore */ }
   try {
     if (canSpeak()) {
       const u = new window.SpeechSynthesisUtterance(' ');
       u.volume = 0;
       window.speechSynthesis.speak(u);
+      /* Voices arrive late on some devices; look again when they do. */
+      if (window.speechSynthesis.addEventListener) {
+        window.speechSynthesis.addEventListener('voiceschanged', () => { ui.voiceCount = -1; });
+      }
     }
   } catch (_) { /* ignore */ }
 }
@@ -365,7 +533,7 @@ function paintBanner(alerts, testing) {
   const lines = alerts.map((a) => `<div class="ba-line"><span class="ba-msg">${esc(message(a))}</span>`
     + `<span class="ba-sub">${esc(detail(a))}</span></div>`).join('');
   const bar = `<div class="ba-bar">${testing ? '<span class="ba-tag">TEST</span>' : '<span class="ba-tag">WARNING</span>'}`
-    + `<button type="button" data-ba-silence${silenced ? ' disabled' : ''}>${silenced ? 'Voice silenced' : 'Silence voice'}</button></div>`;
+    + `<button type="button" data-ba-silence${silenced ? ' disabled' : ''}>${silenced ? 'Sound silenced' : 'Silence sound'}</button></div>`;
   const html = lines + bar;
   if (el.dataset.sig !== html) {
     el.innerHTML = html;
@@ -434,16 +602,14 @@ function update(rows, opts) {
 
   if (shown.length) {
     const due = ui.planner.due(shown, now);
-    if (due.length) {
-      if (!ui.beeped || !hadAlerts) beep();
-      ui.beeped = true;
-      due.forEach((a) => speak(speech(a)));
-    }
+    /* The horn runs while a warning stands, unless the chief has silenced it. */
+    if (ui.planner.silencedAll(shown)) bedOff(); else bedOn();
+    due.forEach((a) => speak(speech(a)));
   } else {
-    if (hadAlerts || ui.beeped) {
+    if (hadAlerts || ui.bed) {
       try { if (canSpeak()) window.speechSynthesis.cancel(); } catch (_) { /* ignore */ }
     }
-    ui.beeped = false;
+    bedOff();
     ui.planner.reset();
   }
   return shown;
@@ -453,6 +619,7 @@ function update(rows, opts) {
 function silence() {
   const shown = currentAlerts();
   ui.planner.silence(shown);
+  bedOff();
   try { if (canSpeak()) window.speechSynthesis.cancel(); } catch (_) { /* ignore */ }
   paintBanner(shown, !!ui.test && !ui.alerts.length);
 }
@@ -477,7 +644,7 @@ function test(name) {
   };
   ui.test = { alerts: [sample], until: Date.now() + 8000 };
   ui.planner.reset();
-  ui.beeped = false;
+  bedOff();
   update(ui.lastRows, { now: Date.now() });
   /* No clock tick runs when nothing is pumping, so the test ends itself. */
   setTimeout(() => update(ui.lastRows, { now: Date.now() }), 8100);
@@ -489,7 +656,7 @@ function clear() {
   ui.test = null;
   ui.alerts = [];
   ui.planner.reset();
-  ui.beeped = false;
+  bedOff();
   if (!hasDom()) return;
   edgeEl(false);
   bannerEl(false);
@@ -513,6 +680,11 @@ return {
   speakableName,
   fmtPercent,
   createVoicePlanner,
+  scoreVoice,
+  pickVoice,
+  deliveryFor,
+  phrases,
+  BED,
   update,
   silence,
   test,
