@@ -62,4 +62,30 @@ if (!gradle.includes('signingConfigs')) {
 }
 
 fs.writeFileSync(gradlePath, gradle);
+
+/* Notes alarms: permission to notify (Android 13+), to put alarms back after a
+   reboot, and the receivers that ring them. Each is added once, so running the
+   prep again changes nothing. */
+const manifestPath = path.join(root, 'android/app/src/main/AndroidManifest.xml');
+if (fs.existsSync(manifestPath)) {
+  const reminders = require('./android-reminders-java');
+  let manifest = fs.readFileSync(manifestPath, 'utf8');
+  for (const perm of reminders.PERMISSIONS) {
+    if (!manifest.includes(perm)) {
+      manifest = manifest.replace(/<manifest([^>]*)>/, '<manifest$1>\n    <uses-permission android:name="' + perm + '" />');
+    }
+  }
+  if (!manifest.includes('.ReminderReceiver')) {
+    manifest = manifest.replace('</application>', reminders.RECEIVERS + '    </application>');
+  }
+  /* Without this, Android 11+ hides the calendar apps from the check that the event screen can open. */
+  if (!manifest.includes('android.intent.action.INSERT')) {
+    manifest = manifest.replace(
+      '</manifest>',
+      '    <queries>\n        <intent>\n            <action android:name="android.intent.action.INSERT" />\n'
+      + '            <data android:mimeType="vnd.android.cursor.dir/event" />\n        </intent>\n    </queries>\n</manifest>'
+    );
+  }
+  fs.writeFileSync(manifestPath, manifest);
+}
 console.log(`Android release prep: versionName=${versionName} versionCode=${versionCode} (stable sideload key)`);

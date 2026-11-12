@@ -69,6 +69,47 @@
     });
   }
 
+  function R() { return window.ChengReminders; }
+
+  function reminderHint() {
+    const how = R() ? R().platform() : 'web';
+    if (how === 'android') return 'The alarm is set with the phone, so it rings with this app closed. The calendar opens its own screen to save the event.';
+    if (how === 'desktop') return 'The alarm shows on screen and as a Windows notification while this program is running. The calendar entry opens in your calendar program and alerts you even when this program is closed.';
+    return 'Needs a deadline. The alarm rings while this page is open; the calendar entry is a file to open in your calendar.';
+  }
+
+  function reminderBadges(n) {
+    if (!R() || !n.deadline) return '';
+    const w = R().wants(n);
+    const bits = [];
+    if (w.calendar) bits.push('Calendar');
+    if (w.alarm) bits.push('Alarm' + (R().leadMin(n) ? ' · ' + R().leadWords(R().leadMin(n)).toLowerCase() : ''));
+    return bits.length ? '<div class="note-badges">' + bits.map((b) => '<span class="note-badge">' + esc(b) + '</span>').join('') + '</div>' : '';
+  }
+
+  function vesselName() {
+    try {
+      const v = (typeof STATE !== 'undefined' && STATE.vessels && STATE.activeVesselId)
+        ? STATE.vessels.find((x) => x.id === STATE.activeVesselId) : null;
+      return v && v.name ? String(v.name) : '';
+    } catch (e) { return ''; }
+  }
+
+  /* Alarms are kept for every ship, so one set on another ship still rings. */
+  function syncAlarms() {
+    if (R()) R().syncAlarms(loadAll());
+  }
+
+  function say(host, text) {
+    host.dataset.status = text;
+    const el = host.querySelector('#noteStatus');
+    if (el) el.textContent = text;
+  }
+
+  function report(host) {
+    return (res) => say(host, res.ok ? res.detail : 'Calendar: ' + res.detail);
+  }
+
   function ensureStyle() {
     if (document.getElementById('cheng-notes-style')) return;
     const style = document.createElement('style');
@@ -89,6 +130,12 @@
       '.note-when.overdue{color:var(--danger,#e06a4c);font-weight:700;}',
       '.note-when.soon{color:var(--accent,#c4a46a);font-weight:700;}',
       '.note-actions{display:flex;flex-direction:column;gap:6px;}',
+      '.note-when-box{border:1px solid rgba(255,255,255,.16);border-radius:10px;padding:8px 12px 10px;margin:0;display:grid;gap:4px;}',
+      '.note-when-box legend{padding:0 6px;font-size:12px;letter-spacing:.04em;opacity:.75;}',
+      '.note-when-box select{width:100%;box-sizing:border-box;min-height:44px;font:inherit;}',
+      '.note-badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}',
+      '.note-badge{font-size:11px;letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:999px;border:1px solid currentColor;opacity:.85;}',
+      '.note-status{min-height:1.2em;}',
       '.note-pop{position:fixed;inset:0;z-index:8000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(4,10,18,.62);}',
       '.note-pop-card{width:min(560px,100%);max-height:min(80vh,720px);overflow:auto;background:var(--panel,#16324a);color:var(--text,#e9e4d6);border:1px solid var(--line,rgba(255,255,255,.2));border-radius:14px;padding:16px;}',
       '.note-pop-item{padding:10px 0;border-top:1px solid var(--line,rgba(255,255,255,.12));}',
@@ -112,8 +159,17 @@
         '<div class="form-row"><label for="noteDeadline">Deadline</label><input id="noteDeadline" type="datetime-local" value="' + esc(current && current.deadline ? current.deadline : '') + '"></div>' +
         '<div class="form-row span2"><label for="noteBody">Note</label><textarea id="noteBody" maxlength="4000" placeholder="What has to be done">' + esc(current ? current.body : '') + '</textarea></div>' +
         '<label class="note-check span2"><input id="noteRemind" type="checkbox"' + ((current ? current.remind : true) ? ' checked' : '') + '><span>Show when the program opens</span></label>' +
+        '<fieldset class="note-when-box span2"><legend>At the deadline</legend>' +
+          '<label class="note-check"><input id="noteCalendar" type="checkbox"' + (current && current.calendar ? ' checked' : '') + '><span>Add to the calendar</span></label>' +
+          '<label class="note-check"><input id="noteAlarm" type="checkbox"' + (current && current.alarm ? ' checked' : '') + '><span>Sound an alarm</span></label>' +
+          '<div class="form-row"><label for="noteLead">Alert</label><select id="noteLead">' +
+            R().LEADS.map((l) => '<option value="' + l.min + '"' + (current && R().leadMin(current) === l.min ? ' selected' : '') + '>' + esc(l.label) + '</option>').join('') +
+          '</select></div>' +
+          '<p class="hint" id="noteReminderHint">' + esc(reminderHint()) + '</p>' +
+        '</fieldset>' +
         '<div class="btn-row span2"><button type="submit" class="btn primary" id="noteSave">' + (current ? 'Save changes' : 'Save note') + '</button><button type="button" class="btn" id="noteClear">Clear</button></div>' +
       '</form>' +
+      '<p class="note-status hint" id="noteStatus" role="status" aria-live="polite">' + esc(host.dataset.status || '') + '</p>' +
       '<p class="hint" id="noteRemindCount">' + remindCount + (remindCount === 1 ? ' reminder appears' : ' reminders appear') + ' when this program opens.</p>' +
       '<div id="noteList"></div>';
     const list = host.querySelector('#noteList');
@@ -123,8 +179,8 @@
         const st = deadlineState(n.deadline);
         return '<article class="note-row"><label class="note-check"><input type="checkbox" data-remind="' + esc(n.id) + '"' + (n.remind ? ' checked' : '') + '><span>Show at open</span></label>' +
           '<div class="note-main"><strong>' + esc(n.title || 'Note') + '</strong>' + (n.body ? '<p>' + esc(n.body) + '</p>' : '') +
-          '<div class="note-when ' + st + '">' + esc(deadlineLabel(n.deadline)) + '</div></div>' +
-          '<div class="note-actions"><button type="button" class="btn small" data-edit="' + esc(n.id) + '">Edit</button>' +
+          '<div class="note-when ' + st + '">' + esc(deadlineLabel(n.deadline)) + '</div>' + reminderBadges(n) + '</div>' +
+          '<div class="note-actions">' + (n.deadline ? '<button type="button" class="btn small" data-calendar="' + esc(n.id) + '">Add to calendar</button>' : '') + '<button type="button" class="btn small" data-edit="' + esc(n.id) + '">Edit</button>' +
           '<button type="button" class="btn small" data-delete="' + esc(n.id) + '">Delete</button></div></article>';
       }).join('');
     }
@@ -135,31 +191,53 @@
       if (!title && !body) { host.querySelector('#noteTitle').focus(); return; }
       const now = new Date().toISOString();
       const next = loadAll();
+      const deadline = host.querySelector('#noteDeadline').value || '';
+      const calendar = host.querySelector('#noteCalendar').checked;
+      const alarm = host.querySelector('#noteAlarm').checked;
+      const leadMin = Number(host.querySelector('#noteLead').value) || 0;
+      let saved = null;
       if (editing) {
         const row = next.find((n) => n.id === editing);
         if (row) {
           row.title = title; row.body = body;
           row.deadline = host.querySelector('#noteDeadline').value || '';
           row.remind = host.querySelector('#noteRemind').checked;
+          row.calendar = calendar; row.alarm = alarm; row.leadMin = leadMin;
           row.vesselId = vesselId(); row.updatedAt = now;
+          saved = row;
         }
       } else {
-        next.push({
+        saved = {
           id: uid(), vesselId: vesselId(), title: title, body: body,
           deadline: host.querySelector('#noteDeadline').value || '',
           remind: host.querySelector('#noteRemind').checked,
+          calendar: calendar, alarm: alarm, leadMin: leadMin,
           createdAt: now, updatedAt: now
-        });
+        };
+        next.push(saved);
       }
       saveAll(next);
+      syncAlarms();
       delete host.dataset.editId;
+      host.dataset.status = (saved && (calendar || alarm) && !deadline) ? 'Saved. Add a deadline to use the calendar or the alarm.' : '';
       paint(host);
+      if (saved && calendar && deadline && R()) {
+        if (alarm) R().askPermission();
+        R().addToCalendar([saved], { vesselName: vesselName() }).then(report(host));
+      } else if (saved && alarm && deadline && R()) {
+        R().askPermission();
+        say(host, 'Alarm set for ' + new Date(R().fireMs(saved)).toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }) + '.');
+      }
     });
     host.querySelector('#noteClear').addEventListener('click', () => { delete host.dataset.editId; paint(host); });
     list.addEventListener('click', (e) => {
       const edit = e.target.closest('[data-edit]');
       const del = e.target.closest('[data-delete]');
-      if (edit) {
+      const cal = e.target.closest('[data-calendar]');
+      if (cal) {
+        const row = mine.find((n) => n.id === cal.getAttribute('data-calendar'));
+        if (row && R()) R().addToCalendar([row], { vesselName: vesselName() }).then(report(host));
+      } else if (edit) {
         host.dataset.editId = edit.getAttribute('data-edit');
         paint(host);
         host.querySelector('#noteTitle').focus();
@@ -168,6 +246,7 @@
         const row = mine.find((n) => n.id === id);
         if (!window.confirm('Delete “' + ((row && row.title) || 'this note') + '”?')) return;
         saveAll(loadAll().filter((n) => n.id !== id));
+        syncAlarms();
         if (host.dataset.editId === id) delete host.dataset.editId;
         paint(host);
       }
@@ -234,6 +313,13 @@
       const host = document.getElementById('tankNotesHost');
       if (host) paint(host);
     });
+  }
+
+  /* Alarms ring from the moment the program opens, not only while Notes is on screen.
+     Inside ChEng AIO the shell's own Notes module does this. */
+  if (window.ChengReminders && !embedded()) {
+    window.ChengReminders.start(loadAll);
+    syncAlarms();
   }
 
   window.TankNotes = { render: render, promptOnOpen: promptOnOpen };

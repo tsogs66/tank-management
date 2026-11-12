@@ -87,10 +87,11 @@ public class MainActivity extends BridgeActivity {
       if (!bridgesInstalled) {
         webView.addJavascriptInterface(new PrintBridge(), "ChengAndroidPrint");
         webView.addJavascriptInterface(new FileBridge(), "ChengAndroidFiles");
+        webView.addJavascriptInterface(new ReminderBridge(this), "ChengAndroidReminders");
         bridgesInstalled = true;
       }
       webView.post(() -> webView.evaluateJavascript(
-          "window.__CHENG_ANDROID_PRINT__=true;window.__CHENG_ANDROID_FILES__=true;"
+          "window.__CHENG_ANDROID_PRINT__=true;window.__CHENG_ANDROID_FILES__=true;window.__CHENG_ANDROID_REMINDERS__=true;"
               + "try{window.dispatchEvent(new CustomEvent('cheng-android-print-ready'));}catch(e){}",
           null
       ));
@@ -249,4 +250,10 @@ if (!fs.existsSync(path.dirname(mainPath))) {
 }
 
 fs.writeFileSync(mainPath, SOURCE);
-console.log('apply-android-bridges: wrote MainActivity with print + file bridges');
+
+/* Notes alarms and the calendar hand-off live in their own classes. */
+const reminders = require('./android-reminders-java');
+for (const [name, text] of Object.entries(reminders.files)) {
+  fs.writeFileSync(path.join(path.dirname(mainPath), name), text);
+}
+console.log('apply-android-bridges: wrote MainActivity with print + file + reminder bridges');
