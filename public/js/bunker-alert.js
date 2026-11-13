@@ -31,6 +31,11 @@ const LIMIT_PERCENT = 85;
 
 /** While a tank is still alerting, the voice repeats this often. */
 const REPEAT_MS = 30000;
+/* A silenced alarm is not a cancelled one. Bunkering is not left unwatched on
+   the strength of one tap: it sounds again after this long, ... */
+const SILENCE_RESOUND_MS = 3 * 60000;
+/* ... and again, whatever the clock says, when a silenced tank is this close. */
+const ESCALATE_MIN = 1;
 
 /** Heartbeat to the ChEng AIO shell is dropped by the shell after this long. */
 const SHELL_HEARTBEAT = 'chengaio-bunker-alert';
@@ -186,18 +191,35 @@ function speech(a) {
  */
 function createVoicePlanner(opts) {
   const repeatMs = opts && num(opts.repeatMs) != null ? Number(opts.repeatMs) : REPEAT_MS;
+  const resoundMs = opts && num(opts.resoundMs) != null ? Number(opts.resoundMs) : SILENCE_RESOUND_MS;
+  const escalateMin = opts && num(opts.escalateMin) != null ? Number(opts.escalateMin) : ESCALATE_MIN;
   const spokenAt = new Map();
-  const silenced = new Set();
+  const silenced = new Map();   /* key -> when it was silenced */
+  const escalated = new Set();  /* keys already woken by the final-minute rule */
+  let lastNow = 0;
   const keyOf = (a) => `${a.slot}|${a.tankId}|${a.kind}`;
   return {
     due(alerts, now) {
+      lastNow = now;
       const live = new Set((alerts || []).map(keyOf));
       for (const k of [...spokenAt.keys()]) if (!live.has(k)) spokenAt.delete(k);
-      for (const k of [...silenced]) if (!live.has(k)) silenced.delete(k);
+      for (const k of [...silenced.keys()]) if (!live.has(k)) silenced.delete(k);
+      for (const k of [...escalated]) if (!live.has(k)) escalated.delete(k);
       const due = [];
       for (const a of alerts || []) {
         const k = keyOf(a);
-        if (silenced.has(k)) continue;
+        if (silenced.has(k)) {
+          /* Silence holds for three minutes, or until this tank is a minute
+             from its target, whichever comes first. */
+          const timedOut = now - silenced.get(k) >= resoundMs;
+          const finalMinute = !escalated.has(k) && num(a.minutes) != null && a.minutes <= escalateMin;
+          if (!timedOut && !finalMinute) continue;
+          silenced.delete(k);
+          if (finalMinute) escalated.add(k);
+          spokenAt.set(k, now);
+          due.push(a);
+          continue;
+        }
         const last = spokenAt.get(k);
         if (last == null || now - last >= repeatMs) {
           spokenAt.set(k, now);
@@ -206,9 +228,23 @@ function createVoicePlanner(opts) {
       }
       return due;
     },
-    silence(alerts) { for (const a of alerts || []) silenced.add(keyOf(a)); },
+    silence(alerts, now) {
+      const at = num(now) != null ? Number(now) : lastNow;
+      for (const a of alerts || []) silenced.set(keyOf(a), at);
+    },
     silencedAll(alerts) { return (alerts || []).length > 0 && (alerts || []).every((a) => silenced.has(keyOf(a))); },
-    reset() { spokenAt.clear(); silenced.clear(); },
+    /** When the silence ends on the clock, for the countdown shown to the chief; null when nothing is silenced. */
+    resoundAt(alerts) {
+      let soonest = null;
+      for (const a of alerts || []) {
+        const at = silenced.get(keyOf(a));
+        if (at == null) continue;
+        const t = at + resoundMs;
+        if (soonest == null || t < soonest) soonest = t;
+      }
+      return soonest;
+    },
+    reset() { spokenAt.clear(); silenced.clear(); escalated.clear(); },
   };
 }
 
@@ -323,7 +359,9 @@ function ensureStyle() {
     'padding:max(8px,env(safe-area-inset-top,0px)) 14px 8px;background:#b3150c;color:#fff;',
     'box-shadow:0 4px 18px rgba(0,0,0,.5);font:600 15px/1.35 system-ui,sans-serif;}',
     '#bunker-alert-banner .ba-line{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;}',
-    '#bunker-alert-banner .ba-msg{font-weight:800;font-size:16px;}',
+    '@keyframes baBlink{0%,49.9%{opacity:1}50%,100%{opacity:.12}}',
+    '#bunker-alert-banner .ba-msg{font-weight:800;font-size:16px;animation:baBlink 1s steps(1,end) infinite;}',
+    '#bunker-alert-banner .ba-count{display:block;font-weight:600;font-size:12px;letter-spacing:.04em;opacity:.9;text-transform:uppercase;}',
     '#bunker-alert-banner .ba-sub{font-weight:600;font-size:12px;letter-spacing:.04em;opacity:.92;text-transform:uppercase;}',
     '#bunker-alert-banner .ba-bar{display:flex;gap:8px;align-items:center;margin-top:4px;}',
     '#bunker-alert-banner .ba-tag{font-size:11px;font-weight:800;letter-spacing:.12em;background:#fff;color:#b3150c;padding:2px 7px;border-radius:4px;}',
@@ -606,10 +644,20 @@ function paintBanner(alerts, testing) {
     + `<button type="button" data-ba-silence${silenced ? ' disabled' : ''}>${silenced ? 'Sound silenced' : 'Silence sound'}</button></div>`;
   const note = ui.noVoice
     ? '<div class="ba-line"><span class="ba-sub">No voice on this device — install a text-to-speech engine (Samsung or Google) in Settings</span></div>' : '';
-  const html = lines + note + bar;
+  const count = silenced ? '<div class="ba-line"><span class="ba-count" data-ba-count></span></div>' : '';
+  const html = lines + note + count + bar;
   if (el.dataset.sig !== html) {
     el.innerHTML = html;
     el.dataset.sig = html;
+  }
+  /* The countdown changes every second, so it is set in place rather than
+     redrawn with the rest: redrawing would restart the blinking message. */
+  const c = el.querySelector('[data-ba-count]');
+  if (c) {
+    const at = ui.planner.resoundAt(alerts);
+    const left = at == null ? 0 : Math.max(0, Math.ceil((at - Date.now()) / 1000));
+    c.textContent = 'Sounds again in ' + Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0')
+      + ' — or a minute before the target, or if another tank warns';
   }
 }
 
@@ -690,7 +738,7 @@ function update(rows, opts) {
 /** Stop the voice for the tanks alerting now; the lights stay until they clear. */
 function silence() {
   const shown = currentAlerts();
-  ui.planner.silence(shown);
+  ui.planner.silence(shown, Date.now());
   bedOff();
   try { if (window.ChengAndroidSpeech && window.ChengAndroidSpeech.stop) window.ChengAndroidSpeech.stop(); } catch (_) { /* ignore */ }
   try { if (canSpeak()) window.speechSynthesis.cancel(); } catch (_) { /* ignore */ }
@@ -751,6 +799,8 @@ return {
   WINDOW_MIN,
   LIMIT_PERCENT,
   REPEAT_MS,
+  SILENCE_RESOUND_MS,
+  ESCALATE_MIN,
   evaluate,
   message,
   detail,
