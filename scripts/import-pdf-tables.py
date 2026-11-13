@@ -515,6 +515,12 @@ def parse_as_grid(rows):
         trim_vals.append(n)
     if len(trim_vals) < 2:
         return None
+    # Rows with more figures than the header names are not this grid: the header lost columns,
+    # and keeping the ones it names would store a table with columns missing.
+    body_counts = [sum(1 for c in densify_row(r) if to_number(c) is not None) for r in rows[1:]]
+    body_counts = [c for c in body_counts if c >= 3]
+    if len(body_counts) >= 3 and Counter(body_counts).most_common(1)[0][0] - 1 > len(trim_vals):
+        return None
     # Trim/list headers are typically small meters (e.g. -5..+5), not LCG/volumes
     if not any(abs(v) <= 15 for v in trim_vals):
         return None
@@ -565,6 +571,13 @@ def parse_as_grid(rows):
 def parse_as_volume_curve(rows):
     """Two-column (or multi-col after hydro strip): sounding/ullage | volume."""
     if len(rows) < 2:
+        return None
+
+    # Four or more figures on every row is a grid whose header was lost, not a volume curve:
+    # reading it as one would keep two columns of it and call that the tank.
+    counts = [sum(1 for c in r if to_number(c) is not None) for r in rows]
+    counts = [c for c in counts if c >= 2]
+    if len(counts) >= 4 and Counter(counts).most_common(1)[0][0] >= 4:
         return None
 
     xs, vs = [], []
@@ -1131,6 +1144,14 @@ def merge_continued_tables(tables, span_until_next_tank=True):
             if not (same_axis or is_cont or (same_cols and adjacent)):
                 break
 
+            # A table that starts again at the bottom is a different table, however alike its
+            # columns and however it is titled: a page continues one only if its soundings carry on.
+            cur_b, nxt_b = axis_bounds(parsed), axis_bounds(nxt.get("parsed"))
+            if cur_b and nxt_b:
+                tol = max(10 * cur_b[2], 10 * nxt_b[2], 0.05 * abs(cur_b[1]))
+                if nxt_b[0] < cur_b[1] - tol:
+                    break
+
             # Align and append (skip duplicate header if present)
             aligned = align_rows_to_pattern(nxt_raw, pattern or nxt_pattern)
             if aligned and pattern and same_axis:
@@ -1327,6 +1348,25 @@ def range_overlap(a, b):
     if shorter <= 0:
         return 0.0
     return max(0.0, hi - lo) / shorter
+
+
+def axis_bounds(parsed):
+    """
+    Where a table's soundings start and end, and their step - from the middle of each
+    end, so that one misread figure at the edge of a scanned page does not move it.
+    """
+    if not parsed:
+        return None
+    xs = (parsed.get("volumeCurve") or {}).get("x") or parsed.get("trimAxis") or []
+    xs = [x for x in xs if isinstance(x, (int, float))]
+    if len(xs) < 4:
+        return None
+
+    def med(v):
+        v = sorted(v)
+        return v[len(v) // 2]
+
+    return med(xs[:5]), med(xs[-5:]), detect_inc(xs)
 
 
 def row_raggedness(rows):
@@ -1597,6 +1637,9 @@ def extract_tables(
                     score += 15
                 scored.append((score, cand, processed))
             scored.sort(key=lambda x: -x[0])
+            # A reading that gave no table is noise next to one on the same page that did.
+            if any((not pr["skipped"]) and pr["parsed"].get("kind") in ("grid", "volumeCurve") for _s, _c, pr in scored):
+                scored = [t3 for t3 in scored if t3[2]["skipped"] or t3[2]["parsed"].get("kind") in ("grid", "volumeCurve")]
 
             # Deduplicate by parsed fingerprint of usable tables; keep skipped hydro once
             keep = []

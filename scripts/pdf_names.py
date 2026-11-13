@@ -90,6 +90,15 @@ def _letters(text):
     return sum(1 for ch in text if ch.isalpha())
 
 
+_FIG = re.compile(r"^[\W_]*[+-]?\d+(?:[.,]\d+)?[\W_]*$")
+
+
+def looks_like_data_row(text):
+    """Two figures to start with ("59 18.855 LO"): a row of a table, whatever else the scan put in it."""
+    toks = (text or "").split()
+    return len(toks) >= 2 and bool(_FIG.match(toks[0])) and bool(_FIG.match(toks[1]))
+
+
 def score_name(text, rel_top=0.5, size_ratio=1.0):
     """
     How much a line looks like a tank's title. Roughly 0 (not at all) to 14.
@@ -97,7 +106,7 @@ def score_name(text, rel_top=0.5, size_ratio=1.0):
     line's font size against the page's body text.
     """
     t = (text or "").strip()
-    if not t or len(t) > 110 or _letters(t) < 2:
+    if not t or len(t) > 110 or _letters(t) < 2 or looks_like_data_row(t):
         return 0.0
     t, _info = clean_name(t)  # "SOUNDING TABLE" etc. are not part of the name
     if not t or _letters(t) < 2:
@@ -140,6 +149,31 @@ def score_name(text, rel_top=0.5, size_ratio=1.0):
     return max(0.0, score)
 
 
+_KNOWN_CODES = {"FWT", "FOT", "DOT", "WBT", "DBT", "SWT", "LOT", "CWT", "FPT", "APT", "HFO", "MDO", "MGO", "HFOT", "MDOT", "MGOT"}
+
+
+def join_split_codes(t):
+    """OCR puts a gap inside a code ("F WT 3 C"): rejoin when the result is a known one."""
+    toks = t.split(" ")
+    out = []
+    i = 0
+    while i < len(toks):
+        done = False
+        for span in (3, 2):
+            chunk = toks[i:i + span]
+            if len(chunk) == span and all(c.isalpha() and len(c) <= 3 for c in chunk):
+                joined = "".join(chunk).upper()
+                if joined in _KNOWN_CODES:
+                    out.append(joined)
+                    i += span
+                    done = True
+                    break
+        if not done:
+            out.append(toks[i])
+            i += 1
+    return " ".join(out)
+
+
 def clean_name(text):
     """
     Reduce a title line to the tank's name; also report what was in it.
@@ -164,7 +198,8 @@ def clean_name(text):
         info["method"] = "sounding"
     t = LEADER_RE.sub("", t)
     # "CAPACITY 96.2 M3" that OCR has run together ("CAPAC96I.2T MY3"): cut it off.
-    t = re.sub(r"\s+CAPAC\w*.*$", "", t, flags=re.I)
+    t = re.sub(r"\s+C\s*A\s*P\s*A\s*C.*$", "", t, flags=re.I)
+    t = join_split_codes(t)
     for _ in range(3):
         before = t
         for rx in TRAILER_RES:
@@ -172,7 +207,17 @@ def clean_name(text):
         t = t.strip(" -:|,;")
         if t == before:
             break
-    return re.sub(r"\s+", " ", t).strip(), info
+    # A scan runs words together ("NO.1H.F.O.", "FWT3 C"): put the space back between a number and a code.
+    if re.match(r"^\s*(?:NO\.?\s*)?\d?[A-Za-z.]*\d", t, re.I):
+        t = re.sub(r"(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])", " ", t)
+    t = re.sub(r"(?<=\s[A-Z])\.$", "", re.sub(r"\s+", " ", t).strip())  # "FWT 3 C." -> "FWT 3 C"
+    # What a scan leaves around a name: marks in front, a side written twice, mush after the side.
+    t = re.sub(r"^[^A-Za-z0-9(]+", "", t)
+    t = re.sub(r"\(\s*([PSCpsc])\1+\s*\)", lambda m: "(" + m.group(1).upper() + ")", t)
+    t = re.sub(r"^(.*?\(\s*[PSC]\s*\))\s+\S.*$", r"\1", t) if re.search(r"\([PSC]\)\s+\S", t) and not re.search(r"\([PSC]\)\s+(?:TANK|TK)", t, re.I) else t
+    t = re.sub(r"(?:\s+[^A-Za-z0-9(]{1,3})+$", "", t)
+    t = t.strip()
+    return t, info
 
 
 # ---------------------------------------------------------------- identity
@@ -290,6 +335,17 @@ def find_title(lines, page_height=None, body_size=None):
         s = score_name(text, rel, size_ratio)
         if s >= 4.5:
             scored.append((s, -idx, idx, text))
+    if not scored:
+        # A title the scan has pulled apart ("F WT 3 C" or "NO.1H.F.O.STOR AGE"): with every
+        # space and mark taken out it still starts like a tank's name.
+        for idx, ln in enumerate((lines or [])[:12]):
+            text = (ln.get("text") or "").strip()
+            cond = re.sub(r"[^A-Z0-9]", "", text.upper())
+            if not looks_like_data_row(text) and 3 <= len(cond) <= 40 and re.match(
+                r"^(?:NO\d*|NR\d*)?\d*(?:HFO|MDO|MGO|FWT|FOT|DOT|LOT|SWT|WBT|DBT|FPT|APT|FO|DO|LO|FW|SW)T?\d*[PSC]?", cond
+            ) and not NOISE_RE.search(text) and not HEADER_ONLY_RE.match(text):
+                scored.append((5.0, -idx, idx, text))
+                break
     if not scored:
         return None
     scored.sort(reverse=True)

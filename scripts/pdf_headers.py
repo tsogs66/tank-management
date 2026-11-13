@@ -69,6 +69,9 @@ def clean_ocr_noise(rows):
             continue
         new = []
         for c in cells:
+            if c == "?":          # a figure the scan lost, marked so the columns after it stay put
+                new.append(c)
+                continue
             if c and _STRAY.match(c) and not NUM_TOKEN.match(c):
                 changed += 1
                 new.append("")
@@ -214,7 +217,7 @@ def unstack_blocks(rows):
             hi, pos = i, [j for j, _k in labeled]
             break
     if hi is None:
-        return rows, 1
+        return _unstack_by_structure(rows)
     k = len(pos) // 2
     blocks = [[] for _ in range(k)]
     for r in rows[hi + 1:]:
@@ -230,13 +233,90 @@ def unstack_blocks(rows):
     if len(blocks) < 2:
         return rows, 1
     # The soundings have to carry on from one block to the next.
-    for b in range(len(blocks) - 1):
-        if blocks[b + 1][0][0] < blocks[b][-1][0] - 1e-9:
-            return rows, 1
+    flat = _stack(blocks)
+    if flat is None:
+        return rows, 1
     labels = [rows[hi][pos[0]], rows[hi][pos[1]]]
     out = [labels]
-    out.extend([[repr_num(x), repr_num(v)] for b in blocks for x, v in b])
+    out.extend([[repr_num(x), repr_num(v)] for x, v in flat])
     return out, len(blocks)
+
+
+def _rising(pairs):
+    """The pairs that keep the soundings rising (a speckle read as a sounding falls out)."""
+    import bisect
+    tails, idx, prev = [], [], [-1] * len(pairs)
+    for i, (x, _v) in enumerate(pairs):
+        j = bisect.bisect_left(tails, x)
+        if j == len(tails):
+            tails.append(x)
+            idx.append(i)
+        else:
+            tails[j] = x
+            idx[j] = i
+        prev[i] = idx[j - 1] if j else -1
+    keep, k = [], idx[-1] if idx else -1
+    while k >= 0:
+        keep.append(k)
+        k = prev[k]
+    return [pairs[i] for i in reversed(keep)]
+
+
+def _stack(blocks):
+    """
+    Blocks of (sounding, volume) read down as one table, or None when they are not blocks of
+    one table: each must be mostly rising, and each must pick up where the one before stopped
+    (judged from the middle of each end, so one misread figure cannot move it).
+    """
+    kept = []
+    for b in blocks:
+        r = _rising(b)
+        if len(r) < 0.85 * len(b):
+            return None
+        kept.append(r)
+
+    def med(v):
+        v = sorted(v)
+        return v[len(v) // 2]
+
+    for a, b in zip(kept, kept[1:]):
+        last = med([x for x, _v in a[-3:]])
+        first = med([x for x, _v in b[:3]])
+        step = (a[-1][0] - a[0][0]) / max(len(a) - 1, 1)
+        if not (last - 1e-9 <= first <= last + 4 * max(step, 1e-9)):
+            return None
+    return [pair for b in kept for pair in b]
+
+
+def _unstack_by_structure(rows):
+    """
+    The same, when the labels cannot be read (a scan has turned "VOLUME" into "VOLUMF"):
+    an even number of columns, each pair a sounding then a volume, and each block's
+    soundings carrying on exactly where the block before it stopped. A sounding x trim
+    grid never does that - its second column starts again near the bottom.
+    """
+    width = max((len(r) for r in rows), default=0)
+    if width < 4 or width % 2:
+        return rows, 1
+    body = [r for r in rows if sum(1 for c in r if _num(c) is not None) >= 2]
+    if len(body) < 8:
+        return rows, 1
+    k = width // 2
+    blocks = [[] for _ in range(k)]
+    for r in body:
+        r = r + [""] * (width - len(r))
+        for b in range(k):
+            x, v = _num(r[2 * b]), _num(r[2 * b + 1])
+            if x is not None and v is not None:
+                blocks[b].append((x, v))
+    if any(len(b) < 0.6 * len(body) for b in blocks):
+        return rows, 1
+    flat = _stack(blocks)
+    if flat is None:
+        return rows, 1
+    out = [["SOUNDING", "VOLUME"]]
+    out.extend([[repr_num(x), repr_num(v)] for x, v in flat])
+    return out, k
 
 
 def repr_num(x):

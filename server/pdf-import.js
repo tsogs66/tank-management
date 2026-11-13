@@ -339,6 +339,22 @@ function reviewTables(tables, opts = {}) {
     if (!byTank.has(key)) byTank.set(key, []);
     byTank.get(key).push(t);
   }
+  // A table that was found but could not be read is not silent: it is shown as failed, with the reason.
+  for (const t of tables) {
+    if (t.skipped || usable(t) || !t.parsed || t.parsed.kind !== 'unknown') continue;
+    t.review = {
+      status: 'fail',
+      score: 0,
+      issues: [{
+        severity: 'error',
+        code: 'unreadable',
+        message: 'A table was found on this page but it could not be read as a calibration table (the columns could not be told apart). Check the page, or import it from a clearer copy.',
+      }],
+      repairs: [],
+      cross: [],
+      repaired: 0,
+    };
+  }
   for (const t of tables) {
     if (!usable(t)) continue;
     const key = String(t.tankName || '').toUpperCase().replace(/[^A-Z0-9]/g, '');

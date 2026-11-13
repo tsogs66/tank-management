@@ -43,6 +43,8 @@ NOT_TITLES = [
     "VESSEL: GANGOS YARD NO 2301",
     "TANK CAPACITY PLAN",
     "0.000   12.345",
+    "59 18.855 LO",        # a row of a table with a speckle in it
+    "7 4.907 ; ",
 ]
 for t in TITLES:
     check(f"is a title: {t}", n.score_name(t, 0.1) >= 5.0, f"score {n.score_name(t, 0.1)}")

@@ -64,21 +64,34 @@ def fix_trim_header(matrix, data):
     if not matrix:
         return matrix
     first = matrix[0]
+    ncols = len(first)
     nums = [(i, numeric_token(c)[0]) for i, c in enumerate(first) if c and numeric_token(c)]
     body_axis = sum(1 for r in matrix[1:] if r and r[0] and numeric_token(r[0]))
     if first and first[0] == "" and len(nums) >= 2 and body_axis >= max(3, len(matrix[1:]) // 2):
-        # evenly spaced?
-        steps = {round((b[1] - a[1]) / (b[0] - a[0]), 4) for a, b in zip(nums, nums[1:]) if b[0] > a[0]}
-        if len(steps) == 1:
-            step = next(iter(steps))
-            if step != 0:
-                base_i, base_v = nums[0]
-                filled = list(first)
-                for j in range(1, len(first)):
-                    if not filled[j]:
-                        v = base_v + step * (j - base_i)
-                        filled[j] = ("%g" % v)
-                first = filled
+        # Trims are evenly spaced. Find the progression most of the figures that were
+        # read agree with (a figure misread as another, or lost, is outvoted) and
+        # write it over the whole row - only when at least three columns, and 60% of
+        # them, agree, so a header is never invented from one or two figures.
+        best = None
+        for ia in range(len(nums)):
+            for ib in range(ia + 1, len(nums)):
+                (i, vi), (j, vj) = nums[ia], nums[ib]
+                step = (vj - vi) / (j - i)
+                if step == 0:
+                    continue
+                agree = sum(1 for (k, vk) in nums if abs(vi + step * (k - i) - vk) < 1e-6)
+                if best is None or agree > best[0]:
+                    best = (agree, vi - step * i, step)
+        # Two figures can still say what the rest are when they sit side by side, or when they
+        # are a whole number apart (the usual 1 m trim step); anything vaguer is left alone.
+        two = best and best[0] == 2 and len(nums) == 2 and (
+            abs(nums[0][0] - nums[1][0]) == 1 or abs(best[2]) == 1.0) and ncols - 1 >= 3
+        if best and ((best[0] >= 3 and best[0] >= 0.6 * (ncols - 1)) or two):
+            _agree, base, step = best
+            fixed = list(first)
+            for k in range(1, ncols):
+                fixed[k] = "%g" % round(base + step * k, 6)
+            first = fixed
         first = list(first)
         first[0] = "SOUNDING"
         matrix = [first] + matrix[1:]
@@ -213,5 +226,14 @@ def build(page, min_rows=6):
         return row
 
     header_rows = [place(t) for t in header_lines[-2:]]
-    out = header_rows + matrix
-    return out
+    # A figure the scan lost leaves a hole in its row. Mark it, so that the figures after it
+    # keep their columns instead of sliding left into the hole (a grid row read as if its
+    # trims were one off is a wrong table that looks right).
+    body = []
+    for k, r in enumerate(matrix):
+        if k == 0 and r and r[0] in ("SOUNDING",):
+            body.append(r)
+            continue
+        last = max((i for i, c in enumerate(r) if c), default=-1)
+        body.append([c if c else ("?" if i <= last else "") for i, c in enumerate(r)])
+    return header_rows + body

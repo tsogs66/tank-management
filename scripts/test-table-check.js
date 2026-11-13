@@ -85,6 +85,15 @@ check('a figure that is wrong but still plausible is found by its neighbours (th
   for (let i = 1; i < r.v.length; i++) assert.ok(r.v[i] >= r.v[i - 1]);
 });
 
+check('a curve that still runs backwards after correction fails: two neighbours wrong the same amount cannot be told apart', () => {
+  const c = tankCurve();
+  c.v[100] += 1.0;
+  c.v[101] -= 1.0; // each is as far from the line as the other, and the pair runs backwards
+  const r = reviewParsed({ volumeCurve: c }, { capacity: 500 });
+  assert.ok(codes(r.review).includes('runs-backwards'), JSON.stringify(codes(r.review)));
+  assert.strictEqual(r.review.status, 'fail');
+});
+
 check('a value that makes the curve fall is mended', () => {
   const c = tankCurve();
   c.v[50] = c.v[48] - 5;
@@ -120,6 +129,13 @@ check('a page that is mostly wrong fails and nothing is invented for it', () => 
   for (let i = 5; i < 295; i += 4) c.v[i] = c.v[i] * 10; // one row in four
   const r = reviewParsed({ volumeCurve: c }, { capacity: 500 });
   assert.strictEqual(r.review.status, 'fail');
+});
+
+check('a table that starts well above the bottom of the tank says pages may be missing', () => {
+  const c = tankCurve();
+  const r = reviewCurve(c.x.slice(100), c.v.slice(100), { capacity: 500 });
+  assert.ok(codes(r).includes('starts-mid-table'), JSON.stringify(codes(r)));
+  assert.ok(!codes(reviewCurve(c.x, c.v, { capacity: 500 })).includes('starts-mid-table'));
 });
 
 check('a missing row is reported with where', () => {
@@ -283,6 +299,14 @@ function trimGrid() {
   }
   return { axis, vals, grid };
 }
+
+check('a trim header that was misread (1, 1, ...) fails: the columns cannot be told apart', () => {
+  const g = trimGrid();
+  const r = reviewParsed({ trimAxis: g.axis, trimVals: [1, 1, 0, -1, -2], trimGrid: g.grid }, {});
+  assert.strictEqual(r.review.status, 'fail');
+  assert.ok(codes(r.review).includes('trim-header'));
+  assert.strictEqual(reviewParsed({ trimAxis: g.axis, trimVals: g.vals, trimGrid: g.grid }, {}).review.status, 'ok');
+});
 
 check('a clean volume grid passes', () => {
   const g = trimGrid();

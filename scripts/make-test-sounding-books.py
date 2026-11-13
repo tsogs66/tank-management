@@ -194,6 +194,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("outdir")
     ap.add_argument("--no-scan", action="store_true")
+    ap.add_argument("--seed", type=int, default=7, help="speckle pattern of the scan")
     args = ap.parse_args()
     os.makedirs(args.outdir, exist_ok=True)
     text_pdf = os.path.join(args.outdir, "book-long.pdf")
@@ -203,7 +204,7 @@ def main():
     with open(os.path.join(args.outdir, "expected.json"), "w") as fh:
         json.dump(exp, fh)
     if not args.no_scan:
-        scan(text_pdf, os.path.join(args.outdir, "book-scanned.pdf"))
+        scan(text_pdf, os.path.join(args.outdir, "book-scanned.pdf"), seed=args.seed)
     print(f"wrote {total} pages to {args.outdir}")
 
 

@@ -251,6 +251,13 @@ function checkAxis(rows, issues, repairs) {
       }
     }
   }
+  // The row for sounding 0 is the first the scan tends to lose. A table that starts exactly one
+  // step above zero has probably lost it; say so, since what it held cannot be guessed for a grid.
+  if (step > 0 && share >= 0.6 && out.length >= 6 && out[0].x > 0 && out[0].x <= step * 1.5 && !out[0].filled) {
+    issue(issues, SEVERITY.warn, 'no-zero-row',
+      `There is no row for sounding 0 - the table starts at ${out[0].x}, one step up. The first row may have been lost.`,
+      { first: out[0].x });
+  }
   return out;
 }
 
@@ -514,11 +521,65 @@ function reviewCurve(xIn, vIn, opts = {}) {
       `${repaired} of ${n} rows needed correcting - compare the table with the book before relying on it`);
   }
 
+  // Whatever the repairs did, the curve that is left must not run backwards. If it still
+  // does, a figure is wrong that could not be told from its neighbour: refuse, do not guess.
+  {
+    const left = work.filter((r) => isNum(r.v));
+    const back = [];
+    for (let i = 1; i < left.length; i++) {
+      if (direction * (left[i].v - left[i - 1].v) < -1e-6 - Math.abs(left[i - 1].v) * 1e-6) back.push(left[i].x);
+    }
+    if (back.length) {
+      issue(issues, SEVERITY.error, 'runs-backwards',
+        `The volume still runs backwards after correction at sounding ${back.slice(0, 5).join(', ')}${back.length > 5 ? '…' : ''} - some figures here are wrong and cannot be corrected`,
+        { xs: back.slice(0, 20) });
+    }
+    // Slightly off the smooth line the rows round it draw: not wrong enough to correct, enough to look at.
+    if (left.length >= 12) {
+      const resid = [];
+      for (let i = 1; i < left.length - 1; i++) {
+        const a = left[i - 1]; const b = left[i + 1];
+        if (b.x === a.x) continue;
+        const est = a.v + ((b.v - a.v) * (left[i].x - a.x)) / (b.x - a.x);
+        resid.push({ x: left[i].x, r: left[i].v - est });
+      }
+      // A wrong figure is a spike: its neighbours lean the other way. A kink in a real tank
+      // (a hopper's slope changing) moves one point and leaves the rest alone.
+      const spike = (i) => {
+        const q = resid[i];
+        const a = resid[i - 1];
+        const b = resid[i + 1];
+        return !!a && !!b && a.r * q.r < 0 && b.r * q.r < 0 &&
+          Math.abs(a.r) >= 0.25 * Math.abs(q.r) && Math.abs(b.r) >= 0.25 * Math.abs(q.r);
+      };
+      const absr = resid.map((q) => Math.abs(q.r)).sort((x, y) => x - y);
+      const mad = absr[absr.length >> 1] || 0;
+      const limit = Math.max(10 * mad, 0.2 * typicalStep, 1e-9);
+      const odd = resid.filter((q, i) => Math.abs(q.r) > limit && spike(i) && !work.find((w) => w.x === q.x && w.repaired));
+      if (odd.length && odd.length <= Math.max(6, left.length * 0.05)) {
+        issue(issues, SEVERITY.warn, 'suspect-values',
+          `${odd.length} figure(s) sit a little off the line the rows beside them draw (sounding ${odd.slice(0, 6).map((q) => q.x).join(', ')}) - check them against the book`,
+          { xs: odd.slice(0, 20).map((q) => q.x) });
+      }
+    }
+  }
+
   // Shape checks that make no change.
   const live = work.filter((r) => !r.bad && isNum(r.v));
   if (live.length >= 2) {
     const first = live[0];
     const vmax = Math.max(...live.map((r) => r.v));
+    // A table of soundings starts at the bottom. One that starts well above it has lost its
+    // first pages (or was read from a page range): what it holds cannot be the whole tank.
+    {
+      const stepX = modalStep(live.map((r) => r.x)).step || 0;
+      const range = live[live.length - 1].x - first.x;
+      if (stepX > 0 && range > 0 && first.x > Math.max(4 * stepX, 0.05 * range)) {
+        issue(issues, SEVERITY.warn, 'starts-mid-table',
+          `The table starts at sounding ${first.x}, not at the bottom of the tank - the pages before it may be missing`,
+          { first: first.x });
+      }
+    }
     if (direction === 1 && first.x === 0 && first.v > Math.max(0.01 * vmax, 0.05)) {
       issue(issues, SEVERITY.warn, 'nonzero-start',
         `Volume at sounding 0 is ${first.v}, not zero - check the first row`, { value: first.v });
@@ -623,6 +684,21 @@ function reviewGrid(axisIn, valsIn, gridIn, opts = {}) {
   if (!nRows || !nCols) {
     issue(issues, SEVERITY.error, 'grid-empty', 'The grid has no rows or no trim columns');
     return { axis: axisIn || [], vals: valsIn || [], grid: gridIn || [], issues, repairs, repairedCells: [], volume: false };
+  }
+
+  // The trims are a run of distinct values; a repeat or a reversal means the header was misread,
+  // and every column would then be filed under the wrong trim.
+  {
+    let up = true;
+    let down = true;
+    for (let i = 1; i < valsIn.length; i++) {
+      if (!(valsIn[i] > valsIn[i - 1])) up = false;
+      if (!(valsIn[i] < valsIn[i - 1])) down = false;
+    }
+    if (!up && !down) {
+      issue(issues, SEVERITY.error, 'trim-header',
+        `The trim columns read ${valsIn.join(', ')}, which is not a run of distinct values - the header was misread, so the columns cannot be told apart`);
+    }
   }
 
   const volume = opts.volume != null ? !!opts.volume : looksLikeVolumeGrid(axisIn, gridIn, opts.volumeCurve);
@@ -888,6 +964,13 @@ function reviewParsed(parsed, ctx = {}) {
       `Disagrees with ${c.against} ${where}`, { against: c.against, rel: c.worst.rel });
   }
 
+  // Anything that was corrected means the table is no longer exactly as read: say so,
+  // so a table that needed mending is never shown as if it had not.
+  const mended = repairs.filter((r) => /^value|^axis-repaired|^row-dropped/.test(r.code)).length;
+  if (mended && !issues.some((i) => i.severity !== SEVERITY.info)) {
+    issue(issues, SEVERITY.warn, 'values-corrected',
+      `${mended} figure(s) were corrected from their neighbours - compare them with the book (listed under the corrections)`);
+  }
   const status = statusOf(issues);
   const review = {
     status,
