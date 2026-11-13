@@ -195,6 +195,10 @@ jobs:
           done
           node scripts/parity-check.js
 
+          # The phone's side of live sync: the app's own copy of the server, in a
+          # browser, pairing with a real server and exchanging records with it.
+          node scripts/test-lan-phone.js
+
           # The reorder list is dragged with pointer events so one code path
           # serves finger, pen and mouse. Whether a touchscreen fires them at
           # all is a question only a browser answers, so it is asked here,

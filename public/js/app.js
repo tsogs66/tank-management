@@ -5410,6 +5410,7 @@ function renderSettings(main) {
       </div>
     </div>`;
   main.appendChild(cols);
+  if (window.LanSyncUI) window.LanSyncUI.mount(cols, { toast: showToast });
 
   const progressHost = () => document.getElementById('settings-progress-host');
 

@@ -19,10 +19,12 @@ const ASSETS = [
   // The server files the device runs when there is no server.
   '/embedded/calc.js',
   '/embedded/bunker-live.js',
+  '/embedded/lan-sync.js',
   '/embedded/index.js',
   '/js/db.js',
   '/js/calc.js',
   '/js/progress.js',
+  '/js/lan-sync-ui.js',
   '/js/tank-order.js',
   '/js/tank-graphics.js',
   '/js/image-cutout.js',
