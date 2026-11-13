@@ -153,7 +153,7 @@ jobs:
       - name: Install OCR tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y tesseract-ocr poppler-utils unpaper
+          sudo apt-get install -y tesseract-ocr poppler-utils
           python -m pip install -r requirements.txt img2pdf pillow
 
       # A long book through the real importer: names, pages spliced, columns

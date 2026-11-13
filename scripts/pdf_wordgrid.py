@@ -124,7 +124,7 @@ def build(page, min_rows=6):
     for ln in lines:
         text_all = " ".join(w["text"] for w in ln["words"])
         figs_here = sum(1 for w in ln["words"] if numeric_token(w["text"]))
-        if seen_figures >= 3 and (is_label_line(ln["words"]) or re.search(r"HYDROSTATIC|DO\s*NOT\s*USE", text_all, re.I)):
+        if seen_figures >= 3 and (is_label_line(ln["words"]) or re.search(r"HYDROSTATIC|DONOTUSE", re.sub(r"\s+", "", text_all), re.I)):
             cut_at = min(w["top"] for w in ln["words"])
             break
         if figs_here >= 2:

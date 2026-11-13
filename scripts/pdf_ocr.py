@@ -82,7 +82,6 @@ class OcrEngine:
         self._src = None
         self._mode = None  # "module" | "cli"
         self._cmd = None
-        self._has_unpaper = bool(shutil.which("unpaper"))
         self._probe()
 
     # ---------------------------------------------------------------- setup
@@ -156,8 +155,9 @@ class OcrEngine:
             "--jobs", str(self.cpu),
             "--quiet",
         ]
-        if self._has_unpaper:
-            cmd.append("--clean")
+        # No --clean: it needs unpaper, which not every machine has, so the same page
+        # would read differently from one computer to the next - and on test scans it
+        # lost rows rather than saving them.
         cmd += [src, dst]
         return cmd
 

@@ -1567,7 +1567,8 @@ def extract_tables(
             for cand in page_tables:
                 processed = process_raw_table(cand["rows"])
                 if not processed["skipped"] and re.search(
-                    r"HYDROSTATIC|DO\s*NOT\s*USE|STABILITY\s+DATA", cand.get("title") or "", re.I
+                    # spaces removed: OCR splits words ("HYDROST ATIC", "D O NOT USE")
+                    r"HYDROSTATIC|DONOTUSE|STABILITYDATA", re.sub(r"\s+", "", cand.get("title") or ""), re.I
                 ):
                     processed = dict(processed, skipped=True,
                                      skipReason="table is headed as hydrostatic data - disregarded")
