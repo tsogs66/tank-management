@@ -159,6 +159,16 @@ function tablesByName(summary) {
       assert.deepStrictEqual(first.slice(4), [0, 0, 0, 0]);
       assert.strictEqual(heel.parsed.blankCells.length, 20);
     });
+    await check('a heeling table printed without a 0 column gets one: all zeros, between -1 and 1', () => {
+      const z = pdfImport.withZeroColumn(heel.parsed.listVals, heel.parsed.listGrid);
+      assert.deepStrictEqual(z.vals, [-4, -3, -2, -1, 0, 1, 2, 3, 4]);
+      assert.ok(z.grid.every((r) => r.length === 9 && r[4] === 0));
+      assert.deepStrictEqual(z.grid[heel.parsed.listAxis.indexOf(250)], [363.17, 356.07, 348.97, 341.87, 0, -135.9, -188.4, -240.9, -293.4]);
+      const same = pdfImport.withZeroColumn([-2, -1, 0, 1, 2], [[1, 2, 0, -2, -1]]);
+      assert.deepStrictEqual(same.vals, [-2, -1, 0, 1, 2]);   // already there: untouched
+      const oneSide = pdfImport.withZeroColumn([1, 2, 3], [[1, 2, 3]]);
+      assert.deepStrictEqual(oneSide.vals, [1, 2, 3]);        // not a run across upright: untouched
+    });
     await check('heeling table: the second depth column (sounded depth) is recognised as the same depth, ullage + sounded = 5071', () => {
       assert.strictEqual(heel.parsed.axisPair.constant, 5071);
       assert.strictEqual(heel.parsed.listGrid[0].length, 8, 'the extra column must not become a ninth heel');
@@ -202,7 +212,7 @@ function tablesByName(summary) {
       assert.strictEqual(plans.length, 1, JSON.stringify(plans));
       const p = plans[0].patch;
       assert.deepStrictEqual(p.trimVals, [1, 0, -0.5, -1, -1.5, -2, -3, -4]);
-      assert.deepStrictEqual(p.listVals, [-4, -3, -2, -1, 1, 2, 3, 4]);
+      assert.deepStrictEqual(p.listVals, [-4, -3, -2, -1, 0, 1, 2, 3, 4]);   // the book has no 0 column: supplied
       assert.strictEqual(plans[0].mergedFrom.length, 1);
       assert.strictEqual(p.listSeed, undefined);
     });
@@ -248,7 +258,7 @@ function tablesByName(summary) {
       const p = plans[0];
       assert.strictEqual(p.mergedFrom.length, 2);
       assert.deepStrictEqual(p.patch.trimVals, [2, 1, -1, -2, -3, -4, -5, -6, -7]);
-      assert.strictEqual(p.patch.listVals.length, 12);
+      assert.strictEqual(p.patch.listVals.length, 13);   // 12 printed + the 0 the book leaves out
       assert.strictEqual(p.patch.volumeCurve.x.length, 100);
       assert.ok(Math.abs(p.tank.capacity - Math.max(...cap.parsed.volumeCurve.v)) < 1e-9, String(p.tank.capacity));
       assert.strictEqual(p.tank.soundingUnit, undefined);

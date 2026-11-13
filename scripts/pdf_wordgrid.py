@@ -59,7 +59,7 @@ def _cluster(values, tol):
     return groups
 
 
-def fix_trim_header(matrix, data):
+def fix_trim_header(matrix, data, heel=False):
     """
     A row of trims (2 1 0 -1 -2) printed over a sounding column. OCR drops the
     odd one ("it" for 1, ")" for 0), and the label "SOUNDING" may sit on the
@@ -95,8 +95,34 @@ def fix_trim_header(matrix, data):
         if best and ((best[0] >= 3 and best[0] >= 0.6 * (ncols - 1)) or two):
             _agree, base, step = best
             fixed = list(first)
-            for k in range(1, ncols):
+            # The last column may be the depth read the other way (SOUNDED beside ULLAGE): a whole
+            # number counting steadily down the page is a depth, not one more trim.
+            last_depth = False
+            tail = [numeric_token(r[-1])[0] for r in matrix[1:] if r and r[-1] and numeric_token(r[-1])]
+            if len(tail) >= 6 and ncols > 3:
+                # the same depth measured from the other end: first + last is one constant all down the page
+                sums = []
+                for r in matrix[1:]:
+                    a0, a1 = (numeric_token(r[0]) if r and r[0] else None), (numeric_token(r[-1]) if r and r[-1] else None)
+                    if a0 and a1:
+                        sums.append(round(a0[0] + a1[0], 3))
+                if len(sums) >= 6:
+                    top_sum = max(set(sums), key=sums.count)
+                    last_depth = sums.count(top_sum) >= max(5, 0.4 * len(sums))   # five equal sums by chance: no
+            top = ncols - 1 if last_depth else ncols
+            for k in range(1, top):
                 fixed[k] = "%g" % round(base + step * k, 6)
+            if last_depth:
+                fixed[-1] = ""
+            # A book may print no 0 column at all (-2 -1 | 1 2). The progression cannot know that, but
+            # the figures do: a column given the heading 0 that holds real corrections is a column
+            # of the next angle, so the 0 is taken out of the run and the angles after it move up.
+            zk = next((k for k in range(1, top) if abs(float(fixed[k])) < 1e-9), None)
+            if heel and zk is not None and abs(step) == 1.0:
+                col = [numeric_token(r[zk])[0] for r in matrix[1:] if len(r) > zk and r[zk] and numeric_token(r[zk])]
+                if len(col) >= 3 and median([abs(v) for v in col]) > 1:
+                    for k in range(zk, top):
+                        fixed[k] = "%g" % round(float(fixed[k]) + step, 6)
             first = fixed
         first = list(first)
         first[0] = "SOUNDING"
@@ -304,7 +330,15 @@ def build(page, min_rows=6):
         matrix.pop()
         data.pop()
 
-    matrix = fix_trim_header(matrix, data)
+    # Is this a heel/list table? Its headings say so, and only there is a missing 0 column possible
+    # (a correction at zero heel is zero, so books leave the column out).
+    top_y = min(w["top"] for w in data[0][0]["words"])
+    heading_text = " ".join(
+        w["text"] for ln in lines for w in ln["words"]
+        if top_y - 12 * mh <= w["top"] < top_y
+    )
+    heel = bool(re.search(r"HEEL|\bLIST\b|\bPORT\b|STBD|STARB", heading_text, re.I)) and not re.search(r"\bTRIM\b", heading_text, re.I)
+    matrix = fix_trim_header(matrix, data, heel)
 
     # Header: the words that name the columns, over the first row.
     first_top = min(w["top"] for w in data[0][0]["words"])

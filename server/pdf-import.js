@@ -269,10 +269,11 @@ function tableToCalibration(table, target = 'auto', existing = {}) {
       if (axis.length < 2 || vals.length < 2) {
         throw new Error('No sounding × heel/list grid found in this table');
       }
+      const zeroed = withZeroColumn(vals, grid);
       return {
         listAxis: axis,
-        listVals: vals,
-        listGrid: grid,
+        listVals: zeroed.vals,
+        listGrid: zeroed.grid,
         heelIncrement: parsed.heelIncrement || parsed.soundingIncrement || existing.heelIncrement,
       };
     }
@@ -297,9 +298,10 @@ function tableToCalibration(table, target = 'auto', existing = {}) {
         patch.volumeCurve = parsed.volumeCurve;
       }
       if ((parsed.listGrid || []).length && (parsed.listAxis || []).length) {
+        const zeroed = withZeroColumn(parsed.listVals, parsed.listGrid);
         patch.listAxis = parsed.listAxis;
-        patch.listVals = parsed.listVals;
-        patch.listGrid = parsed.listGrid;
+        patch.listVals = zeroed.vals;
+        patch.listGrid = zeroed.grid;
         patch.heelIncrement = parsed.heelIncrement || parsed.soundingIncrement || existing.heelIncrement || 1;
       } else if (!(existing.listGrid || []).length) {
         patch.listSeed = true; // a stand-in made from the trim table until a real heel table is found
@@ -320,6 +322,22 @@ function tableToCalibration(table, target = 'auto', existing = {}) {
   return {
     raw: table.raw || table.preview || [],
     note: 'Could not auto-detect grid; preview raw cells and re-import after fixing PDF layout',
+  };
+}
+
+/**
+ * A heel/list table that is printed without a 0 column (-2 -1 | 1 2): a correction at zero heel is
+ * zero by definition, so the column is supplied - the calculator needs it to pass through the upright
+ * position, and the book leaves it out only because it would be all zeros.
+ */
+function withZeroColumn(vals, grid) {
+  const v = (vals || []).map(Number);
+  if (v.length < 2 || v.some((n) => Number.isNaN(n)) || v.includes(0)) return { vals, grid };
+  const at = v.findIndex((n) => n > 0);
+  if (at <= 0 || !v.slice(0, at).every((n) => n < 0)) return { vals, grid };   // needs both sides of upright
+  return {
+    vals: [...v.slice(0, at), 0, ...v.slice(at)],
+    grid: (grid || []).map((row) => [...row.slice(0, at), 0, ...row.slice(at)]),
   };
 }
 
@@ -649,4 +667,5 @@ module.exports = {
   inferTankMeta,
   pickBestTableForTank,
   planTankCreates,
+  withZeroColumn,
 };

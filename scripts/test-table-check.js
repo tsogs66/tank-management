@@ -407,5 +407,16 @@ check('one lost minus in the trim header is put back, once, and reported', () =>
   assert.ok(r.repairs.some((x) => x.code === 'header-sign'));
 });
 
+check('a hole with figures on both sides is a lost figure; a dash in the corner is not', () => {
+  const axis = [0, 50, 100, 150, 200, 250];
+  const vals = [-2, -1, 1, 2];
+  const grid = axis.map((x) => [100 - x / 10, 50 - x / 10, -50 - x / 10, -100 - x / 10]);
+  grid[3][1] = 0; grid[0][2] = 0; grid[0][3] = 0;
+  const r = reviewParsed({ listAxis: axis, listVals: vals, listGrid: grid, blankCells: [[3, 1], [0, 2], [0, 3]], gridKind: 'correction', tableRole: 'heel' }, {});
+  const lf = r.review.issues.find((i) => i.code === 'lost-figures');
+  assert.ok(lf && lf.count === 1, JSON.stringify(r.review.issues));
+  assert.deepStrictEqual(lf.cells, [[3, 1]]);
+});
+
 console.log(`\n${total - failed}/${total} passed`);
 process.exit(failed ? 1 : 0);

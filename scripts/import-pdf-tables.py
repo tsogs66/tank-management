@@ -538,7 +538,11 @@ def parse_as_grid(rows):
     body_counts = [c for c in body_counts if c >= 3]
     axis_pair = None
     if len(body_counts) >= 3:
-        modal = Counter(body_counts).most_common(1)[0][0]
+        # The usual width of a row. A correction table is full of dashes in its first rows, so the
+        # most common count would be the dashed rows; the widest count that a quarter of the rows
+        # reach is the table's real width.
+        _cnt = Counter(body_counts)
+        modal = max((k for k, n in _cnt.items() if n >= 0.25 * len(body_counts)), default=_cnt.most_common(1)[0][0])
         if modal - 1 > len(trim_vals):
             if modal - 1 == len(trim_vals) + 1:
                 sums = []
@@ -546,7 +550,9 @@ def parse_as_grid(rows):
                     a0, a1 = to_number(r[0]) if r else None, to_number(r[len(trim_vals) + 1]) if len(r) > len(trim_vals) + 1 else None
                     if a0 is not None and a1 is not None:
                         sums.append(round(a0 + a1, 6))
-                if len(sums) >= 3 and Counter(sums).most_common(1)[0][1] >= 0.9 * len(sums):
+                if len(sums) >= 3 and Counter(sums).most_common(1)[0][1] >= (
+                    0.9 * len(sums) if not any(c == '?' for r in body for c in r) else max(5, 0.4 * len(sums))
+                ):
                     axis_pair = {"constant": Counter(sums).most_common(1)[0][0]}
             if axis_pair is None:
                 return None
@@ -1905,12 +1911,27 @@ def extract_tables(
                                     continue
                                 pr = t["parsed"] or {}
                                 if pr.get("kind") == "grid":
-                                    best = max(best, 40 + len(pr.get("trimAxis") or []))
+                                    # rows, and how many figures were actually read in them
+                                    # (a reading that lost a column has fewer)
+                                    cells = sum(1 for row in (pr.get("trimGrid") or []) for v in row if v)
+                                    best = max(best, 40 + len(pr.get("trimAxis") or []) + cells / 100.0)
                                 elif pr.get("kind") == "volumeCurve":
                                     best = max(best, len((pr.get("volumeCurve") or {}).get("x") or []))
                             return best
 
-                        if used_ocr and engine is not None and read_quality(tables_out[n_before:]) < 20:
+                        def is_colour_picture(pg):
+                            """A colour picture (a phone photo) rather than a grey or black-and-white scan."""
+                            try:
+                                return any(
+                                    "RGB" in str(im.get("colorspace")) or "'N': 3" in str(im.get("colorspace"))
+                                    for im in pdf.pages[pi - 1].images
+                                )
+                            except Exception:
+                                return False
+
+                        if used_ocr and engine is not None and (
+                            read_quality(tables_out[n_before:]) < 20 or is_colour_picture(page)
+                        ):
                             # Nothing usable came out. A photograph (tilted, shadowed, taken sideways) reads
                             # better after its contrast is stretched and it is turned upright, and sometimes
                             # better without resampling. Keep whichever reading gives the most table.
@@ -1927,6 +1948,8 @@ def extract_tables(
                                 del tables_out[n_before:]
                                 f2 = process_page(pi, opened[path].pages[idx], True)
                                 q2 = read_quality(tables_out[n_before:])
+                                if os.environ.get("TMS_DEBUG_OCR"):
+                                    print("variant oversample=%s q=%s" % (over, q2), file=sys.stderr)
                                 if q2 > best_q:
                                     best_q, best_found, kept = q2, f2, tables_out[n_before:]
                             del tables_out[n_before:]

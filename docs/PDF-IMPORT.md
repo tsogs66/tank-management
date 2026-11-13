@@ -114,3 +114,7 @@ both, the second with the real OCR.
 ## Photographs of pages
 
 A page photographed with a phone (tilted, shadowed, sideways) is read like a scan, with a second chance: when the normal reading gives no usable table, the page is turned upright (tesseract's orientation check, with the words themselves as tie-breaker), its contrast is stretched, and it is read again with and without resampling; the reading that gives the most table is kept. Rows and columns are straightened before the figures are placed, and figures printed tight against each other ("84.996-123.418") are split. A photo is still the weakest input: expect to check the result, and the fail-safe will refuse a table whose headings or figures were not read cleanly rather than store it.
+
+### Heel tables without a 0 column
+
+Many books print heel corrections for -4 -3 -2 -1 | 1 2 3 4 and leave out 0, because a correction at the upright position is zero. The reader keeps the headings as printed (it will not invent a 0 column from a run of figures) and the import then supplies the 0 column, all zeros, between the negative and positive angles. Trim by the head is positive and by the stern negative. A figure inside a correction table that could not be read (figures on both sides of the hole) is reported as `lost-figures` rather than quietly stored as 0.

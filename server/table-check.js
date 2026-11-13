@@ -749,6 +749,37 @@ function reviewGrid(axisIn, valsIn, gridIn, opts = {}) {
           `The column headed 0 holds corrections (typically ${median(col).toFixed(1)}), but a correction at 0 is always 0 - the headings do not line up with the columns`);
       }
     });
+    // Corrections change steadily with the angle, so the step per degree between neighbouring columns
+    // is about the same along a row. A column that was lost leaves one step of twice the others
+    // (about 1.8 to 2.6 times) at the same place in nearly every row; that is the signature, and a
+    // table showing it was read with a column missing or its headings over the wrong columns.
+    if (nCols >= 5) {
+      const angles = valsIn.map(Number);
+      let full = 0;
+      const jumpAt = new Array(nCols).fill(0);
+      for (const row of grid) {
+        if (!row.every((v) => isNum(v) && v !== 0)) continue;
+        const steps = [];
+        for (let c = 1; c < nCols; c++) {
+          const da = angles[c] - angles[c - 1];
+          if (!da) { steps.length = 0; break; }
+          steps.push((row[c] - row[c - 1]) / da);
+        }
+        if (steps.length < 4) continue;
+        full++;
+        const m = median(steps.map(Math.abs));
+        if (!(m > 1)) continue;
+        steps.forEach((st, i) => {
+          const ratio = Math.abs(st) / m;
+          if ((ratio >= 1.8 && ratio <= 2.6) || (ratio <= 1 / 1.8 && ratio >= 1 / 2.6)) jumpAt[i + 1]++;
+        });
+      }
+      const worst = Math.max(...jumpAt);
+      if (full >= 4 && worst >= 0.8 * full) {
+        issue(issues, SEVERITY.error, 'column-spacing',
+          `${worst} of ${full} complete rows change at double (or half) the usual step at the same column - a column was probably lost or the headings sit over the wrong columns`);
+      }
+    }
     const flat = grid.flat().filter(isNum);
     const med = median(flat.map(Math.abs)) || 0;
     const bad = [];
@@ -990,6 +1021,28 @@ function reviewParsed(parsed, ctx = {}) {
     if (cur && mine) {
       const x = crossCheckCurves(mine, cur, { warn: 0.005, fail: 0.2 });
       if (x) cross.push({ against: 'the tank as it is stored now', existing: true, ...x });
+    }
+  }
+
+  // A dash in a correction table sits where the book has no figure: the corner of the table, with
+  // figures on one side only. A hole with figures on BOTH sides in its row is a figure the reader
+  // lost, and it is stored as 0 - which would be a wrong correction that looks like a right one.
+  if ((out.blankCells || []).length) {
+    const grid = (out.listGrid || []).length ? out.listGrid : (out.trimGrid || []);
+    const holes = new Set(out.blankCells.map(([r, c]) => `${r}:${c}`));
+    const lost = [];
+    for (const [r, c] of out.blankCells) {
+      const row = grid[r] || [];
+      const figure = (k) => isNum(row[k]) && row[k] !== 0 && !holes.has(`${r}:${k}`);
+      const left = row.slice(0, c).some((_, k) => figure(k));
+      const right = row.slice(c + 1).some((_, k) => figure(c + 1 + k));
+      if (left && right) lost.push([r, c]);
+    }
+    if (lost.length) {
+      const cells = grid.reduce((n, r) => n + (r || []).length, 0) || 1;
+      issue(issues, lost.length > Math.max(2, 0.02 * cells) ? SEVERITY.error : SEVERITY.warn, 'lost-figures',
+        `${lost.length} figure(s) inside the table could not be read and are stored as 0 (e.g. row ${lost[0][0] + 1}, column ${lost[0][1] + 1}) - check them against the book`,
+        { cells: lost.slice(0, 20), count: lost.length });
     }
   }
 
