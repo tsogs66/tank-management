@@ -80,6 +80,7 @@ class OcrEngine:
         self.failed_pages = []
         self.pages_done = 0
         self._src = None
+        self._pdfium = None
         self._mode = None  # "module" | "cli"
         self._cmd = None
         self._probe()
@@ -113,6 +114,12 @@ class OcrEngine:
         )
 
     def close(self):
+        if self._pdfium is not None:
+            try:
+                self._pdfium.close()
+            except Exception:
+                pass
+            self._pdfium = None
         if self._src is not None:
             try:
                 self._src.close()
@@ -126,8 +133,106 @@ class OcrEngine:
     def out_of_time(self):
         return self.deadline is not None and time.monotonic() > self.deadline
 
-    def _cut(self, pages, name):
+    def _enhanced(self, pages, name):
+        """
+        The pages as clean pictures, ready for OCR. A photograph of a printed page (or a copier's
+        grey scan) reads far better once its contrast is stretched: on a photo the page-wide OCR
+        garbled a whole header row that was perfectly legible after autocontrast. The pages are
+        rendered at up to 300 dpi, longest side at most 2800 px, so memory stays flat on a big book.
+        Returns the path of a small PDF made of them, or None when the tools are not there.
+        """
+        try:
+            import pypdfium2 as pdfium
+            import img2pdf
+            from PIL import ImageOps
+        except Exception:
+            return None
+        try:
+            if self._pdfium is None:
+                self._pdfium = pdfium.PdfDocument(self.pdf_path)
+            paths = []
+            dpi = 200
+            for p in pages:
+                page = self._pdfium[p - 1]
+                w, h = page.get_size()
+                scale = min(300.0 / 72.0, 2800.0 / max(w, h, 1))
+                # Never blow a picture up past its own pixels: stretching a photograph makes the
+                # reader see blur where there were digits.
+                try:
+                    from pypdfium2 import raw as _raw
+                    sizes = [o.get_px_size() for o in page.get_objects(filter=[_raw.FPDF_PAGEOBJ_IMAGE])]
+                    if len(sizes) == 1:
+                        px = max(sizes[0])
+                        scale = min(scale, px / max(w, h, 1) * 1.0)
+                except Exception:
+                    pass
+                dpi = max(100, int(round(scale * 72)))
+                pil = page.render(scale=scale).to_pil().convert("L")
+                pil = self._upright(pil)
+                pil = ImageOps.autocontrast(pil, cutoff=2)
+                path = os.path.join(self.workdir, f"{name}-{p}.png")
+                pil.save(path, dpi=(dpi, dpi))
+                paths.append(path)
+            out = os.path.join(self.workdir, name)
+            with open(out, "wb") as fh:
+                fh.write(img2pdf.convert(paths, layout_fun=img2pdf.get_fixed_dpi_layout_fun((dpi, dpi))))
+            for path in paths:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+            return out
+        except Exception:
+            return None
+
+    def _legible(self, pil):
+        """How much of a picture reads as proper words and figures (a quick look, small picture)."""
+        import re
+        small = pil.copy()
+        small.thumbnail((1600, 1600))
+        path = os.path.join(self.workdir, "look.png")
+        small.save(path)
+        r = subprocess.run(["tesseract", path, "-", "--psm", "6"], capture_output=True, timeout=120)
+        txt = (r.stdout or b"").decode("utf-8", "replace")
+        return sum(len(t) for t in re.findall(r"[A-Za-z]{3,}|\d+\.\d+|\d{3,}", txt))
+
+    def _upright(self, pil):
+        """
+        Turn a picture that lies on its side. Tesseract's orientation reading is judged on the raw
+        picture (contrast stretching confuses it), and a photo taken sideways scores about 12 where
+        ocrmypdf only acts above 14, so this uses a lower bar of its own.
+        """
+        if not shutil.which("tesseract"):
+            return pil
+        path = os.path.join(self.workdir, "osd.png")
+        try:
+            pil.save(path)
+            r = subprocess.run(["tesseract", path, "-", "--psm", "0"], capture_output=True, timeout=60)
+            txt = (r.stdout or b"").decode("utf-8", "replace")
+            rot = conf = None
+            for line in txt.splitlines():
+                if line.startswith("Rotate:"):
+                    rot = int(line.split(":")[1])
+                elif line.startswith("Orientation confidence:"):
+                    conf = float(line.split(":")[1])
+            if rot in (90, 180, 270) and conf is not None:
+                if conf >= 8:
+                    return pil.rotate(-rot, expand=True)
+                if conf >= 1.5:
+                    # unsure: let the text decide - whichever way up reads more real words
+                    turned = pil.rotate(-rot, expand=True)
+                    if self._legible(turned) > 1.3 * self._legible(pil):
+                        return turned
+        except Exception:
+            pass
+        return pil
+
+    def _cut(self, pages, name, enhance=False):
         """A small PDF holding just these pages of the book."""
+        if enhance:
+            enhanced = self._enhanced(pages, name)
+            if enhanced:
+                return enhanced
         out = os.path.join(self.workdir, name)
         if pikepdf is None:
             return None
@@ -140,14 +245,13 @@ class OcrEngine:
         dst.close()
         return out
 
-    def _args(self, src, dst, psm, timeout_s):
+    def _args(self, src, dst, psm, timeout_s, oversample=True, upright=False):
         cmd = list(self._cmd) + [
             "--force-ocr",
-            "--rotate-pages",
+            # a picture already turned upright by _enhanced must not be turned again
             "--deskew",
             "--output-type", "pdf",
             "--optimize", "0",
-            "--oversample", "300",
             "--image-dpi", "200",
             "--tesseract-pagesegmode", str(psm),
             "--tesseract-config", self.cfg,
@@ -155,22 +259,28 @@ class OcrEngine:
             "--jobs", str(self.cpu),
             "--quiet",
         ]
+        if not upright:
+            cmd.append("--rotate-pages")
+        if oversample:
+            # Resampling to 300 dpi helps small print; on a photograph it sometimes blurs digits,
+            # which is why a page can also be read with oversample=False.
+            cmd += ["--oversample", "300"]
         # No --clean: it needs unpaper, which not every machine has, so the same page
         # would read differently from one computer to the next - and on test scans it
         # lost rows rather than saving them.
         cmd += [src, dst]
         return cmd
 
-    def _run(self, src, dst, psm, pages):
+    def _run(self, src, dst, psm, pages, oversample=True, upright=False):
         budget = 120 + 60 * len(pages)
         if self.deadline is not None:
             budget = max(30, min(budget, int(self.deadline - time.monotonic())))
-        r = subprocess.run(self._args(src, dst, psm, budget), capture_output=True, timeout=budget)
+        r = subprocess.run(self._args(src, dst, psm, budget, oversample, upright), capture_output=True, timeout=budget)
         if r.returncode != 0 and not os.path.exists(dst):
             raise RuntimeError((r.stderr or b"").decode("utf-8", "replace").strip()[-300:] or f"ocrmypdf exit {r.returncode}")
         return dst
 
-    def read_pages(self, pages, psm=6):
+    def read_pages(self, pages, psm=6, oversample=True, enhance=False):
         """
         OCR these 1-based pages of the book.
         Returns {page_no: (pdf_path, index_in_that_pdf)}; a page that could not
@@ -188,9 +298,9 @@ class OcrEngine:
             tag = f"b{int(time.time() * 1000) % 10**9}-{batch[0]}"
             try:
                 if pikepdf is not None:
-                    src = self._cut(batch, f"{tag}-in.pdf")
+                    src = self._cut(batch, f"{tag}-in.pdf", enhance)
                     dst = os.path.join(self.workdir, f"{tag}-out.pdf")
-                    self._run(src, dst, psm, batch)
+                    self._run(src, dst, psm, batch, oversample, enhance)
                     for i, p in enumerate(batch):
                         got[p] = (dst, i)
                 else:
@@ -208,7 +318,7 @@ class OcrEngine:
                     self.emit("ocr", None, f"OCR could not read page {batch[0]}: {str(exc)[:120]}")
                     continue
                 for p in batch:
-                    sub = self.read_pages([p], psm)
+                    sub = self.read_pages([p], psm, oversample, enhance)
                     got.update(sub)
             self.pages_done += len(batch)
         return got

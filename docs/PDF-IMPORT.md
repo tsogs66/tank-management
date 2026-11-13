@@ -110,3 +110,7 @@ scans, Tesseract. The Windows installer carries both. Ghostscript is not needed.
 `node scripts/test-pdf-import.js` (a long generated book, as text and as a
 skewed, speckled scan; the fail-safe; the server with a 90 MB upload). CI runs
 both, the second with the real OCR.
+
+## Photographs of pages
+
+A page photographed with a phone (tilted, shadowed, sideways) is read like a scan, with a second chance: when the normal reading gives no usable table, the page is turned upright (tesseract's orientation check, with the words themselves as tie-breaker), its contrast is stretched, and it is read again with and without resampling; the reading that gives the most table is kept. Rows and columns are straightened before the figures are placed, and figures printed tight against each other ("84.996-123.418") are split. A photo is still the weakest input: expect to check the result, and the fail-safe will refuse a table whose headings or figures were not read cleanly rather than store it.

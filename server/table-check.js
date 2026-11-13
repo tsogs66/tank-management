@@ -723,7 +723,10 @@ function reviewGrid(axisIn, valsIn, gridIn, opts = {}) {
       else if (med > 0 && Math.abs(v) > Math.max(med * 50, 25)) bad.push([r, c]);
     }));
     if (bad.length) {
-      issue(issues, SEVERITY.warn, 'correction-outlier',
+      // A few wild values are a slip to look at; a table full of them was read out of register
+      // (columns slid, digits lost) and must not be stored on a reviewer's glance.
+      const tooMany = bad.length >= 3 && bad.length >= 0.03 * Math.max(1, flat.length);
+      issue(issues, tooMany ? SEVERITY.error : SEVERITY.warn, 'correction-outlier',
         `${bad.length} correction value(s) are far larger than the rest (e.g. at sounding ${axis[bad[0][0]]}, trim ${valsIn[bad[0][1]]})`,
         { cells: bad.slice(0, 20) });
     }

@@ -32,8 +32,14 @@ LABEL_RE = re.compile(
 )
 
 
+TRIM_LABEL_RE = re.compile(r"^[-+~]?\d+(?:[.,]\d+)?\s*m$", re.I)
+
+
 def is_label_line(words):
     """A line that is mostly column labels ("SOUNDING VOLUME (cm) (m3)"), not a sentence that has one."""
+    # a row of trims written with their unit ("1.0m 0.0m -0.5m -1.0m") is a heading
+    if sum(1 for w in words if TRIM_LABEL_RE.match(w["text"].strip())) >= 3:
+        return True
     alpha = [w["text"] for w in words if re.search(r"[A-Za-z]", w["text"]) and len(w["text"].strip(" .,;:'\"[]()|")) >= 2]
     if not alpha:
         return False
@@ -98,6 +104,88 @@ def fix_trim_header(matrix, data):
     return matrix
 
 
+def _peak(values, width):
+    """How well values pile up into lines: the sum of squared bin counts (higher is straighter)."""
+    bins = {}
+    for v in values:
+        k = int(v // width)
+        bins[k] = bins.get(k, 0) + 1
+    return sum(c * c for c in bins.values())
+
+
+GLUED_RE = re.compile(r"-?\d+[.,]\d{2,4}(?:-\d+[.,]\d{2,4})+$")
+_PIECE_RE = re.compile(r"-?\d+[.,]\d{2,4}")
+
+
+def split_glued(words):
+    """
+    Negative figures printed tight against the one before ("84.996-123.418") arrive as one word.
+    Cut it where the minus signs are, giving each piece its share of the word's width.
+    """
+    out = []
+    for w in words:
+        t = w["text"].strip()
+        if GLUED_RE.match(t):
+            pieces = _PIECE_RE.findall(t)
+            total = sum(len(x) for x in pieces)
+            if total == len(t) and len(pieces) >= 2:
+                x = w["x0"]
+                span = w["x1"] - w["x0"]
+                for piece in pieces:
+                    n = dict(w)
+                    n["text"] = piece
+                    n["x0"] = x
+                    x += span * len(piece) / total
+                    n["x1"] = x
+                    out.append(n)
+                continue
+        out.append(w)
+    return out
+
+
+def straighten(words, mh):
+    """
+    A photograph of a page is never square to the camera: the lines of figures slope and the
+    columns lean. Find the tilt that makes the lines (then the columns) pile up best and undo it,
+    so a long row is not split into two and the last column does not drift away from its header.
+    Returns new word dicts (the originals are left alone); a scan that is already square comes
+    back as it was.
+    """
+    figs = [w for w in words if numeric_token(w["text"]) is not None]
+    if len(figs) < 20:
+        return words
+    cx = [(w["x0"] + w["x1"]) / 2 for w in figs]
+    cy = [(w["top"] + w["bottom"]) / 2 for w in figs]
+    xr = [w["x1"] for w in figs]
+
+    def best(vals, along, width):
+        base = _peak(vals, width)
+        top, slope = base, 0.0
+        for i in range(-60, 61):
+            sl = i * 0.002
+            sc = _peak([v - sl * a for v, a in zip(vals, along)], width)
+            if sc > top * 1.08 + 1:  # only a clear gain counts
+                top, slope = sc, sl
+        return slope
+
+    rs = best(cy, cx, 0.6 * mh)
+    cy2 = [y - rs * x for y, x in zip(cy, cx)]
+    cs = best(xr, cy2, 0.9 * mh)
+    if rs == 0.0 and cs == 0.0:
+        return words
+    out = []
+    for w in words:
+        x = (w["x0"] + w["x1"]) / 2
+        y = (w["top"] + w["bottom"]) / 2
+        dy = rs * x
+        dx = cs * (y - dy)
+        n = dict(w)
+        n["top"], n["bottom"] = w["top"] - dy, w["bottom"] - dy
+        n["x0"], n["x1"] = w["x0"] - dx, w["x1"] - dx
+        out.append(n)
+    return out
+
+
 def build(page, min_rows=6):
     try:
         words = page.extract_words(x_tolerance=3, y_tolerance=3, keep_blank_chars=False, use_text_flow=False) or []
@@ -109,6 +197,7 @@ def build(page, min_rows=6):
     if not heights:
         return None
     mh = median(heights)
+    words = straighten(split_glued(words), mh)
 
     # Row bands from every word, so a line's furniture can be recognised as a whole.
     ordered = sorted(words, key=lambda w: (w["top"] + w["bottom"]) / 2)

@@ -1894,7 +1894,44 @@ def extract_tables(
                             page = opened[path].pages[idx]
                             used_ocr = True
                             ocr_pages.append(pi)
+                        n_before = len(tables_out)
                         found = process_page(pi, page, used_ocr)
+
+                        def read_quality(entries):
+                            """How much table a reading gave: rows of a grid or points of a curve."""
+                            best = 0
+                            for t in entries:
+                                if t["skipped"]:
+                                    continue
+                                pr = t["parsed"] or {}
+                                if pr.get("kind") == "grid":
+                                    best = max(best, 40 + len(pr.get("trimAxis") or []))
+                                elif pr.get("kind") == "volumeCurve":
+                                    best = max(best, len((pr.get("volumeCurve") or {}).get("x") or []))
+                            return best
+
+                        if used_ocr and engine is not None and read_quality(tables_out[n_before:]) < 20:
+                            # Nothing usable came out. A photograph (tilted, shadowed, taken sideways) reads
+                            # better after its contrast is stretched and it is turned upright, and sometimes
+                            # better without resampling. Keep whichever reading gives the most table.
+                            best_q = read_quality(tables_out[n_before:])
+                            best_found = found
+                            kept = tables_out[n_before:]
+                            for over in (True, False):
+                                again = engine.read_pages([pi], psm=pdf_ocr.PSM_ORDER[0], oversample=over, enhance=True)
+                                if pi not in again:
+                                    continue
+                                path, idx = again[pi]
+                                if path not in opened:
+                                    opened[path] = pdfplumber.open(path)
+                                del tables_out[n_before:]
+                                f2 = process_page(pi, opened[path].pages[idx], True)
+                                q2 = read_quality(tables_out[n_before:])
+                                if q2 > best_q:
+                                    best_q, best_found, kept = q2, f2, tables_out[n_before:]
+                            del tables_out[n_before:]
+                            tables_out.extend(kept)
+                            found = best_found
                         if used_ocr and not found and engine is not None:
                             # A different reading mode sometimes sees the table the first one missed.
                             for psm in pdf_ocr.PSM_ORDER[1:]:
