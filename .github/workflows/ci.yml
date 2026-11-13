@@ -86,6 +86,12 @@ jobs:
       - name: Tank order
         run: node scripts/test-tank-order.js
 
+      # A calibration table read off a page is checked before it is believed:
+      # repaired where the fix is certain, refused where it is not, and compared
+      # with every other source there is. Pure functions, no Python needed.
+      - name: Calibration table checks
+        run: node scripts/test-table-check.js
+
       - name: Gaugings and drafts survive backup merge and sync
         run: node scripts/test-live-parts-merge.js
 
@@ -125,6 +131,38 @@ jobs:
       - name: Server log
         if: always()
         run: cat /tmp/tank-server.log || true
+
+  pdf:
+    name: PDF calibration import (text and scanned books)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: npm ci
+
+      # The scan test needs the real OCR: Tesseract, ocrmypdf, and pdftoppm /
+      # Pillow / img2pdf to make a skewed, speckled scan to read.
+      - name: Install OCR tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr poppler-utils
+          python -m pip install -r requirements.txt img2pdf pillow
+
+      # A long book through the real importer: names, pages spliced, columns
+      # printed side by side, a scan read by OCR, the checks that catch what
+      # OCR gets wrong, and a 90 MB upload that must not be held in memory.
+      - name: Read calibration books from PDF
+        env:
+          REQUIRE_PDF_TOOLS: '1'
+        run: node scripts/test-pdf-import.js
 
   parity:
     name: Server / on-device parity

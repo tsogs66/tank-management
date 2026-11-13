@@ -8,7 +8,10 @@ const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
 const { spawnPython } = require('./python-run');
+const tableCheck = require('./table-check');
+const { detectCalcType } = require('./calc');
 
+const DEFAULT_MAX_SECONDS = Number(process.env.TMS_PDF_MAX_SECONDS) || 4 * 60 * 60;
 const JOBS = new Map();
 const JOB_TTL_MS = 60 * 60 * 1000;
 
@@ -69,7 +72,14 @@ function runExtractor(pdfPath, pageList, opts = {}) {
     if (opts.tableRole && opts.tableRole !== 'auto') {
       args.push('--table-role', String(opts.tableRole));
     }
-    if (opts.ocr) args.push('--ocr');
+    // OCR only the pages that have no text. 'force' (every page) is an explicit choice;
+    // ticking the box is not that, because OCR on a page that already has text only loses detail.
+    const ocrMode = opts.ocr === 'force' ? 'force' : (opts.ocr === false || opts.ocr === 'false' ? 'off' : 'auto');
+    args.push('--ocr', ocrMode);
+    // A book can be 300 MB. Stop reading after a time limit and hand back what was read,
+    // rather than run for ever; the rest can be imported as a page range.
+    const maxSeconds = Number(opts.maxSeconds) > 0 ? Number(opts.maxSeconds) : DEFAULT_MAX_SECONDS;
+    if (maxSeconds) args.push('--max-seconds', String(Math.floor(maxSeconds)));
     const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
     // Heartbeat while OCR subprocess is silent
     let beat = null;
@@ -80,7 +90,7 @@ function runExtractor(pdfPath, pageList, opts = {}) {
     }
     try {
       const { code, out, err, cmd } = await spawnPython(args, {
-        maxBuffer: 128 * 1024 * 1024,
+        maxBuffer: 512 * 1024 * 1024,
         onStderrLine: (line) => parseProgressLine(line, onProgress),
       });
       if (beat) clearInterval(beat);
@@ -109,6 +119,12 @@ function runExtractor(pdfPath, pageList, opts = {}) {
   });
 }
 
+/** Extract from a file already on disk (an upload held there, never read into memory). */
+async function extractFromFile(filePath, opts = {}) {
+  if (!fs.existsSync(filePath)) throw new Error('PDF not found: ' + filePath);
+  return runExtractor(filePath, opts.pages, opts);
+}
+
 async function extractFromBuffer(buffer, opts = {}) {
   const tmp = path.join(os.tmpdir(), `fuel-tms-pdf-${Date.now()}.pdf`);
   fs.writeFileSync(tmp, buffer);
@@ -124,7 +140,13 @@ async function extractFromPath(filePath, opts = {}) {
   return runExtractor(filePath, opts.pages, opts);
 }
 
-function startExtractJob(buffer, opts = {}) {
+/**
+ * Start reading a PDF in the background.
+ * `source` is a Buffer, or { path, owns } for a file on disk: with `owns` the
+ * job deletes the file when it finishes, so a 300 MB upload never sits in memory
+ * and never lingers on disk.
+ */
+function startExtractJob(source, opts = {}) {
   cleanupJobs();
   const id = crypto.randomBytes(8).toString('hex');
   const job = {
@@ -145,9 +167,10 @@ function startExtractJob(buffer, opts = {}) {
 
   setImmediate(async () => {
     updateJob(id, { status: 'running', phase: 'start', pct: 1, message: 'Saving upload…' });
-    const tmp = path.join(os.tmpdir(), `fuel-tms-pdf-job-${id}.pdf`);
+    const onDisk = source && typeof source === 'object' && !Buffer.isBuffer(source) && source.path;
+    const tmp = onDisk ? source.path : path.join(os.tmpdir(), `fuel-tms-pdf-job-${id}.pdf`);
     try {
-      fs.writeFileSync(tmp, buffer);
+      if (!onDisk) fs.writeFileSync(tmp, source);
       updateJob(id, { phase: 'start', pct: 2, message: 'Starting PDF reader…' });
       const raw = await runExtractor(tmp, opts.pages, {
         ...opts,
@@ -169,7 +192,8 @@ function startExtractJob(buffer, opts = {}) {
         },
       });
       const includeRaw = !!opts.includeRaw;
-      const summary = summarizeTables(raw, includeRaw);
+      const summary = summarizeTables(raw, includeRaw, { findExisting: opts.findExisting });
+      job.raw = raw; // kept so the tanks can be created without sending the file again
       updateJob(id, {
         status: 'done',
         phase: 'done',
@@ -185,7 +209,9 @@ function startExtractJob(buffer, opts = {}) {
         error: e.message || String(e),
       });
     } finally {
-      try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+      if (!onDisk || source.owns) {
+        try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+      }
     }
   });
 
@@ -195,6 +221,13 @@ function startExtractJob(buffer, opts = {}) {
 function getJob(id) {
   cleanupJobs();
   return publicJob(JOBS.get(id));
+}
+
+/** The full extraction of a finished job (the matrices too), or null once it has expired. */
+function getJobRaw(id) {
+  cleanupJobs();
+  const job = JOBS.get(id);
+  return job && job.status === 'done' ? job.raw || null : null;
 }
 
 /**
@@ -236,10 +269,11 @@ function tableToCalibration(table, target = 'auto', existing = {}) {
       if (axis.length < 2 || vals.length < 2) {
         throw new Error('No sounding × heel/list grid found in this table');
       }
+      const zeroed = withZeroColumn(vals, grid);
       return {
         listAxis: axis,
-        listVals: vals,
-        listGrid: grid,
+        listVals: zeroed.vals,
+        listGrid: zeroed.grid,
         heelIncrement: parsed.heelIncrement || parsed.soundingIncrement || existing.heelIncrement,
       };
     }
@@ -264,11 +298,13 @@ function tableToCalibration(table, target = 'auto', existing = {}) {
         patch.volumeCurve = parsed.volumeCurve;
       }
       if ((parsed.listGrid || []).length && (parsed.listAxis || []).length) {
+        const zeroed = withZeroColumn(parsed.listVals, parsed.listGrid);
         patch.listAxis = parsed.listAxis;
-        patch.listVals = parsed.listVals;
-        patch.listGrid = parsed.listGrid;
+        patch.listVals = zeroed.vals;
+        patch.listGrid = zeroed.grid;
         patch.heelIncrement = parsed.heelIncrement || parsed.soundingIncrement || existing.heelIncrement || 1;
       } else if (!(existing.listGrid || []).length) {
+        patch.listSeed = true; // a stand-in made from the trim table until a real heel table is found
         const z = vals.findIndex((a) => Number(a) === 0);
         const col = z >= 0 ? z : Math.floor(vals.length / 2);
         const listVals = existing.listVals?.length ? existing.listVals : [-2, -1, 0, 1, 2];
@@ -289,8 +325,94 @@ function tableToCalibration(table, target = 'auto', existing = {}) {
   };
 }
 
+/**
+ * A heel/list table that is printed without a 0 column (-2 -1 | 1 2): a correction at zero heel is
+ * zero by definition, so the column is supplied - the calculator needs it to pass through the upright
+ * position, and the book leaves it out only because it would be all zeros.
+ */
+function withZeroColumn(vals, grid) {
+  const v = (vals || []).map(Number);
+  if (v.length < 2 || v.some((n) => Number.isNaN(n)) || v.includes(0)) return { vals, grid };
+  const at = v.findIndex((n) => n > 0);
+  if (at <= 0 || !v.slice(0, at).every((n) => n < 0)) return { vals, grid };   // needs both sides of upright
+  return {
+    vals: [...v.slice(0, at), 0, ...v.slice(at)],
+    grid: (grid || []).map((row) => [...row.slice(0, at), 0, ...row.slice(at)]),
+  };
+}
+
+const STATUS_RANK = { ok: 0, warn: 1, fail: 2 };
+
+/**
+ * Check every usable table before anyone is shown it or it is stored: repair the
+ * slips that can be repaired with certainty, refuse what cannot, and compare
+ * with every other source there is (the same tank elsewhere in the book, the
+ * tank's capacity, the tank as it is stored now). See table-check.js.
+ */
+function reviewTables(tables, opts = {}) {
+  const usable = (t) => !t.skipped && t.parsed && (t.parsed.kind === 'grid' || t.parsed.kind === 'volumeCurve');
+  const byTank = new Map();
+  for (const t of tables) {
+    if (!usable(t)) continue;
+    const key = String(t.tankName || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!byTank.has(key)) byTank.set(key, []);
+    byTank.get(key).push(t);
+  }
+  // A table that was found but could not be read is not silent: it is shown as failed, with the reason.
+  for (const t of tables) {
+    if (t.skipped || usable(t) || !t.parsed || t.parsed.kind !== 'unknown') continue;
+    t.review = {
+      status: 'fail',
+      score: 0,
+      issues: [{
+        severity: 'error',
+        code: 'unreadable',
+        message: 'A table was found on this page but it could not be read as a calibration table (the columns could not be told apart). Check the page, or import it from a clearer copy.',
+      }],
+      repairs: [],
+      cross: [],
+      repaired: 0,
+    };
+  }
+  for (const t of tables) {
+    if (!usable(t)) continue;
+    const key = String(t.tankName || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const siblings = (byTank.get(key) || []).filter((o) => o !== t).map((o) => ({
+      ...o.parsed, label: `the ${o.tableRole || o.kind} table on page ${o.pageStart || o.page}`,
+    }));
+    let existing = null;
+    try { existing = typeof opts.findExisting === 'function' ? opts.findExisting(t.tankName) : null; } catch (_) { existing = null; }
+    const { parsed, review } = tableCheck.reviewParsed(t.parsed, {
+      capacity: Number(t.capacityHint) || 0,
+      soundingMethod: t.soundingMethod || t.parsed.soundingMethod,
+      existing,
+      siblings,
+    });
+    t.parsed = parsed;
+    t.review = review;
+    if (parsed.capacity) t.capacity = parsed.capacity;
+    if (parsed.soundingIncrement) t.soundingIncrement = parsed.soundingIncrement;
+  }
+}
+
+function tankReview(group, tables) {
+  const ts = tables.filter((t) => (group.tableIds || []).includes(t.id) && t.review);
+  if (!ts.length) return null;
+  let status = 'ok';
+  let score = 100;
+  let issues = 0;
+  let repaired = 0;
+  for (const t of ts) {
+    if (STATUS_RANK[t.review.status] > STATUS_RANK[status]) status = t.review.status;
+    score = Math.min(score, t.review.score);
+    issues += t.review.issues.length;
+    repaired += t.review.repaired || 0;
+  }
+  return { status, score, issues, repaired };
+}
+
 /** Compact list for API responses (omit huge raw matrices unless requested). */
-function summarizeTables(result, includeRaw = false) {
+function summarizeTables(result, includeRaw = false, opts = {}) {
   const tables = (result.tables || []).map((t) => ({
     id: t.id,
     page: t.page,
@@ -321,10 +443,18 @@ function summarizeTables(result, includeRaw = false) {
     kind: t.parsed?.kind || 'unknown',
     soundingIncrement: t.parsed?.soundingIncrement,
     capacity: t.parsed?.capacity,
+    tankNameSource: t.tankNameSource || null,
+    tankNameConfidence: t.tankNameConfidence != null ? t.tankNameConfidence : null,
+    nameRaw: t.nameRaw || '',
+    capacityHint: t.capacityHint || null,
+    ocr: !!t.ocr,
     preview: t.preview,
     parsed: t.parsed,
     ...(includeRaw ? { raw: t.raw } : {}),
   }));
+
+  reviewTables(tables, opts);
+  const tanks = (result.tanks || []).map((g) => ({ ...g, review: tankReview(g, tables) }));
 
   return {
     pages: result.pages,
@@ -336,7 +466,8 @@ function summarizeTables(result, includeRaw = false) {
     tableRoleFilter: result.tableRoleFilter || null,
     pageFilter: result.pageFilter || null,
     layoutFamilies: result.layoutFamilies || [...new Set(tables.filter((t) => !t.skipped).map((t) => t.layoutHint).filter(Boolean))],
-    tanks: result.tanks || [],
+    tanks,
+    ocrPages: result.ocrPages || [],
     tables,
     usableTables: tables.filter((t) => !t.skipped && t.kind !== 'hydrostatic' && t.kind !== 'unknown'),
   };
@@ -387,7 +518,11 @@ function pickBestTableForTank(tables, tableIds) {
   candidates.sort((a, b) => {
     const score = (t) => {
       const p = t.parsed || {};
-      if (p.kind === 'grid') return 100 + (p.trimAxis || []).length * 2 + (p.trimVals || []).length;
+      if (p.kind === 'grid') {
+        const heel = (t.tableRole || p.tableRole) === 'heel';
+        // a heel table is the second table of a tank, never the one it is built on
+        return (heel ? 40 : 100) + (p.trimAxis || []).length * 2 + (p.trimVals || []).length;
+      }
       if (p.kind === 'volumeCurve') return 50 + ((p.volumeCurve && p.volumeCurve.x) || []).length;
       return 0;
     };
@@ -401,7 +536,7 @@ function pickBestTableForTank(tables, tableIds) {
  * Does not write to the store — caller applies via upsertTank / updateCalibration.
  */
 function planTankCreates(result, opts = {}) {
-  const summary = summarizeTables(result, true);
+  const summary = summarizeTables(result, true, { findExisting: opts.findExisting });
   const selectedNames = Array.isArray(opts.tankNames) && opts.tankNames.length
     ? new Set(opts.tankNames.map((n) => String(n)))
     : null;
@@ -412,6 +547,19 @@ function planTankCreates(result, opts = {}) {
     const table = pickBestTableForTank(summary.tables, group.tableIds);
     if (!table) continue;
     const meta = inferTankMeta(group.name);
+    // Fail-safe: a table the checks refuse is not stored unless the user said to.
+    const allowed = typeof opts.allowFailed === 'function' ? opts.allowFailed(group.name) : !!opts.allowFailed;
+    if (table.review && table.review.status === 'fail' && !allowed) {
+      const first = table.review.issues.find((i) => i.severity === 'error');
+      plans.push({
+        name: meta.name,
+        tableId: table.id,
+        blocked: true,
+        error: `Failed the checks: ${first ? first.message : 'see the table review'}`,
+        review: table.review,
+      });
+      continue;
+    }
     let patch;
     try {
       patch = tableToCalibration(table, opts.target || 'auto', {});
@@ -422,6 +570,43 @@ function planTankCreates(result, opts = {}) {
         tableId: table.id,
       });
       continue;
+    }
+    // A tank's book has a table for each of trim, heel and volume. They are one tank: take what
+    // each of the others adds (a real heel table in place of the stand-in, a volume curve) so
+    // nothing the book holds is thrown away.
+    const mergedFrom = [];
+    const axisUnits = new Set(table.parsed && table.parsed.axisUnit ? [table.parsed.axisUnit] : []);
+    for (const o of summary.tables) {
+      if (o.id === table.id || !(group.tableIds || []).includes(o.id) || o.skipped) continue;
+      if (!o.parsed || (o.parsed.kind !== 'grid' && o.parsed.kind !== 'volumeCurve')) continue;
+      if (o.review && o.review.status === 'fail' && !allowed) continue;
+      const role = o.tableRole || o.parsed.tableRole;
+      try {
+        if (role === 'heel' && o.parsed.kind === 'grid' && (patch.listSeed || !(patch.listGrid || []).length)) {
+          Object.assign(patch, tableToCalibration(o, 'list', {}));
+          delete patch.listSeed;
+          mergedFrom.push(o.id);
+          if (o.parsed.axisUnit) axisUnits.add(o.parsed.axisUnit);
+        } else if (o.parsed.kind === 'volumeCurve' && !((patch.volumeCurve && patch.volumeCurve.x) || []).length) {
+          const v = tableToCalibration(o, 'volume', {});
+          patch.volumeCurve = v.volumeCurve;
+          mergedFrom.push(o.id);
+          if (o.parsed.axisUnit) axisUnits.add(o.parsed.axisUnit);
+        } else if (role !== 'heel' && o.parsed.kind === 'grid' && !(patch.trimGrid || []).length) {
+          const g = tableToCalibration(o, 'trim', {});
+          Object.assign(patch, { trimAxis: g.trimAxis, trimVals: g.trimVals, trimGrid: g.trimGrid });
+          mergedFrom.push(o.id);
+          if (o.parsed.axisUnit) axisUnits.add(o.parsed.axisUnit);
+        }
+      } catch (_) { /* a table that cannot be read adds nothing */ }
+    }
+    delete patch.listSeed;
+    // A table of corrections has no capacity of its own (its largest figure is a correction, not a
+    // volume): the tank's capacity comes from its capacity curve.
+    const correctionPrimary = table.parsed && (table.parsed.gridKind === 'correction' || table.tableRole === 'heel');
+    if (correctionPrimary) delete patch.capacity;
+    if (patch.volumeCurve && patch.volumeCurve.v && patch.volumeCurve.v.length) {
+      patch.capacity = Math.max(...patch.volumeCurve.v.filter((v) => Number.isFinite(v)));
     }
     if (patch.raw && !patch.trimAxis && !patch.volumeCurve) {
       plans.push({
@@ -437,7 +622,7 @@ function planTankCreates(result, opts = {}) {
       ...meta,
       calcType,
       soundingMethod,
-      capacity: patch.capacity || table.capacity || meta.capacity || 0,
+      capacity: patch.capacity || (correctionPrimary ? (Number(table.capacityHint) || 0) : table.capacity) || meta.capacity || 0,
       soundingIncrement: patch.soundingIncrement || table.soundingIncrement || 1,
       heelIncrement: patch.heelIncrement || 1,
       ...patch,
@@ -445,6 +630,10 @@ function planTankCreates(result, opts = {}) {
       pdfSource: group.name,
       pdfTableId: table.id,
     };
+    // The tables of one tank can be in different units (soundings in metres for the corrections,
+    // gauge in centimetres for the capacity). One unit is stored only when they all agree; otherwise
+    // the app reads each table's own axis, as it does for a book imported from Excel.
+    if (axisUnits.size === 1) tank.soundingUnit = [...axisUnits][0];
     // Ask the finished tables what arrangement they are in; keep the guess
     // above when they do not say clearly.
     const verdict = detectCalcType(tank);
@@ -458,6 +647,8 @@ function planTankCreates(result, opts = {}) {
       layoutHint: table.layoutHint,
       tank,
       patch,
+      review: table.review || null,
+      mergedFrom,
     });
   }
   return plans;
@@ -465,12 +656,16 @@ function planTankCreates(result, opts = {}) {
 
 module.exports = {
   extractFromBuffer,
+  extractFromFile,
   extractFromPath,
   startExtractJob,
   getJob,
+  getJobRaw,
+  reviewTables,
   tableToCalibration,
   summarizeTables,
   inferTankMeta,
   pickBestTableForTank,
   planTankCreates,
+  withZeroColumn,
 };

@@ -336,11 +336,24 @@ const PdfProgress = (() => {
     if (!job) throw new Error('PDF job disappeared');
     if (job.status === 'error') throw new Error(job.error || job.message || 'PDF import failed');
     hide();
-    return job.result || job;
+    return { ...(job.result || job), jobId: startedJob.jobId };
   }
 
   return { show, update, hide, runJob };
 })();
+
+/** Status pill and the findings behind it, for a table that went through the import checks. */
+function pdfReviewBadgeHtml(review) {
+  if (!review) return '';
+  const pill = review.status === 'fail' ? '<span class="pill bad">failed the checks</span>'
+    : review.status === 'warn' ? '<span class="pill warn">check before use</span>'
+      : '<span class="pill good">checks passed</span>';
+  const fixed = review.repaired ? ` <span class="hint">${review.repaired} value${review.repaired > 1 ? 's' : ''} corrected</span>` : '';
+  const sev = { error: 'bad', warn: 'warn', info: 'neutral' };
+  const list = (review.issues || []).slice(0, 5)
+    .map((i) => `<li class="${sev[i.severity] || ''}">${escapeHtml(i.message)}</li>`).join('');
+  return `${pill}${fixed}${list ? `<ul class="pdf-review-list">${list}</ul>` : ''}`;
+}
 
 /**
  * Save a JSON backup where the user can find it.
@@ -2936,6 +2949,64 @@ function renderAddTank(main) {
   document.getElementById('add-pdf-page-mode')?.addEventListener('change', syncAddPdfPages);
   syncAddPdfPages();
 
+  /** One tank in the list of what the PDF held, with what the checks made of its table. */
+  function pdfTankPickHtml(r, res) {
+    const rv = r.review;
+    const status = rv ? rv.status : 'ok';
+    const failed = status === 'fail';
+    const issues = [];
+    const repairs = [];
+    const cross = [];
+    for (const t of (r.tables || [])) {
+      const trv = t.review;
+      if (!trv) continue;
+      for (const i of trv.issues || []) issues.push(i);
+      for (const x of trv.repairs || []) repairs.push(x);
+      for (const x of trv.cross || []) cross.push(x);
+    }
+    const differs = issues.find((i) => i.code === 'differs-from-stored');
+    const pill = !rv ? ''
+      : failed ? '<span class="pill bad">failed the checks</span>'
+        : status === 'warn' ? '<span class="pill warn">check before use</span>'
+          : '<span class="pill good">checks passed</span>';
+    const bits = [];
+    if (rv && rv.repaired) bits.push(`${rv.repaired} value${rv.repaired > 1 ? 's' : ''} corrected`);
+    const rowsFilled = issues.find((i) => i.code === 'row-filled');
+    if (rowsFilled) bits.push('rows filled in');
+    const low = (r.tables || []).find((t) => t.tankNameSource === 'carried');
+    if (low) bits.push('name taken from the page before');
+    const detail = [];
+    const sev = { error: 'bad', warn: 'warn', info: 'neutral' };
+    for (const i of issues.slice(0, 10)) {
+      detail.push(`<li class="${sev[i.severity] || ''}">${escapeHtml(i.message)}</li>`);
+    }
+    for (const x of cross.filter((c) => c.status === 'ok').slice(0, 3)) {
+      detail.push(`<li class="good">Agrees with ${escapeHtml(x.against)} (largest difference ${x.maxDiffPercent}%)</li>`);
+    }
+    const fixes = repairs.filter((x) => x.message).slice(0, 8)
+      .map((x) => `<li>${escapeHtml(x.message)}</li>`).join('');
+    const more = repairs.length > 8 ? `<li>…and ${repairs.length - 8} more</li>` : '';
+    return `
+      <div class="pdf-tank-pick pdf-tank-${status}">
+        <div style="flex:1;min-width:0">
+          <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer">
+            <input type="checkbox" data-tank-name="${escapeHtml(r.name)}" ${failed ? '' : 'checked'}>
+            <span><b>${escapeHtml(r.name)}</b> ${pill}${bits.length ? ` <span class="hint">${escapeHtml(bits.join(' · '))}</span>` : ''}
+              <div class="hint">${escapeHtml(r.meta)}</div></span>
+          </label>
+          ${(detail.length || fixes) ? `<details class="pdf-review" style="margin:6px 0 0 26px">
+            <summary class="hint" style="cursor:pointer">What was checked</summary>
+            ${detail.length ? `<ul class="pdf-review-list">${detail.join('')}</ul>` : ''}
+            ${fixes ? `<div class="hint" style="margin-top:4px">Corrections made:</div><ul class="pdf-review-list">${fixes}${more}</ul>` : ''}
+          </details>` : ''}
+          ${failed ? `<label class="hint" style="display:block;margin:6px 0 0 26px;cursor:pointer">
+            <input type="checkbox" data-allow-failed="${escapeHtml(r.name)}"> Import it anyway, as it was read (not recommended)</label>` : ''}
+          ${differs ? `<label class="hint" style="display:block;margin:6px 0 0 26px;cursor:pointer">
+            <input type="checkbox" data-confirm-overwrite="${escapeHtml(r.name)}"> It differs from the table stored now - replace the stored one</label>` : ''}
+        </div>
+      </div>`;
+  }
+
   function readAddPdfOpts() {
     return {
       ocr: document.getElementById('add-pdf-ocr')?.checked !== false,
@@ -3011,6 +3082,8 @@ function renderAddTank(main) {
           }).filter(Boolean).slice(0, 4).join(', ');
           return {
             name: tk.name,
+            tables,
+            review: tk.review || null,
             meta: `${tk.tableCount || tables.length} table(s)${roles ? ` · ${roles}` : kinds ? ` · ${kinds}` : ''}${pages ? ` · p.${pages}` : ''}${cap ? ` · ~${fmt(cap, 1)} m³` : ''}`,
           };
         })
@@ -3019,11 +3092,15 @@ function renderAddTank(main) {
           meta: `${t.tableRole || t.kind} · page ${t.pageStart || t.page}${t.pageEnd && t.pageEnd !== (t.pageStart || t.page) ? `–${t.pageEnd}` : ''}${t.capacity ? ` · ~${fmt(t.capacity, 1)} m³` : ''}`,
         }));
 
-      box.innerHTML = rows.map((r, i) => `
-        <label class="pdf-tank-pick">
-          <input type="checkbox" data-tank-name="${escapeHtml(r.name)}" checked>
-          <span><b>${escapeHtml(r.name)}</b><div class="hint">${escapeHtml(r.meta)}</div></span>
-        </label>`).join('');
+      box.innerHTML = rows.map((r) => pdfTankPickHtml(r, res)).join('');
+      // A tank that failed its checks is not ticked; the user has to say so.
+      box.querySelectorAll('[data-allow-failed]').forEach((cb) => {
+        cb.addEventListener('change', () => {
+          const pick = cb.closest('.pdf-tank-pick');
+          const main = pick && pick.querySelector('[data-tank-name]');
+          if (main) main.checked = cb.checked;
+        });
+      });
 
       btn.disabled = false;
       showToast(`Found ${rows.length} tank(s) in PDF`);
@@ -3044,27 +3121,58 @@ function renderAddTank(main) {
       PdfProgress.update({ message: 'Creating selected tanks…', phase: 'create', pct: 60, elapsedMs: 0 });
       showToast('Creating tanks from PDF…');
       const opts = readAddPdfOpts();
-      const fd = new FormData();
-      fd.append('file', addPdfFile);
-      fd.append('createTanks', 'true');
-      fd.append('updateExisting', document.getElementById('add-pdf-update').checked ? 'true' : 'false');
-      fd.append('ocr', opts.ocr ? 'true' : 'false');
-      fd.append('pageMode', opts.pageMode);
-      if (opts.pageFrom) fd.append('pageFrom', String(opts.pageFrom));
-      if (opts.pageTo) fd.append('pageTo', String(opts.pageTo));
-      fd.append('spanUntilNextTank', opts.spanUntilNextTank ? 'true' : 'false');
-      fd.append('tableRole', opts.tableRole || 'auto');
-      fd.append('tankNames', JSON.stringify(checked));
-      const res = await Api.upload(`/api/vessels/${STATE.activeVesselId}/import-pdf`, fd,
-        (pct, phase) => PdfProgress.update(phase === 'uploading'
-          ? { message: 'Uploading the selected tanks…', phase: 'upload', pct }
-          : { message: 'Creating tanks on the server…', phase: 'create' }));
+      const allowFailed = [...document.querySelectorAll('#add-pdf-tanks [data-allow-failed]:checked')]
+        .map((el) => el.getAttribute('data-allow-failed'));
+      const confirmOverwrite = [...document.querySelectorAll('#add-pdf-tanks [data-confirm-overwrite]:checked')]
+        .map((el) => el.getAttribute('data-confirm-overwrite'));
+      const fields = {
+        createTanks: 'true',
+        updateExisting: document.getElementById('add-pdf-update').checked ? 'true' : 'false',
+        ocr: opts.ocr ? 'true' : 'false',
+        pageMode: opts.pageMode,
+        spanUntilNextTank: opts.spanUntilNextTank ? 'true' : 'false',
+        tableRole: opts.tableRole || 'auto',
+        tankNames: JSON.stringify(checked),
+        allowFailed: JSON.stringify(allowFailed),
+        confirmOverwrite: JSON.stringify(confirmOverwrite),
+      };
+      if (opts.pageFrom) fields.pageFrom = String(opts.pageFrom);
+      if (opts.pageTo) fields.pageTo = String(opts.pageTo);
+      let res;
+      // The server still holds what it read, so the file - which can be hundreds of
+      // megabytes - is not sent a second time. Only if that has expired is it sent again.
+      if (addPdfPreview && addPdfPreview.jobId) {
+        try {
+          res = await Api.request(`/api/vessels/${STATE.activeVesselId}/import-pdf`, {
+            method: 'POST', body: { ...fields, jobId: addPdfPreview.jobId },
+          });
+        } catch (err) {
+          if (err.status !== 410) throw err;
+          addPdfPreview = { ...addPdfPreview, jobId: null };
+        }
+      }
+      if (!res) {
+        const fd = new FormData();
+        fd.append('file', addPdfFile);
+        for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+        res = await Api.upload(`/api/vessels/${STATE.activeVesselId}/import-pdf`, fd,
+          (pct, phase) => PdfProgress.update(phase === 'uploading'
+            ? { message: 'Uploading the selected tanks…', phase: 'upload', pct }
+            : { message: 'Creating tanks on the server…', phase: 'create' }));
+      }
       PdfProgress.update({ message: 'Done', phase: 'done', pct: 100 });
       PdfProgress.hide();
       await reloadBundle();
       const c = res.created || 0;
       const u = res.updated || 0;
       const f = res.failed || 0;
+      const refused = (res.applied || []).filter((a) => a.blocked || a.needsConfirm);
+      if (refused.length) {
+        // Stay on this page: the user has to look at these, not be taken away from them.
+        showToast(`PDF import: ${c} created, ${u} updated. ${refused.length} not stored: ${refused.map((a) => `${a.name} - ${a.error}`).join(' | ')}`);
+        if (c || u) { /* the ones that went in are already saved */ }
+        return;
+      }
       showToast(`PDF import: ${c} created, ${u} updated${f ? `, ${f} failed` : ''}`);
       navigate('calibration');
     } catch (err) {
@@ -3605,6 +3713,7 @@ function renderCalibrationEditor(main, tankId) {
                 ${t.layoutHint ? `<span class="pill">${escapeHtml(t.layoutHint)}</span>` : ''}
                 ${t.continued ? '<span class="pill good">continued</span>' : ''}
                 ${t.titleHint ? `<div class="hint">${escapeHtml(t.titleHint)}</div>` : ''}
+                ${pdfReviewBadgeHtml(t.review)}
                 ${axisHint}
                 ${hydroNote}
               </div>
@@ -3634,14 +3743,27 @@ function renderCalibrationEditor(main, tankId) {
           const tableId = card.dataset.tid;
           const target = card.querySelector('[data-target]').value;
           const table = tables.find((x) => x.id === tableId);
+          const send = (extra) => Api.request(
+            `/api/vessels/${STATE.activeVesselId}/tanks/${tankId}/import-pdf`,
+            { method: 'POST', body: { table, tableId, target, apply: true, ...extra } }
+          );
           try {
-            const res2 = await Api.request(
-              `/api/vessels/${STATE.activeVesselId}/tanks/${tankId}/import-pdf`,
-              {
-                method: 'POST',
-                body: { table, tableId, target, apply: true },
+            let res2;
+            try {
+              res2 = await send({});
+            } catch (err) {
+              // The server checks the table against this tank before storing it. Say what it
+              // found and let the user decide - never store a refused table silently.
+              if (err.status === 422 && /failed the checks/.test(err.message)) {
+                if (!confirm(`${err.message}\n\nImport it anyway, as it was read?`)) return;
+                res2 = await send({ allowFailed: true, confirmOverwrite: true });
+              } else if (err.status === 409) {
+                if (!confirm(`${err.message}\n\nReplace the table stored now?`)) return;
+                res2 = await send({ confirmOverwrite: true });
+              } else {
+                throw err;
               }
-            );
+            }
             await reloadBundle();
             showToast(`Applied ${res2.tableId || tableId} (${res2.kind || target})`);
             navigate('calibration', tankId);

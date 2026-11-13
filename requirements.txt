@@ -2,5 +2,10 @@
 openpyxl>=3.1.0
 pdfplumber>=0.11.0
 reportlab>=4.0.0
-# Optional OCR (also needs system packages: tesseract-ocr, ocrmypdf)
-# ocrmypdf>=15.0.0
+# OCR for scanned calibration books. Also needs Tesseract itself (a system
+# package: tesseract-ocr on Linux, the installer on Windows - the desktop build
+# carries it). pikepdf cuts a few pages at a time out of a book that can be
+# 300 MB; ocrmypdf brings it in, and the importer works without it only for
+# books that already have a text layer.
+ocrmypdf>=16.0.0
+pikepdf>=9.0.0
