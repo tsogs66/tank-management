@@ -193,6 +193,52 @@ check('target turning into the limit is a new warning',
   r.due([{ slot: 1, tankId: 'a', kind: 'limit' }], 1000).length, 1);
 check('reset starts over', (r.reset(), r.due([tankA], 2000).length), 1);
 
+console.log('\na silenced alarm comes back: after three minutes, a minute before target, or when another tank warns');
+const MIN = 60000;
+const aa = (m, extra) => Object.assign({ slot: 1, tankId: 'a', kind: 'target', minutes: m }, extra || {});
+const bb = (m) => ({ slot: 2, tankId: 'b', kind: 'target', minutes: m });
+const s1 = Alert.createVoicePlanner();
+s1.due([aa(4.5)], 0);
+s1.silence([aa(4.5)], 5000);
+check('silenced: quiet at one minute', s1.due([aa(3.5)], 65000).length, 0);
+check('and at two minutes', s1.due([aa(2.5)], 125000).length, 0);
+check('and at two minutes fifty-nine', s1.due([aa(1.5)], 5000 + 3 * MIN - 1000).length, 0);
+check('after three minutes of silence it sounds again', s1.due([aa(1.5)], 5000 + 3 * MIN).length, 1);
+check('and is a live alarm again, not silenced', s1.silencedAll([aa(1.5)]), false);
+check('the voice repeat clock starts afresh from then', s1.due([aa(1.4)], 5000 + 3 * MIN + 10000).length, 0);
+
+const s2 = Alert.createVoicePlanner();
+s2.due([aa(4)], 0);
+s2.silence([aa(4)], 1000);
+check('a silenced tank two minutes from target stays silent', s2.due([aa(2)], 60000).length, 0);
+check('a minute before the target it sounds again, though only a minute has passed', s2.due([aa(1)], 70000).length, 1);
+check('exactly at the minute', Alert.createVoicePlanner().due([aa(1)], 0).length, 1);
+s2.silence([aa(1)], 71000);
+check('silenced again in that last minute, it holds for the three minutes, not at once', s2.due([aa(0.5)], 80000).length, 0);
+check('the final-minute wake-up happens once; after that only the three-minute rule', s2.due([aa(0.2)], 71000 + 2 * MIN).length, 0);
+check('which still brings it back', s2.due([aa(0)], 71000 + 3 * MIN).length, 1);
+
+const s3 = Alert.createVoicePlanner();
+s3.due([aa(4)], 0);
+s3.silence([aa(4)], 1000);
+const got = s3.due([aa(3.5), bb(4.9)], 30000).map((x) => x.tankId);
+check('another tank raising its alarm is announced at once, over the silence', got, ['b']);
+check('while the first stays silent', s3.silencedAll([aa(3.5)]), true);
+check('so not everything is silenced now', s3.silencedAll([aa(3.5), bb(4.9)]), false);
+
+const s4 = Alert.createVoicePlanner();
+s4.due([aa(4)], 0);
+s4.silence([aa(4)], 2000);
+check('the chief is told when it will sound again', s4.resoundAt([aa(4)]), 2000 + 3 * MIN);
+check('nothing silenced: no countdown', Alert.createVoicePlanner().resoundAt([aa(4)]), null);
+const s5 = Alert.createVoicePlanner();
+s5.due([aa(4), bb(4)], 0);
+s5.silence([aa(4)], 1000);
+s5.silence([bb(4)], 50000);
+check('with two silenced, the earlier one counts', s5.resoundAt([aa(4), bb(4)]), 1000 + 3 * MIN);
+check('a tank that clears forgets its silence', (s5.due([], 60000), s5.silencedAll([aa(4)])), false);
+check('the constants are the ones asked for', [Alert.SILENCE_RESOUND_MS, Alert.ESCALATE_MIN], [180000, 1]);
+
 console.log('\nthe defaults, which is what the program actually uses');
 const d = Alert.createVoicePlanner();
 d.due([tankA], 0);
