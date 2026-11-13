@@ -21,6 +21,36 @@ Python and OCR) — import on Windows and sync.
 - Hydrostatic blocks (L.C.G / T.C.G / V.C.G / IMOM, or headed "do not use for
   sounding") are set aside.
 
+## Headings, units and signs
+
+Books write the same things in many ways; these are all read:
+
+- **The depth:** `SOUNDING`, `SOUNDED DEPTH`, `GAUGE`, `DEPTH` (a sounding) and `ULLAGE` (an ullage
+  table). Its unit comes from its own heading or the cell under it: `(cm)`, `mm`, `m`, `M-CM`,
+  "metres". The `(m)` over a trim column is never taken for it. Volumes: `m3`, `(M3)`, `M^3`, `m³`,
+  `CU.M`, "cubic meters", litres (converted to m³).
+- **Trim as a word:** `Tr=-4`, `T = -4`, `Trim: -4.0 m`, and trims printed with their unit
+  (`1.0m`, `-0.5m`). Where the figures carry no sign and the heading gives it - `BY THE HEAD 2.0M
+  1.0M | BY THE STERN 1.0M … 7.0M` - head is negative and stern positive, as in the sectioned books.
+  A book that prints its own signs (`TRIM BY STEM 1.0m … TRIM BY STERN -1.5m`) is kept as printed.
+- **Heel as a word:** `H1P`, `H3S`, `H 3 S`, `1P`, `1 Port`, `Heel 3 Starboard`, `List 2P`, and
+  `LIST TO PORT 3.0 … 0.5 | LIST TO STARB'D 0.5 … 3.0`. **Port is negative, starboard positive.**
+- **The tank's 100% volume:** from the page heading (`100% = 523.4 m3`, `Cap. 523.4 m3`); a
+  partial fill (`98% FULL 512.9 m3`) is scaled up to 100%.
+- **Figures packed together** (`341.870-135.900`) are split; a dash is a hole kept in its column
+  (stored as 0, and counted in the review).
+- **A second depth column** (ullage at the left, `SOUNDED DEPTH` at the right, always adding up to
+  the same figure) is recognised as the same depth, not as another heel.
+- **One table holding everything** (`GAUGE | FILL % | ULLAGE | Tr=-4 … Tr=1 | H1P … H3S | L.C.G
+  T.C.G V.C.G IMOM`): each column is put where it belongs; hydrostatic columns are left out.
+- **Capacity blocks with extra columns** (`GAUGE CAPACITY KG LCG IT`, twice across, the gauge written
+  metre-centimetre `0-00, 01 … 09, 0-10`) are read down as one curve in cm; KG, LCG and IT are left out.
+- **Corrections or capacities?** The unit decides, not the word CORRECTION (`UNIT : MM`,
+  "correction depth in millimeters" are corrections; "capacities in cubic meters" are capacities). A table of
+  corrections is not held to the rules of a volume and is not compared with the capacity table.
+- **A tank's three tables** (trim, list, capacity) are one tank: they are put together into one
+  calibration, with the real heel table in place of the stand-in, and the capacity taken from the capacity curve.
+
 ## Which tank a page belongs to
 
 Every line of a page is scored as a tank title (grade, role, number, side,

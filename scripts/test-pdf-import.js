@@ -101,6 +101,161 @@ function tablesByName(summary) {
     assert.strictEqual(r.status, 0, (r.stdout || '').split('\n').filter((l) => /FAIL/.test(l)).join('\n') || r.stderr);
   });
 
+  await check('headings, units and signs written many ways (scripts/test-pdf-headers.py)', () => {
+    const r = spawnSync('python3', [path.join(ROOT, 'scripts', 'test-pdf-headers.py')], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, (r.stdout || '').split('\n').filter((l) => /FAIL/.test(l)).join('\n') || r.stderr);
+  });
+
+  console.log('Headings written other ways');
+  await (async () => {
+    const raw = await pdfImport.extractFromFile(path.join(BOOKS, 'book-labels.pdf'), { ocr: false });
+    const sum = pdfImport.summarizeTables(raw);
+    const usable = sum.tables.filter((t) => !t.skipped);
+    const byPage = (n) => usable.find((t) => (t.pageStart || t.page) === n);
+    await check('GAUGE in cm over VOLUME in m3: read as a sounding table, units kept', () => {
+      const t = byPage(1);
+      assert.strictEqual(t.kind, 'volumeCurve');
+      assert.strictEqual(t.parsed.axisUnit, 'cm');
+      assert.strictEqual(t.parsed.volumeUnit, 'm3');
+      assert.notStrictEqual(t.parsed.soundingMethod, 'ullage');
+    });
+    await check('"98% FULL 48.0 m3" gives a capacity of 49 m3, not 48', () => {
+      assert.ok(Math.abs(byPage(1).capacityHint - 48.98) < 0.1, String(byPage(1).capacityHint));
+    });
+    await check('ULLAGE with a bare mm / m3 row under it: an ullage table in millimetres', () => {
+      const t = byPage(2);
+      assert.strictEqual(t.parsed.soundingMethod, 'ullage');
+      assert.strictEqual(t.parsed.axisUnit, 'mm');
+      assert.strictEqual(t.capacityHint, 30);
+    });
+    await check('heel written H3P H2P H1P H1S H2S H3S is a heel table, port negative', () => {
+      const t = byPage(3);
+      assert.strictEqual(t.tableRole, 'heel');
+      assert.deepStrictEqual(t.parsed.listVals, [-3, -2, -1, 1, 2, 3]);
+    });
+    await check('trim written Tr=-2 ... Tr=2 is a trim table with those trims', () => {
+      const t = byPage(4);
+      assert.strictEqual(t.tableRole, 'trim');
+      assert.deepStrictEqual(t.parsed.trimVals, [-2, -1, 0, 1, 2]);
+    });
+  })();
+
+  console.log('Layouts from real ship books (heeling in mm, trim in m, combined sounding table)');
+  await (async () => {
+    const raw = await pdfImport.extractFromFile(path.join(BOOKS, 'book-yards.pdf'), { ocr: false });
+    const sum = pdfImport.summarizeTables(raw);
+    const [heel, trim, comb] = sum.tables.filter((x) => !x.skipped);
+    await check('heeling table: tank named cleanly (page number dropped), ullage in mm, heel to port negative', () => {
+      assert.strictEqual(heel.tankName, 'NO.1 H.F.O.TK(P)');
+      assert.strictEqual(heel.tableRole, 'heel');
+      assert.strictEqual(heel.parsed.soundingMethod, 'ullage');
+      assert.strictEqual(heel.parsed.axisUnit, 'mm');
+      assert.deepStrictEqual(heel.parsed.listVals, [-4, -3, -2, -1, 1, 2, 3, 4]);
+    });
+    await check('heeling table: figures run together ("341.870-135.900") are two figures, a dash is a hole kept in place', () => {
+      const row = heel.parsed.listGrid[heel.parsed.listAxis.indexOf(250)];
+      assert.deepStrictEqual(row, [363.17, 356.07, 348.97, 341.87, -135.9, -188.4, -240.9, -293.4]);
+      const first = heel.parsed.listGrid[0];
+      assert.deepStrictEqual(first.slice(4), [0, 0, 0, 0]);
+      assert.strictEqual(heel.parsed.blankCells.length, 20);
+    });
+    await check('heeling table: the second depth column (sounded depth) is recognised as the same depth, ullage + sounded = 5071', () => {
+      assert.strictEqual(heel.parsed.axisPair.constant, 5071);
+      assert.strictEqual(heel.parsed.listGrid[0].length, 8, 'the extra column must not become a ninth heel');
+    });
+    await check('heeling table: negatives are corrections, not volumes - it is not failed for them', () => {
+      assert.notStrictEqual(heel.review.status, 'fail', JSON.stringify(heel.review.issues));
+    });
+    await check('trim table: "TRIM BY STEM 1.0m / EVEN KEEL 0.0m / -0.5m ... -4.0m" are the trims; "SOUNDED DEPTH mm" and "(M^3)" give the units', () => {
+      assert.strictEqual(trim.tankName, 'F.W.TK[S]');
+      assert.strictEqual(trim.tableRole, 'trim');
+      assert.deepStrictEqual(trim.parsed.trimVals, [1, 0, -0.5, -1, -1.5, -2, -3, -4]);
+      assert.strictEqual(trim.parsed.axisUnit, 'mm');
+      assert.strictEqual(trim.parsed.volumeUnit, 'm3');
+      assert.strictEqual(trim.parsed.soundingMethod, 'sounding');
+    });
+    await check('combined table: trims Tr=-4 ... Tr=1 and heels H1P ... H3S are read as the trim grid and the heel grid, port negative', () => {
+      assert.deepStrictEqual(comb.parsed.trimVals, [-4, -3.5, -3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1]);
+      assert.deepStrictEqual(comb.parsed.listVals, [-3, -2, -1, 1, 2, 3]);
+      // printed H1P H2P H3P H1S H2S H3S = 0.5 1.0 1.5 -0.5 -0.7 -0.8 -> put in order from port 3 to starboard 3
+      assert.deepStrictEqual(comb.parsed.listGrid[0], [1.5, 1, 0.5, -0.5, -0.7, -0.8]);
+      assert.strictEqual(comb.parsed.listGrid.length, comb.parsed.trimGrid.length);
+    });
+    await check('combined table: gauge is the sounding, FILL % and ULLAGE are not columns of the grid, L.C.G / T.C.G / V.C.G / IMOM are left out', () => {
+      assert.strictEqual(comb.parsed.trimAxis[0], 0);
+      assert.strictEqual(comb.parsed.trimAxis[1], 5);
+      assert.strictEqual(comb.parsed.trimGrid[0].length, 11);
+      assert.deepStrictEqual(comb.removedHydroHeaders, ['L.C.G', 'T.C.G', 'V.C.G', 'IMOM']);
+      assert.strictEqual(comb.parsed.axisUnit, 'cm');
+      assert.strictEqual(comb.parsed.volumeUnit, 'm3');
+      assert.strictEqual(comb.parsed.axisPair.constant, 1080);
+    });
+    await check('combined table: the tank is named from the "Compartment descr:" line', () => {
+      assert.match(comb.tankName, /NO\.3 H\.F\.O\.\s?TK\.S/);
+    });
+    await check('a tank\'s trim table and heel table become one calibration, with the real heel table in place of the stand-in', () => {
+      const r2 = JSON.parse(JSON.stringify(raw));
+      const live = r2.tables.filter((x) => !x.skipped);
+      live[0].tankName = live[1].tankName = 'F.W.TK[S]';
+      r2.tanks = [{ name: 'F.W.TK[S]', tableIds: [live[0].id, live[1].id], tableCount: 2 }];
+      const plans = pdfImport.planTankCreates(r2, { tankNames: ['F.W.TK[S]'], allowFailed: () => true });
+      assert.strictEqual(plans.length, 1, JSON.stringify(plans));
+      const p = plans[0].patch;
+      assert.deepStrictEqual(p.trimVals, [1, 0, -0.5, -1, -1.5, -2, -3, -4]);
+      assert.deepStrictEqual(p.listVals, [-4, -3, -2, -1, 1, 2, 3, 4]);
+      assert.strictEqual(plans[0].mergedFrom.length, 1);
+      assert.strictEqual(p.listSeed, undefined);
+    });
+  })();
+
+  console.log('A book with three tables per tank (trim correction, list correction, capacity)');
+  await (async () => {
+    const raw = await pdfImport.extractFromFile(path.join(BOOKS, 'book-fot.pdf'), { ocr: false });
+    const sum = pdfImport.summarizeTables(raw);
+    const [trim, list, cap] = sum.tables.filter((x) => !x.skipped);
+    await check('the three tables are one tank, named from "TANK NAME :"', () => {
+      assert.deepStrictEqual(sum.tanks.map((t) => [t.name, t.tableCount]), [['NO.1 F.O.T. PORT', 3]]);
+    });
+    await check('"BY THE HEAD 2.0M 1.0M | BY THE STERN 1.0M ... 7.0M" (letters spaced out, no signs): head is negative, stern positive', () => {
+      assert.strictEqual(trim.tableRole, 'trim');
+      assert.deepStrictEqual(trim.parsed.trimVals, [-2, -1, 1, 2, 3, 4, 5, 6, 7]);
+    });
+    await check('"LIST TO PORT 3.0 ... 0.5 | LIST TO STARB\'D 0.5 ... 3.0": port negative, starboard positive', () => {
+      assert.strictEqual(list.tableRole, 'heel');
+      assert.deepStrictEqual(list.parsed.listVals, [-3, -2.5, -2, -1.5, -1, -0.5, 0.5, 1, 1.5, 2, 2.5, 3]);
+    });
+    await check('corrections in mm over soundings in metres are corrections, not volumes: none is failed for being negative or small', () => {
+      for (const t of [trim, list]) {
+        assert.strictEqual(t.parsed.gridKind, 'correction');
+        assert.strictEqual(t.parsed.correctionUnit, 'mm');
+        assert.strictEqual(t.parsed.axisUnit, 'm');
+        assert.strictEqual(t.review.status, 'ok', JSON.stringify(t.review.issues));
+      }
+    });
+    await check('capacity table: gauge written metre-centimetre (0-00, 01 ... 09, 0-10 ...) in two blocks is one curve in cm; KG, LCG and IT are left out', () => {
+      assert.strictEqual(cap.parsed.volumeCurve.x.length, 100);
+      assert.deepStrictEqual(cap.parsed.volumeCurve.x.slice(0, 12), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+      assert.strictEqual(cap.parsed.volumeCurve.x[99], 99);
+      assert.strictEqual(cap.parsed.axisUnit, 'cm');
+      assert.strictEqual(cap.parsed.volumeUnit, 'm3');
+      assert.deepStrictEqual(cap.removedHydroHeaders, ['KG', 'LCG', 'IT']);
+      assert.deepStrictEqual(cap.parsed.gaugingHeight, { value: 7.771, unit: 'm' });
+      assert.strictEqual(cap.review.status, 'ok', JSON.stringify(cap.review.issues));
+    });
+    await check('trim, list and capacity become ONE calibration: capacity from the curve (not a correction), no single unit forced on tables in m and cm', () => {
+      const plans = pdfImport.planTankCreates(raw, {});
+      assert.strictEqual(plans.length, 1, JSON.stringify(plans));
+      const p = plans[0];
+      assert.strictEqual(p.mergedFrom.length, 2);
+      assert.deepStrictEqual(p.patch.trimVals, [-2, -1, 1, 2, 3, 4, 5, 6, 7]);
+      assert.strictEqual(p.patch.listVals.length, 12);
+      assert.strictEqual(p.patch.volumeCurve.x.length, 100);
+      assert.ok(Math.abs(p.tank.capacity - Math.max(...cap.parsed.volumeCurve.v)) < 1e-9, String(p.tank.capacity));
+      assert.strictEqual(p.tank.soundingUnit, undefined);
+      assert.strictEqual(p.tank.calcType, 'trimHeel');
+    });
+  })();
+
   console.log('Book with a text layer');
   const textSummary = await (async () => {
     const raw = await pdfImport.extractFromFile(path.join(BOOKS, 'book-long.pdf'), { ocr: true });

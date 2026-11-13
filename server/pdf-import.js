@@ -302,6 +302,7 @@ function tableToCalibration(table, target = 'auto', existing = {}) {
         patch.listGrid = parsed.listGrid;
         patch.heelIncrement = parsed.heelIncrement || parsed.soundingIncrement || existing.heelIncrement || 1;
       } else if (!(existing.listGrid || []).length) {
+        patch.listSeed = true; // a stand-in made from the trim table until a real heel table is found
         const z = vals.findIndex((a) => Number(a) === 0);
         const col = z >= 0 ? z : Math.floor(vals.length / 2);
         const listVals = existing.listVals?.length ? existing.listVals : [-2, -1, 0, 1, 2];
@@ -499,7 +500,11 @@ function pickBestTableForTank(tables, tableIds) {
   candidates.sort((a, b) => {
     const score = (t) => {
       const p = t.parsed || {};
-      if (p.kind === 'grid') return 100 + (p.trimAxis || []).length * 2 + (p.trimVals || []).length;
+      if (p.kind === 'grid') {
+        const heel = (t.tableRole || p.tableRole) === 'heel';
+        // a heel table is the second table of a tank, never the one it is built on
+        return (heel ? 40 : 100) + (p.trimAxis || []).length * 2 + (p.trimVals || []).length;
+      }
       if (p.kind === 'volumeCurve') return 50 + ((p.volumeCurve && p.volumeCurve.x) || []).length;
       return 0;
     };
@@ -548,6 +553,43 @@ function planTankCreates(result, opts = {}) {
       });
       continue;
     }
+    // A tank's book has a table for each of trim, heel and volume. They are one tank: take what
+    // each of the others adds (a real heel table in place of the stand-in, a volume curve) so
+    // nothing the book holds is thrown away.
+    const mergedFrom = [];
+    const axisUnits = new Set(table.parsed && table.parsed.axisUnit ? [table.parsed.axisUnit] : []);
+    for (const o of summary.tables) {
+      if (o.id === table.id || !(group.tableIds || []).includes(o.id) || o.skipped) continue;
+      if (!o.parsed || (o.parsed.kind !== 'grid' && o.parsed.kind !== 'volumeCurve')) continue;
+      if (o.review && o.review.status === 'fail' && !allowed) continue;
+      const role = o.tableRole || o.parsed.tableRole;
+      try {
+        if (role === 'heel' && o.parsed.kind === 'grid' && (patch.listSeed || !(patch.listGrid || []).length)) {
+          Object.assign(patch, tableToCalibration(o, 'list', {}));
+          delete patch.listSeed;
+          mergedFrom.push(o.id);
+          if (o.parsed.axisUnit) axisUnits.add(o.parsed.axisUnit);
+        } else if (o.parsed.kind === 'volumeCurve' && !((patch.volumeCurve && patch.volumeCurve.x) || []).length) {
+          const v = tableToCalibration(o, 'volume', {});
+          patch.volumeCurve = v.volumeCurve;
+          mergedFrom.push(o.id);
+          if (o.parsed.axisUnit) axisUnits.add(o.parsed.axisUnit);
+        } else if (role !== 'heel' && o.parsed.kind === 'grid' && !(patch.trimGrid || []).length) {
+          const g = tableToCalibration(o, 'trim', {});
+          Object.assign(patch, { trimAxis: g.trimAxis, trimVals: g.trimVals, trimGrid: g.trimGrid });
+          mergedFrom.push(o.id);
+          if (o.parsed.axisUnit) axisUnits.add(o.parsed.axisUnit);
+        }
+      } catch (_) { /* a table that cannot be read adds nothing */ }
+    }
+    delete patch.listSeed;
+    // A table of corrections has no capacity of its own (its largest figure is a correction, not a
+    // volume): the tank's capacity comes from its capacity curve.
+    const correctionPrimary = table.parsed && (table.parsed.gridKind === 'correction' || table.tableRole === 'heel');
+    if (correctionPrimary) delete patch.capacity;
+    if (patch.volumeCurve && patch.volumeCurve.v && patch.volumeCurve.v.length) {
+      patch.capacity = Math.max(...patch.volumeCurve.v.filter((v) => Number.isFinite(v)));
+    }
     if (patch.raw && !patch.trimAxis && !patch.volumeCurve) {
       plans.push({
         name: meta.name,
@@ -562,7 +604,7 @@ function planTankCreates(result, opts = {}) {
       ...meta,
       calcType,
       soundingMethod,
-      capacity: patch.capacity || table.capacity || meta.capacity || 0,
+      capacity: patch.capacity || (correctionPrimary ? (Number(table.capacityHint) || 0) : table.capacity) || meta.capacity || 0,
       soundingIncrement: patch.soundingIncrement || table.soundingIncrement || 1,
       heelIncrement: patch.heelIncrement || 1,
       ...patch,
@@ -570,7 +612,10 @@ function planTankCreates(result, opts = {}) {
       pdfSource: group.name,
       pdfTableId: table.id,
     };
-    if (table.parsed && table.parsed.axisUnit) tank.soundingUnit = table.parsed.axisUnit;
+    // The tables of one tank can be in different units (soundings in metres for the corrections,
+    // gauge in centimetres for the capacity). One unit is stored only when they all agree; otherwise
+    // the app reads each table's own axis, as it does for a book imported from Excel.
+    if (axisUnits.size === 1) tank.soundingUnit = [...axisUnits][0];
     // Ask the finished tables what arrangement they are in; keep the guess
     // above when they do not say clearly.
     const verdict = detectCalcType(tank);
@@ -585,6 +630,7 @@ function planTankCreates(result, opts = {}) {
       tank,
       patch,
       review: table.review || null,
+      mergedFrom,
     });
   }
   return plans;

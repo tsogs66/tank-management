@@ -41,7 +41,7 @@ CODE = (
     r"S[.\s]*W|W[.\s]*B|D[.\s]*B|C[.\s]*W|B[.\s]*W|F[.\s]*P|A[.\s]*P)[.\s]*T\.?"
 )
 TANKWORD = r"TANKS?|TANKE|TK\.?|TNK\.?|T\.?"
-SIDE = r"\(\s*[PSC]\s*\)|\bPORT\b|\bSTBD\b|\bSTARBOARD\b|\bCENT(?:RE|ER)\b|\bP\s*&\s*S\b|\b\d+\s*[PSC]\b|\bP/S\b"
+SIDE = r"[\(\[]\s*[PSC]\s*[\)\]]|(?<=[A-Z])\.[PSC]\b|\bPORT\b|\bSTBD\b|\bSTARBOARD\b|\bCENT(?:RE|ER)\b|\bP\s*&\s*S\b|\b\d+\s*[PSC]\b|\bP/S\b"
 NUMID = r"(?:\bNO\.?|\bNR\.?|\b#)\s*\d+|\b\d+\b"
 
 GRADE_RE = re.compile(rf"(?<![A-Z0-9])(?:{GRADE})(?![A-Z0-9])", re.I)
@@ -75,10 +75,15 @@ TRAILER_RES = [
     re.compile(r"\s*[-–—:|,]?\s*\(?\s*PAGE\s*\d+\s*(?:OF\s*\d+)?\s*\)?\s*$", re.I),
     re.compile(r"\s*[-–—:|,]?\s*\(?\s*(?:100\s*%|FULL|CAP(?:ACITY)?)\s*[:=]?\s*[\d.,]+\s*(?:M3|M³|CU\.?\s*M|KL|M\^3)?\s*\)?\s*$", re.I),
 ]
-LEADER_RE = re.compile(r"^\s*(?:TABLE\s+OF|SOUNDING\s+TABLE\s+(?:FOR|OF)|CALIBRATION\s+(?:TABLE\s+)?(?:FOR|OF)|TANK\s*(?:NAME)?\s*[:=-]|NAME\s*[:=-])\s*", re.I)
+LEADER_RE = re.compile(r"^\s*(?:\d{1,2}[.-]\d{1,3}\s+|COMPARTMENT\s+DESCR(?:IPTION)?\s*[:=-]\s*|TABLE\s+OF|SOUNDING\s+TABLE\s+(?:FOR|OF)|CALIBRATION\s+(?:TABLE\s+)?(?:FOR|OF)|TANK\s*(?:NAME)?\s*[:=-]|NAME\s*[:=-])\s*", re.I)
 
 CAPACITY_RE = re.compile(
     r"(?:CAPACITY|CAP\.?|100\s*%|FULL|VOLUME)\s*[:=]?\s*([\d]{1,3}(?:[ ,]\d{3})*(?:[.,]\d+)?|\d+(?:[.,]\d+)?)\s*(M3|M³|CU\.?\s*M|KL|M\^3)",
+    re.I,
+)
+PERCENT_CAP_RE = re.compile(
+    r"(?P<pct>\d{1,3}(?:[.,]\d+)?)\s*%\s*(?:FULL|FILL(?:ED)?|CAPACITY|CAP\.?|VOLUME|=|:)?\s*[:=]?\s*"
+    r"([\d]{1,3}(?:[ ,]\d{3})*(?:[.,]\d+)?|\d+(?:[.,]\d+)?)\s*(?:M3|M\u00b3|CU\.?\s*M|KL|M\^3)",
     re.I,
 )
 CONT_RE = re.compile(r"\bCONT(?:'D|’D|INUED|\.|D)?\b|\bCONTINUATION\b", re.I)
@@ -181,15 +186,21 @@ def clean_name(text):
     """
     t = re.sub(r"\s+", " ", (text or "").replace("–", "-").replace("—", "-")).strip(" -:|,;")
     info = {"method": None, "continued": bool(CONT_RE.search(t)), "capacity": None}
-    cap = CAPACITY_RE.search(t)
+    # "98% FULL 512.9 m3" is not the tank's capacity: 512.9 is 98% of it.
+    pct = PERCENT_CAP_RE.search(t)
+    cap = pct or CAPACITY_RE.search(t)
     if cap:
-        num = cap.group(1).replace(" ", "")
+        num = (cap.group(2) if pct else cap.group(1)).replace(" ", "")
         if "," in num and "." in num:
             num = num.replace(",", "")
         elif "," in num:
             num = num.replace(",", ".") if re.search(r",\d{1,2}$", num) else num.replace(",", "")
         try:
             info["capacity"] = float(num)
+            if pct:
+                share = float(pct.group("pct").replace(",", "."))
+                if 0 < share < 100:
+                    info["capacity"] = round(info["capacity"] * 100.0 / share, 3)
         except ValueError:
             pass
     if re.search(r"\bULLAGE\b", t, re.I) and not re.search(r"\bSOUNDING\b", t, re.I):
@@ -269,7 +280,8 @@ def name_key(name):
     s = re.sub(r"\b(\d+)\s*([PSC])\b", r" \1 \2 ", s)
     for word, letter in _SIDE_WORDS.items():
         s = re.sub(rf"\b{word}\b", f" {letter} ", s)
-    s = re.sub(r"\(\s*([PSC])\s*\)", r" \1 ", s)
+    s = re.sub(r"[\(\[]\s*([PSC])\s*[\)\]]", r" \1 ", s)
+    s = re.sub(r"(?<=[A-Z])\.([PSC])\b", r" \1 ", s)
     s = re.sub(r"[^A-Z0-9]+", " ", s)
     toks = s.split()
     # Drop filler; keep order of the rest but put the tank word out of the way.

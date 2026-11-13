@@ -98,7 +98,7 @@ HYDRO_HEADER_RE = re.compile(
 # Useful sounding / volume column labels
 SOUNDING_HEADER_RE = re.compile(
     r"\b(?:"
-    r"SOUNDING|ULLAGE|GAUGE|DEPTH|SOUND\.?|INNAGE"
+    r"SOUNDING|SOUNDED|ULLAGE|GAUGE|DEPTH|SOUND\.?|INNAGE"
     r"|VOLUME|VOL\.?|CAP(?:ACITY)?"
     r"|TRIM|HEEL|LIST"
     r"|m3|M³|CUB\.?"
@@ -487,6 +487,20 @@ def strip_hydrostatic_columns(rows):
     return normalize_table(kept, densify=True), removed_headers
 
 
+def axis_method(rows):
+    """'ullage' or 'sounding': which depth the first (left) column of the table is."""
+    for r in rows:
+        for c in r:
+            u = str(c or "").strip().upper()
+            if not u:
+                continue
+            if u.startswith("ULLAGE"):
+                return "ullage"
+            if re.match(r"^(?:SOUNDING|SOUNDED|GAUGE|SOUND\.?|INNAGE)\b", u):
+                return "sounding"
+    return None
+
+
 def parse_as_grid(rows):
     """
     Parse Excel-like calibration grid:
@@ -516,11 +530,26 @@ def parse_as_grid(rows):
     if len(trim_vals) < 2:
         return None
     # Rows with more figures than the header names are not this grid: the header lost columns,
-    # and keeping the ones it names would store a table with columns missing.
-    body_counts = [sum(1 for c in densify_row(r) if to_number(c) is not None) for r in rows[1:]]
+    # and keeping the ones it names would store a table with columns missing - unless the one
+    # extra column is the same depth measured the other way (ullage at the left, sounded depth at
+    # the right, the two always adding up to the same figure).
+    body = [densify_row(r) for r in rows[1:]]
+    body_counts = [sum(1 for c in r if to_number(c) is not None) for r in body]
     body_counts = [c for c in body_counts if c >= 3]
-    if len(body_counts) >= 3 and Counter(body_counts).most_common(1)[0][0] - 1 > len(trim_vals):
-        return None
+    axis_pair = None
+    if len(body_counts) >= 3:
+        modal = Counter(body_counts).most_common(1)[0][0]
+        if modal - 1 > len(trim_vals):
+            if modal - 1 == len(trim_vals) + 1:
+                sums = []
+                for r in body:
+                    a0, a1 = to_number(r[0]) if r else None, to_number(r[len(trim_vals) + 1]) if len(r) > len(trim_vals) + 1 else None
+                    if a0 is not None and a1 is not None:
+                        sums.append(round(a0 + a1, 6))
+                if len(sums) >= 3 and Counter(sums).most_common(1)[0][1] >= 0.9 * len(sums):
+                    axis_pair = {"constant": Counter(sums).most_common(1)[0][0]}
+            if axis_pair is None:
+                return None
     # Trim/list headers are typically small meters (e.g. -5..+5), not LCG/volumes
     if not any(abs(v) <= 15 for v in trim_vals):
         return None
@@ -529,9 +558,10 @@ def parse_as_grid(rows):
 
     trim_axis = []
     trim_grid = []
+    blanks = []
     for r in rows[1:]:
         dens = densify_row(r)
-        if dens and all(re.fullmatch(r"m4?|m³|m3|cm|mm|m", str(c), re.I) for c in dens):
+        if dens and all(re.fullmatch(r"m4?|m³|m3|cm|mm|m|\(?[a-z.]+\)?", str(c), re.I) for c in dens):
             continue
         axis = to_number(dens[0] if dens else None)
         if axis is None:
@@ -541,6 +571,8 @@ def parse_as_grid(rows):
         for c in range(1, 1 + len(trim_vals)):
             n = to_number(dens[c] if c < len(dens) else None)
             if n is None:
+                if c < len(dens) and str(dens[c]).strip() == "?":
+                    blanks.append([len(trim_grid), c - 1])   # the book has a dash here
                 row_vals.append(0.0)
             else:
                 row_vals.append(n)
@@ -553,7 +585,7 @@ def parse_as_grid(rows):
     if len(trim_axis) < 2:
         return None
 
-    return {
+    out = {
         "kind": "grid",
         "trimAxis": trim_axis,
         "trimVals": trim_vals,
@@ -566,6 +598,14 @@ def parse_as_grid(rows):
         "heelIncrement": 1,
         "capacity": max(max(row) for row in trim_grid) if trim_grid else 0,
     }
+    if blanks:
+        out["blankCells"] = blanks
+    if axis_pair:
+        out["axisPair"] = axis_pair
+    method = axis_method(rows[:5])
+    if method:
+        out["soundingMethod"] = method
+    return out
 
 
 def parse_as_volume_curve(rows):
@@ -1386,16 +1426,51 @@ def row_raggedness(rows):
     return sum(1 for n in counts if n != modal) / len(counts)
 
 
+def apply_units(parsed, units):
+    """Record the units a header names; litres are brought to cubic metres, which the app keeps."""
+    if parsed.get("kind") not in ("volumeCurve", "grid"):
+        return
+    if units.get("axis") and not parsed.get("axisUnit"):
+        parsed["axisUnit"] = units["axis"]
+    if units.get("volume") and not parsed.get("volumeUnit"):
+        if units["volume"] == "l":
+            vc = parsed.get("volumeCurve") or {}
+            if vc.get("v"):
+                vc["v"] = [round(v / 1000.0, 6) for v in vc["v"]]
+            if parsed.get("kind") == "grid" and parsed.get("trimGrid"):
+                parsed["trimGrid"] = [[round(v / 1000.0, 6) for v in row] for row in parsed["trimGrid"]]
+            parsed["capacity"] = round((parsed.get("capacity") or 0) / 1000.0, 6)
+            parsed["volumeUnit"] = "l"
+            parsed["unitConverted"] = "litres to m3"
+        else:
+            parsed["volumeUnit"] = units["volume"]
+
+
 def process_raw_table(rows):
     """
     Filter hydrostatic tables/columns and parse calibration data.
     Returns dict with keys: rows, parsed, skipped, skipReason, removedHydroHeaders.
     """
     rows, _dropped = pdf_headers.drop_boilerplate_rows(rows)
+    rows, _glued = pdf_headers.split_glued_cells(rows)
     rows, _cleaned = pdf_headers.clean_ocr_noise(rows)
     rows, _exploded = pdf_headers.explode_numeric_cells(rows)
+    rows, extras_info = pdf_headers.unstack_extras(rows)
+    combined = pdf_headers.parse_combined(rows) if not extras_info else None
+    if combined:
+        return {
+            "rows": combined["rows"],
+            "parsed": combined["parsed"],
+            "skipped": False,
+            "skipReason": None,
+            "removedHydroHeaders": combined["removed"],
+            "labelRole": combined["role"],
+        }
     rows, _blocks = pdf_headers.unstack_blocks(rows)
-    units = pdf_headers.header_units(rows)
+    units = pdf_headers.header_units(rows[:10])
+    if extras_info:
+        units = {"axis": extras_info["axis"] or units["axis"], "volume": units["volume"] or "m3"}
+    rows, label_role = pdf_headers.normalize_axis_labels(rows)
     norm = normalize_table(rows, densify=True)
     if is_pure_hydrostatic_table(norm):
         return {
@@ -1431,27 +1506,18 @@ def process_raw_table(rows):
         }
 
     parsed = parse_table(work)
-    if parsed.get("kind") in ("volumeCurve", "grid"):
-        if units["axis"]:
-            parsed["axisUnit"] = units["axis"]
-        if units["volume"] == "l":
-            # The app keeps volumes in cubic metres.
-            vc = parsed.get("volumeCurve") or {}
-            if vc.get("v"):
-                vc["v"] = [round(v / 1000.0, 6) for v in vc["v"]]
-            if parsed.get("kind") == "grid" and parsed.get("trimGrid"):
-                parsed["trimGrid"] = [[round(v / 1000.0, 6) for v in row] for row in parsed["trimGrid"]]
-            parsed["capacity"] = round((parsed.get("capacity") or 0) / 1000.0, 6)
-            parsed["volumeUnit"] = "l"
-            parsed["unitConverted"] = "litres to m3"
-        elif units["volume"]:
-            parsed["volumeUnit"] = units["volume"]
+    if parsed.get("kind") == "grid" and not parsed.get("soundingMethod"):
+        m_ = axis_method(work[:8])
+        if m_:
+            parsed["soundingMethod"] = m_
+    apply_units(parsed, units)
     return {
         "rows": work,
         "parsed": parsed,
         "skipped": False,
         "skipReason": None,
-        "removedHydroHeaders": removed,
+        "removedHydroHeaders": (removed or []) + (extras_info["removed"] if extras_info else []),
+        "labelRole": label_role,
     }
 
 
@@ -1728,7 +1794,35 @@ def extract_tables(
                 role = "unknown"
                 pattern = None
                 if not skipped:
+                    # The units are often on the page's heading line but not in the cells the table
+                    # finder kept: ask the lines above the first row as well.
+                    if isinstance(parsed, dict) and (not parsed.get("axisUnit") or not parsed.get("volumeUnit")):
+                        apply_units(parsed, pdf_headers.header_units([[ln["text"]] for ln in lines[:14]]))
+                    if isinstance(parsed, dict):
+                        mu = re.search(r"\bUNIT\s*[:=]\s*(MM|CM|M)\b", text or "", re.I)
+                        md = re.search(r"CORRECTION\s+DEPTH\s+IN\s+(MILLIMET|CENTIMET|MET)", text or "", re.I)
+                        if parsed.get("kind") == "grid" and not parsed.get("combined"):
+                            if mu:
+                                parsed["correctionUnit"] = mu.group(1).lower()
+                            elif md:
+                                parsed["correctionUnit"] = {"MILLIMET": "mm", "CENTIMET": "cm", "MET": "m"}[md.group(1).upper()]
+                        if parsed.get("kind") == "grid":
+                            # What the figures are: capacities in cubic metres, or corrections to a depth. The
+                            # word CORRECTION is in both kinds of book, so the unit decides, not the word.
+                            kind_ = (
+                                "correction" if parsed.get("correctionUnit") and parsed.get("volumeUnit") != "m3"
+                                else "volume" if parsed.get("volumeUnit") == "m3" or parsed.get("combined")
+                                else None
+                            )
+                            if kind_:
+                                parsed["gridKind"] = kind_
+                        mg = re.search(r"GAUGING\s+HEIGHT\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(MM|CM|M)\b", text or "", re.I)
+                        if mg:
+                            parsed["gaugingHeight"] = {"value": float(mg.group(1).replace(",", ".")), "unit": mg.group(2).lower()}
                     role = detect_table_role(work, text or "", forced=forced_role)
+                    # Columns headed in words ("H1P", "Tr=-4") say what the table is better than the figures do.
+                    if not forced_role and processed.get("labelRole") in ("heel", "trim"):
+                        role = processed["labelRole"]
                     pattern = extract_pattern(work, role)
                     parsed = apply_role_to_parsed(parsed, role)
 

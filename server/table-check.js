@@ -580,8 +580,8 @@ function reviewCurve(xIn, vIn, opts = {}) {
           { first: first.x });
       }
     }
-    if (direction === 1 && first.x === 0 && first.v > Math.max(0.01 * vmax, 0.05)) {
-      issue(issues, SEVERITY.warn, 'nonzero-start',
+    if (direction === 1 && first.x === 0 && first.v > Math.max(0.05 * vmax, 0.05)) {
+      issue(issues, SEVERITY.info, 'nonzero-start',
         `Volume at sounding 0 is ${first.v}, not zero - check the first row`, { value: first.v });
     }
     // Slope jumps that stay monotonic (a digit misread to a plausible value).
@@ -744,6 +744,7 @@ function reviewGrid(axisIn, valsIn, gridIn, opts = {}) {
     }
     for (const it of res.issues) {
       if (it.code === 'axis-gap' || it.code === 'short-table' || it.code === 'axis-sorted' || it.code === 'axis-duplicates') continue;
+      if (c > 0 && issues.some((i) => i.code === it.code && i.message === it.message)) continue;   // the same finding in every column is one finding
       if (c > 0 && issues.some((i) => i.code === it.code && i.column !== undefined && i.column !== c && c > 2)) { colWorst++; continue; }
       issues.push({ ...it, column: c, trim: valsIn[c] });
     }
@@ -904,8 +905,11 @@ function reviewParsed(parsed, ctx = {}) {
   }
 
   if ((out.trimGrid || []).length && (out.trimVals || []).length) {
+    // A heeling table holds corrections, some of them negative, with a dash where the book has
+    // nothing: it is not held to the rules of a volume.
     const res = reviewGrid(out.trimAxis, out.trimVals, out.trimGrid, {
       capacity, direction: dir, volumeCurve: out.volumeCurve,
+      volume: out.gridKind === 'correction' || out.tableRole === 'heel' ? false : (out.gridKind === 'volume' ? true : undefined),
     });
     out.trimAxis = res.axis;
     out.trimGrid = res.grid;
@@ -929,8 +933,10 @@ function reviewParsed(parsed, ctx = {}) {
     }
   }
 
-  // Other tables of the same tank in the same book.
-  for (const sib of ctx.siblings || []) {
+  // Other tables of the same tank in the same book. Corrections are not capacities, so a table of
+  // corrections is neither compared with the capacity tables nor used to check them.
+  const isCorrection = out.gridKind === 'correction' || out.tableRole === 'heel';
+  for (const sib of isCorrection ? [] : (ctx.siblings || []).filter((q) => q.gridKind !== 'correction' && q.tableRole !== 'heel')) {
     const a = (out.volumeCurve && out.volumeCurve.x && out.volumeCurve.x.length > 1)
       ? out.volumeCurve : ((out.trimGrid || []).length ? evenKeelCurve(out) : null);
     const b = sib.volumeCurve && sib.volumeCurve.x && sib.volumeCurve.x.length > 1
@@ -948,6 +954,12 @@ function reviewParsed(parsed, ctx = {}) {
       const x = crossCheckCurves(mine, cur, { warn: 0.005, fail: 0.2 });
       if (x) cross.push({ against: 'the tank as it is stored now', existing: true, ...x });
     }
+  }
+
+  if ((out.blankCells || []).length) {
+    issue(issues, SEVERITY.info, 'blank-cells',
+      `${out.blankCells.length} cell(s) are a dash in the book (no figure there) and are stored as 0`,
+      { count: out.blankCells.length });
   }
 
   // Rows the two pages of a spliced table disagreed about.
