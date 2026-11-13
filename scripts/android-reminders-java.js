@@ -228,6 +228,7 @@ public class ReminderBootReceiver extends BroadcastReceiver {
   @Override
   public void onReceive(Context ctx, Intent intent) {
     ReminderScheduler.restore(ctx.getApplicationContext());
+    BunkerAlarmScheduler.restore(ctx.getApplicationContext());
   }
 }
 `;
@@ -605,6 +606,393 @@ public class SpeechBridge {
 }
 `;
 
+
+/**
+ * The bunkering warnings, rung by the app itself.
+ *
+ * The page cannot sound anything once the tablet is locked or the app is in the
+ * background, so while fuel is going aboard it hands the app the whole run of
+ * warnings to come (see nativeSchedule in bunker-alert.js). Each is an alarm
+ * set with setAlarmClock, which fires on time through Doze and a locked
+ * screen. When one fires: if the page has been heard from in the last few
+ * seconds it is awake and does the sounding itself, so this stays quiet;
+ * otherwise a lock-screen notification, a tone, and the order spoken by the
+ * tablet's own voice.
+ */
+const BUNKER_SCHEDULER = `package ${PKG};
+
+import android.app.AlarmManager;
+import android.app.PendingIntent;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.net.Uri;
+import android.os.Build;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+/** Keeps the warnings the page handed over, and arms them with the system clock. */
+final class BunkerAlarmScheduler {
+  static final String PREFS = "cheng_bunker_alarm";
+  static final String KEY_EVENTS = "events";
+  static final String CHANNEL = "cheng_bunker_v1";
+  static final String ACTION_FIRE = "${PKG}.BUNKER_FIRE";
+  static final String ACTION_SILENCE = "${PKG}.BUNKER_SILENCE";
+  /** The page is taken to be awake, and to be sounding for itself, for this long after it last said so. */
+  static final long PAGE_AWAKE_MS = 12000L;
+  /** A silenced tank is quiet until this late in the run-up, then rings whatever. */
+  static final double FINAL_MINUTE = 1.0;
+
+  private BunkerAlarmScheduler() {}
+
+  private static SharedPreferences prefs(Context ctx) {
+    return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+  }
+
+  static PendingIntent fire(Context ctx, JSONObject e, int flags) throws Exception {
+    String key = e.getString("key");
+    long at = e.getLong("fireAt");
+    Intent i = new Intent(ctx, BunkerAlarmReceiver.class);
+    i.setAction(ACTION_FIRE);
+    i.setData(Uri.parse("cheng-bunker://" + Uri.encode(key) + "/" + at));
+    i.putExtra("key", key);
+    i.putExtra("text", e.optString("text", ""));
+    i.putExtra("name", e.optString("name", "Tank"));
+    i.putExtra("fireAt", at);
+    i.putExtra("minsLeft", e.optDouble("minsLeft", 5.0));
+    int f = flags;
+    if (Build.VERSION.SDK_INT >= 23) f |= PendingIntent.FLAG_IMMUTABLE;
+    return PendingIntent.getBroadcast(ctx, (key + "@" + at).hashCode(), i, f);
+  }
+
+  private static PendingIntent showApp(Context ctx) {
+    Intent open = new Intent(ctx, MainActivity.class);
+    open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+    int f = PendingIntent.FLAG_UPDATE_CURRENT;
+    if (Build.VERSION.SDK_INT >= 23) f |= PendingIntent.FLAG_IMMUTABLE;
+    return PendingIntent.getActivity(ctx, 7, open, f);
+  }
+
+  private static JSONArray stored(Context ctx) {
+    try {
+      return new JSONArray(prefs(ctx).getString(KEY_EVENTS, "[]"));
+    } catch (Exception e) {
+      return new JSONArray();
+    }
+  }
+
+  private static void cancelAll(Context ctx, JSONArray list) {
+    AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
+    if (am == null) return;
+    for (int i = 0; i < list.length(); i++) {
+      try {
+        am.cancel(fire(ctx, list.getJSONObject(i), PendingIntent.FLAG_UPDATE_CURRENT));
+      } catch (Exception ignored) {
+      }
+    }
+  }
+
+  private static void armAll(Context ctx, JSONArray list) {
+    AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
+    if (am == null) return;
+    long now = System.currentTimeMillis();
+    for (int i = 0; i < list.length(); i++) {
+      try {
+        JSONObject e = list.getJSONObject(i);
+        long at = e.getLong("fireAt");
+        if (at <= now) continue;
+        am.setAlarmClock(new AlarmManager.AlarmClockInfo(at, showApp(ctx)),
+            fire(ctx, e, PendingIntent.FLAG_UPDATE_CURRENT));
+      } catch (Exception ignored) {
+      }
+    }
+  }
+
+  /** The page sends the whole run each time; what is not in it is cancelled. */
+  static void replaceAll(Context ctx, String json) {
+    JSONArray next;
+    try {
+      next = new JSONArray(json == null ? "[]" : json);
+    } catch (Exception e) {
+      return;
+    }
+    cancelAll(ctx, stored(ctx));
+    prefs(ctx).edit().putString(KEY_EVENTS, next.toString()).apply();
+    armAll(ctx, next);
+  }
+
+  /** A reboot or an app update clears every alarm; put the ones still to come back. */
+  static void restore(Context ctx) {
+    armAll(ctx, stored(ctx));
+  }
+
+  static void heartbeat(Context ctx) {
+    prefs(ctx).edit().putLong("beat", System.currentTimeMillis()).apply();
+  }
+
+  static boolean pageAwake(Context ctx) {
+    return System.currentTimeMillis() - prefs(ctx).getLong("beat", 0L) < PAGE_AWAKE_MS;
+  }
+
+  /** The chief silenced these tanks until untilMs. */
+  static void silence(Context ctx, String keysJson, long untilMs) {
+    try {
+      JSONArray keys = new JSONArray(keysJson);
+      SharedPreferences.Editor ed = prefs(ctx).edit();
+      for (int i = 0; i < keys.length(); i++) ed.putLong("sil:" + keys.getString(i), untilMs);
+      ed.apply();
+    } catch (Exception ignored) {
+    }
+  }
+
+  /** Silence holds until its time is up, but never into the last minute before the target. */
+  static boolean silenced(Context ctx, String key, double minsLeft, long now) {
+    if (minsLeft <= FINAL_MINUTE) return false;
+    return now < prefs(ctx).getLong("sil:" + key, 0L);
+  }
+}
+`;
+
+const BUNKER_RECEIVER = `package ${PKG};
+
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.media.AudioAttributes;
+import android.media.AudioManager;
+import android.media.ToneGenerator;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.PowerManager;
+import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
+import android.speech.tts.Voice;
+
+import java.util.Locale;
+import java.util.Set;
+
+/** Rings one bunkering warning when the page cannot. */
+public class BunkerAlarmReceiver extends BroadcastReceiver {
+  @Override
+  public void onReceive(Context ctx, Intent intent) {
+    final Context app = ctx.getApplicationContext();
+    String action = intent.getAction();
+    String key = intent.getStringExtra("key");
+    if (key == null) return;
+
+    if (BunkerAlarmScheduler.ACTION_SILENCE.equals(action)) {
+      BunkerAlarmScheduler.silence(app, "[\\"" + key.replace("\\"", "") + "\\"]", System.currentTimeMillis() + 3 * 60000L);
+      NotificationManager nm = (NotificationManager) app.getSystemService(Context.NOTIFICATION_SERVICE);
+      if (nm != null) nm.cancel(key.hashCode());
+      return;
+    }
+
+    long now = System.currentTimeMillis();
+    double minsLeft = intent.getDoubleExtra("minsLeft", 5.0);
+    /* The page is awake and sounding for itself. */
+    if (BunkerAlarmScheduler.pageAwake(app)) return;
+    if (BunkerAlarmScheduler.silenced(app, key, minsLeft, now)) return;
+
+    String text = intent.getStringExtra("text");
+    String name = intent.getStringExtra("name");
+    if (text == null || text.isEmpty()) text = "Chief, prepare to close the valve now.";
+
+    PowerManager.WakeLock wl = null;
+    try {
+      PowerManager pm = (PowerManager) app.getSystemService(Context.POWER_SERVICE);
+      if (pm != null) {
+        wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "cheng:bunker");
+        wl.acquire(25000L);
+      }
+    } catch (Exception ignored) {
+    }
+
+    notifyChief(app, key, name == null ? "Tank" : name, text);
+    try {
+      ToneGenerator tone = new ToneGenerator(AudioManager.STREAM_ALARM, 90);
+      tone.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 900);
+    } catch (Exception ignored) {
+    }
+    speak(app, text, goAsync(), wl);
+  }
+
+  private static void notifyChief(Context app, String key, String name, String text) {
+    NotificationManager nm = (NotificationManager) app.getSystemService(Context.NOTIFICATION_SERVICE);
+    if (nm == null) return;
+    Notification.Builder b;
+    if (Build.VERSION.SDK_INT >= 26) {
+      if (nm.getNotificationChannel(BunkerAlarmScheduler.CHANNEL) == null) {
+        NotificationChannel ch = new NotificationChannel(
+            BunkerAlarmScheduler.CHANNEL, "Bunkering warnings", NotificationManager.IMPORTANCE_HIGH);
+        ch.setDescription("Prepare to close the valve");
+        ch.setSound(null, null);
+        ch.enableVibration(true);
+        ch.setVibrationPattern(new long[] {0, 500, 250, 500, 250, 500});
+        ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+        nm.createNotificationChannel(ch);
+      }
+      b = new Notification.Builder(app, BunkerAlarmScheduler.CHANNEL);
+    } else {
+      b = new Notification.Builder(app);
+      b.setPriority(Notification.PRIORITY_HIGH);
+      b.setVibrate(new long[] {0, 500, 250, 500, 250, 500});
+    }
+    int immutable = Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0;
+    Intent open = new Intent(app, MainActivity.class);
+    open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+    PendingIntent tap = PendingIntent.getActivity(app, key.hashCode(), open, PendingIntent.FLAG_UPDATE_CURRENT | immutable);
+
+    Intent silence = new Intent(app, BunkerAlarmReceiver.class);
+    silence.setAction(BunkerAlarmScheduler.ACTION_SILENCE);
+    silence.putExtra("key", key);
+    PendingIntent silencePi = PendingIntent.getBroadcast(app, key.hashCode() + 1, silence, PendingIntent.FLAG_UPDATE_CURRENT | immutable);
+
+    b.setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+        .setContentTitle("BUNKERING — " + name)
+        .setContentText(text)
+        .setStyle(new Notification.BigTextStyle().bigText(text))
+        .setCategory(Notification.CATEGORY_ALARM)
+        .setVisibility(Notification.VISIBILITY_PUBLIC)
+        .setContentIntent(tap)
+        .setFullScreenIntent(tap, true)
+        .setAutoCancel(true)
+        .addAction(android.R.drawable.ic_lock_silent_mode, "Silence 3 min", silencePi)
+        .setWhen(System.currentTimeMillis());
+    nm.notify(key.hashCode(), b.build());
+  }
+
+  /** The order, in the tablet's own voice, held open until it has been said. */
+  private static void speak(final Context app, final String text, final PendingResult pr, final PowerManager.WakeLock wl) {
+    final Handler main = new Handler(Looper.getMainLooper());
+    final boolean[] finished = {false};
+    final TextToSpeech[] holder = new TextToSpeech[1];
+    final Runnable done = () -> {
+      synchronized (finished) {
+        if (finished[0]) return;
+        finished[0] = true;
+      }
+      try { if (holder[0] != null) holder[0].shutdown(); } catch (Exception ignored) { }
+      try { if (wl != null && wl.isHeld()) wl.release(); } catch (Exception ignored) { }
+      try { if (pr != null) pr.finish(); } catch (Exception ignored) { }
+    };
+    main.postDelayed(done, 20000L);
+    try {
+      holder[0] = new TextToSpeech(app, status -> {
+        if (status != TextToSpeech.SUCCESS || holder[0] == null) {
+          done.run();
+          return;
+        }
+        TextToSpeech t = holder[0];
+        try {
+          t.setAudioAttributes(new AudioAttributes.Builder()
+              .setUsage(AudioAttributes.USAGE_ALARM)
+              .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+              .build());
+          Voice best = null;
+          int bestScore = Integer.MIN_VALUE;
+          Set<Voice> voices = t.getVoices();
+          if (voices != null) {
+            for (Voice v : voices) {
+              Locale l = v.getLocale();
+              if (l == null || !"en".equalsIgnoreCase(l.getLanguage())) continue;
+              if (v.isNetworkConnectionRequired()) continue;
+              if (v.getFeatures() != null && v.getFeatures().contains("notInstalled")) continue;
+              int score = v.getQuality() + ("GB".equalsIgnoreCase(l.getCountry()) ? 50 : 0);
+              if (score > bestScore) { bestScore = score; best = v; }
+            }
+          }
+          if (best != null) t.setVoice(best); else t.setLanguage(Locale.UK);
+          t.setSpeechRate(0.9f);
+          t.setPitch(0.9f);
+          t.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+            @Override public void onStart(String id) {}
+            @Override public void onDone(String id) { if (id != null && id.endsWith(":last")) main.post(done); }
+            @Override public void onError(String id) { main.post(done); }
+          });
+          String[] parts = text.split(",\\\\s*");
+          String stamp = String.valueOf(System.nanoTime());
+          for (int i = 0; i < parts.length; i++) {
+            boolean last = i == parts.length - 1;
+            t.speak(parts[i], TextToSpeech.QUEUE_ADD, null, stamp + ":" + i + (last ? ":last" : ""));
+            if (!last) t.playSilentUtterance(220, TextToSpeech.QUEUE_ADD, stamp + ":gap" + i);
+          }
+        } catch (Exception e) {
+          done.run();
+        }
+      });
+    } catch (Exception e) {
+      done.run();
+    }
+  }
+}
+`;
+
+const BUNKER_BRIDGE = `package ${PKG};
+
+import android.app.Activity;
+import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
+
+/**
+ * What the bunkering sheet can ask of the app: ring these warnings for me when
+ * I cannot, I am awake, the chief silenced these, and keep the screen on.
+ */
+public class BunkerAlarmBridge {
+  private final Activity activity;
+
+  BunkerAlarmBridge(Activity activity) {
+    this.activity = activity;
+  }
+
+  /** Replace every pending warning with this JSON list of {key, fireAt, minsLeft, text, name}. */
+  @JavascriptInterface
+  public boolean sync(String json) {
+    try {
+      BunkerAlarmScheduler.replaceAll(activity.getApplicationContext(), json);
+      return true;
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  /** The page is awake and sounding for itself: the app stays quiet. */
+  @JavascriptInterface
+  public void heartbeat() {
+    try {
+      BunkerAlarmScheduler.heartbeat(activity.getApplicationContext());
+    } catch (Exception ignored) {
+    }
+  }
+
+  /** The chief silenced these tanks (a JSON list of keys) until untilMs. */
+  @JavascriptInterface
+  public void silence(String keysJson, double untilMs) {
+    try {
+      BunkerAlarmScheduler.silence(activity.getApplicationContext(), keysJson, (long) untilMs);
+    } catch (Exception ignored) {
+    }
+  }
+
+  /** Keep the screen from locking while fuel is going aboard. */
+  @JavascriptInterface
+  public void keepScreenOn(final boolean on) {
+    activity.runOnUiThread(() -> {
+      try {
+        if (on) activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+      } catch (Exception ignored) {
+      }
+    });
+  }
+}
+`;
+
 /** Manifest additions: permissions, and the two receivers. */
 const PERMISSIONS = [
   'android.permission.POST_NOTIFICATIONS',
@@ -612,10 +1000,13 @@ const PERMISSIONS = [
   'android.permission.VIBRATE',
   'android.permission.READ_CALENDAR',
   'android.permission.WRITE_CALENDAR',
+  'android.permission.USE_FULL_SCREEN_INTENT',
+  'android.permission.WAKE_LOCK',
 ];
 
 const RECEIVERS = `
         <receiver android:name=".ReminderReceiver" android:exported="false" />
+        <receiver android:name=".BunkerAlarmReceiver" android:exported="false" />
         <receiver android:name=".ReminderBootReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
@@ -632,6 +1023,9 @@ module.exports = {
     'ReminderBootReceiver.java': BOOT,
     'ReminderBridge.java': BRIDGE,
     'SpeechBridge.java': SPEECH,
+    'BunkerAlarmScheduler.java': BUNKER_SCHEDULER,
+    'BunkerAlarmReceiver.java': BUNKER_RECEIVER,
+    'BunkerAlarmBridge.java': BUNKER_BRIDGE,
   },
   PERMISSIONS,
   RECEIVERS,

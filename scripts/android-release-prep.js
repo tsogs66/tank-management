@@ -87,6 +87,11 @@ if (fs.existsSync(manifestPath)) {
       + '        <intent>\n            <action android:name="android.intent.action.TTS_SERVICE" />\n        </intent>\n    </queries>\n</manifest>'
     );
   }
+  /* A bunkering warning that fires with the tablet locked has to be shown over the
+     lock screen and wake the display, or it rings for a room that cannot see it. */
+  if (!/android:showWhenLocked/.test(manifest)) {
+    manifest = manifest.replace(/(<activity\b[^>]*?android:name="[^"]*MainActivity")/, '$1\n            android:showWhenLocked="true"\n            android:turnScreenOn="true"');
+  }
   fs.writeFileSync(manifestPath, manifest);
 }
 console.log(`Android release prep: versionName=${versionName} versionCode=${versionCode} (stable sideload key)`);

@@ -44,7 +44,7 @@ run();
 const manifest2 = fs.readFileSync(path.join(main, 'AndroidManifest.xml'), 'utf8');
 
 console.log('\nthe project');
-for (const f of ['ReminderScheduler', 'ReminderReceiver', 'ReminderBootReceiver', 'ReminderBridge', 'SpeechBridge', 'MainActivity']) {
+for (const f of ['ReminderScheduler', 'ReminderReceiver', 'ReminderBootReceiver', 'ReminderBridge', 'SpeechBridge', 'BunkerAlarmScheduler', 'BunkerAlarmReceiver', 'BunkerAlarmBridge', 'MainActivity']) {
   check(f + '.java is generated', fs.existsSync(path.join(pkgDir, f + '.java')));
 }
 const activity = fs.readFileSync(path.join(pkgDir, 'MainActivity.java'), 'utf8');
@@ -54,6 +54,25 @@ const speechSrc = fs.readFileSync(path.join(pkgDir, 'SpeechBridge.java'), 'utf8'
 check('speech uses the Android TextToSpeech engine', /new TextToSpeech\(/.test(speechSrc));
 check('and prefers a voice stored on the device, since an online one says nothing at sea', /isNetworkConnectionRequired\(\)\) continue/.test(speechSrc));
 check('and tells the page when the order is spoken', /cheng-tts/.test(speechSrc));
+console.log('\nbunkering warnings with the tablet locked');
+const bsched = fs.readFileSync(path.join(pkgDir, 'BunkerAlarmScheduler.java'), 'utf8');
+const brecv = fs.readFileSync(path.join(pkgDir, 'BunkerAlarmReceiver.java'), 'utf8');
+const bbridge = fs.readFileSync(path.join(pkgDir, 'BunkerAlarmBridge.java'), 'utf8');
+check('the page can reach the alarm service as ChengAndroidBunker', /addJavascriptInterface\(new BunkerAlarmBridge\(this\), "ChengAndroidBunker"\)/.test(activity));
+check('each warning is set with the system clock, so it fires through Doze and a locked screen', /setAlarmClock/.test(bsched));
+check('the whole run is replaced on each sync, so a changed projection leaves nothing stale', /cancelAll\(ctx, stored\(ctx\)\)/.test(bsched));
+check('they are put back after a reboot', /BunkerAlarmScheduler\.restore/.test(fs.readFileSync(path.join(pkgDir, 'ReminderBootReceiver.java'), 'utf8')));
+check('the app stays quiet while the page is awake and sounding for itself', /pageAwake\(app\)\) return/.test(brecv));
+check('a silenced tank stays quiet, but never into the last minute', /minsLeft <= FINAL_MINUTE\) return false/.test(bsched) && /FINAL_MINUTE = 1\.0/.test(bsched));
+check('the order is spoken in the tablet\'s own voice, a local one', /new TextToSpeech\(/.test(brecv) && /isNetworkConnectionRequired\(\)\) continue/.test(brecv));
+check('shown on the lock screen with a Silence action', /setFullScreenIntent/.test(brecv) && /Silence 3 min/.test(brecv) && /VISIBILITY_PUBLIC/.test(brecv));
+check('the device stays awake long enough to say it', /PARTIAL_WAKE_LOCK/.test(brecv));
+check('and the screen is kept on while fuel is going aboard', /FLAG_KEEP_SCREEN_ON/.test(bbridge));
+check('the alarm receiver is registered, and private', /<receiver android:name="\.BunkerAlarmReceiver" android:exported="false"/.test(manifest1));
+check('it may use a full-screen notification and hold a wake lock', /USE_FULL_SCREEN_INTENT/.test(manifest1) && /android\.permission\.WAKE_LOCK/.test(manifest1));
+check('the activity shows over the lock screen and turns the display on', /showWhenLocked="true"/.test(manifest1) && /turnScreenOn="true"/.test(manifest1));
+check('running the prep twice does not repeat the attributes', (manifest2.match(/showWhenLocked/g) || []).length === 1);
+console.log('');
 const sched = fs.readFileSync(path.join(pkgDir, 'ReminderScheduler.java'), 'utf8');
 check('alarms go to the system clock (rings in Doze, needs no exact-alarm permission)', /setAlarmClock/.test(sched));
 check('the whole set is replaced on each sync', /cancel\(ctx, stored\(ctx\)\)/.test(sched));
@@ -84,7 +103,7 @@ if (jar && fs.existsSync(jar)) {
   fs.mkdirSync(stub, { recursive: true });
   fs.writeFileSync(path.join(stub, 'AppCompatActivity.java'), 'package androidx.appcompat.app; public class AppCompatActivity extends android.app.Activity {}');
   const cap = process.env.CAPACITOR_JAR;
-  const reminderFiles = ['ReminderScheduler', 'ReminderReceiver', 'ReminderBootReceiver', 'ReminderBridge', 'SpeechBridge'].map((f) => path.join(pkgDir, f + '.java'));
+  const reminderFiles = ['ReminderScheduler', 'ReminderReceiver', 'ReminderBootReceiver', 'ReminderBridge', 'SpeechBridge', 'BunkerAlarmScheduler', 'BunkerAlarmReceiver', 'BunkerAlarmBridge'].map((f) => path.join(pkgDir, f + '.java'));
   const holder = path.join(pkgDir, 'MainActivity.java');
   if (!cap) fs.writeFileSync(holder, 'package cloud.tsogs.tankmanagement; public class MainActivity extends android.app.Activity {}');
   const out = path.join(tmp, 'out');

@@ -239,6 +239,38 @@ check('with two silenced, the earlier one counts', s5.resoundAt([aa(4), bb(4)]),
 check('a tank that clears forgets its silence', (s5.due([], 60000), s5.silencedAll([aa(4)])), false);
 check('the constants are the ones asked for', [Alert.SILENCE_RESOUND_MS, Alert.ESCALATE_MIN], [180000, 1]);
 
+console.log('\nwhen the tablet is locked: the warnings are handed to the app ahead of time');
+const NOWN = Date.parse('2026-11-12T10:00:00Z');
+const atMin = (m) => new Date(NOWN + m * 60000).toISOString();
+const fill = (m, extra) => Object.assign({
+  slot: 1, tankId: 'fuel1', name: 'NO.1 H.F.O. TANK (P)', status: 'filling', targetVolumeM3: 600, targetVolumePercent: 80,
+  capacity100M3: 750, remainingToTargetM3: 100, estimatedVolumeM3: 500, estimatedOverLimit: false, estimatedVolumePercent: 66,
+  estimatedTargetAtIso: atMin(m), estimatedLimitAtIso: atMin(m + 30),
+}, extra || {});
+const ev = Alert.nativeSchedule([fill(20)], NOWN);
+check('twenty minutes out: warnings from five minutes before, every thirty seconds, to the moment itself', ev.length, 11);
+check('the first is at fifteen minutes from now', ev[0].fireAt, NOWN + 15 * MIN);
+check('the last is at the target', ev[ev.length - 1].fireAt, NOWN + 20 * MIN);
+check('thirty seconds apart', ev.slice(1).every((e, i) => e.fireAt - ev[i].fireAt === 30000), true);
+check('each says how long is then left: five minutes at first, none at the end', [ev[0].minsLeft, ev[ev.length - 1].minsLeft], [5, 0]);
+check('the words are the ones the screen and voice use', ev[0].text, 'Chief, Number 1 H F O TANK port at 80 percent, prepare to close the valve now.');
+check('the key matches the one the silence is held against', ev[0].key, '1|fuel1|target');
+const late = Alert.nativeSchedule([fill(3)], NOWN);
+check('already inside the window: only what is still to come (a warning due this instant is the page\'s, not the app\'s)', late.length, 6);
+check('none of them in the past', late.every((e) => e.fireAt > NOWN), true);
+check('a tank already at its target: nothing left to schedule, the page covers it', Alert.nativeSchedule([fill(0)], NOWN).length, 0);
+check('a paused valve schedules nothing', Alert.nativeSchedule([fill(20, { status: 'paused' })], NOWN).length, 0);
+check('nor does a closed one', Alert.nativeSchedule([fill(20, { status: 'done' })], NOWN).length, 0);
+const limEv = Alert.nativeSchedule([fill(40, { targetVolumeM3: null, targetVolumePercent: null, estimatedTargetAtIso: null, remainingToTargetM3: null, estimatedLimitAtIso: atMin(25) })], NOWN);
+check('an untargeted tank is warned against the 85% limit', [limEv[0].key, limEv[0].fireAt], ['1|fuel1|limit', NOWN + 20 * MIN]);
+check('and says 85', /at 85 percent/.test(limEv[0].text), true);
+const pair = Alert.nativeSchedule([fill(20), fill(30, { slot: 2, tankId: 'fuel2', name: 'NO.2 H.F.O. TANK (S)' })], NOWN);
+check('two tanks: both run of warnings, in time order', [pair.length, pair.every((e, i) => i === 0 || e.fireAt >= pair[i - 1].fireAt)], [22, true]);
+check('and each tank keeps its own key', [...new Set(pair.map((e) => e.key))].sort(), ['1|fuel1|target', '2|fuel2|target']);
+check('a target beyond the horizon is not scheduled yet', Alert.nativeSchedule([fill(Alert.NATIVE_HORIZON_MIN + 60)], NOWN).length, 0);
+check('bad input is nothing, not a crash', Alert.nativeSchedule(null, NOWN).length, 0);
+check('the plan\'s rows are not altered', (() => { const r = [fill(20)]; const before = JSON.stringify(r); Alert.nativeSchedule(r, NOWN); return JSON.stringify(r) === before; })(), true);
+
 console.log('\nthe defaults, which is what the program actually uses');
 const d = Alert.createVoicePlanner();
 d.due([tankA], 0);
