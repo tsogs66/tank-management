@@ -154,7 +154,19 @@ function speakableName(name) {
     .replace(/\(\s*S\s*\)/gi, 'starboard')
     .replace(/\(\s*C\s*\)/gi, 'centre')
     .replace(/\./g, ' ')
-    .replace(/[()]/g, ' ')
+    .replace(/[()\/]/g, ' ')
+    /* The abbreviations on a tank plate, said as the words they stand for. */
+    .replace(/\b(?:TK|TNK)\b/gi, 'tank')
+    .replace(/\bSTOR\b/gi, 'storage')
+    .replace(/\bSETT\b/gi, 'settling')
+    .replace(/\bSERV\b/gi, 'service')
+    .replace(/\bOVFL\b/gi, 'overflow')
+    .replace(/\bDRN\b/gi, 'drain')
+    .replace(/\bCYL\b/gi, 'cylinder')
+    /* "F.W.TK.P" ends in the side as a bare letter. */
+    .replace(/\btank\s+P\s*$/i, 'tank port')
+    .replace(/\btank\s+S\s*$/i, 'tank starboard')
+    .replace(/\btank\s+C\s*$/i, 'tank centre')
     .replace(/\s+/g, ' ')
     .trim();
 }

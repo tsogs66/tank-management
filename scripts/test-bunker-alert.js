@@ -147,6 +147,18 @@ check('a whole one drops the .0', Alert.fmtPercent(85.0), '85');
 check('rounded to one decimal', Alert.fmtPercent(76.84), '76.8');
 check('starboard', Alert.speakableName('NO.3 F.O. TANK (S)'), 'Number 3 F O TANK starboard');
 check('centre', Alert.speakableName('F.O. SERVICE TANK (C)'), 'F O SERVICE TANK centre');
+console.log('\ntank-plate abbreviations are said as words');
+check('TK is "tank", not the letters T K', Alert.speakableName('M/E L.O.STOR.TK.'), 'M E L O storage tank');
+check('and its neighbours', Alert.speakableName('M/E L.O.SETT.TK.'), 'M E L O settling tank');
+check('a trailing side letter becomes the side', Alert.speakableName('F.W.TK.P'), 'F W tank port');
+check('starboard likewise', Alert.speakableName('F.W.TK.S'), 'F W tank starboard');
+check('the long form is untouched', Alert.speakableName('NO.2 H.F.O. TANK (P)'), 'Number 2 H F O TANK port');
+check('TK inside a word is not touched', Alert.speakableName('STARTK SETTLING TANK'), 'STARTK SETTLING TANK');
+check('service and cylinder', Alert.speakableName('F.O. SERV TK (C)'), 'F O service tank centre');
+check('what is said about it in full', Alert.speech({ name: 'M/E L.O.STOR.TK.', percent: 80 }),
+  'Chief, M E L O storage tank at 80 percent, prepare to close the valve now.');
+check('the words on the screen are the plate\'s own, unchanged',
+  Alert.message({ name: 'M/E L.O.STOR.TK.', percent: 80 }), 'Chief, M/E L.O.STOR.TK. at 80% — prepare to close the valve now');
 check('a plain name is left alone', Alert.speakableName('SETTLING TANK'), 'SETTLING TANK');
 check('how long is left, in words',
   Alert.detail({ kind: 'target', minutes: 3.2, reached: false, percent: 80 }), 'target in about 4 min');

@@ -77,10 +77,82 @@ check('several notes make several events', R.buildIcs([note({ id: 'x' }), note({
 check('file name from one note', R.icsFilename([note({ title: 'Class Survey!' })]), 'cheng-aio-class-survey.ics');
 check('file name for several', R.icsFilename([note({ id: 'x' }), note({ id: 'y' })]), 'cheng-aio-notes.ics');
 
+console.log('\nAndroid: the calendar entry is written for the user, and an edit changes the same one');
+const modPath = require.resolve('../public/js/note-reminders.js');
+function withDevice(bridge, fn) {
+  global.window = { ChengAndroidReminders: bridge };
+  global.document = { body: {}, createElement() { return {}; } };
+  delete require.cache[modPath];
+  const M = require(modPath);
+  return fn(M).finally(() => { delete global.window; delete global.document; delete require.cache[modPath]; });
+}
+function fakePhone(opts) {
+  const calls = [];
+  let granted = !!(opts && opts.granted);
+  const events = {};
+  const b = {
+    calls,
+    calendarPermission: () => (granted ? 'granted' : 'denied'),
+    requestCalendarPermission: () => { calls.push(['ask']); if (!(opts && opts.refuse)) setTimeout(() => { granted = true; }, 30); },
+    upsertCalendarEvent: (id, title, body, start, dur, lead) => {
+      calls.push(['upsert', id, title, start, lead]);
+      const had = Object.prototype.hasOwnProperty.call(events, id);
+      events[id] = { title, start };
+      return had ? 'ok:updated' : 'ok:inserted';
+    },
+    removeCalendarEvent: (id) => { calls.push(['remove', id]); if (!(id in events)) return 'none'; delete events[id]; return 'ok'; },
+    addToCalendar: () => { calls.push(['screen']); return true; },
+  };
+  return b;
+}
+(async () => {
+  const n1 = note({ id: 'n-77', deadline: '2026-11-12T12:00', updatedAt: '2026-11-12T04:00:00Z' });
+  const phone = fakePhone({ granted: false });
+  const first = await withDevice(phone, (M) => M.placeInCalendar(n1, { permissionWaitMs: 2000 }));
+  check('the first save asks for calendar access, once', phone.calls.filter((c) => c[0] === 'ask').length, 1);
+  check('then writes the event itself, with no screen for the user to deal with', phone.calls.some((c) => c[0] === 'upsert') && !phone.calls.some((c) => c[0] === 'screen'), true);
+  check('and says it was added', first.detail, 'Added to the calendar.');
+  const edited = Object.assign({}, n1, { title: 'Class survey (moved)', deadline: '2026-11-13T09:00', updatedAt: '2026-11-12T05:00:00Z' });
+  const second = await withDevice(phone, (M) => M.placeInCalendar(edited, { permissionWaitMs: 2000 }));
+  const ups = phone.calls.filter((c) => c[0] === 'upsert');
+  check('editing the note goes to the same event: same note id both times', [ups[0][1], ups[1][1]], ['n-77', 'n-77']);
+  check('carrying the new time', ups[1][3] > ups[0][3], true);
+  check('and says the entry was updated, not added again', second.detail, 'Calendar entry updated.');
+  check('access is asked for only when it is missing', phone.calls.filter((c) => c[0] === 'ask').length, 1);
+
+  const refused = fakePhone({ granted: false, refuse: true });
+  const res = await withDevice(refused, (M) => M.placeInCalendar(n1, { permissionWaitMs: 150 }));
+  check('if access is refused, the calendar screen is opened as before', refused.calls.some((c) => c[0] === 'screen'), true);
+  check('and it says why', /not allowed/.test(res.detail), true);
+
+  const old = { addToCalendar: () => true, calendarPermission: undefined };
+  const oldRes = await withDevice(old, (M) => M.placeInCalendar(n1, {}));
+  check('an older app without the new calls still gets the old behaviour', oldRes.how, 'android');
+
+  const gone = await withDevice(phone, (M) => M.removeFromCalendar('n-77'));
+  check('unticking or deleting takes the event out', [gone.ok, gone.detail, phone.calls.filter((c) => c[0] === 'remove').length], [true, 'Removed from the calendar.', 1]);
+  const none = await withDevice(phone, (M) => M.removeFromCalendar('n-never'));
+  check('a note that never had one is left alone, silently', [none.ok, none.detail], [true, '']);
+  const noDeadline = await withDevice(phone, (M) => M.placeInCalendar(note({ deadline: '' }), {}));
+  check('no deadline: nothing written', noDeadline.ok, false);
+
+  console.log('\nthe calendar file replaces the old entry');
+  const R2 = require('../public/js/note-reminders.js');
+  const v1 = R2.buildIcs([n1]).text, v2 = R2.buildIcs([edited]).text;
+  const seq = (t) => Number((t.match(/SEQUENCE:(\d+)/) || [])[1]);
+  check('the entry keeps its id across edits', /UID:n-77@cheng-aio/.test(v1) && /UID:n-77@cheng-aio/.test(v2), true);
+  check('and carries a higher revision each time, so a calendar program updates it', seq(v2) > seq(v1), true);
+})().then(() => finishUp());
+
+function finishUp() {
 console.log('\nthe Notes page uses it');
 const src = require('fs').readFileSync(require('path').join(__dirname, '../public/js/notes.js'), 'utf8');
 check('notes.js offers the calendar and alarm, and starts the watcher outside AIO',
   /id="noteCalendar"/.test(src) && /id="noteAlarm"/.test(src) && /ChengReminders\.start\(loadAll\)/.test(src) && /!embedded\(\)/.test(src), true);
+check('and puts the note in the calendar itself, taking it out again when unticked or deleted',
+  /placeInCalendar\(saved/.test(src) && /removeFromCalendar\(saved\.id\)/.test(src) && /removeFromCalendar\(id\)/.test(src), true);
 
-console.log(fails ? `\nFAILED — ${fails} of ${checks} checks` : `\nPASSED — ${checks} checks`);
-process.exit(fails ? 1 : 0);
+  console.log('');
+  console.log(fails ? `FAILED — ${fails} of ${checks} checks` : `PASSED — ${checks} checks`);
+  process.exit(fails ? 1 : 0);
+}

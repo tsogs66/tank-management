@@ -73,7 +73,7 @@
 
   function reminderHint() {
     const how = R() ? R().platform() : 'web';
-    if (how === 'android') return 'The alarm is set with the phone, so it rings with this app closed. The calendar opens its own screen to save the event.';
+    if (how === 'android') return 'The alarm is set with the phone, so it rings with this app closed. The note is put in the calendar for you (the phone asks for calendar access the first time), and editing the note updates that same entry.';
     if (how === 'desktop') return 'The alarm shows on screen and as a Windows notification while this program is running. The calendar entry opens in your calendar program and alerts you even when this program is closed.';
     return 'Needs a deadline. The alarm rings while this page is open; the calendar entry is a file to open in your calendar.';
   }
@@ -196,9 +196,11 @@
       const alarm = host.querySelector('#noteAlarm').checked;
       const leadMin = Number(host.querySelector('#noteLead').value) || 0;
       let saved = null;
+      let hadCalendar = false;
       if (editing) {
         const row = next.find((n) => n.id === editing);
         if (row) {
+          hadCalendar = !!row.calendar;
           row.title = title; row.body = body;
           row.deadline = host.querySelector('#noteDeadline').value || '';
           row.remind = host.querySelector('#noteRemind').checked;
@@ -223,7 +225,9 @@
       paint(host);
       if (saved && calendar && deadline && R()) {
         if (alarm) R().askPermission();
-        R().addToCalendar([saved], { vesselName: vesselName() }).then(report(host));
+        R().placeInCalendar(saved, { vesselName: vesselName() }).then(report(host));
+      } else if (saved && hadCalendar && R()) {
+        R().removeFromCalendar(saved.id).then(report(host));
       } else if (saved && alarm && deadline && R()) {
         R().askPermission();
         say(host, 'Alarm set for ' + new Date(R().fireMs(saved)).toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }) + '.');
@@ -236,7 +240,7 @@
       const cal = e.target.closest('[data-calendar]');
       if (cal) {
         const row = mine.find((n) => n.id === cal.getAttribute('data-calendar'));
-        if (row && R()) R().addToCalendar([row], { vesselName: vesselName() }).then(report(host));
+        if (row && R()) R().placeInCalendar(row, { vesselName: vesselName() }).then(report(host));
       } else if (edit) {
         host.dataset.editId = edit.getAttribute('data-edit');
         paint(host);
@@ -246,6 +250,7 @@
         const row = mine.find((n) => n.id === id);
         if (!window.confirm('Delete “' + ((row && row.title) || 'this note') + '”?')) return;
         saveAll(loadAll().filter((n) => n.id !== id));
+        if (R() && row && row.calendar) R().removeFromCalendar(id);
         syncAlarms();
         if (host.dataset.editId === id) delete host.dataset.editId;
         paint(host);

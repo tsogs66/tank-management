@@ -164,6 +164,10 @@
         'BEGIN:VEVENT',
         'UID:' + icsText(n.id) + '@cheng-aio',
         'DTSTAMP:' + stamp,
+        /* Same UID and a higher revision: a calendar program updates this entry
+           instead of keeping the old one beside the new. */
+        'SEQUENCE:' + revisionOf(n),
+        'LAST-MODIFIED:' + utcStamp(Date.parse(n.updatedAt) || (o.now == null ? Date.now() : o.now)),
         'DTSTART:' + utcStamp(start),
         'DTEND:' + utcStamp(start + EVENT_MIN * 60000),
         'SUMMARY:' + icsText(title),
@@ -179,6 +183,12 @@
     }
     lines.push('END:VCALENDAR');
     return { text: lines.map(fold).join('\r\n') + '\r\n', count: count };
+  }
+
+  /** A number that rises every time the note is saved. */
+  function revisionOf(note) {
+    const t = Date.parse(note && note.updatedAt);
+    return Number.isNaN(t) ? 0 : Math.floor(t / 1000);
   }
 
   function icsFilename(notes) {
@@ -416,10 +426,73 @@
     return { ok: false, how: how, count: 0, detail: 'No calendar is available here.' };
   }
 
+  function waitFor(test, ms) {
+    return new Promise((resolve) => {
+      const t0 = Date.now();
+      const look = () => {
+        let ok = false;
+        try { ok = !!test(); } catch (_) { /* keep waiting */ }
+        if (ok) return resolve(true);
+        if (Date.now() - t0 >= ms) return resolve(false);
+        setTimeout(look, 400);
+      };
+      look();
+    });
+  }
+
+  /**
+   * Put the note in the calendar. On the Android app that is done for the user:
+   * the event is written straight in and remembered against the note, so saving
+   * the note again brings that same event up to date. Elsewhere it is the
+   * calendar file (same entry id each time, so a calendar program updates it).
+   */
+  async function placeInCalendar(note, opts) {
+    if (!note || deadlineMs(note) == null) return { ok: false, how: 'none', count: 0, detail: 'Give the note a deadline first.' };
+    const b = hasWindow && window.ChengAndroidReminders;
+    if (!(b && typeof b.upsertCalendarEvent === 'function')) return addToCalendar([note], opts);
+    try {
+      let allowed = typeof b.calendarPermission !== 'function' || b.calendarPermission() === 'granted';
+      if (!allowed && typeof b.requestCalendarPermission === 'function') {
+        b.requestCalendarPermission();
+        allowed = await waitFor(() => b.calendarPermission() === 'granted', (opts && opts.permissionWaitMs) || 60000);
+      }
+      if (!allowed) {
+        /* Refused: the old way, with the calendar's own screen. */
+        const shown = await addToCalendar([note], opts);
+        return Object.assign({}, shown, { detail: 'Calendar access was not allowed, so the calendar was opened to save it yourself.' });
+      }
+      const res = String(b.upsertCalendarEvent(String(note.id), String(note.title || 'Note'), String(note.body || ''),
+        deadlineMs(note), EVENT_MIN, leadMin(note)));
+      if (res === 'ok:updated') return { ok: true, how: 'android', count: 1, detail: 'Calendar entry updated.' };
+      if (res === 'ok:inserted') return { ok: true, how: 'android', count: 1, detail: 'Added to the calendar.' };
+      if (res === 'nocalendar') return { ok: false, how: 'android', count: 0, detail: 'There is no calendar on this device to add it to.' };
+      if (res === 'denied') return { ok: false, how: 'android', count: 0, detail: 'Calendar access was not allowed.' };
+      return { ok: false, how: 'android', count: 0, detail: res.replace(/^error:/, '') || 'The calendar did not take it.' };
+    } catch (e) {
+      return { ok: false, how: 'android', count: 0, detail: String((e && e.message) || e) };
+    }
+  }
+
+  /** Take a note's event out of the calendar, where the app can. */
+  async function removeFromCalendar(noteId) {
+    const b = hasWindow && window.ChengAndroidReminders;
+    if (b && typeof b.removeCalendarEvent === 'function') {
+      try {
+        const res = String(b.removeCalendarEvent(String(noteId)));
+        if (res === 'ok') return { ok: true, how: 'android', count: 1, detail: 'Removed from the calendar.' };
+        if (res === 'none') return { ok: true, how: 'android', count: 0, detail: '' };
+        return { ok: false, how: 'android', count: 0, detail: 'Could not remove it from the calendar.' };
+      } catch (e) {
+        return { ok: false, how: 'android', count: 0, detail: String((e && e.message) || e) };
+      }
+    }
+    return { ok: true, how: platform(), count: 0, detail: 'A calendar file you added earlier is not removed automatically.' };
+  }
+
   return {
     LEADS, EVENT_MIN, TICK_MS,
     deadlineMs, leadMin, wants, fireMs, upcomingAlarms, dueAlarms, firedKey,
     buildIcs, icsFilename, icsText, fold, leadWords,
-    platform, start, tick, syncAlarms, addToCalendar, askPermission, showAlarm, stopRinging,
+    platform, start, tick, syncAlarms, addToCalendar, placeInCalendar, removeFromCalendar, revisionOf, askPermission, showAlarm, stopRinging,
   };
 }));
