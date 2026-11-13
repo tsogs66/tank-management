@@ -216,9 +216,9 @@ function tablesByName(summary) {
     await check('the three tables are one tank, named from "TANK NAME :"', () => {
       assert.deepStrictEqual(sum.tanks.map((t) => [t.name, t.tableCount]), [['NO.1 F.O.T. PORT', 3]]);
     });
-    await check('"BY THE HEAD 2.0M 1.0M | BY THE STERN 1.0M ... 7.0M" (letters spaced out, no signs): head is negative, stern positive', () => {
+    await check('"BY THE HEAD 2.0M 1.0M | BY THE STERN 1.0M ... 7.0M" (letters spaced out, no signs): head is positive, stern negative', () => {
       assert.strictEqual(trim.tableRole, 'trim');
-      assert.deepStrictEqual(trim.parsed.trimVals, [-2, -1, 1, 2, 3, 4, 5, 6, 7]);
+      assert.deepStrictEqual(trim.parsed.trimVals, [2, 1, -1, -2, -3, -4, -5, -6, -7]);
     });
     await check('"LIST TO PORT 3.0 ... 0.5 | LIST TO STARB\'D 0.5 ... 3.0": port negative, starboard positive', () => {
       assert.strictEqual(list.tableRole, 'heel');
@@ -247,7 +247,7 @@ function tablesByName(summary) {
       assert.strictEqual(plans.length, 1, JSON.stringify(plans));
       const p = plans[0];
       assert.strictEqual(p.mergedFrom.length, 2);
-      assert.deepStrictEqual(p.patch.trimVals, [-2, -1, 1, 2, 3, 4, 5, 6, 7]);
+      assert.deepStrictEqual(p.patch.trimVals, [2, 1, -1, -2, -3, -4, -5, -6, -7]);
       assert.strictEqual(p.patch.listVals.length, 12);
       assert.strictEqual(p.patch.volumeCurve.x.length, 100);
       assert.ok(Math.abs(p.tank.capacity - Math.max(...cap.parsed.volumeCurve.v)) < 1e-9, String(p.tank.capacity));

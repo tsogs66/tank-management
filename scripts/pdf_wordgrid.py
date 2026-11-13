@@ -286,6 +286,24 @@ def build(page, min_rows=6):
     if len(matrix) < min_rows:
         return None
 
+    # A column that almost never has a figure is not a column of the table: a speckle or a ruled
+    # dash read as a digit, over and over, in the same place. (A real column that is mostly dashes -
+    # a correction table's far heel columns - still has figures in about half its rows.)
+    if len(matrix) >= 8 and len(centers) > 3:
+        filled = [sum(1 for r in matrix if r[i]) for i in range(len(centers))]
+        keep = [i for i, n in enumerate(filled) if n >= 0.25 * len(matrix)]
+        if 2 <= len(keep) < len(centers):
+            cols = [cols[i] for i in keep]
+            centers = [centers[i] for i in keep]
+            matrix = [[r[i] for i in keep] for r in matrix]
+
+    # Scraps under the table (a speckle that read as a digit, a stamp) are rows with only a figure
+    # or two where a full row has them all: they are not the end of the table.
+    width = len(centers)
+    while len(matrix) > min_rows and sum(1 for c in matrix[-1] if c) < max(2, 0.5 * width):
+        matrix.pop()
+        data.pop()
+
     matrix = fix_trim_header(matrix, data)
 
     # Header: the words that name the columns, over the first row.

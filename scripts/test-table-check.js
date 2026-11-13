@@ -387,5 +387,25 @@ check('the input is never modified', () => {
   assert.strictEqual(JSON.stringify(c), before);
 });
 
+check('a heel column headed 0 must be zero: real corrections under it mean the headings are shifted', () => {
+  const axis = [0, 50, 100, 150, 200];
+  const vals = [-2, -1, 0, 1, 2];
+  const bad = axis.map((x) => [200 - x, 100 - x, 54 + x / 10, -55, -111]);
+  const r = reviewGrid(axis, vals, bad, { volume: false });
+  assert.ok(r.issues.some((i) => i.code === 'zero-column-not-zero' && i.severity === 'error'), JSON.stringify(r.issues));
+  const good = axis.map((x) => [200 - x, 100 - x, 0, -55, -111]);
+  const g = reviewGrid(axis, vals, good, { volume: false });
+  assert.ok(!g.issues.some((i) => i.code === 'zero-column-not-zero'));
+});
+
+check('one lost minus in the trim header is put back, once, and reported', () => {
+  const axis = [4100, 4150, 4200, 4250];
+  const vals = [1, 0, -0.5, -1, -1.5, -2, 3, -4];
+  const grid = axis.map((x) => vals.map((_, c) => 137 + x / 1000 - c * 0.2));
+  const r = reviewGrid(axis, vals, grid, { volume: true });
+  assert.deepStrictEqual(r.vals, [1, 0, -0.5, -1, -1.5, -2, -3, -4]);
+  assert.ok(r.repairs.some((x) => x.code === 'header-sign'));
+});
+
 console.log(`\n${total - failed}/${total} passed`);
 process.exit(failed ? 1 : 0);

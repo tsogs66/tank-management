@@ -399,8 +399,10 @@ def label_value(cell):
 
 
 _SIDE_WORD = {
-    "HEAD": ("trim", -1), "FWD": ("trim", -1), "FORE": ("trim", -1), "BOW": ("trim", -1),
-    "STERN": ("trim", 1), "AFT": ("trim", 1),
+    # trim by the head is positive, by the stern negative (the ship's own convention, as in
+    # "1.0m" under TRIM BY STEM and "-1.0m" under TRIM BY STERN)
+    "HEAD": ("trim", 1), "FWD": ("trim", 1), "FORE": ("trim", 1), "BOW": ("trim", 1),
+    "STERN": ("trim", -1), "AFT": ("trim", -1),
     "PORT": ("heel", -1), "STARB": ("heel", 1), "STBD": ("heel", 1), "STARBOARD": ("heel", 1),
 }
 _PLAIN_FIG = re.compile(r"^\s*(\d+(?:[.,]\d+)?)\s*(?:M|\u00b0)?\s*$", re.I)

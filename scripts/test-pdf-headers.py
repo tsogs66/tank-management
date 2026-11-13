@@ -57,7 +57,7 @@ for t, cap in [("NO.1 HFO TANK (P) 100% = 523.4 m3", 523.4), ("NO.1 HFO TANK 98%
 # headings that give the sign: HEAD / STERN, PORT / STARB'D, with the figures unsigned
 rows = [["SOUNDING", "BY THE HEAD", "BY THE STERN"], ["M-CM", "2.0M", "1.0M", "1.0M", "2.0M", "3.0M", "4.0M"]]
 out, role = h.sign_grouped_headings(rows)
-check("BY THE HEAD 2 1 | BY THE STERN 1 2 3 4 -> -2 -1 | 1 2 3 4", role == "trim" and out[1][1:] == ["-2", "-1", "1", "2", "3", "4"], str(out))
+check("BY THE HEAD 2 1 | BY THE STERN 1 2 3 4 -> 2 1 | -1 -2 -3 -4", role == "trim" and out[1][1:] == ["2", "1", "-1", "-2", "-3", "-4"], str(out))
 rows = [["SOUNDING", "LIST TO PORT (DEG)", "LIST TO STARB'D (DEG)"], ["M-CM"] + ["3.0", "2.0", "1.0", "0.5", "0.5", "1.0", "2.0", "3.0"]]
 out, role = h.sign_grouped_headings(rows)
 check("LIST TO PORT 3 2 1 .5 | STARB'D .5 1 2 3 -> port negative", role == "heel" and out[1][1:] == ["-3", "-2", "-1", "-0.5", "0.5", "1", "2", "3"], str(out))

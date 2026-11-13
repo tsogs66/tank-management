@@ -686,6 +686,29 @@ function reviewGrid(axisIn, valsIn, gridIn, opts = {}) {
     return { axis: axisIn || [], vals: valsIn || [], grid: gridIn || [], issues, repairs, repairedCells: [], volume: false };
   }
 
+  // One minus sign lost in a run that is otherwise strictly falling (1 0 -0.5 -1 3 -4): putting it
+  // back is the only single change that makes the header a run, so it is repaired and reported.
+  {
+    const strict = (a, dir) => a.every((v, i) => i === 0 || (dir > 0 ? v > a[i - 1] : v < a[i - 1]));
+    const v0 = valsIn.map(Number);
+    if (v0.every(isNum) && v0.length >= 4 && !strict(v0, 1) && !strict(v0, -1)) {
+      const fixes = [];
+      for (let i = 0; i < v0.length; i++) {
+        if (v0[i] === 0) continue;
+        const t = v0.slice();
+        t[i] = -t[i];
+        if (strict(t, 1) || strict(t, -1)) fixes.push(i);
+      }
+      if (fixes.length === 1) {
+        const i = fixes[0];
+        const t = v0.slice();
+        t[i] = -t[i];
+        repairs.push({ code: 'header-sign', col: i, message: `Trim column ${i + 1} was read as ${v0[i]}; the run of trims only makes sense as ${t[i]}, so the sign was restored` });
+        valsIn = t;
+      }
+    }
+  }
+
   // The trims are a run of distinct values; a repeat or a reversal means the header was misread,
   // and every column would then be filed under the wrong trim.
   {
@@ -715,6 +738,17 @@ function reviewGrid(axisIn, valsIn, gridIn, opts = {}) {
 
   if (!volume) {
     // Corrections: signed and small. Only the impossible is flagged.
+    // A correction at zero heel/trim is zero by definition. A column headed 0 that carries real
+    // corrections means the header was shifted against the columns (a skipped 0 was invented, or
+    // a column was lost), and every column would be filed under the wrong angle.
+    valsIn.forEach((tv, c) => {
+      if (Number(tv) !== 0) return;
+      const col = grid.map((row) => row[c]).filter((v) => isNum(v) && v !== 0).map(Math.abs);
+      if (col.length >= 3 && median(col) > 1) {
+        issue(issues, SEVERITY.error, 'zero-column-not-zero',
+          `The column headed 0 holds corrections (typically ${median(col).toFixed(1)}), but a correction at 0 is always 0 - the headings do not line up with the columns`);
+      }
+    });
     const flat = grid.flat().filter(isNum);
     const med = median(flat.map(Math.abs)) || 0;
     const bad = [];
