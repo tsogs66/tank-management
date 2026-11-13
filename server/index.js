@@ -40,6 +40,36 @@ const PORT = process.env.PORT || 3080;
 const HOST = process.env.HOST || '0.0.0.0';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
+/* A calibration book can be 300 MB. It is written straight to disk as it arrives
+   (never held in memory) and read from there by the extractor. */
+const os = require('os');
+const PDF_MAX_MB = Number(process.env.TMS_PDF_MAX_MB) || 400;
+const PDF_UPLOAD_DIR = path.join(os.tmpdir(), 'tms-pdf-uploads');
+const uploadPdf = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      try { fs.mkdirSync(PDF_UPLOAD_DIR, { recursive: true }); } catch (_) { /* reported by multer */ }
+      cb(null, PDF_UPLOAD_DIR);
+    },
+    filename: (req, file, cb) => cb(null, `${Date.now()}-${crypto.randomBytes(6).toString('hex')}.pdf`),
+  }),
+  limits: { fileSize: PDF_MAX_MB * 1024 * 1024 },
+});
+
+/** Remove an uploaded file once the request is done with it. */
+function dropUpload(file) {
+  if (file && file.path) { try { fs.unlinkSync(file.path); } catch (_) { /* already gone */ } }
+}
+
+/** Enough room on disk to read a book of this size (the OCR works on copies of pages)? */
+function diskRoomFor(file) {
+  try {
+    if (typeof fs.statfsSync !== 'function' || !file || !file.size) return true;
+    const st = fs.statfsSync(PDF_UPLOAD_DIR);
+    return st.bavail * st.bsize > file.size * 1.5 + 200 * 1024 * 1024;
+  } catch (_) { return true; }
+}
+
 store.ensureDirs();
 
 app.use(cors({
@@ -2189,7 +2219,8 @@ function parsePdfImportOpts(body = {}) {
     .filter((n) => n > 0);
   const pageFrom = parseInt(body.pageFrom, 10);
   const pageTo = parseInt(body.pageTo, 10);
-  const ocr = body.ocr !== false && body.ocr !== 'false';
+  // 'force' re-reads every page by OCR; any other truthy value reads only the pages with no text.
+  const ocr = body.ocr === 'force' ? 'force' : (body.ocr !== false && body.ocr !== 'false');
   const includeRaw = body.includeRaw === true || body.includeRaw === 'true';
   const spanUntilNextTank = body.spanUntilNextTank !== false && body.spanUntilNextTank !== 'false';
   let tableRole = String(body.tableRole || 'auto').toLowerCase();
@@ -2207,12 +2238,42 @@ function parsePdfImportOpts(body = {}) {
   };
 }
 
-app.post('/api/vessels/:id/import-pdf/jobs', upload.single('file'), asyncHandler(async (req, res) => {
+/** Finds the tank already stored under (nearly) the same name, to check an imported table against it. */
+function existingTankFinder(vesselId) {
+  let tanks;
+  try { tanks = (store.getVesselBundle(vesselId).tanks) || {}; } catch (_) { tanks = {}; }
+  const norm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return (name) => {
+    const n = norm(name);
+    if (!n) return null;
+    for (const cat of Object.keys(tanks)) {
+      const hit = (tanks[cat] || []).find((t) => {
+        const tn = norm(t.name);
+        return tn === n || (n.length > 6 && (tn.includes(n) || n.includes(tn)));
+      });
+      if (hit) return hit;
+    }
+    return null;
+  };
+}
+
+app.post('/api/vessels/:id/import-pdf/jobs', uploadPdf.single('file'), asyncHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Upload a PDF file (field name: file)' });
-  store.getVesselBundle(req.params.id); // ensure vessel exists
+  try {
+    store.getVesselBundle(req.params.id); // ensure vessel exists
+    if (!diskRoomFor(req.file)) {
+      dropUpload(req.file);
+      return res.status(507).json({ error: 'Not enough free disk space to read a PDF this large.' });
+    }
+  } catch (e) {
+    dropUpload(req.file);
+    throw e;
+  }
   const opts = parsePdfImportOpts(req.body || {});
-  const job = pdfImport.startExtractJob(req.file.buffer, opts);
-  res.status(202).json({ ok: true, ...job });
+  opts.findExisting = existingTankFinder(req.params.id);
+  // The job owns the file from here and deletes it when it has finished.
+  const job = pdfImport.startExtractJob({ path: req.file.path, owns: true }, opts);
+  res.status(202).json({ ok: true, ...job, sizeMB: Math.round(req.file.size / 1048576) });
 }));
 
 app.get('/api/vessels/:id/import-pdf/jobs/:jobId', asyncHandler(async (req, res) => {
@@ -2222,58 +2283,84 @@ app.get('/api/vessels/:id/import-pdf/jobs/:jobId', asyncHandler(async (req, res)
   res.json({ ok: true, ...job });
 }));
 
-app.post('/api/vessels/:id/import-pdf', upload.single('file'), asyncHandler(async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Upload a PDF file (field name: file)' });
-  const opts = parsePdfImportOpts(req.body || {});
-  const result = await pdfImport.extractFromBuffer(req.file.buffer, opts);
-  const summary = pdfImport.summarizeTables(result, opts.includeRaw);
+/** names the user ticked ("import anyway", "overwrite") - true means all of them */
+function nameAllowed(list, name) {
+  if (list === true || list === 'true') return true;
+  let arr = list;
+  if (typeof arr === 'string') { try { arr = JSON.parse(arr); } catch (_) { arr = [arr]; } }
+  return Array.isArray(arr) && arr.map(String).includes(String(name));
+}
 
-  const createTanks = req.body?.createTanks === true || req.body?.createTanks === 'true';
+app.post('/api/vessels/:id/import-pdf', uploadPdf.single('file'), asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const opts = parsePdfImportOpts(body);
+  opts.findExisting = existingTankFinder(req.params.id);
+  let result = null;
+  try {
+    if (req.file) {
+      store.getVesselBundle(req.params.id);
+      result = await pdfImport.extractFromFile(req.file.path, opts);
+    } else if (body.jobId) {
+      // Created from a reading that is still held: the file is not sent a second time.
+      result = pdfImport.getJobRaw(String(body.jobId));
+      if (!result) {
+        return res.status(410).json({ error: 'That reading has expired - read the PDF again.', expired: true });
+      }
+    } else {
+      return res.status(400).json({ error: 'Upload a PDF file (field name: file) or pass the jobId of a finished reading' });
+    }
+  } finally {
+    dropUpload(req.file);
+  }
+  const summary = pdfImport.summarizeTables(result, opts.includeRaw, { findExisting: opts.findExisting });
+
+  const createTanks = body.createTanks === true || body.createTanks === 'true';
   if (!createTanks) {
     return res.json({ ok: true, ...summary });
   }
 
-  let tankNames = req.body?.tankNames;
+  let tankNames = body.tankNames;
   if (typeof tankNames === 'string') {
     try { tankNames = JSON.parse(tankNames); } catch (_) {
       tankNames = tankNames.split(/\n|;/).map((s) => s.trim()).filter(Boolean);
     }
   }
-  const updateExisting = req.body?.updateExisting !== false && req.body?.updateExisting !== 'false';
+  const updateExisting = body.updateExisting !== false && body.updateExisting !== 'false';
   const plans = pdfImport.planTankCreates(result, {
     tankNames: Array.isArray(tankNames) ? tankNames : undefined,
-    target: req.body?.target || 'auto',
+    target: body.target || 'auto',
+    findExisting: opts.findExisting,
+    allowFailed: (name) => nameAllowed(body.allowFailed, name),
   });
 
-  const bundle = store.getVesselBundle(req.params.id);
-  const tanks = bundle.tanks || store.emptyTanks();
-  const norm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  function findExisting(name) {
-    const n = norm(name);
-    for (const cat of Object.keys(tanks)) {
-      const hit = (tanks[cat] || []).find((t) => {
-        const tn = norm(t.name);
-        return tn === n || (n.length > 6 && (tn.includes(n) || n.includes(tn)));
-      });
-      if (hit) return hit;
-    }
-    return null;
-  }
-
+  const findExisting = opts.findExisting;
   let created = 0;
   let updated = 0;
   let failed = 0;
   const applied = [];
+  const reviewOf = (plan) => (plan.review
+    ? { status: plan.review.status, score: plan.review.score, repaired: plan.review.repaired }
+    : null);
   for (const plan of plans) {
     if (plan.error || !plan.tank) {
       failed++;
-      applied.push({ name: plan.name, ok: false, error: plan.error || 'No table' });
+      applied.push({ name: plan.name, ok: false, blocked: !!plan.blocked, error: plan.error || 'No table', review: reviewOf(plan) });
       continue;
     }
     const existing = findExisting(plan.name);
     if (existing) {
       if (!updateExisting) {
         applied.push({ name: plan.name, ok: false, error: 'Tank already exists', tankId: existing.id });
+        failed++;
+        continue;
+      }
+      // Fail-safe: never silently replace a table that is in use with one that disagrees with it.
+      const differs = ((plan.review && plan.review.issues) || []).find((i) => i.code === 'differs-from-stored');
+      if (differs && !nameAllowed(body.confirmOverwrite, plan.name)) {
+        applied.push({
+          name: plan.name, ok: false, needsConfirm: true, tankId: existing.id, review: reviewOf(plan),
+          error: `Not replaced: ${differs.message}. Confirm to overwrite the stored table.`,
+        });
         failed++;
         continue;
       }
@@ -2287,6 +2374,7 @@ app.post('/api/vessels/:id/import-pdf', upload.single('file'), asyncHandler(asyn
         tableId: plan.tableId,
         kind: plan.kind,
         capacity: saved.capacity,
+        review: reviewOf(plan),
       });
     } else {
       const saved = store.upsertTank(req.params.id, plan.tank);
@@ -2299,6 +2387,7 @@ app.post('/api/vessels/:id/import-pdf', upload.single('file'), asyncHandler(asyn
         tableId: plan.tableId,
         kind: plan.kind,
         capacity: saved.capacity,
+        review: reviewOf(plan),
       });
     }
   }
@@ -2314,40 +2403,69 @@ app.post('/api/vessels/:id/import-pdf', upload.single('file'), asyncHandler(asyn
   });
 }));
 
-app.post('/api/vessels/:id/tanks/:tankId/import-pdf', upload.single('file'), asyncHandler(async (req, res) => {
+app.post('/api/vessels/:id/tanks/:tankId/import-pdf', uploadPdf.single('file'), asyncHandler(async (req, res) => {
   const vesselId = req.params.id;
   const tankId = req.params.tankId;
   const bundle = store.getVesselBundle(vesselId);
   const tank = store.findTankInBundle(bundle.tanks, tankId);
-  if (!tank) return res.status(404).json({ error: 'Tank not found' });
+  if (!tank) { dropUpload(req.file); return res.status(404).json({ error: 'Tank not found' }); }
 
   let tables;
   let pagesMeta;
-  if (req.file) {
-    const opts = parsePdfImportOpts(req.body || {});
-    const result = await pdfImport.extractFromBuffer(req.file.buffer, opts);
-    tables = result.tables || [];
-    pagesMeta = result.pages;
-  } else if (req.body?.table) {
-    let t = req.body.table;
-    if (typeof t === 'string') {
-      try { t = JSON.parse(t); } catch (_) {
-        return res.status(400).json({ error: 'Invalid table JSON' });
+  try {
+    if (req.file) {
+      const opts = parsePdfImportOpts(req.body || {});
+      const result = await pdfImport.extractFromFile(req.file.path, opts);
+      tables = result.tables || [];
+      pagesMeta = result.pages;
+    } else if (req.body?.table) {
+      let t = req.body.table;
+      if (typeof t === 'string') {
+        try { t = JSON.parse(t); } catch (_) {
+          return res.status(400).json({ error: 'Invalid table JSON' });
+        }
       }
+      tables = [t];
+    } else {
+      return res.status(400).json({ error: 'Upload a PDF or pass a previously extracted table object' });
     }
-    tables = [t];
-  } else {
-    return res.status(400).json({ error: 'Upload a PDF or pass a previously extracted table object' });
+  } finally {
+    dropUpload(req.file);
   }
 
   if (!tables.length) return res.status(400).json({ error: 'No tables found in PDF' });
 
+  // Check each table against this tank (capacity, the table it already has) before one is chosen.
+  const reviewed = pdfImport.summarizeTables({ pages: pagesMeta, tables }, true, { findExisting: () => tank }).tables;
+
   const tableId = req.body?.tableId;
   const tableIndex = req.body?.tableIndex != null ? Number(req.body.tableIndex) : 0;
   const table = tableId
-    ? tables.find((t) => t.id === tableId)
-    : tables[tableIndex] || tables[0];
+    ? reviewed.find((t) => t.id === tableId)
+    : reviewed[tableIndex] || reviewed[0];
   if (!table) return res.status(400).json({ error: 'Selected table not found' });
+
+  const allowFailed = req.body?.allowFailed === true || req.body?.allowFailed === 'true';
+  if (table.review && table.review.status === 'fail' && !allowFailed) {
+    const first = table.review.issues.find((i) => i.severity === 'error');
+    return res.status(422).json({
+      error: `This table failed the checks and was not applied: ${first ? first.message : 'see the review'}`,
+      blocked: true,
+      review: table.review,
+      tableId: table.id,
+    });
+  }
+  const differs = ((table.review && table.review.issues) || []).find((i) => i.code === 'differs-from-stored');
+  const confirm = req.body?.confirmOverwrite === true || req.body?.confirmOverwrite === 'true';
+  const apply0 = req.body?.apply !== false && req.body?.apply !== 'false';
+  if (apply0 && differs && !confirm) {
+    return res.status(409).json({
+      error: `Not applied: ${differs.message}. Confirm to overwrite the stored table.`,
+      needsConfirm: true,
+      review: table.review,
+      tableId: table.id,
+    });
+  }
 
   const target = req.body?.target || 'auto';
   const patch = pdfImport.tableToCalibration(table, target, tank);
@@ -2356,11 +2474,12 @@ app.post('/api/vessels/:id/tanks/:tankId/import-pdf', upload.single('file'), asy
       error: patch.note || 'Could not parse table as calibration data',
       preview: table.preview,
       kind: table.parsed?.kind || 'unknown',
-      tables: pdfImport.summarizeTables({ pages: pagesMeta, tables }).tables,
+      tables: reviewed,
     });
   }
 
-  const apply = req.body?.apply !== false && req.body?.apply !== 'false';
+  const tablesOut = pagesMeta != null ? reviewed : undefined;
+  const apply = apply0;
   if (apply) {
     const updated = store.updateCalibration(vesselId, tankId, patch);
     return res.json({
@@ -2369,11 +2488,10 @@ app.post('/api/vessels/:id/tanks/:tankId/import-pdf', upload.single('file'), asy
       target,
       tableId: table.id,
       kind: table.parsed?.kind,
+      review: table.review,
       patch,
       tank: updated,
-      tables: pagesMeta != null
-        ? pdfImport.summarizeTables({ pages: pagesMeta, tables }).tables
-        : undefined,
+      tables: tablesOut,
     });
   }
 
@@ -2383,10 +2501,9 @@ app.post('/api/vessels/:id/tanks/:tankId/import-pdf', upload.single('file'), asy
     target,
     tableId: table.id,
     kind: table.parsed?.kind,
+    review: table.review,
     patch,
-    tables: pagesMeta != null
-      ? pdfImport.summarizeTables({ pages: pagesMeta, tables }).tables
-      : undefined,
+    tables: tablesOut,
   });
 }));
 
@@ -2811,6 +2928,14 @@ app.get('*', (req, res, next) => {
 });
 
 app.use((err, req, res, next) => {
+  if (err && err.code === 'LIMIT_FILE_SIZE') {
+    const pdf = /import-pdf/.test(req.originalUrl || '');
+    return res.status(413).json({
+      error: pdf
+        ? `That PDF is larger than ${PDF_MAX_MB} MB. Split it, or import it in page ranges.`
+        : 'That file is larger than 50 MB.',
+    });
+  }
   console.error(err);
   res.status(500).json({ error: err.message || 'Server error' });
 });

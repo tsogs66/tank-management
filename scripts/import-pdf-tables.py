@@ -42,6 +42,14 @@ import sys
 import tempfile
 from collections import Counter
 
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pdf_headers  # noqa: E402  (page rows -> table rows)
+import pdf_names  # noqa: E402  (tank title detection)
+import pdf_wordgrid  # noqa: E402  (tables from where the figures sit)
+import pdf_ocr  # noqa: E402  (page-by-page OCR for scanned books)
+
 try:
     import pdfplumber
 except ImportError:
@@ -189,11 +197,12 @@ def is_tank_title_row(row):
     joined = " ".join(str(c or "") for c in row).strip()
     if not joined or len(joined) > 120:
         return False
-    if TANK_NAME_RE.search(joined) and not all(to_number(c) is not None or not str(c or "").strip() for c in row):
-        # Title-like if few numbers
-        nums = sum(1 for c in row if to_number(c) is not None)
-        return nums <= 1
-    return False
+    nums = sum(1 for c in row if to_number(c) is not None)
+    if nums > 1:
+        return False
+    if all(to_number(c) is not None or not str(c or "").strip() for c in row):
+        return False
+    return pdf_names.score_name(joined, 0.2) >= 5.0
 
 
 def is_data_header_row(row):
@@ -1187,33 +1196,12 @@ def expand_page_filter(page_list=None, page_from=None, page_to=None, page_count=
 
 
 def guess_tank_from_text(text):
+    """The tank a block of text is about, or ''. Title lines are scored, not matched."""
     if not text:
         return ""
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    for ln in lines[:20]:
-        u = ln.upper()
-        # Skip data headers and hydro headers
-        if re.match(r"^(SOUNDING|ULLAGE|GAUGE|DEPTH|VOLUME|L\.?\s*C\.?\s*G)\b", u):
-            if not re.search(r"TANK|T\.|F\.O\.T|D\.O\.T|H\.F\.O|M\.D\.O", u):
-                continue
-        if "L.C.G" in u and "T.C.G" in u:
-            continue
-        m = TANK_NAME_RE.search(ln)
-        if m:
-            if len(ln) <= 90 and re.search(
-                r"TANK|T\.|HFO|MDO|MGO|F\.O|D\.O|F\.O\.T|D\.O\.T", ln, re.I
-            ):
-                return ln[:120]
-            return m.group(0)[:120]
-    for ln in lines[:8]:
-        u = ln.upper()
-        if any(k in u for k in ("TANK", "HFO", "MDO", "MGO", "F.O.T", "D.O.T", "F.O", "D.O")):
-            if HYDRO_HEADER_RE.search(ln) and not re.search(r"TANK|F\.O\.T|D\.O\.T", u):
-                continue
-            if re.match(r"^(SOUNDING|VOLUME)\b", u):
-                continue
-            return ln[:120]
-    return ""
+    lines = [{"text": ln.strip()} for ln in text.splitlines() if ln.strip()]
+    found = pdf_names.find_title(lines[:30])
+    return found["name"] if found else ""
 
 
 def guess_title(page, norm):
@@ -1272,108 +1260,90 @@ def rebuild_from_words(page):
 
 def page_text_density(page):
     try:
-        text = page.extract_text() or ""
+        text = page.extract_text(x_tolerance=4) or ""
     except Exception:
         return 0, ""
     return len(re.findall(r"\w+", text)), text
 
 
-def maybe_ocr_pdf(pdf_path, force=False):
+def page_lines(page):
     """
-    If pages look image-only (or --ocr), run ocrmypdf when available.
-    Returns (path_to_use, ocr_used, warning).
+    The lines of a page with where they sit and how big they are, so a title
+    can be told from a footer. Falls back to plain text lines without geometry.
+    Returns (lines, body_font_size).
     """
-    emit_progress("scan", 2, "Checking PDF text layer…")
-    if not force:
-        try:
-            with pdfplumber.open(pdf_path) as pdf:
-                total_words = 0
-                for page in pdf.pages[: min(5, len(pdf.pages))]:
-                    n, _ = page_text_density(page)
-                    total_words += n
-                if total_words >= 30:
-                    emit_progress("scan", 8, "Text layer found — skipping OCR")
-                    return pdf_path, False, None
-        except Exception:
-            pass
-
-    emit_progress("ocr", 10, "Scanned PDF detected — preparing OCR…")
-
-    # Ensure common Windows install locations are visible to shutil.which
-    extra_paths = []
-    if os.name == "nt":
-        extra_paths.extend([
-            r"C:\Program Files\Tesseract-OCR",
-            r"C:\Program Files (x86)\Tesseract-OCR",
-            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Tesseract-OCR"),
-            os.path.expandvars(r"%APPDATA%\Python\Python311\Scripts"),
-            os.path.expandvars(r"%APPDATA%\Python\Python312\Scripts"),
-            os.path.expandvars(r"%APPDATA%\Python\Python313\Scripts"),
-        ])
-        path_env = os.environ.get("PATH", "")
-        os.environ["PATH"] = os.pathsep.join([p for p in extra_paths if p] + [path_env])
-
-    ocrmypdf = shutil.which("ocrmypdf")
-    tesseract = shutil.which("tesseract")
-    # Prefer `python -m ocrmypdf` so we use the same interpreter as this script
-    # (Windows often has a bare `python3` without pip packages).
-    use_module = False
     try:
-        subprocess.run(
-            [sys.executable, "-m", "ocrmypdf", "--version"],
-            check=True, capture_output=True, timeout=30,
-        )
-        use_module = True
+        raw = page.extract_text_lines(layout=False, strip=True, return_chars=True, x_tolerance=4) or []
     except Exception:
-        use_module = False
-
-    if not use_module and not ocrmypdf and not tesseract:
-        return pdf_path, False, (
-            "PDF has little extractable text (likely scanned). "
-            "Install ocrmypdf + tesseract for OCR, or pre-OCR the file. "
-            f"(Python: {sys.executable})"
-        )
-
-    out = tempfile.NamedTemporaryFile(suffix="-ocr.pdf", delete=False)
-    out.close()
-    try:
-        if use_module:
-            cmd = [
-                sys.executable, "-m", "ocrmypdf",
-                "--force-ocr",
-                "--rotate-pages",
-                "--deskew",
-                "--quiet",
-                pdf_path,
-                out.name,
-            ]
-        elif ocrmypdf:
-            cmd = [
-                ocrmypdf,
-                "--force-ocr",
-                "--rotate-pages",
-                "--deskew",
-                "--quiet",
-                pdf_path,
-                out.name,
-            ]
-        else:
-            return pdf_path, False, (
-                "tesseract found but ocrmypdf is missing. "
-                f"Run: \"{sys.executable}\" -m pip install ocrmypdf"
-            )
-        emit_progress("ocr", 15, "Running OCR (scanned pages — this can take several minutes)…")
-        subprocess.run(cmd, check=True, capture_output=True, timeout=900)
-        emit_progress("ocr", 45, "OCR finished — extracting tables…")
-        return out.name, True, None
-    except Exception as e:
+        raw = []
+    lines = []
+    sizes = []
+    for ln in raw:
+        chars = ln.get("chars") or []
+        sz = [c.get("size") for c in chars if c.get("size")]
+        avg = (sum(sz) / len(sz)) if sz else None
+        if avg:
+            sizes.extend(sz)
+        lines.append({"text": ln.get("text", ""), "top": ln.get("top"), "x0": ln.get("x0"), "size": avg})
+    if not lines:
         try:
-            os.unlink(out.name)
-        except OSError:
-            pass
-        return pdf_path, False, f"OCR failed: {e}"
+            text = page.extract_text() or ""
+        except Exception:
+            text = ""
+        lines = [{"text": t.strip()} for t in text.splitlines() if t.strip()]
+    body = None
+    if sizes:
+        sizes.sort()
+        body = sizes[len(sizes) // 2]
+    return lines, body
 
-    return pdf_path, False, "OCR tools present but ocrmypdf could not process this file"
+
+def page_needs_ocr(page):
+    """No text layer to read, but something printed on it."""
+    n, _ = page_text_density(page)
+    if n >= 8:
+        return False
+    try:
+        return bool(page.images)
+    except Exception:
+        return True
+
+
+def axis_range(parsed):
+    """(low, high) of the sounding axis a parsed table covers, or None."""
+    if not parsed:
+        return None
+    xs = (parsed.get("volumeCurve") or {}).get("x") or parsed.get("trimAxis") or []
+    xs = [x for x in xs if isinstance(x, (int, float))]
+    if len(xs) < 2:
+        return None
+    return min(xs), max(xs)
+
+
+def range_overlap(a, b):
+    """Share of the shorter range that the two have in common (0..1)."""
+    lo, hi = max(a[0], b[0]), min(a[1], b[1])
+    shorter = min(a[1] - a[0], b[1] - b[0])
+    if shorter <= 0:
+        return 0.0
+    return max(0.0, hi - lo) / shorter
+
+
+def row_raggedness(rows):
+    """
+    Share of data rows whose count of figures differs from the usual. A column
+    cut through the middle of a number ("19.00" read as "1" and "9.00") makes
+    some rows longer than others; a clean reading has none.
+    """
+    counts = []
+    for r in rows or []:
+        n = sum(1 for c in r if to_number(c) is not None)
+        if n >= 2:
+            counts.append(n)
+    if len(counts) < 3:
+        return 0.0
+    modal = Counter(counts).most_common(1)[0][0]
+    return sum(1 for n in counts if n != modal) / len(counts)
 
 
 def process_raw_table(rows):
@@ -1381,6 +1351,11 @@ def process_raw_table(rows):
     Filter hydrostatic tables/columns and parse calibration data.
     Returns dict with keys: rows, parsed, skipped, skipReason, removedHydroHeaders.
     """
+    rows, _dropped = pdf_headers.drop_boilerplate_rows(rows)
+    rows, _cleaned = pdf_headers.clean_ocr_noise(rows)
+    rows, _exploded = pdf_headers.explode_numeric_cells(rows)
+    rows, _blocks = pdf_headers.unstack_blocks(rows)
+    units = pdf_headers.header_units(rows)
     norm = normalize_table(rows, densify=True)
     if is_pure_hydrostatic_table(norm):
         return {
@@ -1416,6 +1391,21 @@ def process_raw_table(rows):
         }
 
     parsed = parse_table(work)
+    if parsed.get("kind") in ("volumeCurve", "grid"):
+        if units["axis"]:
+            parsed["axisUnit"] = units["axis"]
+        if units["volume"] == "l":
+            # The app keeps volumes in cubic metres.
+            vc = parsed.get("volumeCurve") or {}
+            if vc.get("v"):
+                vc["v"] = [round(v / 1000.0, 6) for v in vc["v"]]
+            if parsed.get("kind") == "grid" and parsed.get("trimGrid"):
+                parsed["trimGrid"] = [[round(v / 1000.0, 6) for v in row] for row in parsed["trimGrid"]]
+            parsed["capacity"] = round((parsed.get("capacity") or 0) / 1000.0, 6)
+            parsed["volumeUnit"] = "l"
+            parsed["unitConverted"] = "litres to m3"
+        elif units["volume"]:
+            parsed["volumeUnit"] = units["volume"]
     return {
         "rows": work,
         "parsed": parsed,
@@ -1447,11 +1437,14 @@ def extract_tables(
     page_to=None,
     span_until_next_tank=True,
     table_role=None,
+    ocr_mode="auto",
+    deadline=None,
 ):
     tables_out = []
     skipped_hydro = 0
     page_count = 0
     warnings = []
+    ocr_pages = []
     forced_role = table_role if table_role in ("trim", "heel", "volume") else None
 
     with pdfplumber.open(pdf_path) as pdf:
@@ -1463,22 +1456,25 @@ def extract_tables(
             page_count=page_count,
         )
         current_tank = ""
-        emit_progress("extract", 48, f"Reading {page_count} page(s)…", pages=page_count, page=0)
-        for pi, page in enumerate(pdf.pages, start=1):
-            if page_filter is not None and pi not in page_filter:
-                continue
-            # Map extract phase across 48→95%
-            pct = 48 + int(47 * (pi / max(page_count, 1)))
+        tracker = pdf_names.NameTracker()
+        emit_progress("extract", 5, f"Reading {page_count} page(s)…", pages=page_count, page=0)
+
+        def process_page(pi, page, used_ocr):
+            nonlocal current_tank, skipped_hydro
+            # Map extract phase across 5→95%
+            pct = 5 + int(90 * (pi / max(page_count, 1)))
             emit_progress(
-                "extract",
+                "ocr" if used_ocr else "extract",
                 pct,
-                f"Extracting tables from page {pi} / {page_count}…",
+                f"{'Reading scan of' if used_ocr else 'Extracting tables from'} page {pi} / {page_count}…",
                 page=pi,
                 pages=page_count,
             )
 
             words, text = page_text_density(page)
-            tank_hint = guess_tank_from_text(text)
+            lines, body_size = page_lines(page)
+            det = tracker.page(pi, lines, getattr(page, "height", None), body_size)
+            tank_hint = det["name"]
             if tank_hint:
                 current_tank = tank_hint
 
@@ -1490,7 +1486,7 @@ def extract_tables(
             seen = set()
             page_tables = []  # list of {title, rows}
 
-            def add_candidate(norm, title=""):
+            def add_candidate(norm, title="", source=None):
                 if len(norm) < 2 or len(norm[0]) < 2:
                     return
                 # Prefer densified form for fingerprint when sparse
@@ -1498,7 +1494,7 @@ def extract_tables(
                 if key in seen:
                     return
                 seen.add(key)
-                page_tables.append({"title": title, "rows": norm})
+                page_tables.append({"title": title, "rows": norm, "source": source})
 
             for settings in strategies:
                 try:
@@ -1548,6 +1544,15 @@ def extract_tables(
                 for sec in text_sections:
                     add_candidate(sec["rows"], sec.get("title") or "")
 
+            if used_ocr:
+                # A scan: read the table from where the figures sit, ignoring the speckle.
+                try:
+                    grid_rows = pdf_wordgrid.build(page)
+                except Exception:
+                    grid_rows = None
+                if grid_rows:
+                    add_candidate(normalize_table(grid_rows), "", source="wordgrid")
+
             if not page_tables:
                 rebuilt = rebuild_from_words(page)
                 if rebuilt:
@@ -1561,6 +1566,11 @@ def extract_tables(
             scored = []
             for cand in page_tables:
                 processed = process_raw_table(cand["rows"])
+                if not processed["skipped"] and re.search(
+                    r"HYDROSTATIC|DO\s*NOT\s*USE|STABILITY\s+DATA", cand.get("title") or "", re.I
+                ):
+                    processed = dict(processed, skipped=True,
+                                     skipReason="table is headed as hydrostatic data - disregarded")
                 kind = processed["parsed"].get("kind")
                 removed = processed.get("removedHydroHeaders") or []
                 score = 0
@@ -1578,6 +1588,9 @@ def extract_tables(
                         score += 25
                 elif processed["skipped"]:
                     score = 10
+                score -= int(80 * row_raggedness(processed["rows"]))
+                if cand.get("source") == "wordgrid" and not processed["skipped"]:
+                    score += 25
                 # Prefer candidates that already carry a tank title from text split
                 if cand.get("title") and re.search(r"TANK|F\.O\.T|D\.O\.T|H\.F\.O|M\.D\.O", cand["title"], re.I):
                     score += 15
@@ -1586,6 +1599,7 @@ def extract_tables(
 
             # Deduplicate by parsed fingerprint of usable tables; keep skipped hydro once
             keep = []
+            kept_ranges = []
             seen_parse = set()
             seen_tank_kind = set()
             for score, cand, processed in scored:
@@ -1601,6 +1615,17 @@ def extract_tables(
                     )
                 if fp in seen_parse:
                     continue
+                # The same table read twice (by the ruled-line finder and by the text
+                # reader) with a digit different is still one table, not two.
+                if not processed["skipped"] and cand.get("layoutHint") != "sectionedTrim":
+                    rng = axis_range(processed["parsed"])
+                    kind_now = processed["parsed"].get("kind")
+                    if rng and any(
+                        range_overlap(rng, other) > 0.6 for k2, other in kept_ranges if k2 == kind_now
+                    ):
+                        continue
+                    if rng:
+                        kept_ranges.append((kind_now, rng))
                 # One usable table kind per tank name on a page (avoid mangled duplicates)
                 # Allow multiple sectionedTrim volume curves (different trimValue)
                 tank_key = (
@@ -1626,10 +1651,28 @@ def extract_tables(
                 if not local_title:
                     for r in cand["rows"][:3]:
                         joined = " ".join(str(c or "") for c in densify_row(r))
-                        local_title = guess_tank_from_text(joined) or local_title
-                tank_name = local_title or tank_hint or current_tank or guess_title(page, cand["rows"])
-                if re.match(r"^(SOUNDING|DEPTH|VOLUME|ULLAGE|EVEN|TRIM)\b", (tank_name or ""), re.I):
-                    tank_name = tank_hint or current_tank or guess_title(page, cand["rows"])
+                        if pdf_names.score_name(joined, 0.2) >= 5.0:
+                            local_title = joined
+                name_source = det["source"]
+                name_conf = det["confidence"]
+                cap_hint = det["capacity"]
+                method_hint = det["method"]
+                tank_name = tank_hint or current_tank
+                if local_title and pdf_names.score_name(local_title, 0.2) >= 5.0:
+                    cleaned, linfo = pdf_names.clean_name(local_title)
+                    if cleaned:
+                        if tank_hint and pdf_names.same_tank(cleaned, tank_hint):
+                            tank_name = tank_hint
+                        else:
+                            # A title inside the page that is not the page's own: another tank starts here.
+                            tank_name = cleaned
+                            name_source = "section"
+                            name_conf = 0.8
+                            cap_hint = linfo["capacity"] or cap_hint
+                            method_hint = linfo["method"] or method_hint
+                            tracker.current = cleaned
+                if not tank_name:
+                    tank_name = guess_title(page, cand["rows"])
                 if tank_name:
                     current_tank = tank_name
 
@@ -1669,7 +1712,85 @@ def extract_tables(
                     "skipReason": processed.get("skipReason"),
                     "removedHydroHeaders": removed,
                     "continued": False,
+                    "tankNameSource": name_source,
+                    "tankNameConfidence": name_conf,
+                    "nameRaw": det["raw"],
+                    "capacityHint": cap_hint,
+                    "continuedMark": det["continuedMark"],
+                    "ocr": bool(used_ocr),
                 })
+            return sum(1 for _c, _p in keep if not _p["skipped"])
+
+        # ---- walk the book a few pages at a time, reading scans only where needed
+        wanted = [pi for pi in range(1, page_count + 1) if page_filter is None or pi in page_filter]
+        engine = None
+        ocr_off_reason = None
+        WINDOW = 8
+        try:
+            for w0 in range(0, len(wanted), WINDOW):
+                window = wanted[w0:w0 + WINDOW]
+                need = []
+                if ocr_mode != "off":
+                    for pi in window:
+                        if ocr_mode == "force" or page_needs_ocr(pdf.pages[pi - 1]):
+                            need.append(pi)
+                got = {}
+                if need and ocr_off_reason is None:
+                    try:
+                        if engine is None:
+                            emit_progress("ocr", 8, "Scanned pages found — preparing OCR…")
+                            engine = pdf_ocr.OcrEngine(pdf_path, emit=emit_progress, deadline=deadline)
+                        got = engine.read_pages(need, psm=pdf_ocr.PSM_ORDER[0])
+                    except pdf_ocr.OcrUnavailable as exc:
+                        ocr_off_reason = str(exc)
+                        warnings.append(ocr_off_reason)
+                opened = {}
+                try:
+                    for pi in window:
+                        page = pdf.pages[pi - 1]
+                        used_ocr = False
+                        if pi in got:
+                            path, idx = got[pi]
+                            if path not in opened:
+                                opened[path] = pdfplumber.open(path)
+                            page = opened[path].pages[idx]
+                            used_ocr = True
+                            ocr_pages.append(pi)
+                        found = process_page(pi, page, used_ocr)
+                        if used_ocr and not found and engine is not None:
+                            # A different reading mode sometimes sees the table the first one missed.
+                            for psm in pdf_ocr.PSM_ORDER[1:]:
+                                again = engine.read_pages([pi], psm=psm)
+                                if pi not in again:
+                                    break
+                                path, idx = again[pi]
+                                if path not in opened:
+                                    opened[path] = pdfplumber.open(path)
+                                found = process_page(pi, opened[path].pages[idx], True)
+                                if found:
+                                    break
+                        if not found and ocr_mode != "force":
+                            n_words, _t = page_text_density(page)
+                            if n_words < 5 and not used_ocr and ocr_off_reason is None and ocr_mode == "off":
+                                warnings.append(f"Page {pi}: little text — OCR is off")
+                        try:
+                            page.flush_cache()
+                            pdf.pages[pi - 1].flush_cache()
+                        except Exception:
+                            pass
+                finally:
+                    for o in opened.values():
+                        try:
+                            o.close()
+                        except Exception:
+                            pass
+        finally:
+            if engine is not None:
+                if engine.failed_pages:
+                    warnings.append("OCR could not read page(s): " + ", ".join(str(p) for p in sorted(set(engine.failed_pages))))
+                engine.close()
+        if deadline is not None and time.monotonic() > deadline:
+            warnings.append("Stopped at the time limit - later pages were not read. Import the rest as a page range.")
 
     # Merge GIORGIS-style sectioned volume curves into sounding × trim grids
     tables_out = merge_sectioned_tables_inplace(tables_out)
@@ -1683,6 +1804,8 @@ def extract_tables(
         "tanks": tanks,
         "skippedHydrostatic": skipped_hydro,
         "warnings": warnings,
+        "ocrUsed": bool(ocr_pages),
+        "ocrPages": ocr_pages,
         "spanUntilNextTank": bool(span_until_next_tank),
         "tableRoleFilter": forced_role,
         "pageFilter": sorted(page_filter) if page_filter else None,
@@ -1834,7 +1957,11 @@ def main():
         default="auto",
         help="Force table pattern: trim grid, heel/list grid, or volume curve",
     )
-    ap.add_argument("--ocr", action="store_true", help="Force OCR via ocrmypdf when available")
+    ap.add_argument(
+        "--ocr", nargs="?", const="auto", default="auto", choices=["auto", "force", "off"],
+        help="auto (default): OCR only pages with no text layer; force: OCR every page; off: never",
+    )
+    ap.add_argument("--max-seconds", type=int, default=0, help="Stop reading pages after this long (0 = no limit)")
     ap.add_argument("--inspect", action="store_true", help="Exterior-only summary (no full matrices)")
     ap.add_argument(
         "--include-skipped",
@@ -1852,39 +1979,26 @@ def main():
         return
 
     page_filter = set(args.page) if args.page else None
-    ocr_tmp = None
     try:
         emit_progress("start", 1, "Starting PDF import…")
-        path, ocr_used, ocr_warn = maybe_ocr_pdf(args.pdf, force=args.ocr)
-        if path != args.pdf:
-            ocr_tmp = path
+        deadline = (time.monotonic() + args.max_seconds) if args.max_seconds else None
         result = extract_tables(
-            path,
+            args.pdf,
             page_filter=page_filter,
             page_from=args.page_from,
             page_to=args.page_to,
             span_until_next_tank=args.span_until_next_tank,
             table_role=None if args.table_role == "auto" else args.table_role,
+            ocr_mode=args.ocr,
+            deadline=deadline,
         )
         result["pages"] = result.get("pages")
         result["file"] = args.pdf
-        result["ocrUsed"] = ocr_used
-        if ocr_warn:
-            result.setdefault("warnings", []).append(ocr_warn)
-        if not args.include_skipped:
-            # Keep skipped entries so UI can explain, but usable list is clear via skipped flag
-            pass
         emit_progress("done", 100, "PDF import finished")
         json.dump(result, sys.stdout)
     except Exception as e:
         json.dump({"error": str(e), "tables": [], "tanks": []}, sys.stdout)
         sys.exit(1)
-    finally:
-        if ocr_tmp:
-            try:
-                os.unlink(ocr_tmp)
-            except OSError:
-                pass
 
 
 if __name__ == "__main__":
