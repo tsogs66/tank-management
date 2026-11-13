@@ -96,6 +96,12 @@ app.use(express.json({ limit: `${SINGLE_POST_LIMIT_MB}mb` }));
  * browser still attaches X-License-* from a licensed session. */
 app.use((req, res, next) => {
   const p = String(req.path || '');
+  /* Live sync between devices: what another device calls is answered with its own
+     pairing token, not a license header; the local control routes below fall through
+     to the normal scope so the folder the user works in is the one that syncs. */
+  if (/^\/api\/lan\/(hello|pair|status|vessel\/|apply)/.test(p) && p !== '/api/lan/pair/start') {
+    return next();
+  }
   if (p === '/api/sync/probe' || p === '/api/sync/pull' || p === '/api/sync/push') {
     /* The peer is reached with the sync token only. A license header that this
        server cannot verify must not reject the pull — that is what made Backup
@@ -129,6 +135,15 @@ app.use((req, res, next) => {
     master: scope.master,
     actAs: scope.actAs,
   }, () => next());
+});
+
+/* Live sync with another device on the same Wi-Fi or hotspot (see lan-sync.js). */
+const lanSync = require('./lan-sync').create({
+  app,
+  store,
+  product: 'tank-chief',
+  sha256Hex,
+  toBytes: syncUtf8Bytes,
 });
 
 app.get('/api/admin/users', (req, res) => {
@@ -2952,6 +2967,7 @@ function start({ port = PORT, host = HOST } = {}) {
   return new Promise((resolve, reject) => {
     const server = app.listen(port, host, () => {
       const actual = server.address().port;
+      lanSync.setPort(actual, host);
       console.log(`Tank Chief listening on http://${host}:${actual}`);
       console.log(`Data directory: ${store.DATA_DIR}`);
       resolve({ server, port: actual, host });
