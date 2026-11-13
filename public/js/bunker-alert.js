@@ -132,6 +132,50 @@ function evaluate(rows, now, opts) {
   return out.sort((a, b) => a.minutes - b.minutes || (a.slot || 0) - (b.slot || 0));
 }
 
+/* ======================================================================== *
+ * When the tablet is locked the page is paused, and a page that is paused
+ * cannot sound anything. The Android app is therefore handed the whole run of
+ * warnings ahead of time — from five minutes before each tank's target (or its
+ * 85% limit), every thirty seconds up to the moment itself — and rings them on
+ * its own. Everything the app needs to ring one is in the event, so it does not
+ * have to understand the plan.
+ * ======================================================================== */
+
+/** How far ahead warnings are handed over. Beyond this the plan will have changed anyway. */
+const NATIVE_HORIZON_MIN = 12 * 60;
+
+/**
+ * The warnings still to come for the tanks now filling: one every REPEAT_MS from
+ * WINDOW_MIN before the moment up to it. `minsLeft` is how long is then left, so
+ * the app can hold a silenced tank quiet until the last minute.
+ */
+function nativeSchedule(rows, now, opts) {
+  const o = opts || {};
+  const at = num(now) != null ? Number(now) : Date.now();
+  const windowMin = num(o.windowMin) != null ? Number(o.windowMin) : WINDOW_MIN;
+  const stepMs = num(o.repeatMs) != null ? Number(o.repeatMs) : REPEAT_MS;
+  const horizon = num(o.horizonMin) != null ? Number(o.horizonMin) : NATIVE_HORIZON_MIN;
+  const events = [];
+  for (const a of evaluate(rows, at, { windowMin: horizon })) {
+    const t = at + a.minutes * 60000;
+    const key = `${a.slot}|${a.tankId}|${a.kind}`;
+    const text = speech(a);
+    const first = t - windowMin * 60000;
+    for (let fireAt = first; fireAt <= t + 1; fireAt += stepMs) {
+      if (fireAt <= at + 1500) continue;
+      events.push({
+        key,
+        tankId: a.tankId,
+        fireAt: Math.round(fireAt),
+        minsLeft: Math.max(0, (t - fireAt) / 60000),
+        text,
+        name: a.name,
+      });
+    }
+  }
+  return events.sort((x, y) => x.fireAt - y.fireAt);
+}
+
 /** The line on screen. */
 function message(a) {
   const pct = fmtPercent(a.percent);
@@ -330,6 +374,10 @@ const ui = {
   voiceCount: -1,
   speaking: 0,
   nativePending: 0,
+  nativeSig: '',
+  nativeAt: 0,
+  screenOn: false,
+  wakeLock: null,
   noVoice: false,
   badVoices: null,
   lastRows: [],
@@ -704,11 +752,66 @@ function currentAlerts() {
  * Apply the alarm for these plan rows. Called after every refresh of the plan
  * and every second by the clock tick; cheap enough for that, and idempotent.
  */
+/**
+ * The Android app's alarm service. It rings the warnings itself when the page
+ * is paused (tablet locked, app in the background), and keeps the screen on
+ * while fuel is going aboard so the tablet does not lock in the first place.
+ */
+function androidBunker() {
+  try {
+    const b = typeof window !== 'undefined' && window.ChengAndroidBunker;
+    return b && typeof b.sync === 'function' ? b : null;
+  } catch (_) { return null; }
+}
+
+/** True when the app is the one that has to sound it: the page cannot, being out of sight. */
+function pageIsAway() {
+  try { return !!androidBunker() && document.visibilityState === 'hidden'; } catch (_) { return false; }
+}
+
+/** Keep the screen from sleeping while a tank is filling; the web has its own way where there is no app. */
+function keepScreen(on) {
+  if (on === ui.screenOn) return;
+  ui.screenOn = on;
+  try {
+    const nb = androidBunker();
+    if (nb && typeof nb.keepScreenOn === 'function') { nb.keepScreenOn(on); return; }
+    if (typeof navigator !== 'undefined' && navigator.wakeLock) {
+      if (on) {
+        navigator.wakeLock.request('screen').then((l) => { ui.wakeLock = l; }).catch(() => {});
+      } else if (ui.wakeLock) {
+        ui.wakeLock.release().catch(() => {});
+        ui.wakeLock = null;
+      }
+    }
+  } catch (_) { /* a screen that sleeps is no worse than before */ }
+}
+
+/** Hand the app the warnings to come, and tell it the page is awake so it stays quiet. */
+function syncNative(rows, now) {
+  const live = (Array.isArray(rows) ? rows : []).some((r) => r && r.tankId && r.status === 'filling');
+  keepScreen(live);
+  const nb = androidBunker();
+  if (!nb) return;
+  try {
+    if (document.visibilityState === 'visible' && typeof nb.heartbeat === 'function') nb.heartbeat();
+    const events = nativeSchedule(rows, now);
+    const sig = JSON.stringify(events.map((e) => [e.key, e.fireAt]));
+    /* Re-sent now and then as well as on change, in case the app lost it. */
+    if (sig !== ui.nativeSig || now - ui.nativeAt > 20000) {
+      nb.sync(JSON.stringify(events));
+      ui.nativeSig = sig;
+      ui.nativeAt = now;
+    }
+  } catch (_) { /* the page's own alarm still works */ }
+}
+
 function update(rows, opts) {
   if (!hasDom()) return [];
   const now = opts && num(opts.now) != null ? Number(opts.now) : Date.now();
   ui.lastRows = Array.isArray(rows) ? rows : [];
   if (ui.test && now >= ui.test.until) ui.test = null;
+  syncNative(rows, now);
   const real = evaluate(rows, now, opts);
   const hadAlerts = ui.alerts.length > 0;
   ui.alerts = real;
@@ -720,7 +823,10 @@ function update(rows, opts) {
   paintRows(real);
   tellShell(shown);
 
-  if (shown.length) {
+  if (shown.length && pageIsAway()) {
+    /* Out of sight: the app rings it. Sounding here as well would be twice. */
+    bedOff();
+  } else if (shown.length) {
     const due = ui.planner.due(shown, now);
     /* The horn runs while a warning stands, unless the chief has silenced it. */
     due.forEach((a) => speak(speech(a)));
@@ -739,6 +845,13 @@ function update(rows, opts) {
 function silence() {
   const shown = currentAlerts();
   ui.planner.silence(shown, Date.now());
+  try {
+    const nb = androidBunker();
+    if (nb && typeof nb.silence === 'function') {
+      /* The app holds the same silence: three minutes, but never past the last minute. */
+      nb.silence(JSON.stringify(shown.map((a) => `${a.slot}|${a.tankId}|${a.kind}`)), Date.now() + SILENCE_RESOUND_MS);
+    }
+  } catch (_) { /* ignore */ }
   bedOff();
   try { if (window.ChengAndroidSpeech && window.ChengAndroidSpeech.stop) window.ChengAndroidSpeech.stop(); } catch (_) { /* ignore */ }
   try { if (canSpeak()) window.speechSynthesis.cancel(); } catch (_) { /* ignore */ }
@@ -785,6 +898,11 @@ function clear() {
   try { if (canSpeak()) window.speechSynthesis.cancel(); } catch (_) { /* ignore */ }
   try { if (window.ChengAndroidSpeech && window.ChengAndroidSpeech.stop) window.ChengAndroidSpeech.stop(); } catch (_) { /* ignore */ }
   tellShell([]);
+  try {
+    const nb = androidBunker();
+    if (nb) { nb.sync('[]'); ui.nativeSig = ''; }
+  } catch (_) { /* ignore */ }
+  keepScreen(false);
 }
 
 if (typeof document !== 'undefined') {
@@ -808,6 +926,8 @@ return {
   speakableName,
   fmtPercent,
   createVoicePlanner,
+  nativeSchedule,
+  NATIVE_HORIZON_MIN,
   scoreVoice,
   pickVoice,
   deliveryFor,
