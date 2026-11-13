@@ -292,6 +292,16 @@ function tableToCalibration(table, target = 'auto', existing = {}) {
       soundingIncrement: parsed.soundingIncrement || existing.soundingIncrement,
       capacity: parsed.capacity || existing.capacity,
     };
+    // A trim *correction* table (mm/cm over a sounding, e.g. "SOUNDING BY THE
+    // HEAD ... BY THE STERN") is zero at even trim by definition, same as a
+    // heel/list correction — supply the column if the book left it out. A
+    // trim *volume* table (Nikolas D-style) is not: 0 trim does not mean 0
+    // volume, so it is left to bracket whichever two real columns straddle it.
+    if (parsed.gridKind === 'correction') {
+      const zeroed = withZeroColumn(patch.trimVals, patch.trimGrid);
+      patch.trimVals = zeroed.vals;
+      patch.trimGrid = zeroed.grid;
+    }
 
     if (mode === 'full') {
       if ((parsed.volumeCurve?.x || []).length > 1) {

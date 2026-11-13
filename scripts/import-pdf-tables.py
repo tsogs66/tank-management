@@ -159,9 +159,45 @@ def clean_row(row):
     return [None if c is None else str(c).strip() for c in (row or [])]
 
 
+# A blank/omitted column's "-" runs into the next column's negative value(s)
+# with no gap, e.g. "--123.418" = blank (0) then -123.418, or
+# "--277.502-147.423" = blank then -277.502 then -147.423. split_glued_cells
+# above only knows real numbers glued together ("84.996-123.418"); this is
+# the one case it leaves alone — a lone leading "-" before the first real
+# number is not itself a signed figure, so its own regex (which requires the
+# whole cell to start with a complete number) never matches.
+MASHED_BLANK_NUM_RE = re.compile(r"-\d+(?:[.,]\d+)?")
+
+
+def split_mashed_blank_dash(cell):
+    s = str(cell or "").strip()
+    if not s.startswith("--"):
+        return None
+    matches = list(MASHED_BLANK_NUM_RE.finditer(s))
+    if not matches or matches[0].start() != 1 or matches[-1].end() != len(s):
+        return None  # leftover text besides the dash(es) and the number(s) — not this pattern
+    leading_dashes = s[: matches[0].start()]
+    out = ["-"] * len(leading_dashes)
+    pos = matches[0].start()
+    for m in matches:
+        if s[pos : m.start()].strip("-"):
+            return None  # a non-dash gap between numbers — not this pattern
+        out.extend(["-"] * s[pos : m.start()].count("-"))
+        out.append(m.group())
+        pos = m.end()
+    return out if len(out) > 1 else None
+
+
 def densify_row(row):
-    """Drop empty cells left by word-gap column bins (monospaced PDFs)."""
-    return [c for c in row if str(c or "").strip()]
+    """Drop empty cells left by word-gap column bins (monospaced PDFs), and
+    split a blank column's "-" that ran into the next (negative) value."""
+    out = []
+    for c in row:
+        if not str(c or "").strip():
+            continue
+        split = split_mashed_blank_dash(c)
+        out.extend(split if split else [c])
+    return out
 
 
 def normalize_table(raw_rows, densify=False):
@@ -518,6 +554,79 @@ def longest_rising(seq):
     return len(tails)
 
 
+def _is_monotonic(vals):
+    return all(vals[i] <= vals[i + 1] for i in range(len(vals) - 1)) or all(
+        vals[i] >= vals[i + 1] for i in range(len(vals) - 1)
+    )
+
+
+def sort_axis_columns(vals, grid):
+    """
+    Reorder grid columns into ascending value order, but only when the
+    header is not already monotonic in either direction. calc.js's bracket()
+    already copes with a column order that runs high-to-low (e.g. a trim
+    axis printed 1, 0, -0.5 .. -4) — that is just the book's own direction
+    and is left exactly as printed. What it cannot cope with is a header
+    that is genuinely out of order, such as Nikolas D's own sounding table,
+    which runs 0, -0.5 .. -4, 0.5, 1 left to right: 0 and 0.5 are 9 columns
+    apart on the page but must bracket each other. Only that shape is fixed.
+    Returns (vals, grid, order) — `order` maps each new column index to the
+    original one, for remapping any other per-column data (e.g. blankCells).
+    """
+    if _is_monotonic(vals):
+        return vals, grid, list(range(len(vals)))
+    order = sorted(range(len(vals)), key=lambda i: vals[i])
+    sorted_vals = [vals[i] for i in order]
+    sorted_grid = [[row[i] for i in order] for row in grid]
+    return sorted_vals, sorted_grid, order
+
+
+def infer_axis_sign_from_data(vals, grid):
+    """
+    A header can still come out all non-negative (a "V" shape: down then up,
+    e.g. two columns both printed "0.5") when the side label that would have
+    signed it is itself garbled — B-06's "LIST TO STARBOARD" OCRs as "STARE I
+    D", which the word-based sign heading reader does not recognise. Fall
+    back on the data itself: the side whose column values are mostly
+    negative is the negative side. Returns new signed vals, or None when the
+    header isn't that shape or the data doesn't make a clear call either way.
+    """
+    n = len(vals)
+    if n < 4 or any(v < 0 for v in vals):
+        return None
+    i = 0
+    while i + 1 < n and vals[i + 1] < vals[i]:
+        i += 1
+    if i == 0 or i >= n - 1:
+        return None
+    left_idx, right_idx = list(range(0, i + 1)), list(range(i + 1, n))
+    right_vals = [vals[j] for j in right_idx]
+    if right_vals != sorted(right_vals):
+        return None
+
+    def side_sign(idxs):
+        samples = [row[j] for row in grid for j in idxs if j < len(row)]
+        samples = [v for v in samples if abs(v) > 1e-9]
+        if len(samples) < 4:
+            return 0
+        neg = sum(1 for v in samples if v < 0)
+        if neg >= 0.7 * len(samples):
+            return -1
+        if (len(samples) - neg) >= 0.7 * len(samples):
+            return 1
+        return 0
+
+    left_sign, right_sign = side_sign(left_idx), side_sign(right_idx)
+    if left_sign == 0 or right_sign == 0 or left_sign == right_sign:
+        return None
+    signed = list(vals)
+    for j in left_idx:
+        signed[j] = abs(vals[j]) * left_sign
+    for j in right_idx:
+        signed[j] = abs(vals[j]) * right_sign
+    return signed
+
+
 def parse_as_grid(rows):
     """
     Parse Excel-like calibration grid:
@@ -608,6 +717,11 @@ def parse_as_grid(rows):
     if len(trim_axis) < 2:
         return None
 
+    # Column order, a missing 0 column, and an unsigned-but-ambiguous header
+    # are fixed up centrally in finalize_grid_axes(), which every path that
+    # can produce a "grid" result — this one included — goes through on the
+    # way out of process_raw_table().
+
     out = {
         "kind": "grid",
         "trimAxis": trim_axis,
@@ -678,6 +792,19 @@ def parse_as_volume_curve(rows):
             vs.append(nums[1])
     if len(xs) < 2:
         return None
+
+    # Prose / diagram pages (notes, formulas, a stray figure) can scatter two
+    # numbers across an otherwise-text row and look like a 2-column table at
+    # a glance. A real sounding/volume table is almost entirely data rows,
+    # and its sounding column only ever moves one way — guard on both before
+    # calling this a usable curve.
+    body_rows = max(1, len(rows) - start)
+    if len(xs) / body_rows < 0.5:
+        return None
+    if len(xs) >= 3:
+        diffs = [xs[i + 1] - xs[i] for i in range(len(xs) - 1)]
+        if not (all(d >= 0 for d in diffs) or all(d <= 0 for d in diffs)):
+            return None
 
     return {
         "kind": "volumeCurve",
@@ -1469,7 +1596,42 @@ def apply_units(parsed, units):
             parsed["volumeUnit"] = units["volume"]
 
 
+def finalize_grid_axes(parsed):
+    """
+    Whichever path built this grid (pdf_headers.parse_combined's fast path,
+    or the regular parse_table/parse_as_grid route), its trim/list columns
+    may still be genuinely out of value order, or signed ambiguously (a
+    duplicate column value survives when the side word that should have
+    signed it was itself OCR-garbled). Apply the same fix-up every path's
+    result goes through on the way out, so it only has to be right in one
+    place. The missing-0-column fix stays in server/pdf-import.js's
+    withZeroColumn(), which already knows a correction table's 0 column must
+    be exact zero, not interpolated — this only sorts and signs.
+    """
+    if not isinstance(parsed, dict) or parsed.get("kind") != "grid":
+        return parsed
+    for axis_key, grid_key in (("trimVals", "trimGrid"), ("listVals", "listGrid")):
+        vals, grid = parsed.get(axis_key), parsed.get(grid_key)
+        if not vals or not grid or len(vals) < 2:
+            continue
+        if len(set(round(v, 9) for v in vals)) < len(vals):
+            inferred = infer_axis_sign_from_data(vals, grid)
+            if inferred is not None:
+                vals = inferred
+        vals, grid, col_order = sort_axis_columns(vals, grid)
+        if axis_key == "trimVals" and parsed.get("blankCells") and col_order != list(range(len(col_order))):
+            parsed["blankCells"] = [[r, col_order.index(c)] for r, c in parsed["blankCells"]]
+        parsed[axis_key], parsed[grid_key] = vals, grid
+    return parsed
+
+
 def process_raw_table(rows):
+    result = _process_raw_table_impl(rows)
+    result["parsed"] = finalize_grid_axes(result.get("parsed"))
+    return result
+
+
+def _process_raw_table_impl(rows):
     """
     Filter hydrostatic tables/columns and parse calibration data.
     Returns dict with keys: rows, parsed, skipped, skipReason, removedHydroHeaders.
