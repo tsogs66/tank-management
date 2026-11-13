@@ -501,6 +501,23 @@ def axis_method(rows):
     return None
 
 
+def longest_rising(seq):
+    """Length of the longest non-decreasing run (not necessarily adjacent) in a list of numbers."""
+    import bisect
+    tails = []
+    for v in seq:
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            continue
+        i = bisect.bisect_right(tails, v)
+        if i == len(tails):
+            tails.append(v)
+        else:
+            tails[i] = v
+    return len(tails)
+
+
 def parse_as_grid(rows):
     """
     Parse Excel-like calibration grid:
@@ -1914,9 +1931,13 @@ def extract_tables(
                                     # rows, and how many figures were actually read in them
                                     # (a reading that lost a column has fewer)
                                     cells = sum(1 for row in (pr.get("trimGrid") or []) for v in row if v)
-                                    best = max(best, 40 + len(pr.get("trimAxis") or []) + cells / 100.0)
+                                    best = max(best, 40 + longest_rising(pr.get("trimAxis") or []) + cells / 100.0)
                                 elif pr.get("kind") == "volumeCurve":
-                                    best = max(best, len((pr.get("volumeCurve") or {}).get("x") or []))
+                                    # junk gives plenty of "points" but they do not climb together:
+                                    # count the longest run that does
+                                    vc = pr.get("volumeCurve") or {}
+                                    pts = sorted(zip(vc.get("x") or [], vc.get("v") or []))
+                                    best = max(best, longest_rising([v for _x, v in pts]))
                             return best
 
                         def is_colour_picture(pg):
@@ -1938,8 +1959,8 @@ def extract_tables(
                             best_q = read_quality(tables_out[n_before:])
                             best_found = found
                             kept = tables_out[n_before:]
-                            for over in (True, False):
-                                again = engine.read_pages([pi], psm=pdf_ocr.PSM_ORDER[0], oversample=over, enhance=True)
+                            for over, lvl in ((True, True), (False, True), (True, 2), (False, 2)):
+                                again = engine.read_pages([pi], psm=pdf_ocr.PSM_ORDER[0], oversample=over, enhance=lvl)
                                 if pi not in again:
                                     continue
                                 path, idx = again[pi]
@@ -1949,7 +1970,7 @@ def extract_tables(
                                 f2 = process_page(pi, opened[path].pages[idx], True)
                                 q2 = read_quality(tables_out[n_before:])
                                 if os.environ.get("TMS_DEBUG_OCR"):
-                                    print("variant oversample=%s q=%s" % (over, q2), file=sys.stderr)
+                                    print("variant oversample=%s level=%s q=%s" % (over, lvl, q2), file=sys.stderr)
                                 if q2 > best_q:
                                     best_q, best_found, kept = q2, f2, tables_out[n_before:]
                             del tables_out[n_before:]

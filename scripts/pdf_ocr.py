@@ -81,6 +81,7 @@ class OcrEngine:
         self.pages_done = 0
         self._src = None
         self._pdfium = None
+        self._level = 1
         self._mode = None  # "module" | "cli"
         self._cmd = None
         self._probe()
@@ -144,7 +145,7 @@ class OcrEngine:
         try:
             import pypdfium2 as pdfium
             import img2pdf
-            from PIL import ImageOps
+            from PIL import Image, ImageFilter, ImageOps
         except Exception:
             return None
         try:
@@ -169,6 +170,10 @@ class OcrEngine:
                 dpi = max(100, int(round(scale * 72)))
                 pil = page.render(scale=scale).to_pil().convert("L")
                 pil = self._upright(pil)
+                if self._level >= 2:
+                    # a photograph of a screen is covered in fine stripes (moire) that the reader takes
+                    # for ink; a light blur removes them and leaves the figures
+                    pil = pil.filter(ImageFilter.GaussianBlur(1.0))
                 pil = ImageOps.autocontrast(pil, cutoff=2)
                 path = os.path.join(self.workdir, f"{name}-{p}.png")
                 pil.save(path, dpi=(dpi, dpi))
@@ -280,7 +285,65 @@ class OcrEngine:
             raise RuntimeError((r.stderr or b"").decode("utf-8", "replace").strip()[-300:] or f"ocrmypdf exit {r.returncode}")
         return dst
 
+    def _page_image(self, p):
+        """Page p as an upright, contrast-stretched (and, at level 2, descreened) grey picture."""
+        import pypdfium2 as pdfium
+        from PIL import ImageFilter, ImageOps
+        if self._pdfium is None:
+            self._pdfium = pdfium.PdfDocument(self.pdf_path)
+        page = self._pdfium[p - 1]
+        w, h = page.get_size()
+        scale = min(300.0 / 72.0, 2800.0 / max(w, h, 1))
+        try:
+            from pypdfium2 import raw as _raw
+            sizes = [o.get_px_size() for o in page.get_objects(filter=[_raw.FPDF_PAGEOBJ_IMAGE])]
+            if len(sizes) == 1:
+                scale = min(scale, max(sizes[0]) / max(w, h, 1))   # never past the picture's own pixels
+        except Exception:
+            pass
+        pil = page.render(scale=scale).to_pil().convert("L")
+        pil = self._upright(pil)
+        if self._level >= 2:
+            # a photograph of a screen is covered in fine stripes (moire) that the reader takes for
+            # ink; a light blur removes them and leaves the figures
+            pil = pil.filter(ImageFilter.GaussianBlur(1.0))
+        return ImageOps.autocontrast(pil, cutoff=2)
+
+    def _read_direct(self, pages, psm, upscale):
+        """
+        Photographs go straight to tesseract: ocrmypdf re-rasterises the picture and, on a photo,
+        read nothing from a page that tesseract itself reads well. One searchable PDF per page.
+        """
+        from PIL import Image
+        got = {}
+        for p in pages:
+            try:
+                pil = self._page_image(p)
+                if upscale and max(pil.size) < 2800:
+                    k = min(2.0, 2800.0 / max(pil.size))
+                    pil = pil.resize((int(pil.width * k), int(pil.height * k)), Image.LANCZOS)
+                png = os.path.join(self.workdir, f"d{p}.png")
+                pil.save(png, dpi=(200, 200))
+                base = os.path.join(self.workdir, f"d{p}-{psm}-{int(bool(upscale))}-{self._level}")
+                cmd = ["tesseract", png, base, "--psm", str(psm), "--dpi", "200",
+                       "-c", "preserve_interword_spaces=1", "-c", "load_system_dawg=0",
+                       "-c", "load_freq_dawg=0", "-c", "tessedit_char_blacklist=|\u00a6_~`", "pdf"]
+                budget = 120
+                if self.deadline is not None:
+                    budget = max(30, min(budget, int(self.deadline - time.monotonic())))
+                subprocess.run(cmd, capture_output=True, timeout=budget, check=True)
+                got[p] = (base + ".pdf", 0)
+                self.pages_done += 1
+            except Exception as exc:
+                self.failed_pages.append(p)
+                self.emit("ocr", None, f"OCR could not read page {p}: {str(exc)[:120]}")
+        return got
+
     def read_pages(self, pages, psm=6, oversample=True, enhance=False):
+        # enhance: False, True (contrast) or 2 (contrast + descreen)
+        self._level = 2 if enhance == 2 else 1
+        if enhance:
+            return self._read_direct(list(pages), psm, oversample)
         """
         OCR these 1-based pages of the book.
         Returns {page_no: (pdf_path, index_in_that_pdf)}; a page that could not
