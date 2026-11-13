@@ -794,17 +794,15 @@ def parse_as_volume_curve(rows):
         return None
 
     # Prose / diagram pages (notes, formulas, a stray figure) can scatter two
-    # numbers across an otherwise-text row and look like a 2-column table at
-    # a glance. A real sounding/volume table is almost entirely data rows,
-    # and its sounding column only ever moves one way — guard on both before
-    # calling this a usable curve.
-    body_rows = max(1, len(rows) - start)
-    if len(xs) / body_rows < 0.5:
+    # numbers across an otherwise-text row here and there and look like a
+    # thin 2-column table — B-06 has one, a draught-correction page whose
+    # formulas each quote a couple of figures, good for 2-3 pairs over its
+    # whole text. A real sounding/volume curve, scanned or not, runs to many
+    # more rows than that; this only refuses the handful-of-pairs case,
+    # rather than policing row density or the sounding column's direction,
+    # either of which a real but heavily speckled scan could plausibly fail.
+    if len(xs) < 4:
         return None
-    if len(xs) >= 3:
-        diffs = [xs[i + 1] - xs[i] for i in range(len(xs) - 1)]
-        if not (all(d >= 0 for d in diffs) or all(d <= 0 for d in diffs)):
-            return None
 
     return {
         "kind": "volumeCurve",

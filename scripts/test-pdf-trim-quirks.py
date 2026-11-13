@@ -121,6 +121,8 @@ ok(
 )
 
 # ---- a diagram/notes page with no real table should not look like one ----
+# B-06's own draught-correction page: formulas that each quote a couple of
+# figures, good for only 2-3 (x, v) pairs over the whole page of prose.
 prose_rows = [
     ["These", "correction", "value", "are", "obtained", "as", "follows"],
     ["A.", "P.", "Correction", "value", "=", "12.50", "/", "266.60", "x", "t"],
@@ -129,7 +131,11 @@ prose_rows = [
     ["Notes", ";"],
     ["1)", "When", "trim", "by", "the", "stern", "value", "is", "plus"],
 ]
-ok(ipt.parse_as_volume_curve(prose_rows) is None, "a prose/notes page with two incidental numbers per row is rejected")
+ok(ipt.parse_as_volume_curve(prose_rows) is None, "a prose/notes page with only a couple of incidental number pairs is rejected")
+
+# A real curve is never refused for being noisy or short of rows — only for
+# having too few usable data points to be worth calling a table at all.
+ok(ipt.parse_as_volume_curve([["0", "0.0"], ["10", "1.2"], ["20", "2.5"]]) is None, "even 3 clean points is still too thin to call a curve")
 
 # A genuine (if short) sounding/volume curve is unaffected by the new guard.
 real_curve_rows = [
