@@ -58,8 +58,12 @@ const sched = fs.readFileSync(path.join(pkgDir, 'ReminderScheduler.java'), 'utf8
 check('alarms go to the system clock (rings in Doze, needs no exact-alarm permission)', /setAlarmClock/.test(sched));
 check('the whole set is replaced on each sync', /cancel\(ctx, stored\(ctx\)\)/.test(sched));
 const bridge = fs.readFileSync(path.join(pkgDir, 'ReminderBridge.java'), 'utf8');
-check('the calendar hand-off opens its own event screen', /ACTION_INSERT/.test(bridge) && /Events\.CONTENT_URI/.test(bridge));
-check('and asks for no calendar permission', !/READ_CALENDAR|WRITE_CALENDAR/.test(bridge + manifest1));
+check('a note\'s event is written straight into the calendar', /upsertCalendarEvent/.test(bridge) && /cr\.insert\(CalendarContract\.Events\.CONTENT_URI/.test(bridge));
+check('and an edit updates that same event, remembered by the note id', /cr\.update\(ContentUris\.withAppendedId\(CalendarContract\.Events\.CONTENT_URI/.test(bridge) && /prefs\.getLong\(noteId/.test(bridge));
+check('with its alert replaced rather than doubled', /Reminders\.CONTENT_URI/.test(bridge) && /cr\.delete\(CalendarContract\.Reminders\.CONTENT_URI/.test(bridge));
+check('and removed when the note is deleted', /removeCalendarEvent/.test(bridge));
+check('the calendar\'s own event screen stays as the fallback if access is refused', /ACTION_INSERT/.test(bridge));
+check('calendar access is declared', /android\.permission\.READ_CALENDAR/.test(manifest1) && /android\.permission\.WRITE_CALENDAR/.test(manifest1));
 
 console.log('\nthe manifest');
 for (const perm of ['POST_NOTIFICATIONS', 'RECEIVE_BOOT_COMPLETED']) {
