@@ -71,6 +71,21 @@ function seed(dir, code) {
       assert.ok(r.body.deviceId);
     });
 
+    const LIC = { email: 'chief@example.com', licenseId: 'lic-test-1' };
+    await pc('POST', '/api/lan/license', LIC);
+    await check('a phone on another license is refused by the PC, and the same license is accepted', async () => {
+      await phone('POST', '/api/lan/license', { email: 'other@example.com', licenseId: 'lic-other' });
+      const code = (await pc('POST', '/api/lan/pair/start')).body.code;
+      const refused = await phone('POST', '/api/lan/peers/pair', { url: base, code });
+      assert.strictEqual(refused.status, 403, JSON.stringify(refused));
+      assert.strictEqual(refused.body.code, 'different-license');
+      await phone('POST', '/api/lan/license', { email: '', licenseId: '' });
+      const none = await phone('POST', '/api/lan/peers/pair', { url: base, code });
+      assert.strictEqual(none.status, 403, JSON.stringify(none));
+      assert.strictEqual(none.body.code, 'no-license');
+      await phone('POST', '/api/lan/license', LIC);
+    });
+
     await check('a phone finds the PC by scanning, with no beacon and no listening of its own', async () => {
       const r = await phone('POST', '/api/lan/scan', { hosts: ['127.0.0.1'], ports: [port] });
       assert.strictEqual(r.status, 200, JSON.stringify(r));

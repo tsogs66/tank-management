@@ -14,8 +14,39 @@
     unpaired: ['bad', 'Pair again'],
     'different-vessel': ['warn', 'Different vessel'],
     error: ['bad', 'Problem'],
+    'different-license': ['bad', 'Different license'],
+    'no-license': ['bad', 'No license'],
     unknown: ['dim', 'Checking…'],
   };
+
+  /**
+   * Live sync works only between devices on the same license (same email, same license). The server
+   * cannot read this device's license, so the screen tells it: who is signed in, or that nobody is.
+   */
+  let announced = '';
+  async function announceLicense() {
+    let email = '';
+    let id = '';
+    try {
+      const L = window.ChengLicense;
+      const ent = L && L.loadEntitlement && L.loadEntitlement();
+      const ok = ent && ent.email && ent.licenseId && (!L.isValid || L.isValid(ent));
+      if (ok) { email = String(ent.email); id = String(ent.licenseId); }
+    } catch (_) { /* no license here */ }
+    const key = email + '|' + id;
+    if (key === announced) return;
+    try {
+      if (window.Api && window.Api.request) {
+        await window.Api.request('/api/lan/license', { method: 'POST', body: { email, licenseId: id } });
+        announced = key;
+      }
+    } catch (_) { /* the server is not there yet: tried again on the next tick */ }
+  }
+  try {
+    window.addEventListener('chengpro:license-changed', () => { announced = ''; announceLicense(); });
+    window.addEventListener('load', () => setTimeout(announceLicense, 1500));
+    setInterval(announceLicense, 5 * 60 * 1000);
+  } catch (_) { /* no window */ }
 
   function mount(parent, ctx) {
     const toast = (ctx && ctx.toast) || (() => {});
@@ -30,6 +61,7 @@
     const api = () => window.Api;
 
     async function refresh() {
+      await announceLicense();
       try { state = await api().lanState(); } catch (e) { state = null; }
       if (!document.body.contains(host)) { clearInterval(timer); return; }
       draw();
@@ -70,6 +102,9 @@
       host.innerHTML = `
         <div class="section-title" style="margin-top:0">Live sync (Wi-Fi / hotspot)</div>
         <p style="color:var(--text-dim);font-size:13px;margin:0 0 8px">Keep this device level with another one on the same Wi-Fi or phone hotspot. Whatever one lacks, the other has is copied across; the newest copy of a record wins, and nothing is deleted.</p>
+        ${s.license && s.license.active
+    ? `<p style="font-size:13px;margin:0 0 8px;color:var(--text-dim)">Licensed to <b>${esc(s.license.email)}</b>. Only devices on this same license can pair and sync with this one.</p>`
+    : '<p style="font-size:13px;margin:0 0 8px;color:var(--warn,#c90)"><b>No active license on this device.</b> Activate it first: live sync works only between devices on the same license (same email and license).</p>'}
         <label style="display:block;margin:6px 0"><input type="checkbox" id="lan-enabled" ${s.enabled ? 'checked' : ''}> Sync automatically while both devices are open</label>
         <div class="form-row"><label>This device is called</label><input id="lan-name" value="${esc(s.deviceName)}"></div>
         <div style="margin:6px 0;font-size:13px">

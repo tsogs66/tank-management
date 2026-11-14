@@ -31,7 +31,9 @@ function seed(dir, code) {
   return r.stdout.trim();
 }
 
-async function boot(name) {
+const LICENSE = { email: 'Chief@Example.com', licenseId: 'lic-test-1' };
+
+async function boot(name, license) {
   const dir = path.join(TMP, name);
   fs.mkdirSync(dir, { recursive: true });
   const child = spawn(process.execPath, ['-e',
@@ -52,7 +54,10 @@ async function boot(name) {
     });
     return { status: res.status, body: await res.json().catch(() => ({})) };
   };
-  return { name, dir, child, port, base, call, stop: () => child.kill() };
+  const dev = { name, dir, child, port, base, call, stop: () => child.kill() };
+  /* The screen tells the server whose license the device is on; a device with none says nothing. */
+  if (license !== null) await call('POST', '/api/lan/license', license || LICENSE);
+  return dev;
 }
 
 function mkVessel(dir, name, imo, extra) {
@@ -123,6 +128,76 @@ function mkVessel(dir, name, imo, extra) {
       // a request that does not come from the loopback address would be refused; here we assert the rule is in place
       const src = fs.readFileSync(path.join(ROOT, 'server', 'lan-sync.js'), 'utf8');
       assert.ok(/pair\/start', localOnly/.test(src) && /config', localOnly/.test(src) && /peers\/pair', localOnly/.test(src));
+    });
+
+    console.log('Only devices on the same license');
+    await check('a device with no license cannot pair, in either direction', async () => {
+      const C = await boot('device-c', null);
+      try {
+        const codeC = (await C.call('POST', '/api/lan/pair/start')).body.code;
+        const toC = await A.call('POST', '/api/lan/peers/pair', { url: C.base, code: codeC });
+        assert.strictEqual(toC.status, 403, JSON.stringify(toC.body));
+        const codeA = (await A.call('POST', '/api/lan/pair/start')).body.code;
+        const fromC = await C.call('POST', '/api/lan/peers/pair', { url: A.base, code: codeA });
+        assert.strictEqual(fromC.status, 403, JSON.stringify(fromC.body));
+        assert.strictEqual(fromC.body.code, 'no-license');
+        assert.strictEqual((await C.call('GET', '/api/lan/state')).body.license.active, false);
+      } finally { C.stop(); }
+    });
+    await check('a different email is refused, and the code stays good for the right device', async () => {
+      const D = await boot('device-d', { email: 'someone.else@example.com', licenseId: LICENSE.licenseId });
+      try {
+        const code = (await D.call('POST', '/api/lan/pair/start')).body.code;
+        const r = await A.call('POST', '/api/lan/peers/pair', { url: D.base, code });
+        assert.strictEqual(r.status, 403, JSON.stringify(r.body));
+        assert.strictEqual(r.body.code, 'different-license');
+        assert.ok(/different licenses/i.test(r.body.error), r.body.error);
+        assert.strictEqual((await D.call('GET', '/api/lan/state')).body.peers.length, 0, 'nothing was trusted');
+        assert.ok((await D.call('GET', '/api/lan/state')).body.pairing, 'the code was not spent on the wrong device');
+      } finally { D.stop(); }
+    });
+    await check('the same email on a different license is refused', async () => {
+      const E = await boot('device-e', { email: LICENSE.email, licenseId: 'lic-test-OTHER' });
+      try {
+        const code = (await E.call('POST', '/api/lan/pair/start')).body.code;
+        const r = await A.call('POST', '/api/lan/peers/pair', { url: E.base, code });
+        assert.strictEqual(r.status, 403, JSON.stringify(r.body));
+        assert.strictEqual(r.body.code, 'different-license');
+      } finally { E.stop(); }
+    });
+    await check('the email is matched however it is typed (case, spaces)', async () => {
+      const F = await boot('device-f', { email: '  CHIEF@example.COM ', licenseId: LICENSE.licenseId });
+      try {
+        const code = (await F.call('POST', '/api/lan/pair/start')).body.code;
+        const r = await A.call('POST', '/api/lan/peers/pair', { url: F.base, code });
+        assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+        await A.call('POST', '/api/lan/peers/forget', { deviceId: (await F.call('GET', '/api/lan/hello')).body.deviceId });
+      } finally { F.stop(); }
+    });
+    await check('a device that does not send a license (an older version) is refused', async () => {
+      await B.call('POST', '/api/lan/pair/start');
+      const code = (await B.call('GET', '/api/lan/state')).body.pairing.code;
+      const r = await B.call('POST', '/api/lan/pair', { code, deviceId: 'old', deviceName: 'Old build' });
+      assert.strictEqual(r.status, 403);
+      assert.ok(/older|update/i.test(r.body.error), r.body.error);
+    });
+    await check('a call from a trusted device without the right license is refused', async () => {
+      const code = (await B.call('POST', '/api/lan/pair/start')).body.code;
+      const paired = await A.call('POST', '/api/lan/peers/pair', { url: B.base, code });
+      assert.strictEqual(paired.status, 200, JSON.stringify(paired.body));
+      const token = (JSON.parse(fs.readFileSync(path.join(A.dir, 'lan-sync.json'), 'utf8')).peers.find((p) => p.url === B.base) || {}).token;
+      assert.ok(token, 'A holds a token for B');
+      const noTag = await B.call('GET', '/api/lan/status', null, { authorization: 'Bearer ' + token });
+      assert.strictEqual(noTag.status, 403, 'the right token alone is not enough');
+      assert.strictEqual(noTag.body.code, 'different-license');
+      const wrong = await B.call('GET', '/api/lan/status', null, { authorization: 'Bearer ' + token, 'x-lan-license': 'deadbeef' });
+      assert.strictEqual(wrong.status, 403);
+    });
+    await check('the license id itself is never stored or sent: only a hash of it', async () => {
+      const raw = fs.readFileSync(path.join(A.dir, 'lan-sync.json'), 'utf8');
+      assert.ok(!raw.includes(LICENSE.licenseId), 'the license id is not on disk');
+      const hello = JSON.stringify((await A.call('GET', '/api/lan/hello')).body);
+      assert.ok(!hello.includes(LICENSE.licenseId) && !/chief@example/i.test(hello), 'hello tells nobody whose license it is');
     });
 
     console.log('Staying level on the same vessel');
@@ -219,6 +294,42 @@ function mkVessel(dir, name, imo, extra) {
       assert.strictEqual(r.status, 200);
       assert.ok(r.body.found.some((d) => d.url === B.base), JSON.stringify(r.body.found));
       assert.ok(!r.body.found.some((d) => d.url === A.base), 'a device never finds itself');
+    });
+
+    await check('if a device changes to another license after pairing, nothing moves until they match again', async () => {
+      seed(A.dir, `store.setActiveVessel(${JSON.stringify(idA)})`);
+      seed(B.dir, `store.setActiveVessel(${JSON.stringify(idB)})`);
+      const peerId = (await A.call('GET', '/api/lan/state')).body.peers[0].deviceId;
+      await B.call('POST', '/api/lan/license', { email: 'someone.else@example.com', licenseId: 'lic-other' });
+      seed(B.dir, `store.saveVesselPart(${JSON.stringify(idB)},'reportHistory',[{id:'r-9',savedAt:'2026-11-09T00:00:00.000Z',title:'B report 9'}])`);
+      await A.call('POST', '/api/lan/config', { scope: 'active', enabled: true, intervalSec: 5 });
+      await A.call('POST', '/api/lan/sync-now', { force: true });
+      const st = (await A.call('GET', '/api/lan/state')).body.peers.find((p) => p.deviceId === peerId);
+      assert.strictEqual(st.status, 'different-license', JSON.stringify(st));
+      const a = (await A.call('GET', '/api/vessels/' + idA)).body;
+      assert.ok(!(a.reportHistory || []).some((x) => x.title === 'B report 9'), 'B\'s new report did not reach A');
+      /* and the other way: A's records do not reach B either */
+      const callBack = await B.call('GET', '/api/lan/status', null, { authorization: 'Bearer nope' });
+      assert.strictEqual(callBack.status, 401);
+      await B.call('POST', '/api/lan/license', LICENSE);
+      let arrived = false;
+      for (let i = 0; i < 40 && !arrived; i++) {
+        await A.call('POST', '/api/lan/sync-now', { force: true });
+        const a2 = (await A.call('GET', '/api/vessels/' + idA)).body;
+        arrived = (a2.reportHistory || []).some((x) => x.title === 'B report 9');
+        if (!arrived) await new Promise((r) => setTimeout(r, 500));
+      }
+      assert.ok(arrived, 'on the same license again, it arrives: ' + JSON.stringify((await A.call('GET', '/api/lan/state')).body.peers.map((p) => [p.status, p.message, p.differences])));
+    });
+    await check('a device whose license is removed stops syncing', async () => {
+      const peerId = (await A.call('GET', '/api/lan/state')).body.peers[0].deviceId;
+      await A.call('POST', '/api/lan/license', { email: '', licenseId: '' });
+      await A.call('POST', '/api/lan/sync-now', { force: true });
+      const st = (await A.call('GET', '/api/lan/state')).body.peers.find((p) => p.deviceId === peerId);
+      assert.strictEqual(st.status, 'no-license', JSON.stringify(st));
+      const copy = await A.call('POST', '/api/lan/copy', { deviceId: peerId, vesselId: onlyA, direction: 'push' });
+      assert.strictEqual(copy.status, 403);
+      await A.call('POST', '/api/lan/license', LICENSE);
     });
 
     await check('forgetting a device removes the trust on this side, and its calls are refused', async () => {
