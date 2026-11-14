@@ -256,6 +256,7 @@ function tablesByName(summary) {
       const plans = pdfImport.planTankCreates(raw, {});
       assert.strictEqual(plans.length, 1, JSON.stringify(plans));
       const p = plans[0];
+      assert.strictEqual(p.tank.trimAxisSense, 'bow', 'a PDF import reads trim head-positive');
       assert.strictEqual(p.mergedFrom.length, 2);
       assert.deepStrictEqual(p.patch.trimVals, [2, 1, -1, -2, -3, -4, -5, -6, -7]);
       assert.strictEqual(p.patch.listVals.length, 13);   // 12 printed + the 0 the book leaves out
