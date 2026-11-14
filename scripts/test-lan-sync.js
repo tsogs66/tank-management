@@ -116,6 +116,17 @@ function mkVessel(dir, name, imo, extra) {
       assert.strictEqual(bs.body.peers.length, 1, 'B can call A back (two PCs)');
     });
 
+    await check('a code can be chosen by the caller, so one code can serve more than one program', async () => {
+      const r = await B.call('POST', '/api/lan/pair/start', { code: '424242' });
+      assert.strictEqual(r.body.code, '424242');
+      const bad = await B.call('POST', '/api/lan/pair/start', { code: '12' });
+      assert.strictEqual(bad.body.code.length, 6, 'a code that is not six digits is replaced by a random one');
+      assert.notStrictEqual(bad.body.code, '12');
+      const again = await B.call('POST', '/api/lan/pair/start', { code: '424242' });
+      const paired = await A.call('POST', '/api/lan/peers/pair', { url: B.base, code: again.body.code });
+      assert.strictEqual(paired.status, 200, JSON.stringify(paired.body));
+    });
+
     await check('a code is good once', async () => {
       const code = (await B.call('POST', '/api/lan/pair/start')).body.code;
       const first = await A.call('POST', '/api/lan/peers/pair', { url: B.base, code });

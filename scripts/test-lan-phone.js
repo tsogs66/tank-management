@@ -56,6 +56,13 @@ function seed(dir, code) {
   const browser = await chromium.launch(process.env.PW_EXE ? { executablePath: process.env.PW_EXE, args: ['--no-sandbox'] } : {});
   try {
     const page = await browser.newPage();
+    /* The page is served by the PC and announces the license it holds to that PC's engine (on load and when it
+       changes). Give it the license this test uses, or it would announce "none" and wipe the one set below. */
+    await page.addInitScript(() => {
+      localStorage.setItem('chengAioLicenseEntitlement', JSON.stringify({
+        licenseId: 'lic-test-1', email: 'chief@example.com', sku: 'cheng-aio', graceUntil: '2099-01-01T00:00:00.000Z', addons: [],
+      }));
+    });
     await page.goto(base + '/', { waitUntil: 'networkidle' });
     const phone = (method, p, body) => page.evaluate(([m, pp, bb]) => LocalApi.handle(m, pp, bb), [method, p, body || undefined]);
     await page.evaluate(async () => { await LocalApi.start(); await LocalApi.restore({}); });
