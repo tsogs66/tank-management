@@ -68,6 +68,8 @@ HEADER_ONLY_RE = re.compile(
 
 # What gets stripped off the end (or front) of a title to leave the name.
 TRAILER_RES = [
+    # "NO.1 H.F.O.STOR.TK.P - Volume in m3" (SDARI): the table's own heading, however a scan spaces it
+    re.compile(r"\s*[-–—:|,]?\s*V\s*O\s*L\s*U\s*M\s*E\s*(?:I\s*N\s*)?(?:M\s*\^?\s*[3³]|C\s*U\s*\.?\s*M)?\s*$", re.I),
     re.compile(r"\s*[-–—:|,/]?\s*\(?\s*(?:SOUNDING|ULLAGE|CALIBRATION|CAPACITY|VOLUME|GAUGING)\s*"
                r"(?:TABLES?|CHART|DATA|TABULATION|BOOK|SCALE)?\s*\)?\s*$", re.I),
     re.compile(r"\s*[-–—:|,]?\s*\(?\s*(?:CONT(?:'D|’D|INUED|\.|D)?|CONTINUATION|CONT\s*D)\s*\)?\s*$", re.I),
@@ -75,7 +77,7 @@ TRAILER_RES = [
     re.compile(r"\s*[-–—:|,]?\s*\(?\s*PAGE\s*\d+\s*(?:OF\s*\d+)?\s*\)?\s*$", re.I),
     re.compile(r"\s*[-–—:|,]?\s*\(?\s*(?:100\s*%|FULL|CAP(?:ACITY)?)\s*[:=]?\s*[\d.,]+\s*(?:M3|M³|CU\.?\s*M|KL|M\^3)?\s*\)?\s*$", re.I),
 ]
-LEADER_RE = re.compile(r"^\s*(?:\d{1,2}[.-]\d{1,3}\s+|COMPARTMENT\s+DESCR(?:IPTION)?\s*[:=-]\s*|TABLE\s+OF|SOUNDING\s+TABLE\s+(?:FOR|OF)|CALIBRATION\s+(?:TABLE\s+)?(?:FOR|OF)|TANK\s*(?:NAME)?\s*[:=-]|NAME\s*[:=-])\s*", re.I)
+LEADER_RE = re.compile(r"^\s*(?:\d{1,2}[.-]\d{1,3}\s+|\d{1,3}\s*COMPART(?:MENT)?\s*[:=-]\s*|COMPARTMENT\s+DESCR(?:IPTION)?\s*[:=-]\s*|TABLE\s+OF|SOUNDING\s+TABLE\s+(?:FOR|OF)|CALIBRATION\s+(?:TABLE\s+)?(?:FOR|OF)|TANK\s*(?:NAME)?\s*[:=-]|NAME\s*[:=-])\s*", re.I)
 
 CAPACITY_RE = re.compile(
     r"(?:CAPACITY|CAP\.?|100\s*%|FULL|VOLUME)\s*[:=]?\s*([\d]{1,3}(?:[ ,]\d{3})*(?:[.,]\d+)?|\d+(?:[.,]\d+)?)\s*(M3|M³|CU\.?\s*M|KL|M\^3)",

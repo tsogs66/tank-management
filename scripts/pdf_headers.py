@@ -374,10 +374,10 @@ def repr_num(x):
 _NUM = r"[+-]?\d+(?:[.,]\d+)?"
 # Trim as a heading: "Tr=-4", "T = -4", "Trim: -4.0 m", "TRIM -4" (stern +, head -, as the book prints it)
 TRIM_LABEL = re.compile(rf"^\s*(?:TRIM|TR|T)\s*[=:]?\s*({_NUM})\s*(?:M|METRES?|METERS?)?\s*$", re.I)
-# Heel as a heading: "H1P", "H 3 S", "Heel 3 Starboard", "1P", "1 Port", "List 2P", "HEEL 3\u00b0 STBD".
+# Heel as a heading: "H1P", "HC2S" (heel correction), "H 3 S", "Heel 3 Starboard", "1P", "1 Port", "List 2P", "HEEL 3\u00b0 STBD".
 # Port is negative, starboard positive.
 HEEL_LABEL = re.compile(
-    rf"^\s*(?:HEEL(?:ING)?|LIST|H|L)?\s*[=:]?\s*(\d+(?:[.,]\d+)?)\s*(?:\u00b0|DEG(?:REES?)?)?\s*"
+    rf"^\s*(?:HEEL(?:ING)?|LIST|HC|H|L)?\s*[=:]?\s*(\d+(?:[.,]\d+)?)\s*(?:\u00b0|DEG(?:REES?)?)?\s*"
     r"(PORT|PT|P|STARBOARD|STBD|STB|SB|S)\s*$",
     re.I,
 )

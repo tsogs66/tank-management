@@ -27,6 +27,10 @@ for t, v in [("Tr=-4", -4), ("T = -4", -4), ("Trim: -4.0 m", -4), ("TRIM -4", -4
 for t, v in [("H1P", -1), ("H3S", 3), ("H 3 S", 3), ("Heel 3 Starboard", 3), ("Heel 1 Port", -1), ("1P", -1),
              ("1 Port", -1), ("List 2P", -2), ("HEEL 3° STBD", 3), ("H2.5P", -2.5)]:
     check(f"heel {t!r} = {v}", h.label_value(t) == (v, "heel"), str(h.label_value(t)))
+for t, v in [("HC3P", -3.0), ("HC2P", -2.0), ("HC1P", -1.0), ("HC1S", 1.0), ("HC3S", 3.0)]:
+    check(f"heel correction {t!r} = {v}", h.label_value(t) == (v, "heel"), str(h.label_value(t)))
+for t, v in [("tr=0", 0.0), ("tr=-0.5", -0.5), ("tr=0.5", 0.5), ("tr=-4", -4.0)]:
+    check(f"trim {t!r} = {v}", h.label_value(t) == (v, "trim"), str(h.label_value(t)))
 check("a tank's side is not a heel column", h.label_value("NO.1 (P)") is None and h.label_value("TK 3P") is None)
 
 # the unit of the sounding, from its own heading or the cell under it

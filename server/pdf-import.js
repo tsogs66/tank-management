@@ -514,6 +514,8 @@ function inferTankMeta(name) {
     fuelRole: 'storage',
     calcType: 'direct',
     soundingMethod: 'sounding',
+    // Head (bow, fore) trim is positive, stern (aft) negative: a PDF import is read in that sense.
+    trimAxisSense: 'bow',
     correctionDivisor: 10,
     pipeHeight: 0,
   };
