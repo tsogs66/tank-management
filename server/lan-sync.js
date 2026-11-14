@@ -250,9 +250,11 @@ function create(opts) {
 
   let pairing = null; // {code, expiresAt, tries}
 
-  function startPairing() {
+  /** One code can serve more than one program: the AIO shows a single code and hands it to Tank and Voyage. */
+  function startPairing(wanted) {
+    const given = String(wanted == null ? '' : wanted).replace(/\D/g, '');
     pairing = {
-      code: randomCode(),
+      code: given.length === 6 ? given : randomCode(),
       expiresAt: Date.now() + PAIR_CODE_TTL_MS,
       tries: 0,
     };
@@ -300,7 +302,7 @@ function create(opts) {
   });
 
   app.post('/api/lan/pair/start', localOnly, (req, res) => {
-    res.json(startPairing());
+    res.json(startPairing(req.body && req.body.code));
   });
 
   app.post('/api/lan/pair', (req, res) => {
