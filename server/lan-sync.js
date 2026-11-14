@@ -113,6 +113,7 @@ function create(opts) {
       scope: raw.scope === 'all' ? 'all' : 'active',
       intervalSec: Math.min(300, Math.max(5, Number(raw.intervalSec) || 20)),
       userScope: raw.userScope || null,
+      license: raw.license && raw.license.tag ? { tag: String(raw.license.tag), email: String(raw.license.email || '') } : null,
       paired: Array.isArray(raw.paired) ? raw.paired : [],   // devices allowed to call us: {deviceId,name,tokenHash,pairedAt}
       peers: Array.isArray(raw.peers) ? raw.peers : [],      // devices we call: {deviceId,name,url,token,pairedAt}
     };
@@ -130,6 +131,29 @@ function create(opts) {
     if (c.deviceName) return c.deviceName;
     try { return (os && os.hostname && os.hostname()) || 'Device'; } catch (_) { return 'Device'; }
   }
+
+  /* ----------------------------------------------------------- license */
+
+  /**
+   * Two devices sync only when they hold the SAME license: the same email and the same license
+   * (one key gives one licenseId, whichever device it was activated on). The screen tells this
+   * server who is signed in; what is kept and sent to the other device is a hash of both, never
+   * the license id itself. No license on this device (or an expired one) means no sync at all.
+   */
+  const licenseTagOf = (email, licenseId) => sha('lan-license|' + String(email || '').trim().toLowerCase() + '|' + String(licenseId || '').trim());
+  const ownTag = () => (load().license && load().license.tag) || '';
+  const sameTag = (a, b) => {
+    a = String(a || ''); b = String(b || '');
+    if (!a || !b || a.length !== b.length) return false;
+    let d = 0;
+    for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    return d === 0;
+  };
+  const LICENSE_MSG = {
+    none: 'Activate your license on this device first: live sync works only between devices on the same license.',
+    different: 'These two devices are on different licenses. Live sync works only when both use the same email and license.',
+    older: 'The other device runs a version that does not check licenses. Update it, then pair again.',
+  };
 
   /** Run in the same license folder the user works in, whichever request or timer calls. */
   function scoped(fn) {
@@ -247,6 +271,10 @@ function create(opts) {
   function lanAuth(req, res, next) {
     const peer = tokenOk(req);
     if (!peer) return res.status(401).json({ error: 'Not paired with this device' });
+    if (!ownTag()) return res.status(403).json({ error: LICENSE_MSG.none, code: 'no-license' });
+    if (!sameTag(req.get ? req.get('x-lan-license') : '', ownTag())) {
+      return res.status(403).json({ error: LICENSE_MSG.different, code: 'different-license' });
+    }
     req.lanPeer = peer;
     return next();
   }
@@ -289,6 +317,10 @@ function create(opts) {
     if (given !== pairing.code) {   // six digits and five tries: timing is not the weak point
       return res.status(403).json({ error: 'That code is not right.' });
     }
+    if (!ownTag()) return res.status(403).json({ error: LICENSE_MSG.none, code: 'no-license' });
+    if (!sameTag(b.license, ownTag())) {
+      return res.status(403).json({ error: b.license ? LICENSE_MSG.different : LICENSE_MSG.older, code: 'different-license' });
+    }
     pairing = null; // a code is good once
     const c = load();
     const callerId = String(b.deviceId || '').slice(0, 80) || crypto.randomUUID();
@@ -307,7 +339,7 @@ function create(opts) {
       });
     }
     save();
-    res.json({ ok: true, token, deviceId: c.deviceId, deviceName: deviceName(), product });
+    res.json({ ok: true, token, deviceId: c.deviceId, deviceName: deviceName(), product, license: ownTag() });
   });
 
   app.get('/api/lan/status', lanAuth, (req, res) => {
@@ -341,6 +373,21 @@ function create(opts) {
 
   /* ---- local control: the Settings screen talks to these ---- */
 
+  /** The screen says whose license this device is on (or that there is none). Only the hash is kept. */
+  app.post('/api/lan/license', localOnly, (req, res) => {
+    const c = load();
+    const b = req.body || {};
+    const email = String(b.email || '').trim().toLowerCase();
+    const id = String(b.licenseId || '').trim();
+    const next = email && id ? { tag: licenseTagOf(email, id), email } : null;
+    const changed = (c.license && c.license.tag) !== (next && next.tag);
+    c.license = next;
+    if (changed) { for (const st of peerState.values()) { st.status = 'unknown'; st.message = ''; } }
+    save();
+    if (changed && c.enabled && next) syncSoon();
+    res.json(publicState(c));
+  });
+
   app.get('/api/lan/state', localOnly, (req, res) => {
     const c = load();
     res.json(publicState(c));
@@ -367,14 +414,19 @@ function create(opts) {
       const url = String(b.url || '').replace(/\/$/, '');
       if (!/^https?:\/\//i.test(url)) return res.status(400).json({ error: 'Give the other device address, like http://192.168.0.20:3080' });
       const c = load();
+      if (!ownTag()) return res.status(403).json({ error: LICENSE_MSG.none, code: 'no-license' });
       const myUrl = ownUrl();
       const backToken = myUrl ? randomHex(32) : '';
-      const body = { code: b.code, deviceId: c.deviceId, deviceName: deviceName() };
+      const body = { code: b.code, deviceId: c.deviceId, deviceName: deviceName(), license: ownTag() };
       if (myUrl) { body.url = myUrl; body.backToken = backToken; }
       const base = await resolveBase(url);
       const r = await timed(`${base}/api/lan/pair`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }, 10000);
       const out = await r.json().catch(() => ({}));
-      if (!r.ok || !out.token) return res.status(r.status || 400).json({ error: out.error || 'Pairing failed' });
+      if (!r.ok || !out.token) return res.status(r.status || 400).json({ error: out.error || 'Pairing failed', code: out.code });
+      /* The other device must be on this license too (a device from before this check says nothing). */
+      if (!sameTag(out.license, ownTag())) {
+        return res.status(403).json({ error: out.license ? LICENSE_MSG.different : LICENSE_MSG.older, code: 'different-license' });
+      }
       c.peers = c.peers.filter((p) => p.deviceId !== out.deviceId);
       c.peers.push({ deviceId: out.deviceId, name: out.deviceName || 'Device', url: base, token: out.token, pairedAt: new Date().toISOString() });
       if (backToken) {
@@ -408,6 +460,7 @@ function create(opts) {
   app.post('/api/lan/copy', localOnly, async (req, res) => {
     try {
       const b = req.body || {};
+      if (!ownTag()) return res.status(403).json({ error: LICENSE_MSG.none, code: 'no-license' });
       const peer = load().peers.find((p) => p.deviceId === b.deviceId);
       if (!peer) return res.status(404).json({ error: 'That device is not paired' });
       const done = await scoped(() => copyVessel(peer, String(b.vesselId || ''), b.direction === 'pull' ? 'pull' : 'push'));
@@ -567,11 +620,14 @@ function create(opts) {
 
   async function peerJson(peer, apiPath, init, ms) {
     const r = await timed(`${peer.url}${apiPath}`, Object.assign({}, init || {}, {
-      headers: Object.assign({ authorization: `Bearer ${peer.token}` }, (init && init.headers) || {}),
+      headers: Object.assign({ authorization: `Bearer ${peer.token}`, 'x-lan-license': ownTag() }, (init && init.headers) || {}),
     }), ms || 15000);
     let body = null;
     try { body = await r.json(); } catch (_) { body = null; }
     if (r.status === 401) { const e = new Error('unpaired'); e.code = 'unpaired'; throw e; }
+    if (r.status === 403 && body && (body.code === 'different-license' || body.code === 'no-license')) {
+      const e = new Error(body.error || LICENSE_MSG.different); e.code = body.code; throw e;
+    }
     if (!r.ok) throw new Error((body && body.error) || `HTTP ${r.status}`);
     return body;
   }
@@ -617,12 +673,14 @@ function create(opts) {
     const c = load();
     const st = peerState.get(peer.deviceId) || {};
     peerState.set(peer.deviceId, st);
+    if (!ownTag()) { st.status = 'no-license'; st.message = LICENSE_MSG.none; return; }
     let theirs;
     try {
       const full = c.scope === 'all';
       theirs = await peerJson(peer, `/api/lan/status${full ? '?full=1' : ''}`, null, 12000);
     } catch (e) {
       if (e.code === 'unpaired') { st.status = 'unpaired'; st.message = 'This device no longer trusts us. Pair again.'; return; }
+      if (e.code === 'different-license' || e.code === 'no-license') { st.status = e.code; st.message = e.message; return; }
       st.status = 'offline';
       st.message = 'Not reachable right now';
       return;
@@ -671,6 +729,7 @@ function create(opts) {
       }
     } catch (e) {
       if (e.code === 'unpaired') { st.status = 'unpaired'; st.message = 'This device no longer trusts us. Pair again.'; return; }
+      if (e.code === 'different-license' || e.code === 'no-license') { st.status = e.code; st.message = e.message; return; }
       st.status = 'error';
       st.message = e.message || 'Sync failed';
       return;
@@ -753,6 +812,7 @@ function create(opts) {
       scope: c.scope,
       intervalSec: c.intervalSec,
       canBeCalled: canBeCalled(),
+      license: { active: !!ownTag(), email: (c.license && c.license.email) || '' },
       address: ownUrl(),
       pairing: pairing && Date.now() < pairing.expiresAt ? { code: pairing.code, expiresAt: new Date(pairing.expiresAt).toISOString() } : null,
       peers: c.peers.map((p) => {
