@@ -8,7 +8,7 @@
  */
 const Branding = (() => {
   const APP_NAME = 'Tank Chief';
-  const APP_VERSION = '2.2.51';
+  const APP_VERSION = '2.2.52';
   const AUTHORS = ['ts0gs', 'Marvin C. Endozo'];
 
   /** "ts0gs · Marvin C. Endozo" */
