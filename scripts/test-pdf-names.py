@@ -95,5 +95,9 @@ check("a continued page is the same tank", p2["name"] == p1["name"] and p2["sour
 check("a page with no title carries the tank", p3["name"] == p1["name"] and p3["source"] == "carried")
 check("a new title starts a new tank", p4["name"] == "NO.2 M.D.O. SERVICE TANK (S)" and p4["newTank"])
 
+# --- SDARI style: "NN compart: NAME" and "NAME - Volume in m3"
+check("compartment number leader is dropped", n.clean_name("14 compart: NO.1 H.F.O.STOR.TK.P")[0] == "NO.1 H.F.O.STOR.TK.P", n.clean_name("14 compart: NO.1 H.F.O.STOR.TK.P"))
+check("'- Volume in m3' trailer is dropped", n.clean_name("NO.1 H.F.O.STOR.TK.P - Volume in m3")[0] == "NO.1 H.F.O.STOR.TK.P", n.clean_name("NO.1 H.F.O.STOR.TK.P - Volume in m3"))
+
 print(f"\n{total - failed}/{total} passed")
 sys.exit(1 if failed else 0)

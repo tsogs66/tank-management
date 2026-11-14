@@ -1272,6 +1272,16 @@ def merge_continued_tables(tables, span_until_next_tank=True):
     if not span_until_next_tank or not tables:
         return tables
 
+    # A page's running head ("SDARI / MANUAL SOUNDING TABLE / SC4669...") can be read as a table of
+    # one row. It carries nothing, and between two pages of a table it cut the table in two. Dropped
+    # only on a page that has a real table of its own, so an unreadable page is still shown.
+    real_pages = {t.get("page") for t in tables if not t.get("skipped")}
+    tables = [
+        t for t in tables
+        if not (t.get("skipped") and (t.get("rows") or 0) <= 1 and t.get("page") in real_pages
+                and "hydrostatic" not in str(t.get("skipReason") or "").lower().replace("removing hydrostatic headers", ""))
+    ]
+
     merged = []
     i = 0
     while i < len(tables):
@@ -1308,12 +1318,21 @@ def merge_continued_tables(tables, span_until_next_tank=True):
                 cur["titleHint"] = cur["tankName"]
 
             nxt_role = nxt.get("tableRole") or detect_table_role(nxt.get("raw") or [])
-            # Allow unknown to inherit; otherwise roles must match
-            if role not in (None, "unknown") and nxt_role not in (None, "unknown", role):
-                break
-
             nxt_raw = nxt.get("raw") or []
             nxt_pattern = nxt.get("pattern") or extract_pattern(nxt_raw, nxt_role or role)
+            # The same heading row again is the same table, whatever a few rows of it read as: the
+            # last page of a tank (three rows, the tank full) is guessed "volume" where the pages
+            # before were "trim", and that cut the table off just before its end.
+            def _heading_cells(pat):
+                return [str(c).strip() for c in ((pat or {}).get("header") or [])]
+            ha, hb = _heading_cells(pattern), _heading_cells(nxt_pattern)
+            n_same = min(len(ha), len(hb))
+            # the shorter heading is the front of the longer (a page that lost its last columns)
+            same_heading = n_same >= 8 and ha[:n_same] == hb[:n_same]
+            # Allow unknown to inherit; otherwise roles must match
+            if role not in (None, "unknown") and nxt_role not in (None, "unknown", role) and not same_heading:
+                break
+
             # Continuation page often repeats header OR is pure numeric rows
             is_cont = rows_look_like_continuation(nxt_raw, pattern or nxt_pattern)
             same_axis = False
@@ -1866,7 +1885,10 @@ def extract_tables(
                 score = 0
                 ncols = len(processed["rows"][0]) if processed["rows"] else 0
                 if not processed["skipped"] and kind == "grid":
-                    score = 100 + len(processed["parsed"].get("trimAxis") or [])
+                    # A reading that split one column in two (the table finder cut "0.47" into "0" and
+                    # "47" in a single column of one page) has fewer trim columns than the one that did
+                    # not; a column lost out of a table is worth more than a few rows.
+                    score = 100 + len(processed["parsed"].get("trimAxis") or []) + 8 * len(processed["parsed"].get("trimVals") or [])
                 elif not processed["skipped"] and kind == "volumeCurve":
                     # Prefer volume curves when hydro cols were stripped (Gangos-style)
                     score = 90 + len(processed["parsed"].get("volumeCurve", {}).get("x") or [])
