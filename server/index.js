@@ -436,30 +436,60 @@ app.post('/api/vessels/:id/fuel-report/compute', (req, res) => {
 app.put('/api/vessels/:id/fuel-report', (req, res) => {
   try {
     const body = req.body || {};
-    const built = buildFuelReport(req.params.id, body.form || body);
+    const sent = body.form || body;
+    const built = buildFuelReport(req.params.id, sent);
     let bundle = built.bundle;
-    const form = { ...built.computed.form, updatedAt: new Date().toISOString() };
-    const gradesChanged = fuelReport.applyCarriedFuelGrades(bundle, form);
-    if (gradesChanged.tanks) store.saveVesselPart(req.params.id, 'tanks', bundle.tanks);
-    store.saveVesselPart(req.params.id, 'fuelReport', form);
-    const recomputed = gradesChanged.tanks || gradesChanged.form
-      ? buildFuelReport(req.params.id, form)
-      : built;
-    bundle = recomputed.bundle;
-    const computed = recomputed.computed;
+    /* The stamp is the moment the person pressed Save, as their device saw it. Stamping every
+       arrival "now" made an old save that reached the server late (a queued offline save, a print
+       that finished after the next edit) look like the newest and put the OLD report back in the
+       form. A stamp in the future (a wrong clock) is not believed. */
+    const stampOf = (v) => {
+      const t = Date.parse(v);
+      return Number.isFinite(t) && t <= Date.now() + 2 * 60 * 1000 ? new Date(t).toISOString() : null;
+    };
+    const stamp = stampOf(sent && sent.updatedAt) || new Date().toISOString();
+    const form = { ...built.computed.form, updatedAt: stamp };
+    const current = bundle.fuelReport && typeof bundle.fuelReport === 'object' ? bundle.fuelReport : null;
+    const stale = !!(current && current.updatedAt && String(current.updatedAt) > stamp);
+    let computed = built.computed;
+    if (!stale) {
+      const gradesChanged = fuelReport.applyCarriedFuelGrades(bundle, form);
+      if (gradesChanged.tanks) store.saveVesselPart(req.params.id, 'tanks', bundle.tanks);
+      store.saveVesselPart(req.params.id, 'fuelReport', form);
+      const recomputed = gradesChanged.tanks || gradesChanged.form
+        ? buildFuelReport(req.params.id, form)
+        : built;
+      bundle = recomputed.bundle;
+      computed = recomputed.computed;
 
-    if (body.syncReadings !== false) {
-      store.saveVesselPart(req.params.id, 'readings', fuelReport.readingsFromReport(bundle, computed));
+      if (body.syncReadings !== false) {
+        store.saveVesselPart(req.params.id, 'readings', fuelReport.readingsFromReport(bundle, computed));
+      }
     }
 
-    let history = bundle.reportHistory || [];
+    /* A report is filed once: the id the device made is the one kept, so the same save arriving
+       twice (a retry, an offline queue) is one report, and the device's own list and the server's
+       agree on which is which. */
     let snapshot = null;
     if (body.snapshot) {
       snapshot = fuelReport.snapshotFromReport(computed);
-      history = [snapshot, ...history].slice(0, 50);
-      store.saveVesselPart(req.params.id, 'reportHistory', history);
+      const entry = body.snapshotEntry;
+      if (entry && typeof entry.id === 'string' && /^rep_[a-z0-9]{3,20}$/i.test(entry.id)) {
+        snapshot.id = entry.id;
+        const at = stampOf(entry.savedAt);
+        if (at) snapshot.savedAt = at;
+      }
+      const have = (bundle.reportHistory || []).find((s) => s && s.id === snapshot.id);
+      if (have) snapshot = have;
+      else store.saveVesselPart(req.params.id, 'reportHistory', [snapshot]);
     }
+    const history = (store.getVesselBundle(req.params.id).reportHistory) || [];
 
+    if (stale) {
+      /* An older save than the one already held: filed as a report if it was one, but it does not
+         touch the open form, the gaugings or the voyage. */
+      return res.json({ form: current, computed, snapshot, history, stale: true });
+    }
     const voyage = {
       ...(bundle.voyage || {}),
       voyageNo: form.header.voyageNo,
