@@ -136,10 +136,10 @@ const BunkerReports = (() => {
       }
     };
 
-    if (deferServer) {
-      Branding.afterPrintHold(() => { pushServer(); });
-      return null;
-    }
+    /* Written to the database now, even when a print follows. It used to wait for the print dialog
+       to close, and a dialog that never reports back left the new report on this screen only: the
+       next load read the database and the OLD report came back. (deferServer is kept for callers
+       but no longer holds the write back.) */
     return pushServer();
   }
 

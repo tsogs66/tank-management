@@ -1000,8 +1000,12 @@ const FuelReport = (() => {
     };
 
     view.dirty = false;
+    /* The report goes into the database BEFORE the printer dialog opens. It used to be sent after
+       the dialog closed, and a dialog that never reports back (the Android print screen, a closed
+       window, the app put away) left the new report on this screen only: the next load read the
+       database, and the OLD report came back. */
+    await pushServer();
     if (print) {
-      /* Print first — server PUT looks like a sync and blocks the printer dialog. */
       Branding.beginPrintHold();
       try {
         printReport(computed);
@@ -1009,10 +1013,12 @@ const FuelReport = (() => {
         Branding.endPrintHold();
         throw err;
       }
-      Branding.afterPrintHold(() => { pushServer(); });
+      /* Once the printer dialog is done, show the saved list with the report just filed. */
+      Branding.afterPrintHold(() => {
+        if (STATE.route && STATE.route.page === 'fuel-report' && !view.dirty) navigate('fuel-report');
+      });
       return;
     }
-    await pushServer();
     if (!quiet) navigate('fuel-report');
   }
 

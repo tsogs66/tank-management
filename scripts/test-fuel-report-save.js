@@ -132,6 +132,25 @@ async function check(name, fn) {
       { cwd: ROOT, env: Object.assign({}, process.env, { TMS_DATA_DIR: dir }), encoding: 'utf8' });
       assert.strictEqual(store.stdout.trim(), 'x2 true', store.stdout + store.stderr);
     });
+
+    /* Print & Save used to send the report to the database only AFTER the printer dialog closed. A
+       dialog that never reports back (the Android print screen, a closed window) left the new report
+       on the screen only, and the next load read the database: the OLD report came back. */
+    await check('Print & Save writes the report to the database before the printer dialog opens', () => {
+      const src = fs.readFileSync(path.join(ROOT, 'public/js/fuel-report.js'), 'utf8');
+      const body = src.slice(src.indexOf('async function saveReport('), src.indexOf('async function flushIfDirty'));
+      const push = body.indexOf('await pushServer();');
+      const print = body.indexOf('printReport(computed)');
+      assert.ok(push > 0 && print > 0, 'saveReport pushes and prints');
+      assert.ok(push < print, 'the push to the database comes before the print');
+      assert.ok(!/afterPrintHold\(\(\) => \{ pushServer\(\); \}\)/.test(body), 'the push is not left waiting for the print dialog');
+    });
+    await check('the bunkering reports (plan, after, summary) are written before the print dialog, too', () => {
+      const src = fs.readFileSync(path.join(ROOT, 'public/js/bunkering-report.js'), 'utf8');
+      const body = src.slice(src.indexOf('async function saveChainPart('), src.indexOf('function sameSavedForm'));
+      assert.ok(!/afterPrintHold\(\(\) => \{ pushServer\(\); \}\)/.test(body), 'the push is not left waiting for the print dialog');
+      assert.ok(/return pushServer\(\);/.test(body), 'the push is sent now');
+    });
   } finally {
     child.kill();
     fs.rmSync(TMP, { recursive: true, force: true });
