@@ -542,36 +542,32 @@ function tablesByName(summary) {
     assert.match(r.body.error, /expired/);
   });
   await check('does not overwrite a stored table that disagrees with the book unless confirmed', async () => {
-    const bundle = (await json(`/api/vessels/${vessel.id}`)).body;
-    // The importer matches a stored tank by name, loosely, and takes the first that fits. Earlier
-    // tests leave tanks on this vessel (scans read with noise in the names), so every tank it
-    // could match has its stored table changed by hand to 8% less than the book's.
-    const norm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const want = norm('NO.2 M.D.O. SERVICE TANK (S)');
-    const matches = Object.values(bundle.tanks).flat().filter((t) => {
-      const tn = norm(t.name);
-      return tn === want || (want.length > 6 && (tn.includes(want) || want.includes(tn)));
+    /* A vessel of its own. The importer matches a stored tank by name, loosely, and takes the first that fits;
+       the tests above leave tanks read from scans on `vessel`, with names the scan made noisy (and, on some
+       machines, calibrations with no volume table to change), so the tank it compared with was not always the
+       one edited here. Nothing else is on this vessel, so there is exactly one tank it can compare with. */
+    const NAME = 'NO.2 M.D.O. SERVICE TANK (S)';
+    const post = (url, body) => json(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const own = (await post('/api/vessels', { name: 'Overwrite Test', imo: '9000777' })).body;
+    const body = { jobId, createTanks: true, tankNames: [NAME] };
+    const made = await post(`/api/vessels/${own.id}/import-pdf`, body);
+    assert.strictEqual(made.body.created, 1, JSON.stringify(made.body.applied));
+    const bundle = (await json(`/api/vessels/${own.id}`)).body;
+    const tanks = Object.values(bundle.tanks).flat();
+    assert.strictEqual(tanks.length, 1, 'exactly one tank on this vessel: ' + tanks.map((t) => t.name).join(' | '));
+    const tank = tanks[0];
+    // The stored table is changed by hand to 8% less than the book's.
+    const vc = tank.volumeCurve;
+    assert.ok(vc && vc.x && vc.v, 'the tank made from the book has a volume table: ' + Object.keys(tank).join(','));
+    const put = await json(`/api/vessels/${own.id}/tanks/${tank.id}/calibration`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ volumeCurve: { x: vc.x, v: vc.v.map((v) => v * 0.92) } }),
     });
-    assert.ok(matches.length, 'the NO.2 MDO service tank exists: ' + Object.values(bundle.tanks).flat().map((t) => t.name).join(' | '));
-    for (const tank of matches) {
-      const vc = tank.volumeCurve;
-      if (!vc || !vc.x) continue;
-      const put = await json(`/api/vessels/${vessel.id}/tanks/${tank.id}/calibration`, {
-        method: 'PUT', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ volumeCurve: { x: vc.x, v: vc.v.map((v) => v * 0.92) } }),
-      });
-      assert.ok(put.status < 300, `the edit of the stored table was not saved: ${put.status} ${JSON.stringify(put.body)}`);
-    }
-    const body = { jobId, createTanks: true, tankNames: ['NO.2 M.D.O. SERVICE TANK (S)'] };
-    const refused = await json(`/api/vessels/${vessel.id}/import-pdf`, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
-    });
+    assert.ok(put.status < 300, `the edit of the stored table was not saved: ${put.status} ${JSON.stringify(put.body)}`);
+    const refused = await post(`/api/vessels/${own.id}/import-pdf`, body);
     assert.strictEqual(refused.body.updated, 0, JSON.stringify(refused.body.applied));
     assert.strictEqual(refused.body.applied[0].needsConfirm, true);
-    const confirmed = await json(`/api/vessels/${vessel.id}/import-pdf`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ...body, confirmOverwrite: ['NO.2 M.D.O. SERVICE TANK (S)'] }),
-    });
+    const confirmed = await post(`/api/vessels/${own.id}/import-pdf`, { ...body, confirmOverwrite: [NAME] });
     assert.strictEqual(confirmed.body.updated, 1, JSON.stringify(confirmed.body.applied));
   });
 
