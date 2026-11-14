@@ -858,7 +858,26 @@ function adoptFilledTankBook(id, bundle) {
 }
 
 /** Union two id-keyed lists, keeping whichever copy of an id is newer. */
+/**
+ * Saved reports are listed newest first, and everything that reads them takes
+ * the first row to be the latest save. A union that appended the incoming copy
+ * after the stored ones put every new save at the BOTTOM, so the report just
+ * filed looked like the oldest, the screen compared the form with the wrong
+ * row, and a long list showed the latest nowhere near the top.
+ */
+function newestFirst(list, stampKey) {
+  if (!stampKey) return list;
+  return list
+    .map((item, i) => ({ item, i, stamp: item && typeof item === 'object' ? String(item[stampKey] || '') : '' }))
+    .sort((a, b) => (a.stamp < b.stamp ? 1 : a.stamp > b.stamp ? -1 : a.i - b.i))
+    .map((e) => e.item);
+}
+
 function unionById(currentList, incomingList, stampKey) {
+  return newestFirst(unionByIdRaw(currentList, incomingList, stampKey), stampKey);
+}
+
+function unionByIdRaw(currentList, incomingList, stampKey) {
   const current = Array.isArray(currentList) ? currentList : [];
   const incoming = Array.isArray(incomingList) ? incomingList : [];
   if (!current.length) return incoming;

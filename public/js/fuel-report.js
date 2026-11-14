@@ -600,10 +600,45 @@ const FuelReport = (() => {
     showToast(`Printed from today's tank data — ${changed.length} figure${changed.length === 1 ? '' : 's'} differ${changed.length === 1 ? 's' : ''} from the saved report`);
   }
 
+  /** Filed reports, newest first by the moment they were saved. */
+  function filedReports(history) {
+    return (history || [])
+      .filter((s) => s && s.id !== '__draft__' && !s.isDraft)
+      .map((s, i) => ({ s, i }))
+      .sort((a, b) => {
+        const x = String(a.s.savedAt || '');
+        const y = String(b.s.savedAt || '');
+        return x < y ? 1 : x > y ? -1 : a.i - b.i;
+      })
+      .map((e) => e.s);
+  }
+
+  /**
+   * Is the form on screen a draft: changed since the last report was filed?
+   * A report just filed is not a draft. The stored draft is stamped when Save was pressed, and the
+   * report a moment after, so a draft no newer than the newest report is that report. The form is
+   * also compared with the report as the calculation sees it (normalised the same way), because
+   * comparing it raw said "different" forever and left a Draft row beside every report just saved.
+   */
+  function isDraft(form, newest) {
+    if (!form || !form.updatedAt) return false;
+    if (view.dirty) return true;
+    if (!newest) return true;
+    if (String(form.updatedAt) <= String(newest.savedAt || '')) return false;
+    let normal = form;
+    try { normal = Core.normalizeForm(currentBundle(), form); } catch (_) { normal = form; }
+    return !(newest.form && (sameSavedForm(newest.form, form) || sameSavedForm(newest.form, normal)));
+  }
+
+  /** "2026-11-14 12:00" from a report's own date and time as typed in the form. */
+  function reportDate(date, time) {
+    return [String(date || '').trim(), String(time || '').trim()].filter(Boolean).join(' ');
+  }
+
   function renderHistoryPanel(history) {
     const draftForm = view.form && view.form.updatedAt ? view.form : null;
-    const latest = (history || []).find((s) => s && !s.isDraft && s.id !== '__draft__');
-    const showDraft = draftForm && !(latest && latest.form && sameSavedForm(latest.form, draftForm));
+    const filed = filedReports(history);
+    const showDraft = isDraft(draftForm, filed[0]);
     const draft = showDraft ? [{
       id: '__draft__',
       isDraft: true,
@@ -611,11 +646,14 @@ const FuelReport = (() => {
       reportType: (draftForm.header && draftForm.header.reportType) || '',
       voyageNo: (draftForm.header && draftForm.header.voyageNo) || '',
       port: (draftForm.header && draftForm.header.port) || '',
+      date: (draftForm.header && draftForm.header.date) || '',
+      time: (draftForm.header && draftForm.header.time) || '',
       totals: null,
       form: draftForm,
     }] : [];
-    const merged = [...draft, ...(history || []).filter((s) => s && s.id !== '__draft__' && !s.isDraft)];
+    const merged = [...draft, ...filed];
     const rows = merged.map((s) => `<tr>
+      <td>${esc(reportDate(s.date || (s.form && s.form.header && s.form.header.date), s.time || (s.form && s.form.header && s.form.header.time)) || '—')}</td>
       <td>${s.isDraft ? '<span class="chip on">Draft</span> ' : ''}${esc((s.savedAt || '').replace('T', ' ').slice(0, 16))}</td>
       <td>${esc(s.reportType || '')}</td>
       <td>${esc(s.voyageNo || '')}</td>
@@ -630,8 +668,8 @@ const FuelReport = (() => {
         <summary class="section-title" style="margin-top:0; cursor:pointer;">Saved reports</summary>
         <p class="hint" style="margin-top:8px;">Drafts stay editable. Filed reports can be reprinted or loaded.</p>
         <div class="scroll-x"><table class="data-table">
-          <thead><tr><th>Saved</th><th>Type</th><th>Voyage</th><th>Port</th><th>Total MT</th><th></th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="6" class="empty-state">Nothing saved yet — use Save only to file this report, or Print &amp; Save to file it and print</td></tr>'}</tbody>
+          <thead><tr><th>Report date</th><th>Saved</th><th>Type</th><th>Voyage</th><th>Port</th><th>Total MT</th><th></th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="7" class="empty-state">Nothing saved yet — use Save only to file this report, or Print &amp; Save to file it and print</td></tr>'}</tbody>
         </table></div>
       </details>
     </div>`;
@@ -932,10 +970,10 @@ const FuelReport = (() => {
     let fileSnapshot = !!snapshot;
     if (snapshot) {
       const entry = Core.snapshotFromReport(computed);
-      const prev = (bundle.reportHistory || [])[0];
+      const prev = filedReports(bundle.reportHistory)[0];
       const sameForm = prev && prev.form && entry.form && sameSavedForm(prev.form, entry.form);
       if (!sameForm) {
-        bundle.reportHistory = [entry, ...(bundle.reportHistory || [])].slice(0, 50);
+        bundle.reportHistory = filedReports([entry, ...(bundle.reportHistory || [])]).slice(0, 50);
         body.snapshotEntry = entry;
       } else {
         fileSnapshot = false;
@@ -951,7 +989,8 @@ const FuelReport = (() => {
       try {
         const res = await Api.saveFuelReport(STATE.activeVesselId, body);
         bundle.fuelReport = res.form;
-        if (res.history) bundle.reportHistory = res.history;
+        if (res.history) bundle.reportHistory = filedReports(res.history);
+        if (res.stale && !quiet) showToast('A newer report was already saved here — this one is filed in Saved reports');
         await OfflineDB.idbSet('vessel:' + STATE.activeVesselId, bundle);
         if (!quiet) showToast(snapshot ? 'Report saved' : 'Draft saved');
       } catch {
@@ -986,7 +1025,7 @@ const FuelReport = (() => {
     /* A Save only that used to file a draft only still has to become a saved
        report before a server check, or the push leaves it behind. */
     if (!bundle || !bundle.fuelReport) return;
-    const prev = (bundle.reportHistory || [])[0];
+    const prev = filedReports(bundle.reportHistory)[0];
     if (prev && prev.form && sameSavedForm(prev.form, bundle.fuelReport)) return;
     view.form = bundle.fuelReport;
     await saveReport({ snapshot: true, print: false, quiet: true });
