@@ -2432,8 +2432,12 @@ const BunkerReports = (() => {
       : /^data:image\//i.test(photo.dataUrl);
     box.className = '';
     box.innerHTML = isImg
-      ? `<img src="${photo.dataUrl}" alt="BDN photo" style="max-width:100%;max-height:220px;border:1px solid var(--line,#333);border-radius:4px;">`
-      : `<div class="hint" style="margin:0;">Attached: ${esc(photo.filename || 'BDN document')}</div>`;
+      ? `<img src="${photo.dataUrl}" alt="BDN photo" data-viewer data-viewer-title="BDN photo" data-viewer-name="${esc(photo.filename || 'bdn-photo.jpg')}" style="max-width:100%;max-height:220px;border:1px solid var(--line,#333);border-radius:4px;"><div class="hint" style="margin:4px 0 0;">Tap the photo to open it full screen and zoom.</div>`
+      : `<div class="hint" style="margin:0;">Attached: ${esc(photo.filename || 'BDN document')} <button type="button" class="ghost small" id="bs-bdn-view-doc">View</button></div>`;
+    const viewBtn = document.getElementById('bs-bdn-view-doc');
+    if (viewBtn && window.ChengFileViewer) {
+      viewBtn.onclick = () => ChengFileViewer.open({ src: photo.dataUrl, mime: photo.mime, filename: photo.filename, title: photo.filename || 'BDN document' });
+    }
   }
 
   function readFileAsDataUrl(file) {

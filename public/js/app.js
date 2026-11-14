@@ -5197,7 +5197,7 @@ function buildPrintIdentityPanel() {
     const sig = assets.chEngSignatures[signatureKeyFor(name)] || null;
     const sigBox = panel.querySelector('#sig-preview');
     sigBox.innerHTML = sig
-      ? `<img src="${sig}" alt="Chief Engineer signature">`
+      ? `<img src="${sig}" alt="Chief Engineer signature" data-viewer data-viewer-title="Chief Engineer signature">`
       : `<span class="stamp-empty">${name
         ? 'No signature stored for ' + escapeHtml(name) + '.'
         : 'Enter the Chief Engineer name above, save the vessel, then upload their signature.'}</span>`;
@@ -5207,7 +5207,7 @@ function buildPrintIdentityPanel() {
 
     const logoBox = panel.querySelector('#logo-preview');
     logoBox.innerHTML = assets.vesselLogo
-      ? `<img src="${assets.vesselLogo}" alt="Vessel logo">`
+      ? `<img src="${assets.vesselLogo}" alt="Vessel logo" data-viewer data-viewer-title="Vessel logo / stamp">`
       : '<span class="stamp-empty">No logo uploaded — printouts show the signature block only.</span>';
     panel.querySelector('#logo-recut').style.display = assets.vesselLogo ? '' : 'none';
     panel.querySelector('#logo-remove').style.display = assets.vesselLogo ? '' : 'none';

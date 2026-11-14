@@ -46,10 +46,10 @@ const TankSoundingCard = (() => {
       ? tanks.map((t, i) => {
         const val = sample ? String(120 + i * 17) : '';
         const temp = sample ? String(38 + (i % 5)) : '';
-        let method = String(t.soundingMethod || t.method || '').toLowerCase();
-        if (sample && !method) method = (i % 3 === 0) ? 'depth' : 'ullage';
-        const ullageChk = sample && (method === 'ullage' || method === 'ull') ? ' pr-tsc-checked' : '';
-        const depthChk = sample && (method === 'depth' || method === 'dip' || method === 'sounding') ? ' pr-tsc-checked' : '';
+        /* Neither box is ever pre-marked, on the blank or on the sample: the method used for each
+           actual reading (ullage or depth) is the user's to tick on the paper. */
+        const ullageChk = '';
+        const depthChk = '';
         return `<tr><td class="pr-tsc-tank">${esc(t.name || 'Tank')}</td>`
           + `<td class="pr-tsc-method-cell">`
           + `<label class="pr-tsc-chk${ullageChk}"><span class="pr-tsc-box"></span> Ullage</label>`

@@ -12,6 +12,7 @@ const ASSETS = [
   '/js/notes.js',
   '/js/api.js',
   '/js/branding.js',
+  '/js/file-viewer.js',
   '/js/node-shim.js',
   '/js/node-require.js',
   '/js/store-core.js',
