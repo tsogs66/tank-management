@@ -2024,6 +2024,10 @@ tr.bp-row-done td.fr-calc, tr.bp-row-done th.fr-tank-name { opacity: .72; }
     top: -5.9mm;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
+  /* The stamp is out of flow (zero-height box) and hangs 36mm below the top of the row. Without room
+     for it a full sheet lost its lower part to the page edge; with a stamp the row is 30mm tall, so
+     all but the last 6mm is in the layout and the rest sits in the sheet's bottom padding. */
+  .fr-print-signrow.has-stamp { min-height: 30mm; }
   .fr-tc-signoff .fr-print-signrow { justify-content: flex-start; margin-top: 0; }
   .fr-tc-signoff .fr-print-signrow .fr-print-sign-line {
     width: 62mm; min-height: 0; padding-top: 0;

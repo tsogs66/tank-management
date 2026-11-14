@@ -252,6 +252,7 @@ ${landscape ? '' : 'body:not(.printing-calib) .calib-print-page, body:not(.print
   display: flex !important; align-items: center !important;
   justify-content: flex-end !important; gap: 0 !important; margin-top: 8px !important;
 }
+.fr-print-signrow.has-stamp { min-height: 30mm !important; }
 .fr-tc-signoff .fr-print-signrow { justify-content: flex-start !important; margin-top: 0 !important; }
 .fr-print-sign { flex: 0 0 62mm !important; font-size: 8pt !important; text-align: center !important; }
 .fr-print-sign-space {

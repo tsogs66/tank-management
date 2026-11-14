@@ -1140,7 +1140,7 @@ const FuelReport = (() => {
     const signer = String(signerName || vesselChiefEngineer() || '').trim();
     const sig = signatureFor(signer);
     const logo = vesselAssets().vesselLogo;
-    return `<div class="fr-print-signrow">
+    return `<div class="fr-print-signrow${logo ? ' has-stamp' : ''}">
       <div class="fr-print-sign">
         <div class="fr-print-sign-space">${sig ? `<img src="${esc(sig)}" alt="">` : ''}</div>
         <div class="fr-print-sign-line"></div>
