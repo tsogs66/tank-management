@@ -546,10 +546,14 @@ function tablesByName(summary) {
     const tank = Object.values(bundle.tanks).flat().find((t) => /MDO|M\.D\.O/.test(t.name));
     // The stored table is changed by hand to 8% less than the book's.
     const vc = tank.volumeCurve;
-    await json(`/api/vessels/${vessel.id}/tanks/${tank.id}/calibration`, {
+    const put = await json(`/api/vessels/${vessel.id}/tanks/${tank.id}/calibration`, {
       method: 'PUT', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ volumeCurve: { x: vc.x, v: vc.v.map((v) => v * 0.92) } }),
     });
+    assert.ok(put.status < 300, `the edit of the stored table was not saved: ${put.status} ${JSON.stringify(put.body)}`);
+    const now = (await json(`/api/vessels/${vessel.id}`)).body;
+    const back = Object.values(now.tanks).flat().find((t) => t.id === tank.id);
+    assert.ok(Math.abs(back.volumeCurve.v[back.volumeCurve.v.length - 1] - vc.v[vc.v.length - 1] * 0.92) < 1e-6, 'the stored table holds the edit');
     const body = { jobId, createTanks: true, tankNames: ['NO.2 M.D.O. SERVICE TANK (S)'] };
     const refused = await json(`/api/vessels/${vessel.id}/import-pdf`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
