@@ -6409,7 +6409,7 @@ document.addEventListener('DOMContentLoaded', boot);
       var w = window.innerWidth || 0, h = window.innerHeight || 0;
       var mobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '')
         || window.matchMedia('(hover: none) and (pointer: coarse)').matches;
-      document.documentElement.classList.toggle('tablet-rail', !!(mobile && w > h && w >= 900 && Math.min(w, h) >= 560));
+      document.documentElement.classList.toggle('tablet-rail', !!((mobile || (navigator.maxTouchPoints || 0) > 0) && w > h && w >= 900 && Math.min(w, h) >= 560));
     }catch(_e){}
   }
   apply();
