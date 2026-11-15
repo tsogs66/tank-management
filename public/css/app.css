@@ -3650,3 +3650,9 @@ input[type=file]::file-selector-button:hover { border-color: var(--accent); }
 
 /* Bunkering monitor: the pump-clock buttons (Start/Reopen, Reset, Finish, Test alarm) sit at the right on tablets and desktops */
 @media (min-width: 721px) { .bp-clock-actions { justify-content: flex-end; } }
+
+/* the four pump-clock buttons form one tidy 2 x 2 block: equal width, same columns in both rows */
+@media (min-width: 721px) {
+  .bp-clock-actions { gap: 8px; }
+  .bp-clock-actions .btn { flex: 0 0 156px; width: 156px; justify-content: center; text-align: center; white-space: nowrap; }
+}
