@@ -2966,7 +2966,7 @@ function renderAddTank(main) {
   };
 
   document.getElementById('btn-starter-bulker').onclick = async () => {
-    const have = new Set((STATE.bundle?.tanks || []).map((x) => String(x.name || '').toUpperCase()));
+    const have = new Set(Object.values(STATE.bundle?.tanks || {}).flat().map((x) => String(x.name || '').toUpperCase()));
     let added = 0;
     for (const s of BULKER_STARTER_TANKS) {
       if (have.has(s.name.toUpperCase())) continue;
