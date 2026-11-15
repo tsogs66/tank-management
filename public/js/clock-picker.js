@@ -73,6 +73,10 @@ html.bright .ccp-face{background:radial-gradient(circle at 35% 30%,rgba(23,102,9
 .ccp-hand.dim{opacity:.22}
 .ccp-num{position:absolute;left:50%;top:50%;width:var(--ccp-num,28px);height:var(--ccp-num,28px);margin:calc(var(--ccp-num, 28px) / -2) 0 0 calc(var(--ccp-num, 28px) / -2);padding:0 !important;min-width:0 !important;min-height:0 !important;max-width:none;border:none !important;background:transparent;color:inherit;font:inherit;letter-spacing:normal;text-transform:none;display:flex;align-items:center;justify-content:center;border-radius:50%;font-weight:700;font-size:var(--ccp-num-font,12px) !important;line-height:1;cursor:pointer;user-select:none;opacity:.9;z-index:4;-webkit-tap-highlight-color:transparent;box-sizing:border-box;box-shadow:none}
 .ccp-num:hover,.ccp-num.active{background:rgba(201,154,83,.28);opacity:1;box-shadow:0 0 0 1px rgba(201,154,83,.5);border:none !important;color:inherit}
+/* the theme's rivet dots and brass underline (button ornament) must not sit beside the numerals */
+.ccp-num,.ccp-num:hover,.ccp-num.active{background-image:none !important}
+.ccp-num{box-shadow:none !important}
+.ccp-num:hover,.ccp-num.active{box-shadow:0 0 0 1px rgba(201,154,83,.5) !important}
 .ccp-tick{position:absolute;left:50%;top:50%;width:2px;height:7px;margin:-3.5px 0 0 -1px;background:rgba(233,228,214,.35);transform-origin:center center;pointer-events:none;z-index:1}
 .ccp-tick.major{height:11px;margin-top:-5.5px;background:rgba(201,154,83,.65)}
 .ccp-readout{text-align:center;font-variant-numeric:tabular-nums;font-size:1.6rem;font-weight:700;letter-spacing:.06em;margin-bottom:10px}
