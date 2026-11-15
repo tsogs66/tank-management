@@ -3519,3 +3519,70 @@ html.astrolabe body::before { opacity: 0.26; }
 @media screen and (max-width: 380px) {
   :root { --nav-label: 11px; }
 }
+
+/* ---- Field-test fixes ------------------------------------------------------------------ */
+
+/* The sounding-tank watermark ran through table text and headings; keep it a quiet backdrop. */
+body::before { opacity: 0.14; }
+html.bright body::before { opacity: 0.09; }
+html.prism body::before,
+html.astrolabe body::before { opacity: 0.14; }
+@media (max-width: 700px) {
+  body::before { opacity: 0.09; }
+  html.bright body::before { opacity: 0.06; }
+}
+
+/* A toast sat on top of the bottom-bar labels. With the bar showing, it rides above it. */
+html.use-bottom-nav .toast {
+  bottom: calc(var(--nav-item-h, 64px) + 16px + env(safe-area-inset-bottom, 0px));
+}
+
+/* A tank above 100% of its capacity is flagged where the fill is shown. */
+.fillbar-wrap .over-pill { margin-left: 6px; font-size: 11px; padding: 1px 6px; }
+
+/* Phones: one header block. The status lines share a row under the title instead of a
+   column to the right that squeezes the title onto three lines. */
+@media (max-width: 640px) {
+  .masthead {
+    grid-template-columns: auto auto auto minmax(0, 1fr);
+    padding: 6px 10px 8px;
+  }
+  .masthead .app-logo { width: 34px; height: 34px; grid-row: 1 / span 3; }
+  .masthead h1 { grid-column: 2 / span 2; font-size: 18px; }
+  .masthead .subtitle {
+    grid-column: 2 / -1; max-width: 100%;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px;
+  }
+  .masthead .byline { display: none; }
+  .masthead #dbStatus, .masthead #syncStatus, .masthead #appVersion {
+    grid-row: 3; max-width: none; font-size: 11px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; min-width: 0;
+  }
+  .masthead #dbStatus { grid-column: 2; justify-self: start; }
+  .masthead #syncStatus { grid-column: 3; justify-self: start; }
+  .masthead #appVersion { grid-column: 4; grid-row: 1; justify-self: end; }
+  .masthead #dataHealthStrip { grid-row: 4; }
+}
+
+/* Phones: the tank tables read as one card per tank, so no column is out of sight. */
+@media (max-width: 640px) {
+  .scroll-x:has(> table.tank-table) { overflow-x: visible; }
+  table.tank-table, table.tank-table tbody { display: block; width: 100%; }
+  table.tank-table thead { display: none; }
+  table.tank-table tr {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px 8px;
+    padding: 10px 12px; margin: 0 0 8px;
+    border: 1px solid var(--border); border-radius: 10px;
+    background: color-mix(in srgb, var(--bg-card) 92%, transparent);
+  }
+  table.tank-table td { display: block; border: 0 !important; padding: 0 !important; min-width: 0; font-size: 13px; }
+  table.tank-table td::before {
+    content: attr(data-label); display: block; font-size: 10px; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--text-faint); margin-bottom: 1px;
+  }
+  table.tank-table td.tname { grid-column: 1 / -1; font-size: 15px; font-weight: 600; }
+  table.tank-table td.tname::before { display: none; }
+  table.tank-table td[data-label="Role"] { grid-column: 1 / span 2; }
+  table.tank-table td[data-label="Side"] { grid-column: 3 / span 2; }
+  table.tank-table td.fill-cell { grid-column: 1 / -1; }
+}

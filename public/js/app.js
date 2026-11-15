@@ -1953,15 +1953,15 @@ function buildTankTable(tanks) {
     tr.className = 'clickable';
     tr.onclick = () => navigate(t.category, t.id);
     tr.innerHTML = `
-      <td class="tname">${t.name}</td>
-      <td><span class="tag">${t.fuelRole || '—'}</span></td>
-      <td>${t.side || '—'}</td>
-      <td>${fmt(t.capacity,1)}</td>
-      <td>${fmt((t.capacity||0)*0.85,1)}</td>
-      <td>${reading != null ? fmt(reading, r?.gaugeType === 'volume' || sheet?.directM3Input ? 2 : 1) : '–'}</td>
-      <td>${vol != null ? fmt(vol,2) : '–'}</td>
-      <td>${pct != null ? `<div class="fillbar-wrap"><div class="fillbar-track"><div class="fillbar-fill" style="width:${Math.min(100,pct)}%;background:${cls==='bad'?'var(--bad)':cls==='warn'?'var(--warn)':'var(--good)'}"></div></div><span class="fillbar-pct">${fmt(pct,0)}%</span></div>` : '<span class="pill neutral">none</span>'}</td>
-      <td>${wt != null ? fmt(wt,2) : '–'}</td>`;
+      <td class="tname" data-label="Tank">${t.name}</td>
+      <td data-label="Role"><span class="tag">${t.fuelRole || '—'}</span></td>
+      <td data-label="Side">${t.side || '—'}</td>
+      <td data-label="100% m³">${fmt(t.capacity,1)}</td>
+      <td data-label="85% m³">${fmt((t.capacity||0)*0.85,1)}</td>
+      <td data-label="Reading">${reading != null ? fmt(reading, r?.gaugeType === 'volume' || sheet?.directM3Input ? 2 : 1) : '–'}</td>
+      <td data-label="Vol m³">${vol != null ? fmt(vol,2) : '–'}</td>
+      <td data-label="Fill" class="fill-cell">${pct != null ? `<div class="fillbar-wrap"><div class="fillbar-track"><div class="fillbar-fill" style="width:${Math.min(100,pct)}%;background:${cls==='bad'?'var(--bad)':cls==='warn'?'var(--warn)':'var(--good)'}"></div></div><span class="fillbar-pct">${fmt(pct,0)}%</span>${pct > 100.2 ? '<span class="pill bad over-pill" title="Above 100% of the tank capacity — check the sounding, the density and the calibration table">over</span>' : ''}</div>` : '<span class="pill neutral">none</span>'}</td>
+      <td data-label="MT">${wt != null ? fmt(wt,2) : '–'}</td>`;
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
@@ -2756,6 +2756,32 @@ async function applyParsedWorkbookTanks(parsedTanks, { replaceExisting } = {}) {
   return { created, replaced, skipped, format: 'flag-evi-xlsx' };
 }
 
+/* Starter tank set for a new bulk carrier (about 80,000 DWT, one main engine, two generators).
+   Capacities are nominal placeholders in m³: the chief replaces them from the capacity plan. */
+const BULKER_STARTER_TANKS = [
+  { name: 'NO.1 H.F.O. TANK (P)', cat: 'fuel', role: 'storage', grade: 'hfo', side: 'port', no: 1, cap: 520 },
+  { name: 'NO.1 H.F.O. TANK (S)', cat: 'fuel', role: 'storage', grade: 'hfo', side: 'starboard', no: 1, cap: 520 },
+  { name: 'NO.2 H.F.O. TANK (P)', cat: 'fuel', role: 'storage', grade: 'hfo', side: 'port', no: 2, cap: 480 },
+  { name: 'NO.2 H.F.O. TANK (S)', cat: 'fuel', role: 'storage', grade: 'hfo', side: 'starboard', no: 2, cap: 480 },
+  { name: 'H.F.O. SETTLING TANK', cat: 'fuel', role: 'settling', grade: 'hfo', cap: 80 },
+  { name: 'H.F.O. SERVICE TANK', cat: 'fuel', role: 'service', grade: 'hfo', cap: 60 },
+  { name: 'L.S.F.O. STORAGE TANK (P)', cat: 'fuel', role: 'storage', grade: 'lsfo', side: 'port', cap: 300 },
+  { name: 'L.S.F.O. STORAGE TANK (S)', cat: 'fuel', role: 'storage', grade: 'lsfo', side: 'starboard', cap: 300 },
+  { name: 'L.S.F.O. SERVICE TANK', cat: 'fuel', role: 'service', grade: 'lsfo', cap: 60 },
+  { name: 'M.G.O. STORAGE TANK', cat: 'fuel', role: 'storage', grade: 'mgo', cap: 120 },
+  { name: 'M.G.O. SERVICE TANK', cat: 'fuel', role: 'service', grade: 'mgo', cap: 25 },
+  { name: 'M/E L.O. STORAGE TANK', cat: 'lube', role: 'storage', cap: 25 },
+  { name: 'G/E L.O. STORAGE TANK', cat: 'lube', role: 'storage', cap: 12 },
+  { name: 'CYL. OIL STORAGE TANK', cat: 'lube', role: 'storage', cap: 20 },
+  { name: 'M/E L.O. SUMP TANK', cat: 'lube', role: 'other', cap: 30 },
+  { name: 'BILGE HOLDING TANK', cat: 'misc', cap: 25 },
+  { name: 'SLUDGE TANK', cat: 'misc', cap: 20 },
+  { name: 'F.W. TANK (P)', cat: 'water', side: 'port', cap: 160 },
+  { name: 'F.W. TANK (S)', cat: 'water', side: 'starboard', cap: 160 },
+  { name: 'DISTILLED W. TANK', cat: 'water', cap: 60 },
+  { name: 'DRINKING W. TANK', cat: 'water', cap: 60 },
+];
+
 function renderAddTank(main) {
   main.innerHTML += `<div class="page-head"><div><h1>Add Tank</h1>
     <div class="desc">Manually add storage, settling, or service tanks — or import tanks and sounding tables from a capacity PDF.</div></div></div>
@@ -2815,6 +2841,9 @@ function renderAddTank(main) {
       <a class="btn" href="${apiHref('/api/templates/tanks.csv')}">Download CSV template</a>
       <a class="btn" id="btn-export-tanks-csv" href="#">Export tanks CSV</a>
     </div>
+    <div class="section-title">Starter set — bulk carrier</div>
+    <p class="hint">A new ship has no tanks. This adds the usual bulk-carrier set (HFO and VLSFO storage, settling and service, gas oil, lube oil, bilge and sludge, fresh water) with <b>nominal capacities</b> and direct m³ entry, so soundings can be logged on day one. Replace each capacity and add its calibration table from the ship's tank-capacity plan. Tanks that already exist by name are left alone.</p>
+    <div class="btn-row"><button class="btn" id="btn-starter-bulker">Add bulk carrier starter tanks</button></div>
     <div class="section-title">Import tanks from sounding PDF</div>
     <p class="hint">Upload a capacity / sounding-table PDF (Veniamis trim-grid or Gangos SOUNDING|VOLUME style). Preview tanks found, then create them with calibration tables applied. <b>Scanned books need OCR</b> (installed automatically when available) — large PDFs can take several minutes.</p>
     <div class="form-row-3" style="margin-bottom:8px">
@@ -2934,6 +2963,24 @@ function renderAddTank(main) {
     const direct = tank.calcType === 'gaugeDirect' || tank.calcType === 'doubleInterpManual';
     showToast(direct ? 'Tank added — enter volume in m³ on monitoring / bunkering' : 'Tank added — open Calibration DB to enter tables');
     navigate(direct ? tank.category : 'calibration');
+  };
+
+  document.getElementById('btn-starter-bulker').onclick = async () => {
+    const have = new Set((STATE.bundle?.tanks || []).map((x) => String(x.name || '').toUpperCase()));
+    let added = 0;
+    for (const s of BULKER_STARTER_TANKS) {
+      if (have.has(s.name.toUpperCase())) continue;
+      await Api.upsertTank(STATE.activeVesselId, {
+        name: s.name, category: s.cat, fuelRole: s.role || 'other', fuelGrade: s.grade || 'other',
+        side: s.side || 'center', tankNo: s.no || null, capacity: s.cap,
+        calcType: 'gaugeDirect', soundingMethod: 'gaugeDirectM3', pipeHeight: 0, correctionDivisor: 10,
+        volumeCurve: { x: [0], v: [0] }, trimAxis: [], trimVals: [], trimGrid: [], listAxis: [], listVals: [], listGrid: [],
+      });
+      added += 1;
+    }
+    await reloadBundle();
+    showToast(added ? `${added} starter tanks added — set each capacity and calibration` : 'The starter tanks are already on this ship');
+    navigate('dashboard');
   };
 
   let addPdfFile = null;
