@@ -3621,3 +3621,38 @@ html.tablet-rail .masthead .byline { display: none; }
 /* page-level print credit: never on screen (print-voyage.css's un-scoped footer rule was showing it, dark on dark) */
 @media screen { #app-credit-page { display: none !important; } }
 @media print { #app-credit-page { display: flex; } }
+
+/* Landscape tablet: the More sheet is a floating panel beside the rail, not a full-width bottom sheet
+   (which slid under the rail and spread three buttons across 1200 px). */
+html.tablet-rail.use-bottom-nav .bn-more-sheet { left: calc(84px + env(safe-area-inset-left, 0px)); }
+html.tablet-rail.use-bottom-nav .bn-more-panel {
+  left: 12px; right: auto; bottom: 12px;
+  width: min(640px, calc(100% - 24px));
+  padding: 12px 12px 14px;
+  border: 1px solid var(--border); border-radius: 14px;
+  max-height: calc(100dvh - 24px);
+}
+
+/* any control a page forgot to style takes the theme instead of the browser's white box (zero specificity: every real rule still wins) */
+:where(body input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]):not([type=button]):not([type=submit]):not([type=reset]):not([type=image]):not([type=hidden]), body select, body textarea) {
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: 7px; color: var(--text); padding: 8px 10px; min-width: 0; box-sizing: border-box; color-scheme: inherit;
+}
+:where(html.bright body input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]):not([type=button]):not([type=submit]):not([type=reset]):not([type=image]):not([type=hidden]), html.bright body select, html.bright body textarea) { background: #ffffff; }
+:where(body input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]):not([type=button]):not([type=submit]):not([type=reset]):not([type=image]):not([type=hidden]), body select, body textarea):focus { outline: none; border-color: var(--accent); }
+
+/* file pickers: themed button instead of the browser's grey one */
+input[type=file] { color: var(--text-dim); font: inherit; max-width: 100%; }
+input[type=file]::file-selector-button {
+  background: transparent; color: var(--accent); border: 1px solid var(--border); border-radius: 6px;
+  padding: 7px 14px; margin-right: 10px; font: inherit; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; cursor: pointer;
+}
+input[type=file]::file-selector-button:hover { border-color: var(--accent); }
+
+/* Bunkering monitor: the pump-clock buttons (Start/Reopen, Reset, Finish, Test alarm) sit at the right on tablets and desktops */
+@media (min-width: 721px) { .bp-clock-actions { justify-content: flex-end; } }
+
+/* the four pump-clock buttons form one tidy 2 x 2 block: equal width, same columns in both rows */
+@media (min-width: 721px) {
+  .bp-clock-actions { gap: 8px; }
+  .bp-clock-actions .btn { flex: 0 0 156px; width: 156px; justify-content: center; text-align: center; white-space: nowrap; }
+}
