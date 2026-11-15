@@ -3647,3 +3647,6 @@ input[type=file]::file-selector-button {
   padding: 7px 14px; margin-right: 10px; font: inherit; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; cursor: pointer;
 }
 input[type=file]::file-selector-button:hover { border-color: var(--accent); }
+
+/* Bunkering monitor: the pump-clock buttons (Start/Reopen, Reset, Finish, Test alarm) sit at the right on tablets and desktops */
+@media (min-width: 721px) { .bp-clock-actions { justify-content: flex-end; } }
