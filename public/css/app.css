@@ -3632,3 +3632,18 @@ html.tablet-rail.use-bottom-nav .bn-more-panel {
   border: 1px solid var(--border); border-radius: 14px;
   max-height: calc(100dvh - 24px);
 }
+
+/* any control a page forgot to style takes the theme instead of the browser's white box (zero specificity: every real rule still wins) */
+:where(body input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]):not([type=button]):not([type=submit]):not([type=reset]):not([type=image]):not([type=hidden]), body select, body textarea) {
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: 7px; color: var(--text); padding: 8px 10px; min-width: 0; box-sizing: border-box; color-scheme: inherit;
+}
+:where(html.bright body input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]):not([type=button]):not([type=submit]):not([type=reset]):not([type=image]):not([type=hidden]), html.bright body select, html.bright body textarea) { background: #ffffff; }
+:where(body input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]):not([type=button]):not([type=submit]):not([type=reset]):not([type=image]):not([type=hidden]), body select, body textarea):focus { outline: none; border-color: var(--accent); }
+
+/* file pickers: themed button instead of the browser's grey one */
+input[type=file] { color: var(--text-dim); font: inherit; max-width: 100%; }
+input[type=file]::file-selector-button {
+  background: transparent; color: var(--accent); border: 1px solid var(--border); border-radius: 6px;
+  padding: 7px 14px; margin-right: 10px; font: inherit; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; cursor: pointer;
+}
+input[type=file]::file-selector-button:hover { border-color: var(--accent); }
