@@ -2966,7 +2966,7 @@ function renderAddTank(main) {
   };
 
   document.getElementById('btn-starter-bulker').onclick = async () => {
-    const have = new Set((STATE.bundle?.tanks || []).map((x) => String(x.name || '').toUpperCase()));
+    const have = new Set(Object.values(STATE.bundle?.tanks || {}).flat().map((x) => String(x.name || '').toUpperCase()));
     let added = 0;
     for (const s of BULKER_STARTER_TANKS) {
       if (have.has(s.name.toUpperCase())) continue;
@@ -6398,4 +6398,116 @@ document.addEventListener('DOMContentLoaded', boot);
   }
   tick();
   setInterval(tick, 15000);
+})();
+
+
+/* Tablet held sideways: the bar moves from the bottom edge to the left edge (class tablet-rail), so
+   the short side of the screen is not spent on it. Phones and tablets held upright keep the bottom bar. */
+(function(){
+  function apply(){
+    try{
+      var w = window.innerWidth || 0, h = window.innerHeight || 0;
+      var mobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '')
+        || window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+      document.documentElement.classList.toggle('tablet-rail', !!(mobile && w > h && w >= 900 && Math.min(w, h) >= 560));
+    }catch(_e){}
+  }
+  apply();
+  window.addEventListener('resize', apply);
+  window.addEventListener('orientationchange', function(){ setTimeout(apply, 150); });
+})();
+
+/* Input boxes that sit side by side start at the same height. A long label or note over one box
+   pushes it down and leaves its neighbour looking out of line, so the boxes with less above them are
+   given the missing space instead. Re-run when the page changes or is resized. */
+(function(){
+  var CTRL = 'input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]), select, textarea';
+  function visible(e){
+    var r = e.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4) return false;
+    var cs = getComputedStyle(e);
+    return cs.visibility !== 'hidden' && cs.display !== 'none';
+  }
+  function clear(){
+    document.querySelectorAll('[data-fa]').forEach(function(e){
+      e.style.marginTop = e.getAttribute('data-fa-prev') || '';
+      e.removeAttribute('data-fa'); e.removeAttribute('data-fa-prev');
+    });
+  }
+  function run(){
+    clear();
+    var ctrls = [].slice.call(document.querySelectorAll(CTRL)).filter(visible);
+    var displays = new Map();
+    var flexOrGrid = function(p){
+      if (!displays.has(p)) displays.set(p, /grid|flex/.test(getComputedStyle(p).display));
+      return displays.get(p);
+    };
+    var containers = new Map();
+    ctrls.forEach(function(c){
+      var cell = c;
+      while (cell.parentElement && cell.parentElement !== document.body){
+        var p = cell.parentElement;
+        if (cell !== c && flexOrGrid(p)){
+          var m = containers.get(p); if (!m){ m = new Map(); containers.set(p, m); }
+          if (!m.has(cell)) m.set(cell, c);
+          break;
+        }
+        cell = p;
+      }
+    });
+    var moves = [];
+    containers.forEach(function(cells){
+      if (cells.size < 2) return;
+      var rows = {};
+      cells.forEach(function(c, cell){ var k = Math.round(cell.getBoundingClientRect().top / 4); (rows[k] = rows[k] || []).push({ cell: cell, c: c }); });
+      Object.keys(rows).forEach(function(k){
+        if (rows[k].length < 2) return;
+        var groups = {};
+        rows[k].forEach(function(x){ var g = Math.round(x.c.getBoundingClientRect().height / 8); (groups[g] = groups[g] || []).push(x); });
+        Object.keys(groups).forEach(function(g){
+          var list = groups[g]; if (list.length < 2) return;
+          var tops = list.map(function(x){ return x.c.getBoundingClientRect().top; });
+          var max = Math.max.apply(null, tops), min = Math.min.apply(null, tops);
+          if (max - min < 1 || max - min >= 90) return;
+          list.forEach(function(x, i){
+            var diff = max - tops[i];
+            if (diff < 1 || x.cell === x.c) return;
+            /* The whole field moves down, so its label stays right above its box. */
+            var el = null, kids = x.cell.children;
+            for (var q = 0; q < kids.length; q++){ if (visible(kids[q])){ el = kids[q]; break; } }
+            if (!el){ el = x.c; while (el.parentElement && el.parentElement !== x.cell) el = el.parentElement; }
+            moves.push({ el: el, c: x.c, target: max });
+          });
+        });
+      });
+    });
+    moves.forEach(function(m){
+      m.el.setAttribute('data-fa', '1');
+      m.el.setAttribute('data-fa-prev', m.el.style.marginTop || '');
+    });
+    /* Margins can merge with the label's own margin, so what a margin really moves the box is
+       measured, and the rest is added on (twice at most). */
+    for (var pass = 0; pass < 3; pass++){
+      moves.forEach(function(m){
+        var err = m.target - m.c.getBoundingClientRect().top;
+        if (Math.abs(err) < 0.5) return;
+        var cur = parseFloat(m.el.style.marginTop);
+        if (isNaN(cur)) cur = parseFloat(getComputedStyle(m.el).marginTop) || 0;
+        m.el.style.marginTop = Math.max(0, cur + err) + 'px';
+      });
+    }
+  }
+  var timer = null;
+  function later(){ clearTimeout(timer); timer = setTimeout(function(){ try{ run(); }catch(_e){} }, 160); }
+  var ignore = function(m){ return m.type === 'attributes' && m.target.hasAttribute && m.target.hasAttribute('data-fa'); };
+  new MutationObserver(function(muts){ if (muts.some(function(m){ return !ignore(m); })) later(); })
+    .observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden', 'open'] });
+  window.addEventListener('resize', later);
+  window.addEventListener('orientationchange', function(){ setTimeout(later, 200); });
+  document.addEventListener('click', later, true);
+  document.addEventListener('change', later, true);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(later);
+  window.addEventListener('load', later);
+  later();
+  window.alignFields = run;
 })();

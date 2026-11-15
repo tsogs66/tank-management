@@ -3538,7 +3538,9 @@ html.use-bottom-nav .toast {
 }
 
 /* A tank above 100% of its capacity is flagged where the fill is shown. */
-.fillbar-wrap .over-pill { margin-left: 6px; font-size: 11px; padding: 1px 6px; }
+.fillbar-wrap .over-pill { flex: 0 0 auto; margin-left: 2px; font-size: 11px; padding: 1px 6px; }
+.fillbar-wrap .fillbar-track { min-width: 64px; }
+.fillbar-wrap:has(.over-pill) { min-width: 190px; }
 
 /* Phones: one header block. The status lines share a row under the title instead of a
    column to the right that squeezes the title onto three lines. */
@@ -3577,7 +3579,7 @@ html.use-bottom-nav .toast {
   }
   table.tank-table td { display: block; border: 0 !important; padding: 0 !important; min-width: 0; font-size: 13px; }
   table.tank-table td::before {
-    content: attr(data-label); display: block; font-size: 10px; letter-spacing: .06em;
+    content: attr(data-label); display: block; font-size: 11px; letter-spacing: .06em;
     text-transform: uppercase; color: var(--text-faint); margin-bottom: 1px;
   }
   table.tank-table td.tname { grid-column: 1 / -1; font-size: 15px; font-weight: 600; }
@@ -3586,3 +3588,36 @@ html.use-bottom-nav .toast {
   table.tank-table td[data-label="Side"] { grid-column: 3 / span 2; }
   table.tank-table td.fill-cell { grid-column: 1 / -1; }
 }
+
+/* ---- Tablets ---------------------------------------------------------------------------------- */
+/* Held sideways (900px and wider, 560px or more on the short side) the bar runs down the left edge. */
+html.tablet-rail.use-bottom-nav .bottom-nav {
+  top: 0; bottom: 0; left: 0; right: auto; width: 84px; max-width: 84px;
+  flex-direction: column; justify-content: flex-start; gap: 2px;
+  padding: 8px 4px calc(8px + env(safe-area-inset-bottom, 0px));
+  border-top: 0; border-right: 1px solid var(--border); box-shadow: none; overflow-y: auto;
+}
+html.tablet-rail.use-bottom-nav .bn-item { flex: 0 0 auto; width: 100%; min-height: 64px; }
+html.tablet-rail.use-bottom-nav .app-shell { margin-left: calc(84px + env(safe-area-inset-left, 0px)); }
+html.tablet-rail.use-bottom-nav .main { padding-bottom: 14px; }
+html.tablet-rail.use-bottom-nav .toast { bottom: 18px; }
+html.tablet-rail .workspace { max-width: 1180px; margin-inline: auto; }
+html.tablet-rail .masthead { padding-top: 4px; padding-bottom: 6px; }
+html.tablet-rail .masthead .byline { display: none; }
+/* The faint tanks behind the page sit well back on a tablet, where they cross the columns. */
+@media (min-width: 701px) {
+  body::before { opacity: 0.07; }
+  html.bright body::before { opacity: 0.05; }
+}
+/* Touch screens: every button is a comfortable target, the small photo buttons included. */
+@media (pointer: coarse) {
+  button.small, button.ghost, button.primary, .btn { min-height: 44px; }
+}
+
+/* Add-tank calc type: long option text -> own row */
+#t-calc{text-overflow:ellipsis;}
+.form-row:has(> #t-calc){grid-column:1 / -1;}
+
+/* page-level print credit: never on screen (print-voyage.css's un-scoped footer rule was showing it, dark on dark) */
+@media screen { #app-credit-page { display: none !important; } }
+@media print { #app-credit-page { display: flex; } }
