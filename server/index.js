@@ -792,6 +792,55 @@ app.put('/api/vessels/:id/:part', (req, res) => {
   }
 });
 
+/**
+ * Union saved reports, live tank gaugings and open drafts into this vessel.
+ * A report id or a tank that exists on both sides keeps the newer stamp.
+ * A record that exists on only one side is kept. A blank draft does not
+ * erase a draft the vessel already holds.
+ * This does not replace tanks, calibrations or the rest of the vessel.
+ */
+app.post('/api/vessels/:id/saved-reports/merge', (req, res) => {
+  try {
+    const id = req.params.id;
+    const body = req.body || {};
+    const counts = {};
+    for (const part of ['reportHistory', 'voyageHistory', 'tankSummaryHistory']) {
+      if (!Array.isArray(body[part])) continue;
+      const merged = store.saveVesselPart(id, part, body[part]);
+      counts[part] = Array.isArray(merged) ? merged.length : 0;
+    }
+    if (body.bunkerHistory && typeof body.bunkerHistory === 'object') {
+      const merged = store.saveVesselPart(id, 'bunkerHistory', {
+        plans: body.bunkerHistory.plans || [],
+        after: body.bunkerHistory.after || [],
+        summaries: body.bunkerHistory.summaries || [],
+      });
+      counts.bunkerHistory = ['plans', 'after', 'summaries']
+        .reduce((n, key) => n + ((merged && merged[key] && merged[key].length) || 0), 0);
+    }
+    if (body.readings && typeof body.readings === 'object' && !Array.isArray(body.readings)) {
+      const merged = store.saveVesselPart(id, 'readings', body.readings);
+      counts.readings = merged && typeof merged === 'object' ? Object.keys(merged).length : 0;
+    }
+    for (const part of ['fuelReport', 'tankSummaryDraft', 'bunkerPlan', 'bunkerAfter', 'bunkerSummary']) {
+      if (body[part] == null) continue;
+      store.saveVesselPart(id, part, body[part]);
+      counts[part] = 1;
+    }
+    /* The sheet header is one object: the side that edited it later keeps it. */
+    if (body.voyage && typeof body.voyage === 'object' && !Array.isArray(body.voyage)) {
+      const current = store.getVesselBundle(id).voyage || {};
+      if (String(body.voyage.updatedAt || '') > String(current.updatedAt || '')) {
+        store.saveVesselPart(id, 'voyage', body.voyage);
+        counts.voyage = 1;
+      }
+    }
+    res.json({ ok: true, counts });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 /* ---------- Tanks ---------- */
 app.post('/api/vessels/:id/tanks', (req, res) => {
   try {
