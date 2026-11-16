@@ -247,6 +247,250 @@
         'If the app was removed and the tanks are gone, Import the backup you exported before the removal.',
         'If the ship list looks empty, select the ship again. The tanks follow that ship.'
       ]
+    },
+    {
+      group: "Bunkering",
+      q: "How do I run a bunkering plan with the pumping clock?",
+      purpose: "Bunker Plan is the delivery: the fill sequence, the target ullage for each tank, the delivery rate, and a pumping clock with a valve warning.",
+      steps: [
+        "Open Bunker Plan (Bnk Plan inside ChEng AIO). Enter the date, voyage, port, drafts, heel, fuel type, grade, density @15, temperature, delivery rate and the bunker quantity.",
+        "Heel is negative to port and positive to starboard.",
+        "Under Sequence choose how to distribute the quantity (for example Equal — all storage) and press Fill sequence. Check each target volume and ullage.",
+        "Target all to 85% sets every tank to its 85% limit. Edit a target if a tank must stop earlier.",
+        "Type the current sounding of each tank as the fuel comes aboard. Clear current soundings empties those boxes.",
+        "Press Start pumping when the hose is on. The clock times the operation and watches each tank. Reopen transfer restarts it after a stop.",
+        "The valve warning sounds when a tank is near its target. Test alarm sounds it at once so you can check the volume.",
+        "Press Finish bunkering at the end of the delivery.",
+        "Save only stores the plan; Print & Save stores it and prints; Print only prints without storing. NEW PLAN starts a clean plan."
+],
+      buttons: [
+        "Fill sequence — spreads the quantity over the tanks",
+        "Target all to 85% — fills every target to 85%",
+        "Clear current soundings — empties the current sounding boxes",
+        "Start pumping / Reset / Finish bunkering — the clock",
+        "Test alarm — sounds the valve warning now",
+        "NEW PLAN — a blank plan"
+],
+      undo: [
+        "A wrong target: change it and the plan recalculates.",
+        "Clear current soundings only empties the sounding boxes. Targets and the header stay.",
+        "Reset restarts the pumping clock. Save the plan first if you need today's times.",
+        "NEW PLAN does not delete saved plans."
+]
+    },
+    {
+      group: "Bunkering",
+      q: "The valve alarm does not sound, or is too quiet.",
+      purpose: "The bunkering plan watches every tank while the clock runs and warns shortly before a tank reaches its target.",
+      steps: [
+        "Open Bunker Plan and press Test alarm. You should hear the warning and the voice.",
+        "Raise the tablet volume with the side keys.",
+        "Check the tablet is not on Do Not Disturb or muted by a case button.",
+        "Keep the pumping clock running. The watch continues if you move to another Tank page.",
+        "Inside ChEng AIO the edge of the screen glows while a tank is inside the warning window, whichever program is open.",
+        "If you hear nothing, restart the app and test again. Do not rely on the alarm alone: keep sounding the tanks."
+],
+      buttons: [
+        "Test alarm — sounds the warning now"
+],
+      undo: [
+        "Silencing the alarm does not stop the clock or change the plan."
+]
+    },
+    {
+      group: "Bunkering",
+      q: "How do I name a saved plan or calculation and find it again?",
+      purpose: "When you save a bunkering plan or a consumption plan the program asks for a name or short description. Saved lists have a search box, so an old plan is found by date, name or description.",
+      steps: [
+        "Press Save, or Save & Print, on the Consumption Plan or the Bunkering Plan.",
+        "Type a name or description, for example the voyage or the port. The box can be left empty.",
+        "Press Save. Cancel stores nothing.",
+        "Scroll to Saved Calculations (consumption plan) or Saved plans (bunkering plan). The new entry is at the top.",
+        "Type part of a date, a name, the voyage number or the port in the search box. Only matching rows stay. Clear the box to see them all.",
+        "Press Load to bring a saved plan back to the page, Print to reprint it, or Del / Delete to remove it."
+],
+      buttons: [
+        "Save / Save only — stores the plan under a name",
+        "Save & Print / Print & Save — stores it, then prints",
+        "Print / Print only — prints without storing",
+        "Load, Print, Del — on each saved row"
+],
+      undo: [
+        "To rename a saved plan, load it, press Save, and enter the new name.",
+        "A deleted saved plan cannot be brought back. Export a backup first if it matters."
+]
+    },
+    {
+      group: "Bunkering",
+      q: "How are days and quantities worked out in the consumption plan?",
+      purpose: "Each line is one leg or stay. The quantity is the daily consumption times the days. The days come from distance and speed unless you type them or the line is a port stay.",
+      steps: [
+        "Tick P/A for a port or anchorage stay. Distance and speed are then not used; type the days.",
+        "For a sea leg type Distance (nm) and Speed (kn). Days = distance ÷ (speed × 24). Clear the distance or the speed and the days clear with them.",
+        "You may type the days yourself on a sea leg. That figure is kept until you change the distance or the speed.",
+        "Type the Daily Cons (MT per day). Quantity = Daily Cons × Days.",
+        "If Distance, Speed and Days are blank or 0 and both From and To are filled in, the Daily Cons is taken as the quantity for that line.",
+        "If From or To is empty and nothing else is entered, the quantity stays empty.",
+        "Use Margin % on a line for a reserve on that line only. Add destination / stay adds the next line. Remove last line removes the last one.",
+        "Enter Current ROB and Quantity to Receive to see Arrival ROB and Next Departure ROB. Load Voyage ROB or Load Tank ROB fill the ROB for you."
+],
+      buttons: [
+        "Add destination / stay — next line",
+        "Remove last line — takes off the last line",
+        "Load Voyage ROB / Load Tank ROB — current ROB from the log or the tanks",
+        "Clear — empties the whole plan on screen"
+],
+      undo: [
+        "A figure that looks wrong: check the P/A tick, the distance, the speed, and the days on that line.",
+        "Clear asks before it empties the plan. Save the plan first if you may need it again."
+]
+    },
+    {
+      group: "Bunkering",
+      q: "Clear current soundings did nothing, or a saved plan did not appear.",
+      purpose: "Earlier versions did not keep the cleared soundings, and the saved list only refreshed when you left the page.",
+      steps: [
+        "Open About and check the version. Check for latest release and install the update.",
+        "Press Clear current soundings again. The sounding boxes are empty at once and stay empty.",
+        "After Save only or Print & Save the saved list refreshes by itself. Open the Saved plans heading if it is folded.",
+        "If the search box has text in it, clear it. Search hides rows that do not match.",
+        "A plan with no change since the last save is not filed twice; the name is updated on the existing row."
+],
+      undo: [
+        "Nothing is lost by pressing Clear current soundings. Load an earlier saved plan to get its figures back."
+]
+    },
+    {
+      group: "Reports",
+      q: "How do I convert density, VCF and WCF?",
+      purpose: "The VCF / WCF page is a standalone calculator for the ASTM 54B volume correction factor and the Table 56 weight conversion. The same conversion is used on the sounding and bunkering pages.",
+      steps: [
+        "Open More → VCF/WCF.",
+        "Enter the density at 15 °C (or specific gravity) and the temperature.",
+        "Read the VCF and the WCF. Density and specific gravity convert both ways.",
+        "On a bunkering page enter density @15; without it the quantities cannot be shown in MT."
+],
+      undo: [
+        "A wrong density gives a wrong weight on every tank. Correct the density and save the tank or sheet again."
+]
+    },
+    {
+      group: "Reports",
+      q: "How do I read the ISO 8217 limits?",
+      purpose: "ISO 8217 lists the marine fuel limits for distillate and residual grades.",
+      steps: [
+        "Open More → ISO 8217.",
+        "Choose distillate or residual and find the grade.",
+        "Compare the limit with the supplier's analysis on the bunker delivery note."
+]
+    },
+    {
+      group: "Problems",
+      q: "Tanks do not appear in ChEng AIO, or the e-ORB says Tank Chief has no tanks.",
+      purpose: "The e-ORB reads the tank list from Tank Chief of the same ship.",
+      steps: [
+        "Check the ship in the top bar is the ship you expect.",
+        "Open Tanks and look at More → Fuel Oil and Lube Oil. Add Tank adds any tank that is missing.",
+        "Open e-ORB → Vessel Setup and press Get fuel & lube oil tanks from Tank Chief.",
+        "If Tank Chief is still loading a large ship, wait and press the button again."
+],
+      buttons: [
+        "Add Tank — a tank that is not listed yet"
+],
+      undo: [
+        "Importing tanks into the e-ORB never changes Tank Chief."
+]
+    },
+    {
+      group: "Problems",
+      q: "How do the Back button and Full screen work on Android?",
+      purpose: "Inside ChEng AIO every page you open is remembered, so Back steps back through the pages you visited instead of closing the program. Full screen hides the Android status and navigation bars. It is off until you switch it on.",
+      steps: [
+        "Press Back (the Android Back button or gesture) to return to the page you were on before.",
+        "If the More menu is open, Back closes the menu first.",
+        "From the first page, Back shows \"Press Back again to exit\". Press Back again within about two seconds to leave the program.",
+        "For full screen open More and press Full screen: Off. It changes to Full screen: On, and the bars hide. Swipe in from the screen edge to bring them back for a moment.",
+        "Press the switch again to bring the bars back for good. The choice is remembered.",
+        "Back goes through the pages of ChEng AIO. Inside Voyage Chief or Tank Chief, use their own bottom menu to change tabs."
+],
+      buttons: [
+        "Full screen — in More, switches the Android bars off or on",
+        "Back — one page back; twice on the first page leaves the program"
+],
+      undo: [
+        "If the bars do not come back, swipe from the top or bottom edge, or turn Full screen off in More.",
+        "The switch only shows where the device can do it (the Android app, or Android Chrome)."
+]
+    },
+    {
+      group: "Problems",
+      q: "A page keeps showing \"Loading…\" or is blank.",
+      purpose: "A page opens inside a frame. It shows Loading… while the program before it finishes saving or while the ship is opening. On a big ship, or a slow tablet, that can take a little while.",
+      steps: [
+        "Wait about ten seconds. The program you left is saving your work, and the next page opens by itself.",
+        "If it is still blank, press the same menu button once more.",
+        "Open Home and then the page again.",
+        "Check that a ship is chosen in the top bar. Choose the ship in Vessel Setup if the bar says No vessel.",
+        "Open About and read the version. Press Check for latest release, and install the new app if one is offered.",
+        "Last resort: close the app from the Android recent-apps list and open it again. Saved data is kept on the device."
+],
+      buttons: [
+        "Home — the dashboard; a safe page to start again from",
+        "Check for latest release — on About"
+],
+      undo: [
+        "Closing and reopening does not delete the ship, the log or the tanks. Export a backup first if you are unsure."
+]
+    },
+    {
+      group: "Problems",
+      q: "The page is off to one side, has a blank band, or the menu is missing.",
+      purpose: "On a tablet held sideways the menu runs down the left edge and the page fills the rest. Held upright the menu is along the bottom. Older versions could leave a blank band beside the menu.",
+      steps: [
+        "Turn the tablet fully to landscape or portrait and wait a second.",
+        "Open About and check the version, then Check for latest release. The band beside the menu was removed in the latest versions.",
+        "ECA, Spares, Consumption Plan, Bunkering Plan and e-ORB show the main menu too. Press the menu button of the page you want.",
+        "The Bright, Astrolabe and Prism colour button is in the More menu, not at the top.",
+        "If it still looks wrong, close the app and open it again."
+],
+      buttons: [
+        "More — the rest of the menu, the colour button and Full screen"
+],
+      undo: [
+        "Layout changes never alter your data."
+]
+    },
+    {
+      group: "Problems",
+      q: "The keyboard is up and I cannot tap the next box.",
+      purpose: "On a tablet the box you tap next must take the keyboard at once. Older versions redrew the table when you left a box, which swallowed the tap.",
+      steps: [
+        "Tap the next box directly. You no longer have to close the keyboard first.",
+        "If a tap still does not land, tap it a second time.",
+        "Open About and check the version, then Check for latest release.",
+        "The keyboard's down-arrow closes it if it covers a button."
+],
+      undo: [
+        "Nothing is lost when the keyboard closes. Numbers typed are kept."
+]
+    },
+    {
+      group: "Problems",
+      q: "Printing or saving a file does nothing on Android.",
+      purpose: "The Android app prints through the tablet's own print service and saves files into the Downloads folder.",
+      steps: [
+        "Press Print. Choose a printer, or choose Save as PDF in the print window.",
+        "Files such as backups are saved in Downloads/ChEngAIO. The program shows the exact path when it is done.",
+        "If nothing opens, wait a few seconds, then press Print once more. Do not press it repeatedly.",
+        "Make sure the tablet has a print service installed (Default Print Service), or use Save as PDF.",
+        "If you still cannot print, save the PDF and print it from another device."
+],
+      buttons: [
+        "Print — opens the Android print window"
+],
+      undo: [
+        "Printing never changes the record. A Save & Print has already saved it before the print window opens."
+]
     }
   ];
 
