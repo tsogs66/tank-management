@@ -3656,3 +3656,17 @@ input[type=file]::file-selector-button:hover { border-color: var(--accent); }
   .bp-clock-actions { gap: 8px; }
   .bp-clock-actions .btn { flex: 0 0 156px; width: 156px; justify-content: center; text-align: center; white-space: nowrap; }
 }
+
+/* Bunkering monitor: the pump-clock buttons sit beside the pumping figures (top right of the clock panel), not under them */
+@media (min-width: 721px) {
+  .bp-clock { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 16px; align-items: start; }
+  .bp-clock > .bp-clock-row { grid-column: 1; }
+  .bp-clock > .bp-clock-actions { grid-column: 2; justify-self: end; margin: 0; }
+  .bp-clock > .bp-clock-actions { grid-row: 1 / span 5; align-self: start; }
+  .bp-clock > .bp-clock-actions:nth-child(7) { margin-top: 46px; }
+}
+
+/* Search box above the saved plans / calculations lists. */
+.hist-search { display:block; width:100%; max-width:420px; margin:8px 0 10px; }
+tr[hidden] { display:none; }
+.bc-hist-name, .hist-name { max-width:260px; overflow-wrap:anywhere; }

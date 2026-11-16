@@ -558,10 +558,25 @@ const BunkerConsumption = (function () {
     }, 1000);
   }
 
-  async function saveToHistory(plan) {
+  /* Ask what to call this save, so it can be found again in Saved Calculations.
+     Resolves with the text (possibly empty) or null when the engineer cancels. */
+  async function askSaveName(plan) {
+    if (typeof askText !== 'function') return plan.saveName || '';
+    return askText({
+      title: 'Save calculation',
+      message: 'Give this calculation a name or short description so it is easy to find later in Saved Calculations.',
+      label: 'Name / description',
+      placeholder: 'e.g. Singapore to Rotterdam via Cape',
+      value: plan.saveName || '',
+      okLabel: 'Save'
+    });
+  }
+
+  async function saveToHistory(plan, name) {
     const st = store();
     if (!st) return;
     const snap = JSON.parse(JSON.stringify(plan));
+    snap.saveName = name == null ? (plan.saveName || '') : name;
     snap.savedAt = new Date().toISOString();
     st.history.unshift(snap);
     if (st.history.length > 50) st.history.length = 50;
@@ -575,19 +590,30 @@ const BunkerConsumption = (function () {
     const body = document.getElementById('bcHistoryBody');
     if (!panel || !body) return;
     const history = store()?.history || [];
+    const q = (document.getElementById('bcHistorySearch')?.value || '').trim().toLowerCase();
     if (!history.length) {
       panel.style.display = 'none';
-      body.innerHTML = '<tr class="empty-row"><td colspan="5">No saved calculations yet.</td></tr>';
+      body.innerHTML = '<tr class="empty-row"><td colspan="6">No saved calculations yet.</td></tr>';
       return;
     }
     panel.style.display = '';
-    body.innerHTML = history.map((h, i) => {
+    const shown = [];
+    history.forEach((h, i) => {
+      const date = h.date || (h.savedAt ? String(h.savedAt).slice(0, 10) : '—');
+      const hay = [date, h.savedAt, h.voyageNo, h.saveName, h.remarks].join(' ').toLowerCase();
+      if (!q || hay.includes(q)) shown.push([h, i, date]);
+    });
+    if (!shown.length) {
+      body.innerHTML = '<tr class="empty-row"><td colspan="6">No saved calculation matches your search.</td></tr>';
+      return;
+    }
+    body.innerHTML = shown.map(([h, i, date]) => {
       const plan = ensurePlan(JSON.parse(JSON.stringify(h)));
       const resSum = summarize(plan.residual);
       const distSum = summarize(plan.distillate);
-      const date = h.date || (h.savedAt ? String(h.savedAt).slice(0, 10) : '—');
       return `<tr>
         <td>${esc(date)}</td>
+        <td class="bc-hist-name">${esc(h.saveName || '—')}</td>
         <td>${esc(h.voyageNo || '—')}</td>
         <td>${fmtFuel(resSum.required)} MT req</td>
         <td>${fmtFuel(distSum.required)} MT req</td>
@@ -645,14 +671,21 @@ const BunkerConsumption = (function () {
     });
     document.getElementById('bc-save-only')?.addEventListener('click', async () => {
       readFromDom(_plan);
-      await saveToHistory(_plan);
+      const name = await askSaveName(_plan);
+      if (name === null) return;
+      _plan.saveName = name;
+      await saveToHistory(_plan, name);
       showToast('Bunker plan saved');
     });
     document.getElementById('bc-print-save')?.addEventListener('click', async () => {
       readFromDom(_plan);
-      await saveToHistory(_plan);
+      const name = await askSaveName(_plan);
+      if (name === null) return;
+      _plan.saveName = name;
+      await saveToHistory(_plan, name);
       doPrint(_plan);
     });
+    document.getElementById('bcHistorySearch')?.addEventListener('input', () => renderHistory());
     document.getElementById('bc_voyageNo')?.addEventListener('change', () => {
       _plan.voyageNo = document.getElementById('bc_voyageNo').value.trim();
       scheduleSave();
@@ -800,10 +833,11 @@ const BunkerConsumption = (function () {
     </div>
     <div class="form-panel no-print" id="bcHistory" style="display:none;">
       <h2 class="bc-page-title">Saved Calculations</h2>
+      <input type="search" id="bcHistorySearch" class="hist-search" placeholder="Search by date, name or description" aria-label="Search saved calculations" autocomplete="off">
       <div class="scroll-x table-scroll">
         <table>
-          <thead><tr><th>Date</th><th>Voyage</th><th>Residual</th><th>Distillate</th><th></th></tr></thead>
-          <tbody id="bcHistoryBody"><tr class="empty-row"><td colspan="5">No saved calculations yet.</td></tr></tbody>
+          <thead><tr><th>Date</th><th>Name</th><th>Voyage</th><th>Residual</th><th>Distillate</th><th></th></tr></thead>
+          <tbody id="bcHistoryBody"><tr class="empty-row"><td colspan="6">No saved calculations yet.</td></tr></tbody>
         </table>
       </div>
     </div>`;
