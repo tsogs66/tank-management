@@ -168,10 +168,13 @@ const BunkerConsumption = (function () {
       : (rob == null ? null : Math.max(0, required - rob - receive));
     const delivery = (side.deliveryRob != null && side.deliveryRob !== '' && !isNaN(side.deliveryRob))
       ? Number(side.deliveryRob) : null;
-    const shortageExcess = (delivery == null || nextDepRob == null) ? null : delivery - nextDepRob;
+    /* Excess (Margin): what the next departure ROB leaves over the delivery / redelivery ROB. */
+    const excessMargin = (delivery == null || nextDepRob == null) ? null : nextDepRob - delivery;
+    /* Excess (Actual): the same with the plain consumption, no margin: ((ROB + to receive) - consumption) - delivery. */
+    const excessActual = (delivery == null || rob == null) ? null : ((rob + receive) - totalCons) - delivery;
     return {
       daysPort, daysSea, totalDist, totalCons, margin, required,
-      arrivalRob, nextDepRob, stem, stemAdvice, receive, delivery, shortageExcess,
+      arrivalRob, nextDepRob, stem, stemAdvice, receive, delivery, excessMargin, excessActual,
     };
   }
   function stemAdvicePlain(side, sum) {
@@ -184,11 +187,13 @@ const BunkerConsumption = (function () {
     return text.replace(/(\d[\d,]*\.\d+)/g, '<b>$1</b>');
   }
 
-  function resultCard(title, value, unit) {
+  function resultCard(title, value, unit, raw) {
     const blank = value == null || value === '';
     const shown = blank ? '—' : value;
     const unitHtml = blank || !unit ? '' : `<span class="bp-result-unit">${unit}</span>`;
-    return `<div class="bp-result"><div class="bp-result-value"><b>${shown}</b>${unitHtml}</div><div class="bp-result-title">${title}</div></div>`;
+    /* A negative figure glows red inside the box, slowly, like breathing. */
+    const neg = typeof raw === 'number' && isFinite(raw) && raw < 0 ? ' bp-result-neg' : '';
+    return `<div class="bp-result${neg}"><div class="bp-result-value"><b>${shown}</b>${unitHtml}</div><div class="bp-result-title">${title}</div></div>`;
   }
   function resultCardsHtml(sum) {
     return [
@@ -198,10 +203,11 @@ const BunkerConsumption = (function () {
       resultCard('Total Consumption', fmtFuel(sum.totalCons), 'MT'),
       resultCard('Total Margin', fmtFuel(sum.margin), 'MT'),
       resultCard('Required Quantity', fmtFuel(sum.required), 'MT'),
-      resultCard('Arrival ROB', sum.arrivalRob == null ? '' : fmtFuel(sum.arrivalRob), 'MT'),
-      resultCard('Next Departure ROB', sum.nextDepRob == null ? '' : fmtFuel(sum.nextDepRob), 'MT'),
+      resultCard('Arrival ROB', sum.arrivalRob == null ? '' : fmtFuel(sum.arrivalRob), 'MT', sum.arrivalRob),
+      resultCard('Next Departure ROB', sum.nextDepRob == null ? '' : fmtFuel(sum.nextDepRob), 'MT', sum.nextDepRob),
       resultCard('Stem still needed', sum.stem == null ? '' : fmtFuel(sum.stem), 'MT'),
-      resultCard('Shortage/Excess Quantity', sum.shortageExcess == null ? '' : fmtFuel(sum.shortageExcess), 'MT'),
+      resultCard('Excess (Margin) Quantity', sum.excessMargin == null ? '' : fmtFuel(sum.excessMargin), 'MT', sum.excessMargin),
+      resultCard('Excess (Actual) Quantity', sum.excessActual == null ? '' : fmtFuel(sum.excessActual), 'MT', sum.excessActual),
     ].join('');
   }
   function paintSideResults(sideKey) {
@@ -225,6 +231,12 @@ const BunkerConsumption = (function () {
     scheduleSave();
   }
 
+  /** The Days box: a figure worked out from distance and speed shows to one decimal; days typed by hand, and port stays, show as typed. */
+  function daysShown(leg, days) {
+    if (days == null) return '';
+    const worked = !leg.port && !(leg.daysManual && leg.days != null) && Number(leg.distance) > 0 && Number(leg.speed) > 0;
+    return worked ? Math.round(days * 10) / 10 : days;
+  }
   function autoFillSeaDays(leg) {
     /* Distance, speed or the port tick changed: sea days follow them again. */
     if (leg.port) return;
@@ -238,7 +250,7 @@ const BunkerConsumption = (function () {
     const days = legDays(leg);
     const qty = legQty(leg);
     const daysEl = tr.querySelector('[data-f="days"]');
-    if (daysEl && document.activeElement !== daysEl) daysEl.value = days == null ? '' : (Math.round(days * 1000) / 1000);
+    if (daysEl && document.activeElement !== daysEl) daysEl.value = daysShown(leg, days);
     const qtyEl = tr.querySelector('.col-qty input');
     if (qtyEl) qtyEl.value = qty == null ? '' : fmtFuel(qty);
     ['distance', 'speed'].forEach((f) => {
@@ -388,7 +400,7 @@ const BunkerConsumption = (function () {
           <td class="col-num"><input type="number" step="0.1" data-f="distance" value="${leg.distance ?? ''}" ${leg.port ? 'disabled' : ''} inputmode="decimal"></td>
           <td class="col-num"><input type="number" step="0.1" data-f="speed" value="${leg.speed ?? ''}" ${leg.port ? 'disabled' : ''} inputmode="decimal"></td>
           <td class="col-num"><input type="number" step="0.01" data-f="dailyCons" value="${leg.dailyCons ?? ''}" inputmode="decimal"></td>
-          <td class="col-num"><input type="number" step="0.001" data-f="days" value="${days ?? ''}" inputmode="decimal"></td>
+          <td class="col-num"><input type="number" step="0.001" data-f="days" value="${daysShown(leg, days)}" inputmode="decimal"></td>
           <td class="col-qty"><input type="number" readonly tabindex="-1" value="${qty == null ? '' : fmtFuel(qty)}"></td>
           <td class="col-margin"><input type="number" step="0.1" data-f="marginPct" value="${leg.marginPct ?? ''}" placeholder="%" title="Safety margin % for this destination / stay only" inputmode="decimal"></td>
         </tr>`;
@@ -492,7 +504,8 @@ const BunkerConsumption = (function () {
             { label: 'Arrival ROB', value: sum.arrivalRob == null ? '—' : fmtFuel(sum.arrivalRob) + ' MT' },
             { label: 'Next Departure ROB', value: sum.nextDepRob == null ? '—' : fmtFuel(sum.nextDepRob) + ' MT' },
             { label: 'Delivery / Redelivery ROB', value: sum.delivery == null ? '—' : fmtFuel(sum.delivery) + ' MT' },
-            { label: 'Shortage/Excess Quantity', value: sum.shortageExcess == null ? '—' : fmtFuel(sum.shortageExcess) + ' MT' },
+            { label: 'Excess (Margin) Quantity', value: sum.excessMargin == null ? '—' : fmtFuel(sum.excessMargin) + ' MT' },
+            { label: 'Excess (Actual) Quantity', value: sum.excessActual == null ? '—' : fmtFuel(sum.excessActual) + ' MT' },
             { label: 'Unpumpable', value: sum.stemAdvice && sum.stemAdvice.unpumpable ? fmtFuel(sum.stemAdvice.unpumpable) + ' MT' : '—' },
             { label: 'Weather reserve', value: sum.stemAdvice && sum.stemAdvice.weather ? fmtFuel(sum.stemAdvice.weather) + ' MT' : '—' },
             { label: 'Order', value: sum.stemAdvice && sum.stemAdvice.orderMt != null ? fmtFuel(sum.stemAdvice.orderMt) + ' MT' : '—' },
@@ -619,6 +632,8 @@ const BunkerConsumption = (function () {
     if (!panel || !body) return;
     const history = store()?.history || [];
     const q = (document.getElementById('bcHistorySearch')?.value || '').trim().toLowerCase();
+    const cnt = document.getElementById('bcHistoryCount');
+    if (cnt) cnt.textContent = '(' + history.length + ')';
     if (!history.length) {
       panel.style.display = 'none';
       body.innerHTML = '<tr class="empty-row"><td colspan="6">No saved calculations yet.</td></tr>';
@@ -793,7 +808,7 @@ const BunkerConsumption = (function () {
           } else if (t.dataset.f === 'distance' || t.dataset.f === 'speed') {
             autoFillSeaDays(leg);
             const daysEl = tr.querySelector('[data-f="days"]');
-            if (daysEl) { const d = legDays(leg); daysEl.value = d == null ? '' : (Math.round(d * 1000) / 1000); }
+            if (daysEl) { daysEl.value = daysShown(leg, legDays(leg)); }
           }
           const qtyInp = tr.querySelector('.col-qty input');
           const qty = legQty(leg);
@@ -879,7 +894,8 @@ const BunkerConsumption = (function () {
       <div class="hint" style="margin-top:12px;">Industry practice: sea days ≈ distance (nm) ÷ (speed kn × 24); port/anchor days are entered directly. Each destination or stay can carry its own Margin % — e.g. a higher reserve into a bunkering port than for a short anchorage.</div>
     </div>
     <div class="form-panel no-print" id="bcHistory" style="display:none;">
-      <h2 class="bc-page-title">Saved Calculations</h2>
+      <details class="hist-fold" id="bcHistoryFold">
+      <summary><h2 class="bc-page-title">Saved Calculations <span class="hist-count" id="bcHistoryCount"></span></h2><span class="hist-tap">tap to open</span></summary>
       <input type="search" id="bcHistorySearch" class="hist-search" placeholder="Search by date, name or description" aria-label="Search saved calculations" autocomplete="off">
       <div class="scroll-x table-scroll">
         <table>
@@ -887,6 +903,7 @@ const BunkerConsumption = (function () {
           <tbody id="bcHistoryBody"><tr class="empty-row"><td colspan="6">No saved calculations yet.</td></tr></tbody>
         </table>
       </div>
+      </details>
     </div>`;
 
     renderGrid(_plan);
