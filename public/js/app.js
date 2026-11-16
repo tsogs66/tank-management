@@ -6364,6 +6364,34 @@ window.addEventListener('message', (ev) => {
   try { target.postMessage({ type: 'tank-rob-response', rob }, '*'); } catch (_) {}
 });
 
+/* Tank list bridge: the e-ORB asks for the ship's fuel and lube oil tanks (name,
+   capacity, frame no. if the ship has one, ROB, and residual / distillate for fuel). */
+window.addEventListener('message', (ev) => {
+  const msg = ev.data || {};
+  if (msg.type !== 'request-tank-list') return;
+  const out = { fuel: [], lube: [] };
+  try {
+    const tanks = STATE.bundle?.tanks || {};
+    const row = (t, withService) => {
+      const r = getReading(t.id);
+      const vol = r && r.result ? r.result.volumeObserved : null;
+      const rec = {
+        id: t.id,
+        name: t.name || '',
+        capacityM3: t.capacity != null && t.capacity !== '' ? Number(t.capacity) : null,
+        frameNo: String(t.frameNo || t.frame || t.framePosition || '').trim(),
+        robM3: vol != null && isFinite(vol) ? Math.round(vol * 100) / 100 : null
+      };
+      if (withService) rec.fuelService = isDistillateFuel(t) ? 'distillate' : 'residual';
+      return rec;
+    };
+    out.fuel = (tanks.fuel || []).map((t) => row(t, true));
+    out.lube = (tanks.lube || []).map((t) => row(t, false));
+  } catch (_) { /* bundle not ready */ }
+  const target = ev.source || window.parent;
+  try { target.postMessage({ type: 'tank-list-response', tanks: out }, '*'); } catch (_) {}
+});
+
 document.addEventListener('DOMContentLoaded', boot);
 
 /* Ship's clock from Voyage Chief when both programs share this device.
