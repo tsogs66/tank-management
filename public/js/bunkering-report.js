@@ -503,6 +503,31 @@ const BunkerReports = (() => {
     return view.computed;
   }
 
+  /** The saved-plans table, with the open draft on top when there is one. */
+  function planHistoryHtml() {
+    return historyRows(bunkerHistory().plans, 'plans', view.plan && view.plan.updatedAt ? {
+      form: view.plan,
+      voyageNo: view.plan.header && view.plan.header.voyageNo,
+      port: view.plan.header && view.plan.header.port,
+      savedAt: view.plan.updatedAt,
+    } : null);
+  }
+
+  function loadPlanEntry(entry) {
+    view.pendingPlan = entry.form;
+    navigate('bunker-plan');
+    showToast(entry.isDraft || entry.id === '__draft__' ? 'Draft loaded for editing' : 'Plan loaded');
+  }
+
+  /** Redraw the saved plans in place after a save, so the new entry shows at once
+   *  without leaving the sheet. */
+  function refreshPlanHistory() {
+    const host = document.getElementById('bp-history-host');
+    if (!host) return;
+    host.innerHTML = planHistoryHtml();
+    bindHistory(host, 'plans', loadPlanEntry, view.plan);
+  }
+
   async function renderPlan(main) {
     view.page = 'bunker-plan';
     stopBackgroundMonitor();
@@ -537,12 +562,7 @@ const BunkerReports = (() => {
         <details class="saved-reports-fold">
           <summary class="section-title" style="margin-top:0; cursor:pointer;">Saved plans</summary>
           <p class="hint" style="margin-top:8px;">Drafts stay editable. Filed reports can be reprinted or loaded.</p>
-          ${historyRows(bunkerHistory().plans, 'plans', view.plan && view.plan.updatedAt ? {
-            form: view.plan,
-            voyageNo: view.plan.header && view.plan.header.voyageNo,
-            port: view.plan.header && view.plan.header.port,
-            savedAt: view.plan.updatedAt,
-          } : null)}
+          <div id="bp-history-host">${planHistoryHtml()}</div>
         </details>
       </div>`;
     main.appendChild(wrap);
@@ -1416,6 +1436,7 @@ const BunkerReports = (() => {
       try {
         await saveChainPart('bunker-plan', 'bunkerPlan',
           { ...view.plan, updatedAt: new Date().toISOString() }, { snapshot: true, deferServer: true });
+        refreshPlanHistory();
         UI.printHtml(planPrintPages(recomputePlan()));
       } catch (err) {
         Branding.endPrintHold();
@@ -1432,6 +1453,7 @@ const BunkerReports = (() => {
       try {
         await saveChainPart('bunker-plan', 'bunkerPlan',
           { ...view.plan, updatedAt: new Date().toISOString() }, { snapshot: true });
+        refreshPlanHistory();
       } finally {
         pendingPlanName = null;
       }
@@ -1688,18 +1710,18 @@ const BunkerReports = (() => {
         if (!row.tankId) continue;
         view.plan.sequence[row.slot - 1].targetVolumeM3 = row.capacity85M3;
       }
+      view.pendingPlan = view.plan;
       navigate('bunker-plan');
     };
     document.getElementById('bp-clear-current').onclick = () => {
       for (const slot of view.plan.sequence) slot.currentSoundingMM = '';
+      /* The page redraws from the pending plan; without this it reloads the stored
+         draft and the cleared soundings come straight back. */
+      view.pendingPlan = view.plan;
       navigate('bunker-plan');
     };
 
-    bindHistory(wrap, 'plans', (entry) => {
-      view.pendingPlan = entry.form;
-      navigate('bunker-plan');
-      showToast(entry.isDraft || entry.id === '__draft__' ? 'Draft loaded for editing' : 'Plan loaded');
-    }, view.plan);
+    bindHistory(wrap, 'plans', loadPlanEntry, view.plan);
   }
 
   /* --------------------------------------------------------- plan print ---- */
