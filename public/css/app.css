@@ -3599,6 +3599,9 @@ html.tablet-rail.use-bottom-nav .bottom-nav {
 }
 html.tablet-rail.use-bottom-nav .bn-item { flex: 1 1 0; width: 100%; min-height: 64px; max-height: none; }
 html.tablet-rail.use-bottom-nav .app-shell { margin-left: calc(84px + env(safe-area-inset-left, 0px)); }
+/* Inside ChEng AIO the Tank page has no bar of its own (the AIO menu is beside it), so
+   nothing is reserved for one: the reserved 84px pushed the page off centre. */
+html.bunker-ops-embed.tablet-rail.use-bottom-nav .app-shell { margin-left: 0; }
 html.tablet-rail.use-bottom-nav .main { padding-bottom: 14px; }
 html.tablet-rail.use-bottom-nav .toast { bottom: 18px; }
 html.tablet-rail .workspace { max-width: 1180px; margin-inline: auto; }
