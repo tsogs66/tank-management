@@ -624,7 +624,12 @@ label.btn { margin: 0; }
 .ask-text-panel input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .ask-text-actions { justify-content: flex-end; }
 
-.about-copy { max-width: 760px; line-height: 1.7; color: var(--text-dim); font-size: 13.5px; }
+.about-copy { max-width: none; width: 100%; box-sizing: border-box; line-height: 1.7; color: var(--text-dim); font-size: 13.5px; }
+/* On a wide screen the About text keeps a comfortable line length instead of sitting in a narrow block off to the left. */
+@media (min-width: 900px) {
+  .about-copy { font-size: 14.5px; }
+  .about-copy > p, .about-copy .about-install, .about-copy .about-authors { max-width: 120ch; }
+}
 .about-copy p { margin: 0 0 12px; }
 .about-copy h2 {
   margin: 18px 0 6px; font-size: 12px; letter-spacing: .08em;
