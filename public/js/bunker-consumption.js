@@ -118,8 +118,13 @@ const BunkerConsumption = (function () {
   function legQty(leg) {
     const days = legDays(leg);
     const daily = Number(leg.dailyCons);
-    if (days == null || !(daily >= 0) || isNaN(daily)) return null;
-    return daily * days;
+    if (!(daily >= 0) || isNaN(daily) || leg.dailyCons == null || leg.dailyCons === '') return null;
+    if (days != null && days > 0) return daily * days;
+    /* No distance, speed or days (blank or 0) on a line with its From and To filled in:
+       the consumption entered is the quantity for that line. */
+    const noRun = !(Number(leg.distance) > 0) && !(Number(leg.speed) > 0) && !(Number(leg.days) > 0);
+    if (noRun && String(leg.from || '').trim() && String(leg.to || '').trim()) return daily;
+    return days == null ? null : daily * days;
   }
   function legMarginMt(leg) {
     const qty = legQty(leg);
@@ -774,7 +779,7 @@ const BunkerConsumption = (function () {
       });
       grid.addEventListener('input', (e) => {
         const t = e.target;
-        if (!t || !t.matches('.bunker-table [data-f="dailyCons"], .bunker-table [data-f="days"], .bunker-table [data-f="distance"], .bunker-table [data-f="speed"], [data-bc-sf]')) return;
+        if (!t || !t.matches('.bunker-table [data-f="dailyCons"], .bunker-table [data-f="days"], .bunker-table [data-f="distance"], .bunker-table [data-f="speed"], .bunker-table [data-f="from"], .bunker-table [data-f="to"], [data-bc-sf]')) return;
         readFromDom(_plan);
         const tr = t.closest('tr[data-bc-side]');
         if (tr) {

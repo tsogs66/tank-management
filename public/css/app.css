@@ -3604,7 +3604,7 @@ html.tablet-rail.use-bottom-nav .app-shell { margin-left: calc(84px + env(safe-a
 html.bunker-ops-embed.tablet-rail.use-bottom-nav .app-shell { margin-left: 0; }
 html.tablet-rail.use-bottom-nav .main { padding-bottom: 14px; }
 html.tablet-rail.use-bottom-nav .toast { bottom: 18px; }
-html.tablet-rail .workspace { max-width: 1180px; margin-inline: auto; }
+html.tablet-rail .workspace { max-width: none; margin-inline: 0; }
 html.tablet-rail .masthead { padding-top: 4px; padding-bottom: 6px; }
 html.tablet-rail .masthead .byline { display: none; }
 /* The faint tanks behind the page sit well back on a tablet, where they cross the columns. */
