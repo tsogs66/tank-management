@@ -22,7 +22,7 @@ assert.match(fuel, /const showDraft = isDraft\(draftForm, filed\[0\]\)/);
 assert.match(fuel, /function isDraft\(form, newest\)[\s\S]{0,900}sameSavedForm\(newest\.form, form\)/);
 assert.match(fuel, /<th>Report date<\/th><th>Saved<\/th>/);
 assert.match(app, /const hideDraft = draftEntry && latest && latest\.form && sameSavedForm/);
-assert.match(bunker, /bp-save'\)\.onclick = \(\) => saveChainPart\([\s\S]{0,220}snapshot: true/);
+assert.match(bunker, /bp-save'\)\.onclick = async \(\) => \{[\s\S]{0,520}saveChainPart\([\s\S]{0,220}snapshot: true/);
 assert.match(bunker, /ba-save'\)\.onclick = \(\) => saveChainPart\([\s\S]{0,220}snapshot: true/);
 assert.match(bunker, /bs-save'\)\.onclick = \(\) => saveChainPart\([\s\S]{0,240}snapshot: true/);
 assert.match(bunker, /async function flushOpenForms[\s\S]{0,900}snapshot: true/);

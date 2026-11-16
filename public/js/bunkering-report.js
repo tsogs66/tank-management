@@ -70,15 +70,35 @@ const BunkerReports = (() => {
 
   /** The filed row, built here so it is in the database before the print dialog
    *  closes and before Push to peer runs. The server keeps this same id. */
+  /* What the engineer called the plan being saved right now (see askPlanName). */
+  let pendingPlanName = null;
+
   function localSnapshot(path, form) {
     const b = bundle();
-    if (path === 'bunker-plan') return Core.planSnapshot(Core.computeBunkerPlan(b, form, view.conversion));
+    if (path === 'bunker-plan') {
+      const snap = Core.planSnapshot(Core.computeBunkerPlan(b, form, view.conversion));
+      if (pendingPlanName != null) snap.name = pendingPlanName;
+      return snap;
+    }
     if (path === 'bunker-after') return Core.afterSnapshot(Core.computeAfterBunkering(b, form, view.conversion));
     if (path === 'bunker-summary') return Core.summarySnapshot(Core.computeBunkerSummary(b, form, null, view.conversion));
     return null;
   }
 
   /** Save a form part, keeping the offline cache and queue in step. */
+  /** Ask what to call a bunkering plan being filed. null = cancelled. */
+  async function askPlanName() {
+    if (typeof askText !== 'function') return '';
+    return askText({
+      title: 'Save bunkering plan',
+      message: 'Give this plan a name or short description so it is easy to find later in Saved plans.',
+      label: 'Name / description',
+      placeholder: 'e.g. Fujairah VLSFO stem, 2 barges',
+      value: (view.plan && view.plan.saveName) || '',
+      okLabel: 'Save'
+    });
+  }
+
   async function saveChainPart(path, part, form, { snapshot = false, extra = {}, deferServer = false, quiet = false } = {}) {
     const b = bundle();
     let snapshotEntry = null;
@@ -103,6 +123,7 @@ const BunkerReports = (() => {
         } catch (_) { sameForm = false; }
         if (sameForm) {
           fileSnapshot = false;
+          if (historyKey === 'plans' && pendingPlanName != null && prev) prev.name = pendingPlanName;
           snapshotEntry = null;
         } else {
           h[historyKey] = [snapshotEntry, ...list.filter((s) => s && s.id !== snapshotEntry.id)].slice(0, 50);
@@ -154,6 +175,22 @@ const BunkerReports = (() => {
     catch (_) { return false; }
   }
 
+  /* One listener serves every saved list on the page: rows carry their searchable
+     text, and a row that does not contain the query is hidden. */
+  if (!window.__histSearchBound) {
+    window.__histSearchBound = true;
+    document.addEventListener('input', (ev) => {
+      const box = ev.target && ev.target.closest && ev.target.closest('[data-hist-search]');
+      if (!box) return;
+      const q = box.value.trim().toLowerCase();
+      const table = box.parentElement.querySelector('table');
+      if (!table) return;
+      table.querySelectorAll('tbody tr[data-hist-text]').forEach((tr) => {
+        tr.hidden = !!q && !tr.dataset.histText.includes(q);
+      });
+    });
+  }
+
   function historyRows(list, kind, draftEntry) {
     const latest = (list || []).find((s) => s && !s.isDraft && s.id !== '__draft__');
     const hideDraft = draftEntry && latest && latest.form && sameSavedForm(latest.form, draftEntry.form);
@@ -164,8 +201,10 @@ const BunkerReports = (() => {
       savedAt: draftEntry.savedAt || draftEntry.form.updatedAt || '',
     }] : [];
     const merged = [...draft, ...(list || []).filter((s) => s && s.id !== '__draft__' && !s.isDraft)];
-    const rows = merged.map((s) => `<tr>
+    const withName = kind === 'plans';
+    const rows = merged.map((s) => `<tr data-hist-text="${esc([s.date, s.savedAt, s.name, s.voyageNo, s.port].join(' ').toLowerCase())}">
       <td>${s.isDraft ? '<span class="chip on">Draft</span> ' : ''}${esc((s.savedAt || '').replace('T', ' ').slice(0, 16))}</td>
+      ${withName ? `<td class="hist-name">${esc(s.name || '')}</td>` : ''}
       <td>${esc(s.voyageNo || '')}</td>
       <td>${esc(s.port || '')}</td>
       <td>${esc(kind === 'plans' ? `${n(s.receivedMT, 3, '—')} / ${n(s.bunkerQuantityMT, 2, '—')} MT`
@@ -177,9 +216,10 @@ const BunkerReports = (() => {
         <button class="btn small" data-load="${esc(s.id)}">Load</button>
         ${s.isDraft ? '' : `<button class="btn small danger" data-del="${esc(s.id)}">Delete</button>`}
       </td></tr>`).join('');
-    return `<div class="scroll-x"><table class="data-table">
-      <thead><tr><th>Saved</th><th>Voyage</th><th>Port</th><th>Result</th><th></th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="5" class="empty-state">Nothing saved yet — use Save only to file this report, or Print &amp; Save to file it and print</td></tr>'}</tbody>
+    return `<input type="search" class="hist-search" data-hist-search placeholder="Search by date, name, voyage or port" aria-label="Search saved list" autocomplete="off">
+    <div class="scroll-x"><table class="data-table">
+      <thead><tr><th>Saved</th>${withName ? '<th>Name</th>' : ''}<th>Voyage</th><th>Port</th><th>Result</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="${withName ? 6 : 5}" class="empty-state">Nothing saved yet — use Save only to file this report, or Print &amp; Save to file it and print</td></tr>`}</tbody>
     </table></div>`;
   }
 
@@ -1368,6 +1408,10 @@ const BunkerReports = (() => {
     });
 
     document.getElementById('bp-print-save').onclick = async () => {
+      const name = await askPlanName();
+      if (name === null) return;
+      view.plan.saveName = name;
+      pendingPlanName = name;
       Branding.beginPrintHold();
       try {
         await saveChainPart('bunker-plan', 'bunkerPlan',
@@ -1376,10 +1420,22 @@ const BunkerReports = (() => {
       } catch (err) {
         Branding.endPrintHold();
         throw err;
+      } finally {
+        pendingPlanName = null;
       }
     };
-    document.getElementById('bp-save').onclick = () => saveChainPart('bunker-plan', 'bunkerPlan',
-      { ...view.plan, updatedAt: new Date().toISOString() }, { snapshot: true });
+    document.getElementById('bp-save').onclick = async () => {
+      const name = await askPlanName();
+      if (name === null) return;
+      view.plan.saveName = name;
+      pendingPlanName = name;
+      try {
+        await saveChainPart('bunker-plan', 'bunkerPlan',
+          { ...view.plan, updatedAt: new Date().toISOString() }, { snapshot: true });
+      } finally {
+        pendingPlanName = null;
+      }
+    };
     // Print without saving: no snapshot filed, nothing written to the vessel.
     document.getElementById('bp-print-only').onclick = () =>
       UI.printHtml(planPrintPages(recomputePlan()));

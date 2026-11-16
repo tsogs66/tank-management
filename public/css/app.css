@@ -3665,3 +3665,8 @@ input[type=file]::file-selector-button:hover { border-color: var(--accent); }
   .bp-clock > .bp-clock-actions { grid-row: 1 / span 5; align-self: start; }
   .bp-clock > .bp-clock-actions:nth-child(7) { margin-top: 46px; }
 }
+
+/* Search box above the saved plans / calculations lists. */
+.hist-search { display:block; width:100%; max-width:420px; margin:8px 0 10px; }
+tr[hidden] { display:none; }
+.bc-hist-name, .hist-name { max-width:260px; overflow-wrap:anywhere; }
