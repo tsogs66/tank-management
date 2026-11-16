@@ -6366,10 +6366,16 @@ window.addEventListener('message', (ev) => {
 
 /* Tank list bridge: the e-ORB asks for the ship's fuel and lube oil tanks (name,
    capacity, frame no. if the ship has one, ROB, and residual / distillate for fuel). */
-window.addEventListener('message', (ev) => {
+window.addEventListener('message', async (ev) => {
   const msg = ev.data || {};
   if (msg.type !== 'request-tank-list') return;
-  const out = { fuel: [], lube: [] };
+  /* A tablet opening a large ship takes a while to load it. Answering from an empty
+     bundle told the e-ORB the ship had no tanks, so wait (up to ~25 s) for the ship. */
+  for (let i = 0; i < 100 && !(STATE.bundle && STATE.bundle.tanks); i++) {
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  const loaded = !!(STATE.bundle && STATE.bundle.tanks);
+  const out = { fuel: [], lube: [], loaded };
   try {
     const tanks = STATE.bundle?.tanks || {};
     const row = (t, withService) => {

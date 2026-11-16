@@ -103,18 +103,28 @@ const BunkerConsumption = (function () {
   }
 
   function legDays(leg) {
-    if (leg.port) return (leg.days != null && !isNaN(leg.days)) ? Number(leg.days) : null;
-    if (leg.days != null && leg.days !== '' && !isNaN(leg.days)) return Number(leg.days);
+    const typed = leg.days != null && leg.days !== '' && !isNaN(leg.days);
+    if (leg.port) return typed ? Number(leg.days) : null;
+    /* A sea leg's days are worked out from distance and speed, so they follow those two
+       and fall back to nothing when either is cleared. Only days typed by hand are kept. */
+    if (leg.daysManual && typed) return Number(leg.days);
     const d = Number(leg.distance);
     const s = Number(leg.speed);
     if (d > 0 && s > 0) return d / (s * 24);
+    /* Plans saved before this carried the days on the leg itself. */
+    if (leg.daysManual === undefined && typed) return Number(leg.days);
     return null;
   }
   function legQty(leg) {
     const days = legDays(leg);
     const daily = Number(leg.dailyCons);
-    if (days == null || !(daily >= 0) || isNaN(daily)) return null;
-    return daily * days;
+    if (!(daily >= 0) || isNaN(daily) || leg.dailyCons == null || leg.dailyCons === '') return null;
+    if (days != null && days > 0) return daily * days;
+    /* No distance, speed or days (blank or 0) on a line with its From and To filled in:
+       the consumption entered is the quantity for that line. */
+    const noRun = !(Number(leg.distance) > 0) && !(Number(leg.speed) > 0) && !(Number(leg.days) > 0);
+    if (noRun && String(leg.from || '').trim() && String(leg.to || '').trim()) return daily;
+    return days == null ? null : daily * days;
   }
   function legMarginMt(leg) {
     const qty = legQty(leg);
@@ -216,10 +226,25 @@ const BunkerConsumption = (function () {
   }
 
   function autoFillSeaDays(leg) {
+    /* Distance, speed or the port tick changed: sea days follow them again. */
     if (leg.port) return;
-    const dist = Number(leg.distance);
-    const spd = Number(leg.speed);
-    if (dist > 0 && spd > 0) leg.days = Math.round((dist / (spd * 24)) * 1000) / 1000;
+    leg.daysManual = false;
+    leg.days = null;
+  }
+
+  /** Refresh one row in place — days, quantity, the port-disabled boxes and the totals —
+   *  without redrawing the grid, which would drop the box the engineer just tapped. */
+  function syncRowDom(tr, leg) {
+    const days = legDays(leg);
+    const qty = legQty(leg);
+    const daysEl = tr.querySelector('[data-f="days"]');
+    if (daysEl && document.activeElement !== daysEl) daysEl.value = days == null ? '' : (Math.round(days * 1000) / 1000);
+    const qtyEl = tr.querySelector('.col-qty input');
+    if (qtyEl) qtyEl.value = qty == null ? '' : fmtFuel(qty);
+    ['distance', 'speed'].forEach((f) => {
+      const el = tr.querySelector(`[data-f="${f}"]`);
+      if (el) el.disabled = !!leg.port;
+    });
   }
 
   function tankRobByGrade() {
@@ -318,6 +343,9 @@ const BunkerConsumption = (function () {
         ['distance', 'speed', 'dailyCons', 'days', 'marginPct'].forEach((f) => {
           const el = tr.querySelector(`[data-f="${f}"]`);
           if (!el) return;
+          /* The Days box shows the worked-out figure on a sea leg; storing it back would
+             freeze it, so it is only kept for port stays and days typed by hand. */
+          if (f === 'days' && !leg.port && !leg.daysManual) return;
           const v = el.value === '' ? null : parseFloat(el.value);
           leg[f] = (v == null || isNaN(v)) ? null : v;
         });
@@ -735,19 +763,38 @@ const BunkerConsumption = (function () {
           } else {
             readFromDom(_plan);
           }
-          renderGrid(_plan);
+          /* In place: a full redraw replaced the box being tapped next, so with the
+             keyboard up the second tap landed on nothing. */
+          const rowEl = t.closest('tr[data-bc-side]');
+          if (rowEl) {
+            syncRowDom(rowEl, _plan[rowEl.dataset.bcSide].legs[Number(rowEl.dataset.bcRow)]);
+            paintSideResults(rowEl.dataset.bcSide);
+          } else if (t.dataset.bcSide) {
+            paintSideResults(t.dataset.bcSide);
+          } else {
+            SIDES.forEach((m) => paintSideResults(m.key));
+          }
           scheduleSave();
         }
       });
       grid.addEventListener('input', (e) => {
         const t = e.target;
-        if (!t || !t.matches('.bunker-table [data-f="dailyCons"], .bunker-table [data-f="days"], [data-bc-sf]')) return;
+        if (!t || !t.matches('.bunker-table [data-f="dailyCons"], .bunker-table [data-f="days"], .bunker-table [data-f="distance"], .bunker-table [data-f="speed"], .bunker-table [data-f="from"], .bunker-table [data-f="to"], [data-bc-sf]')) return;
         readFromDom(_plan);
         const tr = t.closest('tr[data-bc-side]');
         if (tr) {
           const sk = tr.dataset.bcSide;
           const ri = Number(tr.dataset.bcRow);
           const leg = _plan[sk].legs[ri];
+          if (t.dataset.f === 'days') {
+            const dv = t.value === '' ? NaN : parseFloat(t.value);
+            leg.days = isNaN(dv) ? null : dv;
+            leg.daysManual = !isNaN(dv);
+          } else if (t.dataset.f === 'distance' || t.dataset.f === 'speed') {
+            autoFillSeaDays(leg);
+            const daysEl = tr.querySelector('[data-f="days"]');
+            if (daysEl) { const d = legDays(leg); daysEl.value = d == null ? '' : (Math.round(d * 1000) / 1000); }
+          }
           const qtyInp = tr.querySelector('.col-qty input');
           const qty = legQty(leg);
           if (qtyInp) qtyInp.value = qty == null ? '' : fmtFuel(qty);
