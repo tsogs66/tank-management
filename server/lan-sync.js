@@ -555,7 +555,21 @@ function create(opts) {
         }
       }
     } catch (_) { /* no interfaces visible */ }
-    return out;
+    /* A laptop often has several adapters (Wi-Fi, a VPN, Hyper-V/WSL, VirtualBox). The one a phone can reach is the
+       real Wi-Fi or Ethernet one on a private range, so put those first instead of whichever Windows lists first. */
+    const virtual = /vethernet|vmware|virtualbox|vbox|hyper-v|wsl|docker|tailscale|zerotier|loopback|bluetooth|tap-|vpn|tun\d|utun|vmnet|host-only/i;
+    const real = /wi-?fi|wireless|wlan|wl\d|ethernet|^eth|^en\d/i;
+    const score = (a) => {
+      let n = 0;
+      if (virtual.test(a.name)) n -= 100;
+      if (real.test(a.name)) n += 20;
+      if (/^169\.254\./.test(a.address)) n -= 200;
+      else if (/^192\.168\./.test(a.address)) n += 30;
+      else if (/^172\.(1[6-9]|2\d|3[01])\./.test(a.address)) n += 20;
+      else if (/^10\./.test(a.address)) n += 10;
+      return n;
+    };
+    return out.map((a, i) => ({ a, i, n: score(a) })).sort((x, y) => y.n - x.n || x.i - y.i).map((x) => x.a);
   }
 
   function broadcastOf(a) {
@@ -850,6 +864,7 @@ function create(opts) {
       canBeCalled: canBeCalled(),
       license: { active: !!ownTag(), email: (c.license && c.license.email) || '' },
       address: ownUrl(),
+      addresses: canBeCalled() ? lanAddresses().map((a) => ({ url: `http://${a.address}:${listenPort}`, name: a.name })) : [],
       pairing: pairing && Date.now() < pairing.expiresAt ? { code: pairing.code, expiresAt: new Date(pairing.expiresAt).toISOString() } : null,
       peers: c.peers.map((p) => {
         const st = peerState.get(p.deviceId) || {};
