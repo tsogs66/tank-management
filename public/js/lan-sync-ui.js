@@ -15,6 +15,7 @@
     'different-vessel': ['warn', 'Different vessel'],
     error: ['bad', 'Problem'],
     'different-license': ['bad', 'Different license'],
+    'clock-different': ['bad', 'Clocks differ'],
     'no-license': ['bad', 'No license'],
     unknown: ['dim', 'Checking…'],
   };
@@ -117,6 +118,19 @@
         <div style="margin:6px 0;font-size:13px">
           <label style="display:block"><input type="radio" name="lan-scope" value="active" ${s.scope === 'active' ? 'checked' : ''}> Only the vessel both devices have open</label>
           <label style="display:block"><input type="radio" name="lan-scope" value="all" ${s.scope === 'all' ? 'checked' : ''}> The whole database — a vessel one device is missing is copied to it</label>
+        </div>
+        <div id="lan-guide" style="margin:8px 0;padding:8px 10px;border-radius:8px;background:rgba(127,127,127,.12);font-size:13px">
+          <div style="font-weight:600;margin-bottom:4px">${(s.peers || []).length ? 'Paired. To add another device, repeat these steps:' : 'Not paired yet. Do this once:'}</div>
+          <ol style="margin:0 0 0 18px;padding:0;color:var(--text-dim)">
+            <li>Both devices on the <b>same Wi-Fi or phone hotspot</b> (no internet needed), the app open on both, the <b>same license</b>, and both <b>clocks the same</b> (within one minute; this device now: <b>${esc(new Date().toLocaleTimeString())}</b>). Different clocks are refused.</li>
+            <li>On the <b>PC</b>: press <b>Show pairing code</b>. A 6-digit code and its address appear.</li>
+            <li>On the <b>phone or tablet</b>: press <b>Find devices</b>, type the code next to the PC and press <b>Pair</b>. Nothing found? Type the PC address and the code in the boxes below.</li>
+          </ol>
+          <details style="margin-top:6px"><summary style="cursor:pointer">Not working?</summary><ul style="margin:4px 0 0 18px;padding:0;color:var(--text-dim)">
+            <li><b>Failed to fetch / nothing answers:</b> not the same network, the other app is closed, or the firewall blocks it (allow it for private networks).</li>
+            <li><b>Code not right:</b> a code works once, for five minutes. Press Show pairing code again.</li>
+            <li><b>Clocks differ:</b> set both devices to automatic date and time, then try again.</li>
+            <li><b>Different license:</b> both must use the same email and license.</li></ul></details>
         </div>
         <div class="btn-row">
           <button class="btn" id="lan-show-code">Show pairing code</button>
