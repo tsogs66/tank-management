@@ -61,10 +61,10 @@
 
     const api = () => window.Api;
 
-    /* Inside the AIO one page controls live sync for every program: Backup & Restore in the main menu. */
+    /* Inside the AIO one page controls live sync for every program: Backup & Sync in the main menu. */
     if (typeof isAioEmbedded === 'function' && isAioEmbedded()) {
       host.innerHTML = '<div class="section-title" style="margin-top:0">Live sync (Wi-Fi / hotspot)</div>' +
-        '<p style="color:var(--text-dim);font-size:13px;margin:0">In ChEng AIO live sync is set up once for every program — Tank Chief, Voyage Chief and the other reports — on <b>Backup &amp; Restore</b> in the main menu.</p>';
+        '<p style="color:var(--text-dim);font-size:13px;margin:0">In ChEng AIO live sync is set up once for every program — Tank Chief, Voyage Chief and the other reports — on <b>Backup &amp; Sync</b> in the main menu.</p>';
       return;
     }
 
