@@ -807,9 +807,19 @@ function create(opts) {
   }
 
   let running = false;
+  let currentRun = null;
   async function runOnce(force) {
-    if (running) return;
+    if (running) {
+      /* A timer sync is mid-way. A person pressing Sync now must not get an instant "done" while that older run is
+         still to finish (and may write a result from before whatever just changed, such as the license): wait for it,
+         then run again. The timer itself just skips a tick. */
+      if (!force) return;
+      try { await currentRun; } catch (_) { /* its own error is its own */ }
+      if (running) return;
+    }
     running = true;
+    let release = () => {};
+    currentRun = new Promise((r) => { release = r; });
     try {
       await scoped(async () => {
         for (const peer of load().peers.slice()) {
@@ -821,7 +831,7 @@ function create(opts) {
           }
         }
       });
-    } finally { running = false; }
+    } finally { running = false; release(); }
   }
 
   let timer = null;
