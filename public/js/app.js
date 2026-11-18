@@ -1534,7 +1534,9 @@ function renderDashboard(main) {
       ? Core.normalizeForm(bundle, formOverride.fuelReport)
       : (monitoringFuelForm() || voyageFuelForm(voyage));
     if (form) form.header.reportType = form.header.reportType || 'Monitoring';
-    const computed = Core.computeFuelReport(bundle, form, STATE.conversionTable);
+    const computedRaw = Core.computeFuelReport(bundle, form, STATE.conversionTable);
+    /* A saved sheet being reprinted keeps the officer it was filed under; the live one takes the one in post. */
+    const computed = formOverride ? computedRaw : FuelReport.withLiveSigner(computedRaw);
     const pages = tankConditionPrintHtml(computed, 'TANK SUMMARY REPORT');
     if (saveSnapshot) {
       const entry = {
