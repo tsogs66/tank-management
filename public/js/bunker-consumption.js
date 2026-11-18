@@ -260,19 +260,19 @@ const BunkerConsumption = (function () {
   }
 
   function tankRobByGrade() {
-    const rob = {};
     try {
-      const fuelTanks = STATE.bundle?.tanks?.fuel || [];
-      for (const t of fuelTanks) {
-        const r = getReading(t.id);
-        const wt = r?.result?.weightMT;
-        if (wt != null && wt > 0) {
-          const grade = t.fuelGrade || 'Unknown';
-          rob[grade] = (rob[grade] || 0) + wt;
-        }
-      }
-    } catch (_) { /* ignore */ }
-    return rob;
+      return FuelReportCore.robByGradeLabel(STATE.bundle?.tanks?.fuel || [], getReading);
+    } catch (_) { return {}; }
+  }
+  /* One side's ROB from a weight-by-grade list: the grade the plan is set to, else every grade of that side. */
+  function robForSide(rob, side, meta) {
+    const norm = (g) => ({ VLSFO: 'LSFO', ULSFO: 'LSFO', 'MO/MGO': 'MDO/MGO', MDO: 'MDO/MGO', MGO: 'MDO/MGO' }[String(g || '').toUpperCase()] || String(g || '').toUpperCase());
+    const want = norm(side.grade);
+    if (rob[want] > 0) return Number(rob[want]);
+    const own = (meta.grades || []).concat(meta.aliases || []).map(norm);
+    let sum = 0;
+    Object.keys(rob).forEach((k) => { if (own.includes(norm(k))) sum += Number(rob[k]) || 0; });
+    return sum;
   }
 
   function esc(s) {
@@ -671,18 +671,18 @@ const BunkerConsumption = (function () {
 
   function loadTankRob() {
     const rob = tankRobByGrade();
+    let any = false;
     SIDES.forEach((meta) => {
       const side = _plan[meta.key];
-      let val = 0;
-      if (rob[side.grade] != null) val = Number(rob[side.grade]);
-      else meta.grades.forEach((g) => { if (rob[g] != null) val += Number(rob[g]); });
+      const val = robForSide(rob, side, meta);
+      if (val > 0) any = true;
       side.currentRob = Math.round(val * 1000) / 1000;
     });
     if (!_plan.voyageNo) _plan.voyageNo = STATE.bundle?.voyage?.voyageNo || '';
     if (!_plan.date) _plan.date = new Date().toISOString().slice(0, 10);
     renderGrid(_plan);
     scheduleSave();
-    showToast('Tank ROB loaded');
+    showToast(any ? 'Tank ROB loaded' : 'No sounded fuel weight yet — sound the tanks on Tank Monitoring first');
   }
 
   function clearPlan() {

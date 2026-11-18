@@ -6345,20 +6345,18 @@ function startSyncLoop() {
 }
 
 /* Tank ROB bridge: respond to parent/AIO requests for current fuel ROB by grade. */
-window.addEventListener('message', (ev) => {
+window.addEventListener('message', async (ev) => {
   const msg = ev.data || {};
   if (msg.type !== 'request-tank-rob') return;
-  const rob = {};
+  /* The ship may still be loading when the question arrives (the hidden frame was only just made). Answering from an
+     empty bundle sent back "no ROB" and the button seemed to do nothing, so wait for the ship, as the tank list does. */
+  for (let i = 0; i < 100 && !(STATE.bundle && STATE.bundle.tanks); i++) {
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  let rob = {};
   try {
     const fuelTanks = STATE.bundle?.tanks?.fuel || [];
-    for (const t of fuelTanks) {
-      const r = getReading(t.id);
-      const wt = r?.result?.weightMT;
-      if (wt != null && wt > 0) {
-        const grade = t.fuelGrade || 'Unknown';
-        rob[grade] = (rob[grade] || 0) + wt;
-      }
-    }
+    rob = FuelReportCore.robByGradeLabel(fuelTanks, getReading);
   } catch (_) { /* bundle not ready */ }
   const target = ev.source || window.parent;
   try { target.postMessage({ type: 'tank-rob-response', rob }, '*'); } catch (_) {}

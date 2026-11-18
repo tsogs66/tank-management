@@ -447,10 +447,18 @@ app.put('/api/vessels/:id/fuel-report', (req, res) => {
       const t = Date.parse(v);
       return Number.isFinite(t) && t <= Date.now() + 2 * 60 * 1000 ? new Date(t).toISOString() : null;
     };
-    const stamp = stampOf(sent && sent.updatedAt) || new Date().toISOString();
-    const form = { ...built.computed.form, updatedAt: stamp };
     const current = bundle.fuelReport && typeof bundle.fuelReport === 'object' ? bundle.fuelReport : null;
-    const stale = !!(current && current.updatedAt && String(current.updatedAt) > stamp);
+    /* Only a save that was held back (queued while offline) can be out of date. A Save the person has just pressed is the
+       newest report whatever their device's clock says: a clock a few minutes behind the one that filed the last report
+       used to make every new Save look "older", so the old report stayed active and the page snapped back to it. */
+    const late = !!body.late;
+    let stamp = stampOf(sent && sent.updatedAt) || new Date().toISOString();
+    if (!late && current && current.updatedAt && String(current.updatedAt) >= stamp) {
+      const t = Date.parse(current.updatedAt);
+      if (Number.isFinite(t)) stamp = new Date(t + 1).toISOString();
+    }
+    const form = { ...built.computed.form, updatedAt: stamp };
+    const stale = late && !!(current && current.updatedAt && String(current.updatedAt) > stamp);
     let computed = built.computed;
     if (!stale) {
       const gradesChanged = fuelReport.applyCarriedFuelGrades(bundle, form);
