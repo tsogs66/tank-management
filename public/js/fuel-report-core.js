@@ -194,6 +194,32 @@ function resolvedFuelGrade(tank) {
   return inferred || 'hfo';
 }
 
+/**
+ * The grade name the Bunker plans and Voyage Chief use for a tank: HFO, LSFO, MDO/MGO or LSMGO. A tank keeps its grade in
+ * lower case (hfo, lsfo, mdo, mgo) and a plan looks for the upper-case name, so the two never matched and the ROB buttons
+ * came back empty.
+ */
+function robGradeLabel(tank) {
+  const g = resolvedFuelGrade(tank);
+  if (g === 'lsmgo') return 'LSMGO';
+  if (g === 'mdo' || g === 'mgo') return 'MDO/MGO';
+  if (g === 'lsfo' || g === 'vlsfo' || g === 'ulsfo') return 'LSFO';
+  return 'HFO';
+}
+
+/** Weight by air (MT) of every sounded fuel tank, added up by plan grade name. readingOf(tankId) gives the tank's reading. */
+function robByGradeLabel(tanks, readingOf) {
+  const out = {};
+  (tanks || []).forEach((t) => {
+    const r = readingOf ? readingOf(t.id) : null;
+    const wt = r && r.result ? Number(r.result.weightMT) : NaN;
+    if (!Number.isFinite(wt) || !(wt > 0)) return;
+    const k = robGradeLabel(t);
+    out[k] = (out[k] || 0) + wt;
+  });
+  return out;
+}
+
 /** Default grade bucket for a tank, from its calibration-DB fuel grade. */
 function defaultFuelType(tank) {
   const grade = resolvedFuelGrade(tank);
@@ -869,6 +895,8 @@ return {
   soundingPair,
   fuelGradeFromName,
   resolvedFuelGrade,
+  robGradeLabel,
+  robByGradeLabel,
   isDistillateGrade,
   defaultFuelType,
   gradeForCarriedType,

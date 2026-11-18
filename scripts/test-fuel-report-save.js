@@ -51,6 +51,7 @@ async function check(name, fn) {
     f.header.time = '12:00';
     f.updatedAt = opts.stamp || new Date().toISOString();
     const body = { form: f, snapshot: opts.snapshot !== false, syncReadings: true };
+    if (opts.late) body.late = true;
     if (opts.snapshot !== false) body.snapshotEntry = { id: opts.id || ('rep_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5)), savedAt: opts.savedAt || new Date().toISOString() };
     const r = await call('PUT', `/api/vessels/${id}/fuel-report`, body);
     assert.strictEqual(r.status, 200, JSON.stringify(r.body));
@@ -90,7 +91,7 @@ async function check(name, fn) {
     });
 
     await check('an OLD save arriving late does not put the old report back in the form', async () => {
-      const old = await save('OLD', '2026-10-01', { stamp: '2026-10-01T08:00:00.000Z', savedAt: '2026-10-01T08:00:00.000Z', snapshot: true });
+      const old = await save('OLD', '2026-10-01', { stamp: '2026-10-01T08:00:00.000Z', savedAt: '2026-10-01T08:00:00.000Z', snapshot: true, late: true });
       // the form stays as the newest report, not the late arrival
       const v = await view();
       assert.strictEqual(old.res.stale, true);
@@ -98,6 +99,18 @@ async function check(name, fn) {
       // ...and the late save is still filed, in its place by date saved, not lost
       assert.ok(v.history.some((h) => h.voyageNo === 'OLD'));
       assert.strictEqual(v.history[0].voyageNo, 'D');
+    });
+
+    await check('a Save pressed on a device whose clock is behind still becomes the active report', async () => {
+      await save('AHEAD', '2026-11-06');
+      await wait(20);
+      const behind = await save('BEHIND', '2026-11-06', { stamp: '2020-01-01T00:00:00.000Z' });
+      assert.ok(!behind.res.stale, 'an explicit Save is never judged old');
+      assert.strictEqual((await view()).form.header.voyageNo, 'BEHIND');
+      assert.strictEqual(behind.res.form.header.voyageNo, 'BEHIND');
+      const again = await save('AGAIN', '2026-11-06', { stamp: '2020-01-02T00:00:00.000Z' });
+      assert.strictEqual((await view()).form.header.voyageNo, 'AGAIN');
+      assert.ok(!again.res.stale);
     });
 
     await check('a stale save does not touch the gaugings or the voyage either', async () => {
