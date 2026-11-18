@@ -1661,7 +1661,18 @@ const FuelReport = (() => {
     }
   }
 
+  /* The sheet on the Monitoring page is the live one: the Chief Engineer in post signs it now. A name
+     left on it from before a crew change, or typed in an old Prepared-by box, has no signature on file,
+     so the line printed blank. Saved sheets keep the name they were filed under; this is only the live one. */
+  function withLiveSigner(computed) {
+    const live = String(vesselChiefEngineer() || '').trim();
+    if (!live || !computed || !computed.signature) return computed;
+    if (String(computed.signature.preparedBy || '').trim() === live) return computed;
+    return Object.assign({}, computed, { signature: Object.assign({}, computed.signature, { preparedBy: live }) });
+  }
+
   function printReport(computed) {
+    computed = withLiveSigner(computed);
     const preview = document.getElementById('fr-live-preview');
     if (preview) preview.innerHTML = buildPrintPages(computed);
     printHtml(buildPrintPages(computed));
@@ -1923,6 +1934,7 @@ const FuelReport = (() => {
     // Reused by the bunkering screens so both sheets look and behave the same.
     printHtml,
     printSignatureBlock,
+    withLiveSigner,
     signatureFor,
     signatureKey,
     vesselChiefEngineer,

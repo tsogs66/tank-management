@@ -113,6 +113,10 @@ check('Android print does not absolutely-position the signature image',
 check('and the sheet CSS uses flex instead of transform',
   /\.fr-print-sign-space \{[\s\S]{0,180}display: flex/.test(CSS)
     && !/\.fr-print-sign-space img \{[\s\S]{0,120}transform: translateX/.test(CSS), true);
+check('the live Monitoring print is signed by the Chief Engineer in post, not a stale name',
+  /function withLiveSigner\(/.test(UI) && /computed = withLiveSigner\(computed\)/.test(UI), true);
+check('a saved Tank Summary reprint keeps the name it was filed under',
+  /formOverride \? computedRaw : FuelReport\.withLiveSigner/.test(require('fs').readFileSync(require('path').join(__dirname, '../public/js/app.js'), 'utf8')), true);
 
 console.log(fails ? `\nFAILED — ${fails} of ${checks} checks` : `\nPASSED — ${checks} checks`);
 process.exit(fails ? 1 : 0);
