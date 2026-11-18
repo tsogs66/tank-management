@@ -268,6 +268,8 @@ const FuelReport = (() => {
           <output class="fr-out" data-fr-head="trim"></output></label>
         <label class="fr-field fr-field-wide"><span>PORT</span>
           <input data-head="port" value="${esc(h.port)}"></label>
+        <label class="fr-field fr-field-wide"><span>DESCRIPTION (shown in Saved reports)</span>
+          <input data-head="description" maxlength="120" placeholder="e.g. Departure Fujairah, after bunkering" value="${esc(h.description || '')}"></label>
       </div>
       <div class="hint">Heel: enter decimals if needed. <b>Negative</b> values = heel to <b>port</b>; <b>positive</b> = heel to <b>starboard</b>. Default 0 when left blank.</div>
       <div class="hint" data-fr-head="attitude"></div>
@@ -646,6 +648,7 @@ const FuelReport = (() => {
       reportType: (draftForm.header && draftForm.header.reportType) || '',
       voyageNo: (draftForm.header && draftForm.header.voyageNo) || '',
       port: (draftForm.header && draftForm.header.port) || '',
+      description: (draftForm.header && draftForm.header.description) || '',
       date: (draftForm.header && draftForm.header.date) || '',
       time: (draftForm.header && draftForm.header.time) || '',
       totals: null,
@@ -655,6 +658,7 @@ const FuelReport = (() => {
     const rows = merged.map((s) => `<tr>
       <td>${esc(reportDate(s.date || (s.form && s.form.header && s.form.header.date), s.time || (s.form && s.form.header && s.form.header.time)) || '—')}</td>
       <td>${s.isDraft ? '<span class="chip on">Draft</span> ' : ''}${esc((s.savedAt || '').replace('T', ' ').slice(0, 16))}</td>
+      <td>${esc(s.description || (s.form && s.form.header && s.form.header.description) || '')}</td>
       <td>${esc(s.reportType || '')}</td>
       <td>${esc(s.voyageNo || '')}</td>
       <td>${esc(s.port || '')}</td>
@@ -668,8 +672,8 @@ const FuelReport = (() => {
         <summary class="section-title" style="margin-top:0; cursor:pointer;">Saved reports</summary>
         <p class="hint" style="margin-top:8px;">Drafts stay editable. Filed reports can be reprinted or loaded.</p>
         <div class="scroll-x"><table class="data-table">
-          <thead><tr><th>Report date</th><th>Saved</th><th>Type</th><th>Voyage</th><th>Port</th><th>Total MT</th><th></th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="7" class="empty-state">Nothing saved yet — use Save only to file this report, or Print &amp; Save to file it and print</td></tr>'}</tbody>
+          <thead><tr><th>Report date</th><th>Saved</th><th>Description</th><th>Type</th><th>Voyage</th><th>Port</th><th>Total MT</th><th></th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="8" class="empty-state">Nothing saved yet — use Save only to file this report, or Print &amp; Save to file it and print</td></tr>'}</tbody>
         </table></div>
       </details>
     </div>`;
@@ -933,7 +937,7 @@ const FuelReport = (() => {
         if (!confirm('Delete this saved report?')) return;
         try {
           const res = await Api.deleteFuelReportSnapshot(STATE.activeVesselId, btn.dataset.delSnapshot);
-          currentBundle().reportHistory = res.history || [];
+          STATE.bundle.reportHistory = res.history || [];
           navigate('fuel-report');
         } catch (err) {
           showToast(err.message);
@@ -956,7 +960,10 @@ const FuelReport = (() => {
   }
 
   async function saveReport({ snapshot = false, print = false, quiet = false } = {}) {
-    const bundle = currentBundle();
+    /* The bundle the app holds, not currentBundle(): inside Cheng AIO that is a copy with the ship's
+       identity laid over it, and a report written onto the copy was gone at the next render, which
+       read the held bundle and put the OLD report back until the program was closed and reopened. */
+    const bundle = STATE.bundle;
     const form = { ...view.form, updatedAt: new Date().toISOString() };
     const body = { form, snapshot, syncReadings: true };
 
@@ -1023,7 +1030,7 @@ const FuelReport = (() => {
   }
 
   async function flushIfDirty() {
-    const bundle = currentBundle();
+    const bundle = STATE.bundle;
     if (view.dirty && view.form) {
       await saveReport({ snapshot: true, print: false, quiet: true });
       return;
