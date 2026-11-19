@@ -164,6 +164,26 @@ function asUllage(tank, reading) {
   return top > 0 ? round(top - r, 1) : null;
 }
 
+/* How the current sounding is typed during a transfer: in the tank's own gauging method, or all as dip, or all as ullage.
+   A tape is read one way or the other, and the engineer should not have to flip every figure in his head. */
+const ENTRY_MODES = [
+  { id: 'own', label: "Tank's own" },
+  { id: 'dip', label: 'Dip' },
+  { id: 'ullage', label: 'Ullage' },
+];
+function entryModeOf(mode) { return mode === 'dip' || mode === 'ullage' ? mode : 'own'; }
+function entryMethodFor(mode, ownMethod) {
+  const m = entryModeOf(mode);
+  return m === 'own' ? ownMethod : m;
+}
+/** The same level read the other way: dip = pipe height − ullage. */
+function convertReading(tank, reading, fromMethod, toMethod) {
+  const r = num(reading);
+  if (r == null || fromMethod === toMethod) return r;
+  const top = scaleTop(tank);
+  return top > 0 ? round(top - r, 1) : r;
+}
+
 /**
  * Elapsed time as a clock reads it: floored, never rounded up.
  *
@@ -353,9 +373,14 @@ function emptyBunkerPlan(bundle, conversion) {
   };
 }
 
-function normalizePlan(bundle, form, conversion) {
-  const base = emptyBunkerPlan(bundle, conversion);
-  const src = form || {};
+/* The two fuel lines of one delivery: the residual line (HFO / VLSFO) is the plan itself, and an optional
+   distillate line (MDO/MGO, LSMGO) rides inside the same document as `distillate`. The barge pumps them through
+   two hoses, so each line has its own grade, density, rate, tanks and clock, and they can run side by side. */
+const RESIDUAL_FUEL_TYPES = ['hfo', 'lsfo'];
+const DISTILLATE_FUEL_TYPES = ['mdo', 'lsmgo'];
+const LINE_SHARED_FIELDS = ['date', 'voyageNo', 'port', 'draftFwd', 'draftAft', 'heel'];
+
+function normalizeLineForm(base, src) {
   const seq = [];
   for (let i = 0; i < PLAN_SLOTS; i++) {
     seq.push({ ...base.sequence[i], ...((src.sequence || [])[i] || {}) });
@@ -368,6 +393,7 @@ function normalizePlan(bundle, form, conversion) {
     header: { ...base.header, ...(src.header || {}) },
     sequence: seq,
     distributionMode: src.distributionMode || base.distributionMode,
+    soundingEntry: entryModeOf(src.soundingEntry),
     status: src.status || base.status,
     startedAt: src.startedAt || null,
     pausedAt: src.pausedAt || null,
@@ -375,6 +401,59 @@ function normalizePlan(bundle, form, conversion) {
     completedAt: src.completedAt || null,
     updatedAt: src.updatedAt || null,
   };
+}
+
+/** A blank distillate line. Port, date, voyage and drafts are the plan's own and are taken from it, not kept twice. */
+function emptyDistillateLine(bundle, conversion) {
+  const base = emptyBunkerPlan(bundle, conversion);
+  base.header = { ...base.header, fuelType: 'mdo' };
+  return base;
+}
+
+function normalizePlan(bundle, form, conversion) {
+  const base = emptyBunkerPlan(bundle, conversion);
+  const src = form || {};
+  const out = normalizeLineForm(base, src);
+  if (!RESIDUAL_FUEL_TYPES.includes(out.header.fuelType) && !src.header) out.header.fuelType = 'lsfo';
+  out.distillate = src.distillate ? normalizeLineForm(emptyDistillateLine(bundle, conversion), src.distillate) : null;
+  if (out.distillate && !DISTILLATE_FUEL_TYPES.includes(out.distillate.header.fuelType)) out.distillate.header.fuelType = 'mdo';
+  /* The shared particulars are the residual line's; the distillate line keeps none of its own, so its stored copy never drifts. */
+  if (out.distillate) for (const k of LINE_SHARED_FIELDS) out.distillate.header[k] = '';
+  return out;
+}
+
+/** The plan as a single line, ready for computeBunkerPlan: the residual line (the plan without its distillate line). */
+function residualLine(plan) {
+  return { ...plan, distillate: null };
+}
+
+/** The distillate line as a plan-shaped form, with the shared header fields taken from the residual line. */
+function distillateLine(plan) {
+  if (!plan || !plan.distillate) return null;
+  const header = { ...plan.distillate.header };
+  for (const k of LINE_SHARED_FIELDS) header[k] = plan.header[k];
+  return { ...plan.distillate, header, distillate: null };
+}
+
+/** Put an edited line back into the whole plan. */
+function withLine(plan, which, line) {
+  if (which === 'B') {
+    const d = { ...line, distillate: undefined };
+    delete d.distillate;
+    return { ...plan, distillate: d };
+  }
+  const out = { ...line, distillate: plan.distillate || null };
+  return out;
+}
+
+function addDistillateLine(bundle, plan, conversion) {
+  const full = normalizePlan(bundle, plan, conversion);
+  if (full.distillate) return full;
+  return normalizePlan(bundle, { ...full, distillate: emptyDistillateLine(bundle, conversion) }, conversion);
+}
+
+function removeDistillateLine(plan) {
+  return { ...plan, distillate: null };
 }
 
 /**
@@ -540,6 +619,9 @@ function computeBunkerPlan(bundle, form, conversion) {
     out.capacity85M3 = round(cap85, 3);
     out.startingMethod = before ? before.method : FuelReport.normalizeMethod(tank.soundingMethod);
     out.startingReadingMM = before && before.reading !== '' ? num(before.reading) : null;
+    /* The way this row's current sounding is read: the plan's choice, else the tank's own. */
+    out.currentMethod = entryMethodFor(plan.soundingEntry, out.startingMethod);
+    out.startingReadingEntryMM = convertReading(tank, out.startingReadingMM, out.startingMethod, out.currentMethod);
     out.startingUllageMM = before && before.trace
       ? asUllage(tank, before.trace.nativeReading)
       : null;
@@ -578,7 +660,7 @@ function computeBunkerPlan(bundle, form, conversion) {
         tempC,
         density15,
         gaugeType: directM3 ? 'volume' : 'meter',
-        entryMethod: directM3 ? (tank.soundingMethod || 'gaugeDirectM3') : out.startingMethod,
+        entryMethod: directM3 ? (tank.soundingMethod || 'gaugeDirectM3') : out.currentMethod,
       });
       out.currentVolumeM3 = round(res.volumeObserved, 3);
       out.currentVolumePercent = capacity > 0 ? round((res.volumeObserved / capacity) * 100, 1) : null;
@@ -612,7 +694,7 @@ function computeBunkerPlan(bundle, form, conversion) {
         // A flipped reading of exactly zero is a real reading — an empty
         // dipped tank — so the bound is inclusive.
         const alt = (scaleTop(tank) || 0) - out.currentSoundingMM;
-        const altMethod = out.startingMethod === 'ullage' ? 'dip' : 'ullage';
+        const altMethod = out.currentMethod === 'ullage' ? 'dip' : 'ullage';
         const altRes = alt >= 0
           ? computeTank(tank, {
             reading: alt,
@@ -629,7 +711,7 @@ function computeBunkerPlan(bundle, form, conversion) {
         const slack = fillTolerance(capacity);
         if (altVol != null && altVol <= cap85 + slack && altVol >= startVol - slack) {
           out.reversedReading = true;
-          out.warnings.push(`this column takes a ${String(out.startingMethod).toUpperCase()} for this tank `
+          out.warnings.push(`this column takes a ${String(out.currentMethod).toUpperCase()} for this tank `
             + `— ${round(out.currentSoundingMM, 0)} read the other way is `
             + `${round(altVol, 1)} m³ (${round((altVol / capacity) * 100, 1)}%)`);
         }
@@ -761,7 +843,7 @@ function computeBunkerPlan(bundle, form, conversion) {
       out.estimatedReadingMM = estReading;
       out.estimatedUllageMM = estReading != null ? asUllage(tank, estReading) : null;
       out.estimatedSoundingMM = estReading == null ? null
-        : (out.startingMethod === FuelReport.normalizeMethod(tank.soundingMethod)
+        : (out.currentMethod === FuelReport.normalizeMethod(tank.soundingMethod)
           ? round(estReading, 0)
           : round((scaleTop(tank) || 0) - estReading, 0));
       out.estimatedFrom = out.currentVolumeM3 != null ? 'last sounding' : 'opening ullage';
@@ -868,6 +950,7 @@ function computeBunkerPlan(bundle, form, conversion) {
       trim: round(trim, 3),
       heel,
       deliveryRateMTPerHour: rate,
+      soundingEntry: entryModeOf(plan.soundingEntry),
       bunkerQuantityMT: quantity,
       timeToBunkerHours: rate > 0 && quantity != null ? round(quantity / rate, 2) : null,
       timeToBunkerLabel: rate > 0 && quantity != null ? hoursLabel(quantity / rate) : '—',
@@ -1289,6 +1372,8 @@ function normalizeSummary(bundle, form) {
     events,
     lubes: { ...base.lubes, ...(src.lubes || {}) },
     bdn: { ...base.bdn, ...(src.bdn || {}) },
+    /* A delivery through two hoses has a second delivery note, for the distillate. */
+    bdn2: src.bdn2 ? { fuelType: 'mdo', quantityMT: '', sulphurPercent: '', density15: '', number: '', ...src.bdn2 } : null,
   };
 }
 
@@ -1361,6 +1446,31 @@ function computeBunkerSummary(bundle, form, after, conversion) {
      letter of protest against a supplier over soundings nobody has taken yet. */
   const comparable = bdnQuantity != null && receivedQuantity != null;
 
+  /* The second delivery note (distillate line), against the received quantity of its own grade. */
+  let bdn2 = null; let quantities2 = null;
+  if (summary.bdn2) {
+    const grade2 = summary.bdn2.fuelType || 'mdo';
+    const qty2 = num(summary.bdn2.quantityMT);
+    const row2 = fuelOnboard.find((f) => f.id === grade2) || null;
+    const recv2 = row2 ? row2.receivedMT : null;
+    const comparable2 = qty2 != null && recv2 != null;
+    bdn2 = {
+      ...summary.bdn2,
+      quantityMT: qty2,
+      sulphurPercent: num(summary.bdn2.sulphurPercent),
+      density15: num(summary.bdn2.density15),
+      label: (FuelReport.FUEL_TYPES.find((f) => f.id === grade2) || {}).label || grade2,
+    };
+    quantities2 = {
+      bdnQuantityMT: qty2,
+      receivedQuantityMT: recv2,
+      differenceMT: comparable2 ? round(recv2 - qty2, 3) : null,
+      differencePercent: comparable2 && qty2 ? round(((recv2 - qty2) / qty2) * 100, 3) : null,
+      comparable: comparable2,
+      pendingReason: comparable2 ? null : qty2 == null ? 'no-bdn' : 'no-measurement',
+    };
+  }
+
   return {
     vessel: {
       name: (bundle.vessel && bundle.vessel.name) || '',
@@ -1388,6 +1498,8 @@ function computeBunkerSummary(bundle, form, after, conversion) {
       density15: num(summary.bdn.density15),
       label: (FuelReport.FUEL_TYPES.find((f) => f.id === bdnGrade) || {}).label || bdnGrade,
     },
+    bdn2,
+    quantities2,
     quantities: {
       bdnQuantityMT: bdnQuantity,
       receivedQuantityMT: receivedQuantity,
@@ -1421,6 +1533,77 @@ function computeBunkerSummary(bundle, form, after, conversion) {
   };
 }
 
+/**
+ * Both lines of the delivery, worked out separately and then together. The two lines are independent
+ * (own rate, own clock, own tanks), so the combined figures are sums and the later of the two finish times.
+ */
+function computeBunkerPlans(bundle, form, conversion) {
+  const plan = normalizePlan(bundle, form, conversion);
+  const a = computeBunkerPlan(bundle, residualLine(plan), conversion);
+  const dl = distillateLine(plan);
+  const b = dl ? computeBunkerPlan(bundle, dl, conversion) : null;
+  return { plan, a, b, combined: combineLines(bundle, plan, a, b) };
+}
+
+function combineLines(bundle, plan, a, b) {
+  const warnings = [];
+  const out = { twoLines: Boolean(b), warnings };
+  const lines = [a, b].filter(Boolean);
+  const sum = (get) => {
+    let any = false; let t = 0;
+    for (const c of lines) { const v = num(get(c)); if (v != null) { any = true; t += v; } }
+    return any ? round(t, 3) : null;
+  };
+  out.quantityMT = sum((c) => c.header.bunkerQuantityMT);
+  out.rateMTPerHour = sum((c) => c.header.deliveryRateMTPerHour);
+  out.receivedMT = sum((c) => c.monitoring.receivedMT);
+  out.plannedAddMT = sum((c) => c.totals.plannedAddMT);
+  out.quantityRemainingMT = sum((c) => c.monitoring.quantityRemainingMT);
+  const maxOf = (get) => {
+    let m = null;
+    for (const c of lines) { const v = num(get(c)); if (v != null && (m == null || v > m)) m = v; }
+    return m;
+  };
+  out.timeToBunkerHours = maxOf((c) => c.header.timeToBunkerHours);
+  out.timeToBunkerLabel = out.timeToBunkerHours != null ? hoursLabel(out.timeToBunkerHours) : '—';
+  out.timeRemainingHours = maxOf((c) => c.monitoring.timeRemainingHours);
+  out.timeRemainingLabel = out.timeRemainingHours != null ? hoursLabel(out.timeRemainingHours) : '—';
+  out.tanksFilling = lines.reduce((acc, c) => acc + (num(c.monitoring.tanksFilling, 0) || 0), 0);
+  out.running = lines.some((c) => c.monitoring.clock && c.monitoring.clock.running);
+  const qtyDone = out.quantityMT > 0 && out.receivedMT != null ? (out.receivedMT / out.quantityMT) * 100 : null;
+  out.percentComplete = qtyDone != null ? round(Math.min(100, qtyDone), 1) : null;
+
+  if (b) {
+    // A tank can only take one grade at a time.
+    const idsA = new Set(sequenceTankIds(residualLine(plan)));
+    const shared = sequenceTankIds(distillateLine(plan)).filter((id) => idsA.has(id));
+    if (shared.length) {
+      const names = shared.map((id) => { const t = findTank(bundle, id); return (t && t.name) || id; });
+      warnings.push({ level: 'error', code: 'tank-in-both-lines', text: `${names.join(', ')} ${names.length === 1 ? 'is' : 'are'} in both lines. A tank can take only one grade.` });
+    }
+    // One grade per line: the residual line must be residual fuel, the distillate line distillate.
+    if (!RESIDUAL_FUEL_TYPES.includes(a.header.fuelType)) warnings.push({ level: 'warn', code: 'line-a-grade', text: 'The first line should be a residual grade (HFO or VLSFO).' });
+    if (!DISTILLATE_FUEL_TYPES.includes(b.header.fuelType)) warnings.push({ level: 'warn', code: 'line-b-grade', text: 'The second line should be a distillate grade (MDO/MGO or LSMGO).' });
+    // Where the fuel goes: both lines loading the same side can heel the ship.
+    let port = 0; let stbd = 0;
+    for (const c of lines) {
+      for (const r of c.rows || []) {
+        if (!r.tankId) continue;
+        const t = findTank(bundle, r.tankId);
+        const mt = num(r.planAddMT, 0) || 0;
+        if (t && t.side === 'port') port += mt; else if (t && t.side === 'starboard') stbd += mt;
+      }
+    }
+    const loaded = port + stbd;
+    out.sideBalance = { portMT: round(port, 1), starboardMT: round(stbd, 1) };
+    if (loaded >= 50 && Math.abs(port - stbd) / loaded > 0.6) {
+      const heavier = port > stbd ? 'port' : 'starboard';
+      warnings.push({ level: 'warn', code: 'side-imbalance', text: `Most of the planned fuel (${round(Math.max(port, stbd), 0)} of ${round(loaded, 0)} MT) goes to the ${heavier} side. Expect a list; check trim and heel as you load.` });
+    }
+  }
+  return out;
+}
+
 /** Compact snapshots for the saved-report histories. */
 function planSnapshot(computed) {
   return {
@@ -1434,6 +1617,20 @@ function planSnapshot(computed) {
     receivedMT: computed.monitoring.receivedMT,
     form: computed.form,
   };
+}
+
+/** The filed row for a plan with a distillate line: the residual line's figures plus the distillate line's. */
+function planSnapshots(plans) {
+  const snap = planSnapshot(plans.a);
+  snap.form = plans.plan;
+  if (plans.b) {
+    snap.distillate = {
+      fuelType: plans.b.header.fuelType,
+      bunkerQuantityMT: plans.b.header.bunkerQuantityMT,
+      receivedMT: plans.b.monitoring.receivedMT,
+    };
+  }
+  return snap;
 }
 
 function summarySnapshot(computed) {
@@ -1481,6 +1678,10 @@ return {
   COMMON_FUEL_GRADES,
   readingForVolume,
   asUllage,
+  ENTRY_MODES,
+  entryModeOf,
+  entryMethodFor,
+  convertReading,
   fillTolerance,
   scaleTop,
   hoursLabel,
@@ -1491,7 +1692,18 @@ return {
   priorRobFromFuelReport,
   emptyBunkerPlan,
   normalizePlan,
+  RESIDUAL_FUEL_TYPES,
+  DISTILLATE_FUEL_TYPES,
+  residualLine,
+  distillateLine,
+  withLine,
+  addDistillateLine,
+  removeDistillateLine,
+  emptyDistillateLine,
   computeBunkerPlan,
+  computeBunkerPlans,
+  combineLines,
+  planSnapshots,
   emptyAfterReport,
   normalizeAfterReport,
   computeAfterBunkering,

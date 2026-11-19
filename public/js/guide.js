@@ -250,6 +250,20 @@
     },
     {
       group: "Bunkering",
+      q: "How do I bunker residual and distillate fuel at the same time?",
+      purpose: "One barge can deliver through two hoses. The Bunker Plan has a residual line (HFO or VLSFO) and an optional distillate line (MDO/MGO or LSMGO), each with its own rate, tanks and pumping clock.",
+      steps: [
+        "Open Bunker Plan and press Add distillate line. The page now has a Residual line and a Distillate line tab, and a strip showing both lines and the whole delivery.",
+        "On each line set the grade, density, temperature, quantity and delivery rate. Date, port, drafts and heel are the residual line's and are not repeated.",
+        "Each line offers only its own kind of tank. A tank can be in one line only; the page warns you if it is in both.",
+        "Press Start pumping on each line when its hose is on. They run on separate clocks and can start at different times.",
+        "Tap a line card in the strip to move to that line. The valve warning watches the tanks of both lines.",
+        "Print and Save gives one combined sheet with both lines. On Bunker Summary press Add distillate BDN to reconcile the second delivery note against the distillate you measured.",
+        "If most of the fuel goes to one side, the page warns you to watch the list and trim as you load."
+      ]
+    },
+    {
+      group: "Bunkering",
       q: "How do I run a bunkering plan with the pumping clock?",
       purpose: "Bunker Plan is the delivery: the fill sequence, the target ullage for each tank, the delivery rate, and a pumping clock with a valve warning.",
       steps: [
@@ -258,6 +272,7 @@
         "Under Sequence choose how to distribute the quantity (for example Equal — all storage) and press Fill sequence. Check each target volume and ullage.",
         "Target all to 85% sets every tank to its 85% limit. Edit a target if a tank must stop earlier.",
         "Type the current sounding of each tank as the fuel comes aboard. Clear current soundings empties those boxes.",
+        "Current soundings entered as lets you type the tape as dip or as ullage for every tank, or each tank in its own method. You can switch at any time during bunkering: the readings already typed are converted, so the levels do not change.",
         "Press Start pumping when the hose is on. The clock times the operation and watches each tank. Reopen transfer restarts it after a stop.",
         "The valve warning sounds when a tank is near its target. Test alarm sounds it at once so you can check the volume.",
         "Press Finish bunkering at the end of the delivery.",
