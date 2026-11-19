@@ -200,10 +200,10 @@ const BunkerReports = (() => {
   }
 
   async function saveChainPart(path, part, form, { snapshot = false, extra = {}, deferServer = false, quiet = false, draft = false } = {}) {
+    const b = heldBundle();
     /* A draft is kept, but it is not yet the ship's current condition: the readings are only taken from a saved report. */
     if (draft) extra = { ...extra, syncReadings: false };
     else discardDraft(path);
-    const b = heldBundle();
     let snapshotEntry = null;
     let fileSnapshot = !!snapshot;
     const historyKey = snapshot ? historyKeyForPath(path) : null;
