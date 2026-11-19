@@ -158,5 +158,49 @@ check('the second fuel can be any grade except the first, and a residual first s
   assert.ok(/summaryGradesText\(c\)/.test(src) && /summaryBdnNumbersText\(c\)/.test(src), 'the printed header names both grades and both notes');
 });
 
+const fakeAfter = { sections: [], grades: [
+  { id: 'lsfo', label: 'VLSFO', priorMT: 100, addedMT: 600, presentMT: 700 },
+  { id: 'lsmgo', label: 'LSMGO', priorMT: 20, addedMT: 100, presentMT: 120 },
+  { id: 'hfo', label: 'HFO', priorMT: 50, addedMT: 0, presentMT: 50 },
+] };
+check('an extra BDN of its own grade is held against what was received of that grade', () => {
+  const c = Core.computeBunkerSummary(bundle, {
+    bdn: { fuelType: 'lsfo', quantityMT: '600' },
+    extraBdns: [{ fuelType: 'lsmgo', quantityMT: '99', number: 'X-1' }],
+  }, fakeAfter, null);
+  assert.strictEqual(c.extraBdns.length, 1);
+  assert.strictEqual(c.extraBdns[0].label, 'LSMGO');
+  assert.strictEqual(c.extraQuantities[0].receivedQuantityMT, 100);
+  assert.strictEqual(c.extraQuantities[0].differenceMT, 1);
+  assert.strictEqual(c.extraQuantities[0].gradeTotalMT, null, 'one note for the grade: no total');
+  assert.strictEqual(c.quantities.differenceMT, 0, 'the first note is untouched');
+});
+check('two notes of one grade are added up before they are compared with the receipt', () => {
+  const c = Core.computeBunkerSummary(bundle, {
+    bdn: { fuelType: 'lsfo', quantityMT: '400' },
+    extraBdns: [{ fuelType: 'lsfo', quantityMT: '195', number: 'X-2' }],
+  }, fakeAfter, null);
+  assert.strictEqual(c.quantities.gradeTotalMT, 595);
+  assert.strictEqual(c.quantities.differenceMT, 5, '600 received against 400 + 195');
+  assert.strictEqual(c.extraQuantities[0].gradeTotalMT, 595);
+  assert.strictEqual(c.extraQuantities[0].differenceMT, 5);
+});
+check('three notes, three grades, and the saved summary keeps them through normalising twice', () => {
+  const form = { bdn: { fuelType: 'lsfo', quantityMT: '600' }, bdn2: { fuelType: 'lsmgo', quantityMT: '100' }, extraBdns: [{ fuelType: 'hfo', quantityMT: '10' }] };
+  const once = Core.normalizeSummary(bundle, form);
+  const twice = Core.normalizeSummary(bundle, JSON.parse(JSON.stringify(once)));
+  assert.deepStrictEqual(twice.extraBdns, once.extraBdns);
+  assert.strictEqual(twice.extraBdns[0].number, '');
+  assert.deepStrictEqual(Core.normalizeSummary(bundle, {}).extraBdns, [], 'none unless added');
+  const c = Core.computeBunkerSummary(bundle, form, fakeAfter, null);
+  assert.strictEqual(c.extraQuantities[0].receivedQuantityMT, 0);
+});
+check('the summary has an Add extra BDN button and prints each extra note', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '../public/js/bunkering-report.js'), 'utf8');
+  assert.ok(/id="bs-add-xbdn"/.test(src) && /data-xbdn-remove/.test(src));
+  assert.ok(/Bunker details \(BDN\) — extra \$\{i \+ 1\}/.test(src));
+  assert.ok(/\.\.\.\(c\.extraBdns \|\| \[\]\)\.map\(\(b\) => b\.number\)/.test(src), 'header lists every note number');
+});
+
 console.log(failed ? '\nFAILED — ' + failed + ' of ' + (pass + failed) : '\nPASSED — ' + pass + ' checks');
 process.exit(failed ? 1 : 0);

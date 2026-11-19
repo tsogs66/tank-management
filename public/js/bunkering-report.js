@@ -2750,14 +2750,44 @@ const BunkerReports = (() => {
       <div class="btn-row"><button type="button" class="btn small danger" id="bs-remove-bdn2">Remove second fuel</button></div>`;
   }
 
+  /** Extra delivery notes: any grade, any number, all from the same supplier and barge. */
+  function extraBdnPanelsHtml(f) {
+    const grades = (sel) => FRCore.FUEL_TYPES.map((t) =>
+      `<option value="${t.id}" ${sel === t.id ? 'selected' : ''}>${esc(t.label)}</option>`).join('');
+    const panels = (f.extraBdns || []).map((e, i) => `
+      <div class="section-title">Extra BDN ${i + 1}</div>
+      <div class="fr-quant">
+        <label class="fr-field"><span>GRADE</span><select data-xbdn="${i}.fuelType">${grades(e.fuelType)}</select></label>
+        <label class="fr-field"><span>B.D.N. NO.</span><input data-xbdn="${i}.number" value="${esc(e.number)}"></label>
+        <label class="fr-field"><span>QUANTITY (MT)</span>
+          <input type="number" step="any" data-xbdn="${i}.quantityMT" value="${esc(e.quantityMT)}"></label>
+        <label class="fr-field"><span>SULPHUR (%)</span>
+          <input type="number" step="any" data-xbdn="${i}.sulphurPercent" value="${esc(e.sulphurPercent)}"></label>
+        <label class="fr-field"><span>DENSITY @15°</span>
+          <input type="number" step="any" data-xbdn="${i}.density15" value="${esc(e.density15)}"></label>
+      </div>
+      <div class="bs-quantities">
+        <div class="bp-monitor-box"><span>BDN QUANTITY</span><b data-bsx="${i}.bdnQuantityMT"></b></div>
+        <div class="bp-monitor-box"><span>RECEIVED QUANTITY</span><b data-bsx="${i}.receivedQuantityMT"></b></div>
+        <div class="bp-monitor-box" id="bs-diff-box-x${i}"><span>DIFFERENCE</span><b data-bsx="${i}.differenceMT"></b></div>
+      </div>
+      <div class="hint" data-bsx="${i}.note"></div>
+      <div class="btn-row"><button type="button" class="btn small danger" data-xbdn-remove="${i}">Remove extra BDN ${i + 1}</button></div>`).join('');
+    return `${panels}
+      <div class="btn-row" style="margin-top:8px"><button type="button" class="btn small" id="bs-add-xbdn">+ Add extra BDN</button></div>
+      <div class="hint">Another delivery note of this delivery, same supplier and barge — a different grade, or a second note for a grade already listed (the notes of one grade are added up against what was received).</div>`;
+  }
+
   /** One delivery of two grades prints both: "VLSFO + LSMGO", and both delivery note numbers. */
   function summaryGradesText(c) {
-    const first = c.fuelGrade || (c.bdn && c.bdn.label) || '';
-    if (!c.bdn2) return first;
-    return first.toLowerCase().includes(String(c.bdn2.label || '').toLowerCase()) ? first : `${first} + ${c.bdn2.label}`;
+    let text = c.fuelGrade || (c.bdn && c.bdn.label) || '';
+    [c.bdn2, ...(c.extraBdns || [])].filter(Boolean).forEach((b) => {
+      if (!text.toLowerCase().includes(String(b.label || '').toLowerCase())) text = `${text} + ${b.label}`;
+    });
+    return text;
   }
   function summaryBdnNumbersText(c) {
-    return [c.bdnNumber, c.bdn2 && c.bdn2.number].filter(Boolean).join(' / ');
+    return [c.bdnNumber, c.bdn2 && c.bdn2.number, ...(c.extraBdns || []).map((b) => b.number)].filter(Boolean).join(' / ');
   }
 
   function summaryQuantitiesPanel(c) {
@@ -2805,6 +2835,7 @@ const BunkerReports = (() => {
           </div>
           <div class="hint" data-bs="difference-note"></div>
           ${bdn2PanelHtml(f)}
+          ${extraBdnPanelsHtml(f)}
           <div class="section-title">BDN document / photo</div>
           <div class="btn-row" style="flex-wrap:wrap; gap:8px; align-items:center;">
             <input type="file" id="bs-bdn-photo-file" accept="image/*,application/pdf,.pdf" style="max-width:240px;">
@@ -2847,6 +2878,19 @@ const BunkerReports = (() => {
     const box = document.getElementById('bs-diff-box');
     if (box) box.classList.toggle('bp-monitor-bad', diff != null && Math.abs(diff) > 0.5);
 
+    (c.extraQuantities || []).forEach((q, i) => {
+      set(`[data-bsx="${i}.bdnQuantityMT"]`, n(q.bdnQuantityMT, 3, '—'));
+      set(`[data-bsx="${i}.receivedQuantityMT"]`, n(q.receivedQuantityMT, 3, '—'));
+      set(`[data-bsx="${i}.differenceMT"]`, q.differenceMT != null ? signed(q.differenceMT, 3) : '—');
+      const dx = q.differencePercent;
+      set(`[data-bsx="${i}.note"]`, (q.gradeTotalMT != null ? `All ${c.extraBdns[i].label} notes add up to ${n(q.gradeTotalMT, 3)} MT. ` : '')
+        + (dx != null
+          ? `${signed(dx, 3)}% against the BDN figure — ${Math.abs(dx) > 0.5 ? 'outside the 0.5% normally accepted; consider a letter of protest' : 'within the 0.5% normally accepted'}.`
+          : q.pendingReason === 'no-bdn' ? 'Enter the BDN quantity to compare it with what the tanks show.'
+            : 'Waiting on the after-bunkering soundings for this grade.'));
+      const bx = document.getElementById(`bs-diff-box-x${i}`);
+      if (bx) bx.classList.toggle('bp-monitor-bad', dx != null && Math.abs(dx) > 0.5);
+    });
     if (c.quantities2) {
       const q2 = c.quantities2;
       set('[data-bs2="bdnQuantityMT"]', n(q2.bdnQuantityMT, 3, '—'));
@@ -2958,6 +3002,11 @@ const BunkerReports = (() => {
         view.summary.lubes[el.dataset.lube] = el.value;
       } else if (el.dataset.bdn) {
         view.summary.bdn[el.dataset.bdn] = el.value;
+      } else if (el.dataset.xbdn) {
+        const [idx, field] = el.dataset.xbdn.split('.');
+        const row = (view.summary.extraBdns || [])[Number(idx)];
+        if (!row) return false;
+        row[field] = el.value;
       } else if (el.dataset.bdn2 && view.summary.bdn2) {
         view.summary.bdn2[el.dataset.bdn2] = el.value;
       } else if (el.name === 'bs-condition') {
@@ -2987,6 +3036,22 @@ const BunkerReports = (() => {
       view.pendingSummary = view.summary;
       navigate('bunker-summary');
     };
+    const addX = document.getElementById('bs-add-xbdn');
+    if (addX) addX.onclick = () => {
+      view.summary.extraBdns = [...(view.summary.extraBdns || []),
+        { fuelType: view.summary.bdn.fuelType || 'lsfo', quantityMT: '', sulphurPercent: '', density15: '', number: '' }];
+      view.pendingSummary = view.summary;
+      navigate('bunker-summary');
+    };
+    wrap.querySelectorAll('[data-xbdn-remove]').forEach((btn) => {
+      btn.onclick = () => {
+        const i = Number(btn.dataset.xbdnRemove);
+        if (!confirm(`Remove extra BDN ${i + 1} from this summary?`)) return;
+        view.summary.extraBdns = (view.summary.extraBdns || []).filter((_, k) => k !== i);
+        view.pendingSummary = view.summary;
+        navigate('bunker-summary');
+      };
+    });
     const rmB2 = document.getElementById('bs-remove-bdn2');
     if (rmB2) rmB2.onclick = () => {
       if (!confirm('Remove the second fuel from this summary?')) return;
@@ -3157,6 +3222,17 @@ const BunkerReports = (() => {
               <td class="fr-print-weight">${c.quantities2.differenceMT != null ? signed(c.quantities2.differenceMT, 3) : '—'} MT
               ${c.quantities2.differencePercent != null ? `(${signed(c.quantities2.differencePercent, 3)}%)` : ''}</td></tr>
           </tbody></table>` : ''}
+          ${(c.extraBdns || []).map((b, i) => `<h3 class="fr-print-h3">Bunker details (BDN) — extra ${i + 1}: ${esc(b.label)}</h3>
+          <table class="fr-print-table"><tbody>
+            <tr><td class="fr-print-name">B.D.N. no.</td><td>${esc(b.number || '—')}</td></tr>
+            <tr><td class="fr-print-name">Quantity</td><td>${n(b.quantityMT, 3, '—')} MT</td></tr>
+            <tr><td class="fr-print-name">Sulphur</td><td>${n(b.sulphurPercent, 3, '—')} %</td></tr>
+            <tr><td class="fr-print-name">Density @15°</td><td>${n(b.density15, 4, '—')}</td></tr>
+            <tr><td class="fr-print-name">Received quantity</td><td>${n(c.extraQuantities[i].receivedQuantityMT, 3, '—')} MT${c.extraQuantities[i].gradeTotalMT != null ? ` (all ${esc(b.label)} notes: ${n(c.extraQuantities[i].gradeTotalMT, 3)} MT)` : ''}</td></tr>
+            <tr><td class="fr-print-name">Difference</td>
+              <td class="fr-print-weight">${c.extraQuantities[i].differenceMT != null ? signed(c.extraQuantities[i].differenceMT, 3) : '—'} MT
+              ${c.extraQuantities[i].differencePercent != null ? `(${signed(c.extraQuantities[i].differencePercent, 3)}%)` : ''}</td></tr>
+          </tbody></table>`).join('')}
         </div>
       </div>
       <h3 class="fr-print-h3">Fuel remaining onboard (MT)</h3>
