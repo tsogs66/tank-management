@@ -221,7 +221,7 @@
       saveAll(next);
       syncAlarms();
       delete host.dataset.editId;
-      host.dataset.status = (saved && (calendar || alarm) && !deadline) ? 'Saved. Add a deadline to use the calendar or the alarm.' : '';
+      host.dataset.status = (saved && (calendar || alarm) && !deadline) ? 'Saved. Add a deadline to use the calendar or the alarm.' : (editing ? 'Note updated.' : 'Note saved.');
       paint(host);
       if (saved && calendar && deadline && R()) {
         if (alarm) R().askPermission();
@@ -250,6 +250,7 @@
         const row = mine.find((n) => n.id === id);
         if (!window.confirm('Delete “' + ((row && row.title) || 'this note') + '”?')) return;
         saveAll(loadAll().filter((n) => n.id !== id));
+        host.dataset.status = 'Note deleted.';
         if (R() && row && row.calendar) R().removeFromCalendar(id);
         syncAlarms();
         if (host.dataset.editId === id) delete host.dataset.editId;
