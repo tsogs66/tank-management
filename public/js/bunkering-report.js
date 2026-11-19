@@ -2717,14 +2717,20 @@ const BunkerReports = (() => {
     </div>`;
   }
 
-  /** The second delivery note, for the distillate taken through the second hose. */
+  /** The grade a second delivery most likely is: a distillate with a residual fuel, and the other way round. */
+  function otherGradeFor(first) {
+    return Core.DISTILLATE_FUEL_TYPES.includes(first) ? 'lsfo' : 'lsmgo';
+  }
+
+  /** The second delivery note: another grade received in the same delivery, from the same supplier and barge. */
   function bdn2PanelHtml(f) {
     if (!f.bdn2) {
-      return '<div class="btn-row" style="margin-top:8px"><button type="button" class="btn small" id="bs-add-bdn2">+ Add distillate BDN</button></div>';
+      return '<div class="btn-row" style="margin-top:8px"><button type="button" class="btn small primary" id="bs-add-bdn2">+ Add second fuel (VLSFO with LSMGO…)</button></div>'
+        + '<div class="hint">Two grades received in one delivery, from the same supplier and barge, go on this one report: add a second delivery note.</div>';
     }
-    const grades = FRCore.FUEL_TYPES.filter((t) => Core.DISTILLATE_FUEL_TYPES.includes(t.id)).map((t) =>
+    const grades = FRCore.FUEL_TYPES.filter((t) => t.id !== f.bdn.fuelType).map((t) =>
       `<option value="${t.id}" ${f.bdn2.fuelType === t.id ? 'selected' : ''}>${esc(t.label)}</option>`).join('');
-    return `<div class="section-title">Bunker details — distillate (second BDN)</div>
+    return `<div class="section-title">Bunker details — second fuel (second BDN, same supplier)</div>
       <div class="fr-quant">
         <label class="fr-field"><span>GRADE</span><select data-bdn2="fuelType">${grades}</select></label>
         <label class="fr-field"><span>B.D.N. NO.</span><input data-bdn2="number" value="${esc(f.bdn2.number)}"></label>
@@ -2741,7 +2747,17 @@ const BunkerReports = (() => {
         <div class="bp-monitor-box" id="bs-diff-box2"><span>DIFFERENCE</span><b data-bs2="differenceMT"></b></div>
       </div>
       <div class="hint" data-bs2="difference-note"></div>
-      <div class="btn-row"><button type="button" class="btn small danger" id="bs-remove-bdn2">Remove distillate BDN</button></div>`;
+      <div class="btn-row"><button type="button" class="btn small danger" id="bs-remove-bdn2">Remove second fuel</button></div>`;
+  }
+
+  /** One delivery of two grades prints both: "VLSFO + LSMGO", and both delivery note numbers. */
+  function summaryGradesText(c) {
+    const first = c.fuelGrade || (c.bdn && c.bdn.label) || '';
+    if (!c.bdn2) return first;
+    return first.toLowerCase().includes(String(c.bdn2.label || '').toLowerCase()) ? first : `${first} + ${c.bdn2.label}`;
+  }
+  function summaryBdnNumbersText(c) {
+    return [c.bdnNumber, c.bdn2 && c.bdn2.number].filter(Boolean).join(' / ');
   }
 
   function summaryQuantitiesPanel(c) {
@@ -2952,17 +2968,28 @@ const BunkerReports = (() => {
       return true;
     };
     wrap.addEventListener('input', (e) => { if (apply(e.target)) refreshSummary(); });
-    wrap.addEventListener('change', (e) => { if (apply(e.target)) refreshSummary(); });
+    wrap.addEventListener('change', (e) => {
+      if (!apply(e.target)) return;
+      /* The second fuel is never the first grade again: moving the first onto it moves the second away, and the
+         second's list of grades follows the first. */
+      if (e.target.dataset.bdn === 'fuelType' && view.summary.bdn2) {
+        if (view.summary.bdn2.fuelType === view.summary.bdn.fuelType) view.summary.bdn2.fuelType = otherGradeFor(view.summary.bdn.fuelType);
+        view.pendingSummary = view.summary;
+        navigate('bunker-summary');
+        return;
+      }
+      refreshSummary();
+    });
     wireBdnPhotoUi();
     const addB2 = document.getElementById('bs-add-bdn2');
     if (addB2) addB2.onclick = () => {
-      view.summary.bdn2 = { fuelType: 'mdo', quantityMT: '', sulphurPercent: '', density15: '', number: '' };
+      view.summary.bdn2 = { fuelType: otherGradeFor(view.summary.bdn.fuelType), quantityMT: '', sulphurPercent: '', density15: '', number: '' };
       view.pendingSummary = view.summary;
       navigate('bunker-summary');
     };
     const rmB2 = document.getElementById('bs-remove-bdn2');
     if (rmB2) rmB2.onclick = () => {
-      if (!confirm('Remove the distillate BDN from this summary?')) return;
+      if (!confirm('Remove the second fuel from this summary?')) return;
       view.summary.bdn2 = null;
       view.pendingSummary = view.summary;
       navigate('bunker-summary');
@@ -3079,8 +3106,8 @@ const BunkerReports = (() => {
         ['Port / place', c.port],
         ['Barge', c.bargeName],
         ['Supplier', c.supplier],
-        ['Fuel grade', c.fuelGrade],
-        ['B.D.N. / B.D.R.', c.bdnNumber],
+        ['Fuel grade', summaryGradesText(c)],
+        ['B.D.N. / B.D.R.', summaryBdnNumbersText(c)],
         ["Ship's condition", (Core.SHIP_CONDITIONS.find((s) => s.id === c.shipCondition) || {}).label || '—'],
         ['Letter of protest', c.letterOfProtest ? 'YES' : 'NO'],
         ['Samples for analysis', c.samplesGiven ? 'YES' : 'NO'],
@@ -3114,7 +3141,7 @@ const BunkerReports = (() => {
             <tr><td class="fr-print-name">Average rate</td>
               <td>${n(c.timing.averageRateMTPerHour, 1, '—')} MT/h</td></tr>
           </tbody></table>
-          ${c.bdn2 ? `<h3 class="fr-print-h3">Bunker details (BDN) — distillate</h3>
+          ${c.bdn2 ? `<h3 class="fr-print-h3">Bunker details (BDN) — ${esc(c.bdn2.label)}</h3>
           <table class="fr-print-table"><tbody>
             <tr><td class="fr-print-name">Grade</td><td>${esc(c.bdn2.label)}</td></tr>
             <tr><td class="fr-print-name">B.D.N. no.</td><td>${esc(c.bdn2.number || '—')}</td></tr>
@@ -3122,7 +3149,7 @@ const BunkerReports = (() => {
             <tr><td class="fr-print-name">Sulphur</td><td>${n(c.bdn2.sulphurPercent, 3, '—')} %</td></tr>
             <tr><td class="fr-print-name">Density @15°</td><td>${n(c.bdn2.density15, 4, '—')}</td></tr>
           </tbody></table>
-          <h3 class="fr-print-h3">BDN vs measured — distillate</h3>
+          <h3 class="fr-print-h3">BDN vs measured — ${esc(c.bdn2.label)}</h3>
           <table class="fr-print-table"><tbody>
             <tr><td class="fr-print-name">BDN quantity</td><td>${n(c.quantities2.bdnQuantityMT, 3, '—')} MT</td></tr>
             <tr><td class="fr-print-name">Received quantity</td><td>${n(c.quantities2.receivedQuantityMT, 3, '—')} MT</td></tr>

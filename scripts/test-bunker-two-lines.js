@@ -139,5 +139,24 @@ check('the choice is kept per line and defaults to each tank\'s own method', () 
   assert.strictEqual(Core.computeBunkerPlan(bundle, Core.distillateLine(n), null).header.soundingEntry, 'ullage');
 });
 
+check('one report can carry two grades from the same supplier: VLSFO and LSMGO, each against its own delivery note', () => {
+  const c = Core.computeBunkerSummary(bundle, {
+    supplier: 'ACME BUNKERS', bargeName: 'BARGE 1', bdnNumber: 'A-1',
+    bdn: { fuelType: 'lsfo', quantityMT: '600' },
+    bdn2: { fuelType: 'lsmgo', quantityMT: '100', number: 'B-2' },
+  }, null, null);
+  assert.strictEqual(c.supplier, 'ACME BUNKERS');
+  assert.strictEqual(c.bdn.fuelType, 'lsfo');
+  assert.strictEqual(c.bdn2.fuelType, 'lsmgo');
+  assert.strictEqual(c.bdn2.number, 'B-2');
+  assert.strictEqual(c.quantities2.bdnQuantityMT, 100);
+});
+check('the second fuel can be any grade except the first, and a residual first suggests LSMGO', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '../public/js/bunkering-report.js'), 'utf8');
+  assert.ok(/FUEL_TYPES\.filter\(\(t\) => t\.id !== f\.bdn\.fuelType\)/.test(src), 'every grade but the first');
+  assert.ok(/DISTILLATE_FUEL_TYPES\.includes\(first\) \? 'lsfo' : 'lsmgo'/.test(src));
+  assert.ok(/summaryGradesText\(c\)/.test(src) && /summaryBdnNumbersText\(c\)/.test(src), 'the printed header names both grades and both notes');
+});
+
 console.log(failed ? '\nFAILED — ' + failed + ' of ' + (pass + failed) : '\nPASSED — ' + pass + ' checks');
 process.exit(failed ? 1 : 0);
