@@ -32,6 +32,11 @@ const BunkerReports = (() => {
     return STATE.bundle;
   }
 
+  /* The bundle the app holds. bundle() is a COPY inside Cheng AIO (the ship's identity laid over it), so
+     anything written onto it is gone at the next render, which reads the held bundle: the sheet then went
+     back to the previous reading until the program was closed and reopened. Writes go here. */
+  function heldBundle() { return STATE.bundle; }
+
   function tankById(tankId) {
     for (const list of Object.values(bundle().tanks || {})) {
       const t = (list || []).find((x) => x.id === tankId);
@@ -100,7 +105,7 @@ const BunkerReports = (() => {
   }
 
   async function saveChainPart(path, part, form, { snapshot = false, extra = {}, deferServer = false, quiet = false } = {}) {
-    const b = bundle();
+    const b = heldBundle();
     let snapshotEntry = null;
     let fileSnapshot = !!snapshot;
     const historyKey = snapshot ? historyKeyForPath(path) : null;
@@ -282,7 +287,7 @@ const BunkerReports = (() => {
             `/api/vessels/${STATE.activeVesselId}/bunker-history/${kind}/${encodeURIComponent(btn.dataset.del)}`,
             { method: 'DELETE' },
           );
-          if (res.history) bundle().bunkerHistory = res.history;
+          if (res.history) heldBundle().bunkerHistory = res.history;
           showToast('Deleted');
           navigate(kind === 'plans' ? 'bunker-plan' : kind === 'after' ? 'bunker-after' : 'bunker-summary');
         } catch (err) {
@@ -395,7 +400,7 @@ const BunkerReports = (() => {
     if (!view.plan || !STATE.activeVesselId) return;
     const form = { ...view.plan, updatedAt: new Date().toISOString() };
     view.plan = form;
-    const b = bundle();
+    const b = heldBundle();
     b.bunkerPlan = form;
     OfflineDB.idbSet('vessel:' + STATE.activeVesselId, b).catch(() => {});
     if (persistClockTimer) clearTimeout(persistClockTimer);

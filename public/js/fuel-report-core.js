@@ -859,6 +859,7 @@ function snapshotFromReport(computed) {
     id: `rep_${Date.now().toString(36)}`,
     savedAt: computed.generatedAt,
     reportType: computed.header.reportType,
+    description: String(computed.header.description || '').trim(),
     voyageNo: computed.header.voyageNo,
     port: computed.header.port,
     date: computed.header.date,
