@@ -116,5 +116,28 @@ check('a delivery with two hoses has a second delivery note, reconciled against 
   assert.strictEqual(Core.computeBunkerSummary(bundle, {}, null, null).bdn2, null);
 });
 
+check('the current soundings can be typed as dip or ullage, and a switch converts the readings', () => {
+  assert.strictEqual(Core.entryModeOf('dip'), 'dip');
+  assert.strictEqual(Core.entryModeOf('whatever'), 'own', 'anything else is the tank\'s own method');
+  assert.strictEqual(Core.entryMethodFor('own', 'ullage'), 'ullage');
+  assert.strictEqual(Core.entryMethodFor('dip', 'ullage'), 'dip');
+  assert.strictEqual(Core.entryMethodFor('ullage', 'dip'), 'ullage');
+  const tank = { id: 'x', pipeHeight: 1000 };
+  const top = Core.scaleTop(tank);
+  const asDip = Core.convertReading(tank, 150, 'ullage', 'dip');
+  assert.strictEqual(asDip, top - 150, 'dip = pipe height - ullage');
+  assert.strictEqual(Core.convertReading(tank, asDip, 'dip', 'ullage'), 150, 'and back again, unchanged');
+  assert.strictEqual(Core.convertReading(tank, 150, 'dip', 'dip'), 150, 'same way: nothing to convert');
+  assert.strictEqual(Core.convertReading(tank, '', 'dip', 'ullage'), null, 'a blank stays blank');
+});
+check('the choice is kept per line and defaults to each tank\'s own method', () => {
+  assert.strictEqual(single().soundingEntry, 'own');
+  const p = two(); p.distillate.soundingEntry = 'ullage'; p.soundingEntry = 'dip';
+  const n = Core.normalizePlan(bundle, p);
+  assert.strictEqual(n.soundingEntry, 'dip');
+  assert.strictEqual(n.distillate.soundingEntry, 'ullage');
+  assert.strictEqual(Core.computeBunkerPlan(bundle, Core.distillateLine(n), null).header.soundingEntry, 'ullage');
+});
+
 console.log(failed ? '\nFAILED — ' + failed + ' of ' + (pass + failed) : '\nPASSED — ' + pass + ' checks');
 process.exit(failed ? 1 : 0);

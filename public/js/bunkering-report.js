@@ -760,6 +760,14 @@ const BunkerReports = (() => {
     </div>`;
   }
 
+  /** The heading of the current-sounding column, for how it is being typed. */
+  function soundLabel(mode) {
+    return mode === 'dip' ? 'DIP' : mode === 'ullage' ? 'ULLAGE' : 'SOUND';
+  }
+  function soundLabelPrint(mode) {
+    return mode === 'dip' ? 'dip' : mode === 'ullage' ? 'ullage' : 'sound';
+  }
+
   function planSequencePanel(c) {
     const tanks = (bundle().tanks.fuel || []);
 
@@ -826,6 +834,13 @@ const BunkerReports = (() => {
           weighted by the space each has below the 85% limit. Targets only — nothing is written to a tank
           until it is sounded on <b>After Bunkering</b>.</span>
       </div>
+      <div class="bp-distribute">
+        <label class="fr-field"><span>CURRENT SOUNDINGS ENTERED AS</span>
+          <select id="bp-entry-mode" title="How you read the tape during the transfer. Changing it converts the readings already typed, so the levels stay the same.">
+            ${Core.ENTRY_MODES.map((m) => `<option value="${m.id}" ${Core.entryModeOf(view.plan.soundingEntry) === m.id ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}
+          </select></label>
+        <span class="hint">Dip or ullage for every tank, or each tank in its own method. Switch at any time during bunkering — the readings already typed are converted, so the levels do not change.</span>
+      </div>
       <div class="bp-layout">
         <div class="scroll-x">
           <table class="fr-sheet bp-sheet">
@@ -835,7 +850,7 @@ const BunkerReports = (() => {
               <th>STARTING<br>ROB (M3)</th><th>FREE (M3)<br>@85% CAP</th>
               <th>TARGET<br>VOL. (M3)</th><th>TARGET<br>VOL. %</th><th>TARGET<br>ULL. (CM)</th><th>PLAN ADD<br>(MT)</th>
               <th>VALVE /<br>STATUS</th>
-              <th>CURRENT<br>SOUND (CM)</th><th>CURRENT<br>VOL.(%)</th><th>CURRENT<br>VOL.(M3)</th><th>QUANTITY<br>ADD (MT)</th>
+              <th>CURRENT<br>${soundLabel(view.plan.soundingEntry)} (CM)</th><th>CURRENT<br>VOL.(%)</th><th>CURRENT<br>VOL.(M3)</th><th>QUANTITY<br>ADD (MT)</th>
               <th>TO GO<br>(MT)</th><th>ETA</th>
             </tr></thead>
             <tbody>${rows}</tbody>
@@ -1310,18 +1325,22 @@ const BunkerReports = (() => {
     if (tag) {
       const tk = row.tankId ? tankById(row.tankId) : null;
       const directM3 = tk && FRCore.usesDirectM3Input && FRCore.usesDirectM3Input(tk);
+      const way = row.currentMethod || row.startingMethod;
       tag.textContent = directM3 ? 'M³'
-        : (row.tankId && row.startingMethod ? String(row.startingMethod).toUpperCase() : '');
+        : (row.tankId && way ? String(way).toUpperCase() : '');
       tag.title = directM3
         ? 'Enter observed volume in m³ (gauge or double interpolation).'
-        : (row.startingMethod
-          ? `This tank is gauged by ${row.startingMethod}. Enter the reading the same way.`
+        : (way
+          ? (Core.entryModeOf(view.plan.soundingEntry) === 'own'
+            ? `This tank is gauged by ${way}. Enter the reading the same way.`
+            : `Current soundings are being entered as ${way}.`)
           : '');
       tag.classList.toggle('bp-method-bad', Boolean(row.reversedReading));
     }
     if (box) {
-      box.placeholder = row.tankId && row.startingReadingMM != null
-        ? `from ${n(row.startingReadingMM, 0)}` : '';
+      const from = row.startingReadingEntryMM != null ? row.startingReadingEntryMM : row.startingReadingMM;
+      box.placeholder = row.tankId && from != null
+        ? `from ${n(from, 0)}` : '';
     }
   }
 
@@ -1650,6 +1669,26 @@ const BunkerReports = (() => {
     });
 
     document.getElementById('bp-mode').onchange = (e) => { view.plan.distributionMode = e.target.value; };
+    /* Dip or ullage for the current soundings. The readings already typed are converted to the new way, tank by
+       tank (dip = pipe height − ullage), so the level in every tank stays what was measured. */
+    document.getElementById('bp-entry-mode').onchange = (e) => {
+      const next = Core.entryModeOf(e.target.value);
+      const prev = Core.entryModeOf(view.plan.soundingEntry);
+      if (next === prev) return;
+      const rows = (recomputePlan().rows) || [];
+      view.plan.sequence.forEach((slot, i) => {
+        if (!slot || !slot.tankId || slot.currentSoundingMM === '' || slot.currentSoundingMM == null) return;
+        const tk = tankById(slot.tankId);
+        if (!tk || (FRCore.usesDirectM3Input && FRCore.usesDirectM3Input(tk))) return;
+        const own = (rows[i] && rows[i].startingMethod) || FRCore.normalizeMethod(tk.soundingMethod);
+        const converted = Core.convertReading(tk, slot.currentSoundingMM, Core.entryMethodFor(prev, own), Core.entryMethodFor(next, own));
+        if (converted != null) slot.currentSoundingMM = converted;
+      });
+      view.plan.soundingEntry = next;
+      view.pendingPlan = fullPlan();
+      navigate('bunker-plan');
+      showToast(next === 'own' ? 'Soundings entered in each tank\'s own method' : `Soundings now entered as ${next} — readings converted`);
+    };
     document.getElementById('bp-distribute').onclick = () => {
       const c = recomputePlan();
       const res = Core.distributeToSequence(bundle(), {
@@ -1948,7 +1987,7 @@ const BunkerReports = (() => {
         <thead><tr>
           <th>Seq / tank</th><th>Cap 100% m³</th><th>Cap 85% m³</th><th>Start ullage mm</th>
           <th>Start ROB m³</th><th>Free m³ @85%</th><th>Target vol m³</th><th>Target %</th>
-          <th>Target ullage</th><th>Plan add MT</th><th>Current sound mm</th><th>Current %</th>
+          <th>Target ullage</th><th>Plan add MT</th><th>Current ${soundLabelPrint(c.header.soundingEntry)} mm</th><th>Current %</th>
           <th>Current m³</th><th>Quantity add MT</th><th>Valve</th><th>Time open</th>
         </tr></thead>
         <tbody>${rows || '<tr><td colspan="16">No tanks in the sequence</td></tr>'}</tbody>
@@ -2036,7 +2075,7 @@ const BunkerReports = (() => {
         <thead><tr>
           <th>Seq / tank</th><th>Cap 100% m³</th><th>Cap 85% m³</th><th>Start ullage mm</th>
           <th>Start ROB m³</th><th>Free m³ @85%</th><th>Target vol m³</th><th>Target %</th>
-          <th>Target ullage</th><th>Plan add MT</th><th>Current sound mm</th><th>Current %</th>
+          <th>Target ullage</th><th>Plan add MT</th><th>Current ${soundLabelPrint(c.header.soundingEntry)} mm</th><th>Current %</th>
           <th>Current m³</th><th>Quantity add MT</th><th>Valve</th><th>Time open</th>
         </tr></thead>
         <tbody>${planPrintRowsHtml(c) || '<tr><td colspan="16">No tanks in the sequence</td></tr>'}</tbody>

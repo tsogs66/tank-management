@@ -164,6 +164,26 @@ function asUllage(tank, reading) {
   return top > 0 ? round(top - r, 1) : null;
 }
 
+/* How the current sounding is typed during a transfer: in the tank's own gauging method, or all as dip, or all as ullage.
+   A tape is read one way or the other, and the engineer should not have to flip every figure in his head. */
+const ENTRY_MODES = [
+  { id: 'own', label: "Tank's own" },
+  { id: 'dip', label: 'Dip' },
+  { id: 'ullage', label: 'Ullage' },
+];
+function entryModeOf(mode) { return mode === 'dip' || mode === 'ullage' ? mode : 'own'; }
+function entryMethodFor(mode, ownMethod) {
+  const m = entryModeOf(mode);
+  return m === 'own' ? ownMethod : m;
+}
+/** The same level read the other way: dip = pipe height − ullage. */
+function convertReading(tank, reading, fromMethod, toMethod) {
+  const r = num(reading);
+  if (r == null || fromMethod === toMethod) return r;
+  const top = scaleTop(tank);
+  return top > 0 ? round(top - r, 1) : r;
+}
+
 /**
  * Elapsed time as a clock reads it: floored, never rounded up.
  *
@@ -373,6 +393,7 @@ function normalizeLineForm(base, src) {
     header: { ...base.header, ...(src.header || {}) },
     sequence: seq,
     distributionMode: src.distributionMode || base.distributionMode,
+    soundingEntry: entryModeOf(src.soundingEntry),
     status: src.status || base.status,
     startedAt: src.startedAt || null,
     pausedAt: src.pausedAt || null,
@@ -598,6 +619,9 @@ function computeBunkerPlan(bundle, form, conversion) {
     out.capacity85M3 = round(cap85, 3);
     out.startingMethod = before ? before.method : FuelReport.normalizeMethod(tank.soundingMethod);
     out.startingReadingMM = before && before.reading !== '' ? num(before.reading) : null;
+    /* The way this row's current sounding is read: the plan's choice, else the tank's own. */
+    out.currentMethod = entryMethodFor(plan.soundingEntry, out.startingMethod);
+    out.startingReadingEntryMM = convertReading(tank, out.startingReadingMM, out.startingMethod, out.currentMethod);
     out.startingUllageMM = before && before.trace
       ? asUllage(tank, before.trace.nativeReading)
       : null;
@@ -636,7 +660,7 @@ function computeBunkerPlan(bundle, form, conversion) {
         tempC,
         density15,
         gaugeType: directM3 ? 'volume' : 'meter',
-        entryMethod: directM3 ? (tank.soundingMethod || 'gaugeDirectM3') : out.startingMethod,
+        entryMethod: directM3 ? (tank.soundingMethod || 'gaugeDirectM3') : out.currentMethod,
       });
       out.currentVolumeM3 = round(res.volumeObserved, 3);
       out.currentVolumePercent = capacity > 0 ? round((res.volumeObserved / capacity) * 100, 1) : null;
@@ -670,7 +694,7 @@ function computeBunkerPlan(bundle, form, conversion) {
         // A flipped reading of exactly zero is a real reading — an empty
         // dipped tank — so the bound is inclusive.
         const alt = (scaleTop(tank) || 0) - out.currentSoundingMM;
-        const altMethod = out.startingMethod === 'ullage' ? 'dip' : 'ullage';
+        const altMethod = out.currentMethod === 'ullage' ? 'dip' : 'ullage';
         const altRes = alt >= 0
           ? computeTank(tank, {
             reading: alt,
@@ -687,7 +711,7 @@ function computeBunkerPlan(bundle, form, conversion) {
         const slack = fillTolerance(capacity);
         if (altVol != null && altVol <= cap85 + slack && altVol >= startVol - slack) {
           out.reversedReading = true;
-          out.warnings.push(`this column takes a ${String(out.startingMethod).toUpperCase()} for this tank `
+          out.warnings.push(`this column takes a ${String(out.currentMethod).toUpperCase()} for this tank `
             + `— ${round(out.currentSoundingMM, 0)} read the other way is `
             + `${round(altVol, 1)} m³ (${round((altVol / capacity) * 100, 1)}%)`);
         }
@@ -819,7 +843,7 @@ function computeBunkerPlan(bundle, form, conversion) {
       out.estimatedReadingMM = estReading;
       out.estimatedUllageMM = estReading != null ? asUllage(tank, estReading) : null;
       out.estimatedSoundingMM = estReading == null ? null
-        : (out.startingMethod === FuelReport.normalizeMethod(tank.soundingMethod)
+        : (out.currentMethod === FuelReport.normalizeMethod(tank.soundingMethod)
           ? round(estReading, 0)
           : round((scaleTop(tank) || 0) - estReading, 0));
       out.estimatedFrom = out.currentVolumeM3 != null ? 'last sounding' : 'opening ullage';
@@ -926,6 +950,7 @@ function computeBunkerPlan(bundle, form, conversion) {
       trim: round(trim, 3),
       heel,
       deliveryRateMTPerHour: rate,
+      soundingEntry: entryModeOf(plan.soundingEntry),
       bunkerQuantityMT: quantity,
       timeToBunkerHours: rate > 0 && quantity != null ? round(quantity / rate, 2) : null,
       timeToBunkerLabel: rate > 0 && quantity != null ? hoursLabel(quantity / rate) : '—',
@@ -1653,6 +1678,10 @@ return {
   COMMON_FUEL_GRADES,
   readingForVolume,
   asUllage,
+  ENTRY_MODES,
+  entryModeOf,
+  entryMethodFor,
+  convertReading,
   fillTolerance,
   scaleTop,
   hoursLabel,
