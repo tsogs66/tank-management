@@ -396,6 +396,8 @@ function normalizePlan(bundle, form, conversion) {
   if (!RESIDUAL_FUEL_TYPES.includes(out.header.fuelType) && !src.header) out.header.fuelType = 'lsfo';
   out.distillate = src.distillate ? normalizeLineForm(emptyDistillateLine(bundle, conversion), src.distillate) : null;
   if (out.distillate && !DISTILLATE_FUEL_TYPES.includes(out.distillate.header.fuelType)) out.distillate.header.fuelType = 'mdo';
+  /* The shared particulars are the residual line's; the distillate line keeps none of its own, so its stored copy never drifts. */
+  if (out.distillate) for (const k of LINE_SHARED_FIELDS) out.distillate.header[k] = '';
   return out;
 }
 
@@ -426,7 +428,7 @@ function withLine(plan, which, line) {
 function addDistillateLine(bundle, plan, conversion) {
   const full = normalizePlan(bundle, plan, conversion);
   if (full.distillate) return full;
-  return { ...full, distillate: emptyDistillateLine(bundle, conversion) };
+  return normalizePlan(bundle, { ...full, distillate: emptyDistillateLine(bundle, conversion) }, conversion);
 }
 
 function removeDistillateLine(plan) {
