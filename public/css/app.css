@@ -8,7 +8,7 @@
   --border-soft: rgba(233, 228, 214, 0.10);
   --text: #e9e4d6;
   --text-dim: #a9a292;
-  --text-faint: #8a8376;
+  --text-faint: #9e988d;
   /* Alias used by the reorder list. Resolves at use time so Bright / Prism /
      Astrolabe keep their own dim colour instead of the #8a8f98 fallback. */
   --muted: var(--text-dim);
@@ -69,7 +69,7 @@ html.prism {
   --border-soft: rgba(120, 240, 220, 0.10);
   --text: #e6fff8;
   --text-dim: #7eb8ae;
-  --text-faint: #5a9890;
+  --text-faint: #76aaa3;
   --input: #061820;
   --accent: #e8c070;
   --accent-2: #2fd4b8;
@@ -124,7 +124,7 @@ html.astrolabe {
   --border-soft: rgba(200, 170, 120, 0.10);
   --text: #f4efe4;
   --text-dim: #a89a82;
-  --text-faint: #8a7a62;
+  --text-faint: #9d8f7b;
   --input: #101428;
   --accent: #c9985a;
   --accent-2: #6ab0c8;
@@ -242,6 +242,7 @@ a { color: var(--accent); }
   color: var(--text-dim);
 }
 .masthead #dbStatus { grid-row: 1; color: var(--accent-2, var(--good)); }
+html.bright .masthead #dbStatus { color: #17625b; }
 .masthead #syncStatus { grid-row: 2; font-size: 12px; }
 .masthead #syncStatus.online { color: var(--good); }
 .masthead #syncStatus.pending { color: var(--warn); }
@@ -765,6 +766,13 @@ table.leg-table input, table.calib-table input {
 .pill.good { background: rgba(47,191,113,.15); color: var(--good); }
 .pill.warn { background: rgba(230,179,77,.15); color: var(--warn); }
 .pill.bad { background: rgba(230,88,77,.15); color: var(--bad); }
+/* On the dark themes the red was 3.5-4:1 on its own tint; lift it toward white there. Bright keeps its dark red. */
+html:not(.bright) .pill.bad { color: color-mix(in srgb, var(--bad) 70%, #fff); }
+html.bright .pill.bad { color: #9a2f1a; }
+html.bright .pill.good { color: #26663a; }
+html:not(.bright) .pill.good { color: color-mix(in srgb, var(--good) 68%, #fff); }
+html:not(.bright) .btn.danger { color: color-mix(in srgb, var(--bad) 82%, #fff); }
+html:not(.bright) .ref-table td.col-hl { color: color-mix(in srgb, var(--accent-2) 65%, #fff); }
 .pill.neutral { background: rgba(159,176,204,.12); color: var(--text-dim); }
 
 .fillbar-wrap { display: flex; align-items: center; gap: 8px; min-width: 120px; }
@@ -1052,6 +1060,7 @@ html.bright .toast {
 .ref-table td.col-hl {
   background: rgba(58,160,255,.08);
 }
+html.bright .ref-table td.col-hl { color: #17625b; }
 .ref-table td.cell-hl {
   background: rgba(58,160,255,.28) !important;
   font-weight: 700;
@@ -1251,7 +1260,9 @@ table.fr-sheet tfoot th { text-align: left; }
   font-size: 12px; color: var(--text-dim);
 }
 .fr-grade-row b { color: var(--text); font-variant-numeric: tabular-nums; }
-.fr-grade-empty { opacity: .55; }
+.fr-grade-empty { opacity: .8; }
+/* An empty grade is dimmed, but its labels stay readable: the faint label colour at .55 opacity was 2:1. */
+.fr-grade-empty .fr-field > span, .fr-grade-empty .fr-grade-row { color: var(--text-dim); }
 .fr-grade-off .fr-grade-row:last-child b { color: var(--warn); }
 
 .fr-quant {
