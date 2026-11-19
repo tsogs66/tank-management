@@ -1404,6 +1404,46 @@ table.bp-sheet tbody td.bp-entry input {
   display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;
 }
 .bp-distribute .fr-field { min-width: 200px; }
+/* Bunkering plan: the two fuel lines (residual and distillate) of one delivery */
+.bp-lines-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.bp-line-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.bp-tab { min-width: 150px; }
+.bp-tab.on { box-shadow: inset 0 -3px 0 var(--accent-2, var(--warn)); }
+.bp-lines-strip {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px;
+}
+.bp-line-card {
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--bg-panel-2);
+  cursor: pointer; min-width: 0;
+}
+.bp-line-card.on { border-color: var(--accent-2, var(--warn)); box-shadow: inset 3px 0 0 var(--accent-2, var(--warn)); }
+.bp-line-card.bp-line-total { cursor: default; background: var(--bg-panel); border-style: dashed; }
+.bp-line-card:focus-visible { outline: 2px solid var(--accent-2, var(--warn)); outline-offset: 2px; }
+.bp-line-card-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; color: var(--text); }
+.bp-line-card-h span { color: var(--text-dim); font-size: 13px; }
+.bp-line-state {
+  font-style: normal; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-dim); margin-left: auto;
+}
+.bp-line-state[data-state="pumping"] { color: var(--good); border-color: var(--good); }
+.bp-line-state[data-state="paused"] { color: var(--warn); border-color: var(--warn); }
+.bp-line-card-b { display: grid; grid-template-columns: repeat(3, minmax(0, auto)); gap: 4px 14px; margin-top: 6px; }
+.bp-line-card-b div { display: flex; flex-direction: column; min-width: 0; }
+.bp-line-card-b small { color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.bp-line-card-b b { color: var(--text); font-variant-numeric: tabular-nums; font-size: 15px; }
+.bp-lines-warn:empty { display: none; }
+.bp-lines-warn { margin-top: 10px; display: grid; gap: 6px; }
+.bp-lines-w { border-left: 4px solid var(--warn); background: var(--bg-panel-2); padding: 7px 10px; border-radius: 4px; color: var(--text); font-size: 13px; }
+.bp-lines-w.error { border-left-color: var(--bad); }
+.bp-line-badge {
+  display: inline-block; margin-bottom: 8px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700;
+  letter-spacing: .04em; border: 1px solid var(--accent-2, var(--warn)); color: var(--text);
+}
+@media (max-width: 900px) {
+  .bp-lines-strip { grid-template-columns: 1fr; }
+  .bp-tab { flex: 1 1 140px; }
+}
+
 .bp-distribute .hint { flex: 1 1 260px; margin: 0; }
 
 td.bp-valve {
