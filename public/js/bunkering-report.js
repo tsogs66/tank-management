@@ -735,6 +735,12 @@ const BunkerReports = (() => {
           <input type="number" step="any" data-head="draftAft"${lock} value="${esc(h.draftAft)}"></label>
         <label class="fr-field"><span>TRIM</span>
           <output class="fr-out" data-bp-head="trim"></output></label>
+        <label class="fr-field"><span>DRAFT FWD AFTER BUNKERING</span>
+          <input type="number" step="any" data-head="afterDraftFwd"${lock} value="${esc(h.afterDraftFwd)}" placeholder="expected"></label>
+        <label class="fr-field"><span>DRAFT AFT AFTER BUNKERING</span>
+          <input type="number" step="any" data-head="afterDraftAft"${lock} value="${esc(h.afterDraftAft)}" placeholder="expected"></label>
+        <label class="fr-field"><span>TRIM AFTER BUNKERING</span>
+          <output class="fr-out" data-bp-head="afterTrim"></output></label>
         <label class="fr-field"><span>DELIVERY RATE (MT/H)</span>
           <input type="number" step="any" data-head="deliveryRateMTPerHour" value="${esc(h.deliveryRateMTPerHour)}"></label>
         <label class="fr-field"><span>BUNKER QUANTITY (MT)</span>
@@ -1372,6 +1378,7 @@ const BunkerReports = (() => {
 
     set('[data-bp-head="meanDraft"]', n(c.header.meanDraft, 3));
     set('[data-bp-head="trim"]', n(c.header.trim, 2));
+    set('[data-bp-head="afterTrim"]', c.header.afterTrim != null ? n(c.header.afterTrim, 2) : '—');
     set('[data-bp-head="timeToBunker"]', c.header.timeToBunkerLabel);
 
     const advice = [];
@@ -1980,6 +1987,7 @@ const BunkerReports = (() => {
         ['Draft fwd / aft', `${n(c.header.draftFwd, 2)} / ${n(c.header.draftAft, 2)} m`],
         ['Mean draft', `${n(c.header.meanDraft, 2)} m`],
         ['Trim / heel', `${n(c.header.trim, 2)} m · ${c.header.heel}°`],
+        ...(c.header.afterDraftsSet ? [['Expected after bunkering (fwd / aft · trim)', `${n(c.header.afterDraftFwd, 2)} / ${n(c.header.afterDraftAft, 2)} m · ${n(c.header.afterTrim, 2)} m — target soundings worked at this trim`]] : []),
         ['Density @15 / temp', `${n(c.header.density15, 4, '—')} · ${n(c.header.tempC, 0)} °C`],
       ])}
       <h3 class="fr-print-h3">Loading sequence</h3>
@@ -2107,6 +2115,7 @@ const BunkerReports = (() => {
         ['Finish (later line)', cb.timeToBunkerLabel],
         ['Draft fwd / aft', `${n(a.header.draftFwd, 2)} / ${n(a.header.draftAft, 2)} m`],
         ['Trim / heel', `${n(a.header.trim, 2)} m · ${a.header.heel}°`],
+        ...(a.header.afterDraftsSet ? [['Expected after bunkering (fwd / aft · trim)', `${n(a.header.afterDraftFwd, 2)} / ${n(a.header.afterDraftAft, 2)} m · ${n(a.header.afterTrim, 2)} m`]] : []),
       ])}
       ${planPrintLineBlock(a, 'A')}
       ${planPrintLineBlock(b, 'B')}
@@ -2398,6 +2407,7 @@ const BunkerReports = (() => {
           <input data-head="port" value="${esc(h.port)}"></label>
       </div>
       <div class="hint">Heel: <b>negative</b> = port, <b>positive</b> = starboard (decimals OK). Default 0.</div>
+      <div class="hint"><b>Drafts:</b> loading a large quantity trims the ship, so type the drafts read off the marks now, after bunkering — trim and every tank's volume follow them. They start from the drafts the plan expected, if it had any.</div>
       <div class="hint" data-ba-head="attitude"></div>
     </div>`;
   }

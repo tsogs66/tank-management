@@ -341,6 +341,10 @@ function emptyBunkerPlan(bundle, conversion) {
       port: voyage.port || '',
       draftFwd: report.header.draftFwd || '',
       draftAft: report.header.draftAft || '',
+      // Where the ship is expected to float when the delivery is done. Loading a large quantity trims the ship, so the
+      // target soundings are worked at these drafts; blank means "same as now".
+      afterDraftFwd: '',
+      afterDraftAft: '',
       heel: report.header.heel || 0,
       fuelType: 'lsfo',
       fuelGrade: '',
@@ -378,7 +382,7 @@ function emptyBunkerPlan(bundle, conversion) {
    two hoses, so each line has its own grade, density, rate, tanks and clock, and they can run side by side. */
 const RESIDUAL_FUEL_TYPES = ['hfo', 'lsfo'];
 const DISTILLATE_FUEL_TYPES = ['mdo', 'lsmgo'];
-const LINE_SHARED_FIELDS = ['date', 'voyageNo', 'port', 'draftFwd', 'draftAft', 'heel'];
+const LINE_SHARED_FIELDS = ['date', 'voyageNo', 'port', 'draftFwd', 'draftAft', 'afterDraftFwd', 'afterDraftAft', 'heel'];
 
 function normalizeLineForm(base, src) {
   const seq = [];
@@ -530,6 +534,13 @@ function computeBunkerPlan(bundle, form, conversion) {
   const trim = draftFwd - draftAft;
   const heel = num(header.heel, 0) || 0;
   const ctx = { trim, list: heel };
+  /* The target soundings are for the end of the delivery, when the ship has taken the fuel and trimmed to the drafts
+     expected then; the soundings being read now are read at the drafts now. */
+  const afterFwd = num(header.afterDraftFwd);
+  const afterAft = num(header.afterDraftAft);
+  const hasAfterDrafts = afterFwd != null && afterAft != null;
+  const afterTrim = hasAfterDrafts ? afterFwd - afterAft : null;
+  const targetCtx = hasAfterDrafts ? { trim: afterTrim, list: heel } : ctx;
 
   const rate = num(header.deliveryRateMTPerHour);
   const quantity = num(header.bunkerQuantityMT);
@@ -636,7 +647,7 @@ function computeBunkerPlan(bundle, form, conversion) {
 
     if (out.targetVolumeM3 != null) {
       out.targetVolumePercent = capacity > 0 ? round((out.targetVolumeM3 / capacity) * 100, 1) : null;
-      const reading = readingForVolume(tank, out.targetVolumeM3, ctx);
+      const reading = readingForVolume(tank, out.targetVolumeM3, targetCtx);
       out.targetReadingMM = reading;
       out.targetUllageMM = reading != null ? asUllage(tank, reading) : null;
       if (reading == null) out.warnings.push('target volume outside the calibration table');
@@ -948,6 +959,9 @@ function computeBunkerPlan(bundle, form, conversion) {
       tempC,
       meanDraft: round(meanDraft, 3),
       trim: round(trim, 3),
+      afterDraftsSet: hasAfterDrafts,
+      afterMeanDraft: hasAfterDrafts ? round((afterFwd + afterAft) / 2, 3) : null,
+      afterTrim: hasAfterDrafts ? round(afterTrim, 3) : null,
       heel,
       deliveryRateMTPerHour: rate,
       soundingEntry: entryModeOf(plan.soundingEntry),
@@ -1275,9 +1289,14 @@ function emptyAfterReport(bundle, conversion) {
   // Start from the pre-bunkering soundings so only what changed has to be typed.
   const src = (bundle && bundle.fuelReport) || null;
   const merged = src ? FuelReport.normalizeForm(bundle, src) : form;
+  /* Loading a large quantity trims the ship: when the plan says where she is expected to float afterwards, start from
+     those drafts (they are then replaced with the real ones read off the marks). */
+  const planHeader = bundle && bundle.bunkerPlan && bundle.bunkerPlan.header;
+  const expected = planHeader && num(planHeader.afterDraftFwd) != null && num(planHeader.afterDraftAft) != null
+    ? { draftFwd: String(planHeader.afterDraftFwd), draftAft: String(planHeader.afterDraftAft) } : {};
   return {
     ...merged,
-    header: { ...merged.header, reportType: 'Bunker Survey' },
+    header: { ...merged.header, ...expected, reportType: 'Bunker Survey' },
     priorRob: priorRobFromFuelReport(bundle, conversion),
     linkedPlanId: null,
     updatedAt: null,

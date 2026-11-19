@@ -202,5 +202,36 @@ check('the summary has an Add extra BDN button and prints each extra note', () =
   assert.ok(/\.\.\.\(c\.extraBdns \|\| \[\]\)\.map\(\(b\) => b\.number\)/.test(src), 'header lists every note number');
 });
 
+check('the plan can hold the drafts expected after bunkering, and works the target soundings at that trim', () => {
+  const p = single(); p.header.draftFwd = 8.5; p.header.draftAft = 9.5;
+  assert.strictEqual(Core.computeBunkerPlan(bundle, p, null).header.afterDraftsSet, false, 'blank: same as now');
+  assert.strictEqual(Core.computeBunkerPlan(bundle, p, null).header.afterTrim, null);
+  p.header.afterDraftFwd = 10.2; p.header.afterDraftAft = 10.6;
+  const h = Core.computeBunkerPlan(bundle, p, null).header;
+  assert.strictEqual(h.afterDraftsSet, true);
+  assert.strictEqual(h.trim, -1, 'trim now');
+  assert.ok(Math.abs(h.afterTrim - (-0.4)) < 1e-9, 'trim expected after');
+  assert.ok(Math.abs(h.afterMeanDraft - 10.4) < 1e-9);
+  const src = require('fs').readFileSync(require('path').join(__dirname, '../public/js/bunkering-core.js'), 'utf8');
+  assert.ok(/readingForVolume\(tank, out\.targetVolumeM3, targetCtx\)/.test(src), 'the target is read at the after trim');
+  assert.ok(/readingForVolume\(tank, estVol, ctx\)/.test(src), 'the live estimate stays at the trim now');
+});
+check('the expected drafts belong to the whole delivery, not to a line, and an existing plan has none', () => {
+  assert.ok(Core.LINE_SHARED_FIELDS ? Core.LINE_SHARED_FIELDS.includes('afterDraftFwd') : true);
+  const p = Core.addDistillateLine(bundle, single());
+  assert.strictEqual(p.distillate.header.afterDraftFwd, '', 'the distillate line keeps none of its own');
+  assert.strictEqual(single().header.afterDraftFwd, '');
+});
+check('the after-bunkering report starts from the drafts the plan expects, and still takes the real ones', () => {
+  const b2 = { ...bundle, bunkerPlan: { header: { afterDraftFwd: '10.2', afterDraftAft: '10.6' } } };
+  const a = Core.emptyAfterReport(b2, null);
+  assert.strictEqual(a.header.draftFwd, '10.2');
+  assert.strictEqual(a.header.draftAft, '10.6');
+  const kept = Core.normalizeAfterReport(b2, { header: { draftFwd: '10.05', draftAft: '10.71' } }, null);
+  assert.strictEqual(kept.header.draftFwd, '10.05', 'the real figure typed on the page is kept');
+  const plain = Core.emptyAfterReport(bundle, null);
+  assert.notStrictEqual(plain.header.draftFwd, '10.2');
+});
+
 console.log(failed ? '\nFAILED — ' + failed + ' of ' + (pass + failed) : '\nPASSED — ' + pass + ' checks');
 process.exit(failed ? 1 : 0);
