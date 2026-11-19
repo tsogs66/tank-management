@@ -26,5 +26,8 @@ const bunk = fs.readFileSync(path.join(__dirname, '../public/js/bunkering-report
 check('Bunkering plan / after / summary saves write the held bundle', /async function saveChainPart[\s\S]{0,200}const b = heldBundle\(\);/.test(bunk) && /function heldBundle\(\) \{ return STATE\.bundle; \}/.test(bunk));
 check('the Bunkering history delete and the plan clock write the held bundle', /heldBundle\(\)\.bunkerHistory = res\.history/.test(bunk) && /const b = heldBundle\(\);\s*b\.bunkerPlan = form;/.test(bunk));
 
+check('loading a saved report makes it the current monitoring (held bundle + saved)', /data-load-snapshot[\s\S]{0,900}STATE\.bundle\.fuelReport = \{ \.\.\.snap\.form[\s\S]{0,300}saveReport\(\{ snapshot: false, quiet: true \}\)/.test(src));
+check('After bunkering GET DATA and Fill prior ROB first save unsaved monitoring', /ba-get-data'\)\.onclick = async \(\) => \{[\s\S]{0,260}FuelReport\.flushIfDirty/.test(bunk) && /async function fillPriorRobFromMonitoring\(\) \{\s*try \{ if \(window\.FuelReport && FuelReport\.flushIfDirty\)/.test(bunk));
+
 console.log(fails ? `\nFAILED — ${fails} of ${checks} checks` : `\nPASSED — ${checks} checks`);
 process.exit(fails ? 1 : 0);
