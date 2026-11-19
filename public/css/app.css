@@ -3763,3 +3763,12 @@ html.bright .bp-result.bp-result-neg .bp-result-value b{color:#b3261e;}
 .hist-fold[open] > summary .hist-tap{display:none;}
 .hist-fold > summary h2{flex:1;}
 .hist-count{font-weight:400; opacity:.8; font-size:.8em;}
+
+/* The four bunkering pages (Plan, Monitoring, After bunkering, Summary) are one tap from each other. */
+.bk-nav {
+  display: flex; gap: 6px; margin: 0 0 10px; padding: 6px 0;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  position: sticky; top: 0; z-index: 6; background: var(--bg, transparent);
+}
+.bk-nav .btn { flex: 1 1 0; min-width: max-content; min-height: 44px; white-space: nowrap; }
+@media print { .bk-nav { display: none !important; } }

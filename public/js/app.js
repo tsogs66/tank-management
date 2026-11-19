@@ -754,6 +754,11 @@ function navigate(page, tankId = null) {
       BunkerReports.persistPlanClock({ deferServer: false });
     }
   } catch (_) { /* ignore */ }
+  /* Whatever was being typed on the bunkering pages is kept as the current draft before the page is left. */
+  try {
+    if (typeof BunkerReports !== 'undefined' && BunkerReports && BunkerReports.flushDrafts) BunkerReports.flushDrafts();
+    if (typeof FuelReport !== 'undefined' && FuelReport && FuelReport.flushDraft) FuelReport.flushDraft();
+  } catch (_) { /* never block navigation */ }
   STATE.route = { page: next, tankId };
   closeMobileNav();
   closeMoreSheet();

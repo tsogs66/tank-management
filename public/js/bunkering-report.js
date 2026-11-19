@@ -127,7 +127,82 @@ const BunkerReports = (() => {
     });
   }
 
-  async function saveChainPart(path, part, form, { snapshot = false, extra = {}, deferServer = false, quiet = false } = {}) {
+  /* ---------- drafts: every edit on Plan / After / Summary is kept as the current draft ----------
+     The page reads the draft back when it is opened again, the program is reopened, or the device restarts. A copy is
+     also written straight to local storage on every edit, so a window closed before the 0.7 s save still finds it. */
+  const DRAFT_DELAY_MS = 700;
+  const draftTimers = {};
+  const DRAFTS = {
+    'bunker-plan': {
+      part: 'bunkerPlan', live: () => !!(document.getElementById('bp-save') && view.plan), form: () => fullPlan(true),
+    },
+    'bunker-after': {
+      part: 'bunkerAfter', live: () => !!(document.getElementById('ba-save') && view.after),
+      form: () => ({ ...view.after, updatedAt: new Date().toISOString() }),
+    },
+    'bunker-summary': {
+      part: 'bunkerSummary', live: () => !!(document.getElementById('bs-save') && view.summary),
+      form: () => ({ ...view.summary, updatedAt: new Date().toISOString() }),
+    },
+  };
+  const draftMirrorKey = (path) => 'tankDraft:' + STATE.activeVesselId + ':' + path;
+
+  function discardDraft(path) {
+    clearTimeout(draftTimers[path]); delete draftTimers[path];
+    try { localStorage.removeItem(draftMirrorKey(path)); } catch (_) { /* no storage */ }
+  }
+
+  function scheduleDraft(path) {
+    const d = DRAFTS[path];
+    if (!d || !d.live()) return;
+    try {
+      const form = d.form();
+      /* a photographed BDN is large: it goes with the saved draft, not the quick copy */
+      const light = path === 'bunker-summary' ? { ...form, bdnPhoto: null } : form;
+      localStorage.setItem(draftMirrorKey(path), JSON.stringify({ ts: Date.now(), form: light }));
+    } catch (_) { /* storage full or blocked: the timed save below still runs */ }
+    clearTimeout(draftTimers[path]);
+    draftTimers[path] = setTimeout(() => flushDraft(path), DRAFT_DELAY_MS);
+  }
+
+  async function flushDraft(path) {
+    const d = DRAFTS[path];
+    if (!d || !draftTimers[path]) return;
+    clearTimeout(draftTimers[path]); delete draftTimers[path];
+    if (!d.live()) return;
+    try { await saveChainPart(path, d.part, d.form(), { snapshot: false, quiet: true, draft: true }); }
+    catch (err) { console.warn('draft', path, err); }
+  }
+
+  function flushDrafts() { return Promise.all(Object.keys(DRAFTS).map((p) => flushDraft(p))); }
+
+  /** Edits that never reached the saved copy — the program closed, or the page was left in a hurry — come back. */
+  function recoverDraft(path, current) {
+    try {
+      const m = JSON.parse(localStorage.getItem(draftMirrorKey(path)) || 'null');
+      if (!m || !m.form) return null;
+      const saved = Date.parse(current && current.updatedAt) || 0;
+      if (m.ts <= saved) { discardDraft(path); return null; }
+      if (path === 'bunker-summary' && !m.form.bdnPhoto && current && current.bdnPhoto) m.form.bdnPhoto = current.bdnPhoto;
+      return m.form;
+    } catch (_) { return null; }
+  }
+
+  /** Hook an editable page: any edit made on it is kept as the current draft. */
+  function hookDraft(wrap, path) {
+    const edited = (e) => {
+      const t = e.target;
+      if (!t || !t.matches || !t.matches('input, select, textarea') || t.closest('[data-hist-search]')) return;
+      setTimeout(() => scheduleDraft(path), 0);   // after the page's own handlers have taken this edit
+    };
+    wrap.addEventListener('input', edited);
+    wrap.addEventListener('change', edited);
+  }
+
+  async function saveChainPart(path, part, form, { snapshot = false, extra = {}, deferServer = false, quiet = false, draft = false } = {}) {
+    /* A draft is kept, but it is not yet the ship's current condition: the readings are only taken from a saved report. */
+    if (draft) extra = { ...extra, syncReadings: false };
+    else discardDraft(path);
     const b = heldBundle();
     let snapshotEntry = null;
     let fileSnapshot = !!snapshot;
@@ -579,6 +654,11 @@ const BunkerReports = (() => {
     stopBackgroundMonitor();
     await loadConversion();
     const b = bundle();
+    if (!view.pendingPlan) {
+      const back = recoverDraft('bunker-plan', b.bunkerPlan);
+      if (back) { view.pendingPlan = back; showToast('Your unsaved Bunkering Plan draft was restored'); }
+    }
+    const planFromPending = !!view.pendingPlan;
     view.full = Core.normalizePlan(b, view.pendingPlan || b.bunkerPlan, view.conversion);
     view.pendingPlan = null;
     if (view.line === 'B' && !view.full.distillate) view.line = 'A';
@@ -586,7 +666,7 @@ const BunkerReports = (() => {
     view.otherComputed = null;
     const c = recomputePlan();
 
-    main.innerHTML += `<div class="page-head no-print">
+    main.innerHTML += `${UI.bunkerNavHtml('bunker-plan')}<div class="page-head no-print">
       <div><h1>Bunkering Plan &amp; Monitoring</h1>
         <div class="desc">Target ullage per tank from the fuel report ROB, then live intake as the transfer runs</div></div>
       <div class="btn-row">
@@ -618,7 +698,10 @@ const BunkerReports = (() => {
     main.appendChild(wrap);
 
     bindPlanEvents(wrap);
+    UI.bindBunkerNav(main);
+    hookDraft(wrap, 'bunker-plan');
     refreshPlan();
+    if (planFromPending) scheduleDraft('bunker-plan');
     if (c.monitoring.clock.running || c.monitoring.tanksFilling) startClockTicker();
   }
 
@@ -2332,11 +2415,16 @@ const BunkerReports = (() => {
     view.page = 'bunker-after';
     await loadConversion();
     const b = bundle();
+    if (!view.pendingAfter) {
+      const back = recoverDraft('bunker-after', b.bunkerAfter);
+      if (back) { view.pendingAfter = back; showToast('Your unsaved After Bunkering draft was restored'); }
+    }
+    const afterFromPending = !!view.pendingAfter;
     view.after = Core.normalizeAfterReport(b, view.pendingAfter || b.bunkerAfter, view.conversion);
     view.pendingAfter = null;
     const c = recomputeAfter();
 
-    main.innerHTML += `<div class="page-head no-print">
+    main.innerHTML += `${UI.bunkerNavHtml('bunker-after')}<div class="page-head no-print">
       <div><h1>Tank Monitoring After Bunkering</h1>
         <div class="desc">Re-sound every tank; intake per grade is the difference against the ROB prior to bunkering</div></div>
       <div class="btn-row">
@@ -2368,7 +2456,10 @@ const BunkerReports = (() => {
     main.appendChild(wrap);
 
     bindAfterEvents(wrap);
+    UI.bindBunkerNav(main);
+    hookDraft(wrap, 'bunker-after');
     refreshAfter();
+    if (afterFromPending) scheduleDraft('bunker-after');
   }
 
   function afterHeaderPanel() {
@@ -2626,11 +2717,16 @@ const BunkerReports = (() => {
     view.page = 'bunker-summary';
     await loadConversion();
     const b = bundle();
+    if (!view.pendingSummary) {
+      const back = recoverDraft('bunker-summary', b.bunkerSummary);
+      if (back) { view.pendingSummary = back; showToast('Your unsaved Bunkering Summary draft was restored'); }
+    }
+    const summaryFromPending = !!view.pendingSummary;
     view.summary = Core.normalizeSummary(b, view.pendingSummary || b.bunkerSummary);
     view.pendingSummary = null;
     const c = recomputeSummary();
 
-    main.innerHTML += `<div class="page-head no-print">
+    main.innerHTML += `${UI.bunkerNavHtml('bunker-summary')}<div class="page-head no-print">
       <div><h1>Bunkering Report Summary</h1>
         <div class="desc">BDN paperwork, fuel onboard before and after, and the tanks after bunkering</div></div>
       <div class="btn-row">
@@ -2665,7 +2761,10 @@ const BunkerReports = (() => {
     main.appendChild(wrap);
 
     bindSummaryEvents(wrap);
+    UI.bindBunkerNav(main);
+    hookDraft(wrap, 'bunker-summary');
     refreshSummary();
+    if (summaryFromPending) scheduleDraft('bunker-summary');
   }
 
   function summaryDetailsPanel(c) {
@@ -2971,6 +3070,7 @@ const BunkerReports = (() => {
       capturedAt: new Date().toISOString()
     };
     renderBdnPhotoPreview();
+    scheduleDraft('bunker-summary');
   }
 
   function wireBdnPhotoUi() {
@@ -2989,6 +3089,7 @@ const BunkerReports = (() => {
       view.summary.bdnPhoto = null;
       if (fileEl) fileEl.value = '';
       renderBdnPhotoPreview();
+      scheduleDraft('bunker-summary');
     });
     if (typeof ChengCamera !== 'undefined') {
       ChengCamera.wireTakePictureButton(document.getElementById('bs-bdn-take-photo'), {
@@ -3273,10 +3374,12 @@ const BunkerReports = (() => {
   try {
     window.addEventListener('pagehide', () => {
       if (planClockLive()) persistPlanClock({ deferServer: false });
+      flushDrafts();
     });
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden' && planClockLive()) {
-        persistPlanClock({ deferServer: false });
+      if (document.visibilityState === 'hidden') {
+        if (planClockLive()) persistPlanClock({ deferServer: false });
+        flushDrafts();
       }
     });
   } catch (_) { /* ignore */ }
@@ -3300,6 +3403,7 @@ const BunkerReports = (() => {
   return {
     renderPlan,
     flushOpenForms,
+    flushDrafts,
     renderAfter,
     renderSummary,
     planPrintPages,

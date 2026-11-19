@@ -191,10 +191,62 @@ const FuelReport = (() => {
     return view.conversion;
   }
 
+  /* ---------- the four bunkering pages, one tap from each other ---------- */
+  const BUNKER_NAV = [
+    { page: 'bunker-plan', label: 'Plan', hint: 'Bunkering plan' },
+    { page: 'fuel-report', label: 'Monitoring', hint: 'Tank monitoring' },
+    { page: 'bunker-after', label: 'After bunkering', hint: 'Tank condition after bunkering' },
+    { page: 'bunker-summary', label: 'Summary', hint: 'Bunkering report summary' },
+  ];
+  function bunkerPlanReachable() {
+    try { return isBunkerOpsEmbed() || bunkerPlanNavAllowed() || aioBunkeringPlanLink(); } catch (_) { return false; }
+  }
+  function bunkerNavHtml(active) {
+    return '<nav class="bk-nav no-print" aria-label="Bunkering pages">'
+      + BUNKER_NAV.filter((i) => i.page !== 'bunker-plan' || bunkerPlanReachable()).map((i) =>
+        `<button type="button" class="btn${i.page === active ? ' primary' : ''}" data-bk-nav="${i.page}" title="${esc(i.hint)}"${i.page === active ? ' aria-current="page"' : ''}>${esc(i.label)}</button>`).join('')
+      + '</nav>';
+  }
+  /** Go to another bunkering page; whatever is being typed here is kept as the current draft first. */
+  async function bunkerGo(page) {
+    try {
+      await Promise.all([
+        window.BunkerReports && BunkerReports.flushDrafts ? BunkerReports.flushDrafts() : null,
+        flushDraft(),
+      ]);
+    } catch (_) { /* the draft copy is already on the device */ }
+    const ops = typeof isBunkerOpsEmbed === 'function' && isBunkerOpsEmbed();
+    if (page === 'bunker-plan') {
+      if (ops || (typeof bunkerPlanNavAllowed === 'function' && bunkerPlanNavAllowed())) { navigate('bunker-plan'); return; }
+      if (typeof openInAioShell === 'function' && openInAioShell('bunkeringplan')) return;
+      showToast('Open Bunkering Plan from the ChEng AIO menu');
+      return;
+    }
+    /* the plan's own frame inside ChEng AIO hands the other pages to the shell, which opens them in Tank Chief */
+    if (ops && window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: 'chengaio-navigate', module: 'tanks', page }, '*');
+      return;
+    }
+    navigate(page);
+  }
+  function bindBunkerNav(root) {
+    root.querySelectorAll('[data-bk-nav]').forEach((btn) => {
+      btn.onclick = () => { if (!btn.hasAttribute('aria-current')) bunkerGo(btn.dataset.bkNav); };
+    });
+  }
+
   /* ---------- page ---------- */
 
   async function render(main) {
     const bundle = currentBundle();
+    let restoredDraft = false;
+    /* Edits that never reached the saved copy (the program closed, the page was left in a hurry) come back. */
+    if (!view.pendingForm) {
+      const m = readDraftMirror();
+      const saved = Date.parse(bundle.fuelReport && bundle.fuelReport.updatedAt) || 0;
+      if (m && m.ts > saved) { view.pendingForm = m.form; restoredDraft = true; showToast('Your unsaved Monitoring draft was restored'); }
+      else if (m) clearDraftMirror();
+    }
     // A report loaded from the history panel survives the re-render that follows it.
     view.form = Core.normalizeForm(bundle, view.pendingForm || bundle.fuelReport);
     view.vesselId = STATE.activeVesselId;
@@ -203,7 +255,7 @@ const FuelReport = (() => {
     await loadConversion();
     recompute();
 
-    main.innerHTML += `<div class="page-head no-print">
+    main.innerHTML += `${bunkerNavHtml('fuel-report')}<div class="page-head no-print">
       <div>
         <h1>Fuel Oil Report</h1>
         <div class="desc">Tank condition sheet — soundings, VCF/WCF and weight in air per fuel tank</div>
@@ -230,7 +282,9 @@ const FuelReport = (() => {
     main.appendChild(wrap);
 
     bindEvents(wrap);
+    bindBunkerNav(main);
     refreshComputed();
+    if (restoredDraft) scheduleDraft();
   }
 
   function renderHeaderPanel() {
@@ -472,7 +526,7 @@ const FuelReport = (() => {
       if (input) input.value = val;
       lubeFilled += 1;
     }
-    view.dirty = true;
+    view.dirty = true; scheduleDraft();
     refreshComputed();
     if (!fuelFilled && !lubeFilled) {
       showToast('No Voyage ROB figures for this vessel');
@@ -801,7 +855,7 @@ const FuelReport = (() => {
 
   function bindEvents(wrap) {
     bindSheetPopups(wrap, () => view.form.rows, () => view.computed || recompute(), () => {
-      view.dirty = true; refreshComputed();
+      view.dirty = true; scheduleDraft(); refreshComputed();
     });
     bindSectionMove(wrap, view.form.rows, () => {
       view.pendingForm = view.form;
@@ -809,6 +863,16 @@ const FuelReport = (() => {
       navigate('fuel-report');
     });
     const mark = () => { view.dirty = true; };
+    /* any edit made on the sheet is kept as the current draft */
+    const edited = (e) => {
+      const t = e.target;
+      if (!t || !t.matches || !t.matches('input, select, textarea') || t.closest('[data-hist-search], .fr-history')) return;
+      view.dirty = true;
+      /* after the sheet's own handlers have taken this edit into the form */
+      setTimeout(scheduleDraft, 0);
+    };
+    wrap.addEventListener('input', edited);
+    wrap.addEventListener('change', edited);
 
     wrap.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-double-interp]');
@@ -967,20 +1031,48 @@ const FuelReport = (() => {
     catch (_) { return false; }
   }
 
-  async function saveReport({ snapshot = false, print = false, quiet = false } = {}) {
+  /* ---------- the sheet as a draft: every edit is kept, even if the program closes ---------- */
+  const DRAFT_DELAY_MS = 700;
+  let draftTimer = null;
+  const mirrorKey = () => 'tankDraft:' + STATE.activeVesselId + ':fuel-report';
+  function clearDraftMirror() {
+    clearTimeout(draftTimer); draftTimer = null;
+    try { localStorage.removeItem(mirrorKey()); } catch (_) { /* no storage */ }
+  }
+  function readDraftMirror() {
+    try { const m = JSON.parse(localStorage.getItem(mirrorKey()) || 'null'); return m && m.form ? m : null; } catch (_) { return null; }
+  }
+  function scheduleDraft() {
+    if (!view.form || view.vesselId !== STATE.activeVesselId) return;
+    /* written at once and in one step, so a closed window or a killed app still finds it */
+    try { localStorage.setItem(mirrorKey(), JSON.stringify({ ts: Date.now(), form: view.form })); } catch (_) { /* full or blocked */ }
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(flushDraft, DRAFT_DELAY_MS);
+  }
+  async function flushDraft() {
+    if (!draftTimer) return;
+    clearTimeout(draftTimer); draftTimer = null;
+    if (!view.form || !document.querySelector('.fuel-report-page')) return;
+    try { await saveReport({ snapshot: false, quiet: true, draft: true }); } catch (err) { console.warn('monitoring draft', err); }
+  }
+
+  async function saveReport({ snapshot = false, print = false, quiet = false, draft = false } = {}) {
     /* The bundle the app holds, not currentBundle(): inside Cheng AIO that is a copy with the ship's
        identity laid over it, and a report written onto the copy was gone at the next render, which
        read the held bundle and put the OLD report back until the program was closed and reopened. */
     const bundle = STATE.bundle;
     const form = { ...view.form, updatedAt: new Date().toISOString() };
-    const body = { form, snapshot, syncReadings: true };
+    /* A draft is the sheet as it stands while it is being filled in: kept, but not yet the ship's current readings. */
+    const body = { form, snapshot, syncReadings: !draft };
 
     bundle.fuelReport = form;
-    const gradesChanged = Core.applyCarriedFuelGrades(bundle, form);
+    const gradesChanged = draft ? { tanks: false } : Core.applyCarriedFuelGrades(bundle, form);
     const computed = recompute();
-    bundle.readings = Core.readingsFromReport(bundle, computed);
-    if (typeof persistPart === 'function') {
-      await persistPart('readings', bundle.readings);
+    if (!draft) {
+      bundle.readings = Core.readingsFromReport(bundle, computed);
+      if (typeof persistPart === 'function') {
+        await persistPart('readings', bundle.readings);
+      }
     }
     let fileSnapshot = !!snapshot;
     if (snapshot) {
@@ -1014,7 +1106,7 @@ const FuelReport = (() => {
       }
     };
 
-    view.dirty = false;
+    if (!draft) { view.dirty = false; clearDraftMirror(); }
     /* The report goes into the database BEFORE the printer dialog opens. It used to be sent after
        the dialog closed, and a dialog that never reports back (the Android print screen, a closed
        window, the app put away) left the new report on this screen only: the next load read the
@@ -1942,6 +2034,9 @@ const FuelReport = (() => {
   return {
     render,
     flushIfDirty,
+    flushDraft,
+    bunkerNavHtml,
+    bindBunkerNav,
     printReport,
     buildPrintPages,
     recompute,
