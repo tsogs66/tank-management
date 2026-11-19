@@ -22,5 +22,9 @@ check('the sheet has a description field that is saved with the form header', /d
 check('a filed report keeps its description', /description: String\(computed\.header\.description/.test(core));
 check('Saved reports lists the description', /<th>Description<\/th>/.test(src) && /s\.description \|\|/.test(src));
 
+const bunk = fs.readFileSync(path.join(__dirname, '../public/js/bunkering-report.js'), 'utf8');
+check('Bunkering plan / after / summary saves write the held bundle', /async function saveChainPart[\s\S]{0,200}const b = heldBundle\(\);/.test(bunk) && /function heldBundle\(\) \{ return STATE\.bundle; \}/.test(bunk));
+check('the Bunkering history delete and the plan clock write the held bundle', /heldBundle\(\)\.bunkerHistory = res\.history/.test(bunk) && /const b = heldBundle\(\);\s*b\.bunkerPlan = form;/.test(bunk));
+
 console.log(fails ? `\nFAILED — ${fails} of ${checks} checks` : `\nPASSED — ${checks} checks`);
 process.exit(fails ? 1 : 0);
