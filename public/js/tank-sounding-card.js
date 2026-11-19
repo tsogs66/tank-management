@@ -474,6 +474,7 @@ html, body{
         win.document.write(html);
         win.document.close();
         setTimeout(() => { try { win.print(); } catch (_) {} }, 200);
+        if (typeof showToast === 'function') showToast('Sent to print — choose a printer or Save as PDF');
       }
     } catch (err) {
       console.error('Tank Sounding Card print failed', err);

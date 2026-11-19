@@ -440,6 +440,14 @@ ${landscape ? '' : 'body:not(.printing-calib) .calib-print-page, body:not(.print
    * theme CSS fights. Android / AIO: PrintManager bridge, with a fast local
    * iframe fallback if the parent never answers.
    */
+  /* One confirmation for every printout: the sheet has been handed to the print dialog / PDF writer. */
+  function notePrint(ok = true) {
+    try {
+      if (typeof showToast !== 'function') return;
+      showToast(ok ? 'Sent to print — choose a printer or Save as PDF' : 'Nothing to print');
+    } catch (_) { /* no toast host */ }
+  }
+
   function printLiveDocument(prepare, cleanup, opts = {}) {
     let finished = false;
     const heldHere = !isPrintHold();
@@ -475,6 +483,7 @@ ${landscape ? '' : 'body:not(.printing-calib) .calib-print-page, body:not(.print
     if (!bodyHtml) {
       console.warn('Tank print: nothing to print');
       finish();
+      notePrint(false);
       return;
     }
 
@@ -490,6 +499,7 @@ ${landscape ? '' : 'body:not(.printing-calib) .calib-print-page, body:not(.print
     if (shouldBridgePrint()) {
       try {
         deliverBridgedHtml(html, opts.title || APP_NAME, finish);
+        notePrint();
         return;
       } catch (err) {
         console.warn('Tank print bridge failed, falling back to iframe print', err);
@@ -498,6 +508,7 @@ ${landscape ? '' : 'body:not(.printing-calib) .calib-print-page, body:not(.print
 
     try {
       printViaHiddenIframe(html, opts.title || APP_NAME, finish);
+      notePrint();
     } catch (err) {
       console.warn('Tank iframe print failed, last resort window.print', err);
       window.removeEventListener('afterprint', finish);
@@ -509,6 +520,7 @@ ${landscape ? '' : 'body:not(.printing-calib) .calib-print-page, body:not(.print
           finish();
           throw printErr;
         }
+        notePrint();
         window.setTimeout(finish, 120000);
       }, 50);
     }
@@ -538,6 +550,7 @@ ${landscape ? '' : 'body:not(.printing-calib) .calib-print-page, body:not(.print
     if (shouldBridgePrint()) {
       try {
         deliverBridgedHtml(docHtml, job, finish);
+        notePrint();
         return;
       } catch (err) {
         console.warn('Tank printHtmlDocument bridge failed, falling back to iframe', err);
@@ -545,6 +558,7 @@ ${landscape ? '' : 'body:not(.printing-calib) .calib-print-page, body:not(.print
     }
     try {
       printViaHiddenIframe(docHtml, job, finish);
+      notePrint();
     } catch (err) {
       finish();
       throw err;

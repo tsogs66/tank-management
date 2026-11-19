@@ -32,7 +32,28 @@ function fmt(n, d = 2) {
   return Number(n).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
+/* Export links are plain downloads: say so when one is used, so the tap is not met with silence. */
+document.addEventListener('click', (ev) => {
+  try {
+    const a = ev.target && ev.target.closest ? ev.target.closest('a[href]') : null;
+    if (!a) return;
+    const href = a.getAttribute('href') || '';
+    if (a.hasAttribute('download') || /\.(csv|xlsx|xlsm|json|pdf)(\?|$)/i.test(href.split('#')[0])) {
+      showToast('Download started — check your Downloads folder');
+    }
+  } catch (_) { /* never block the link */ }
+}, true);
+
 function showToast(msg) {
+  /* A message that follows another within a moment (Saved, then Sent to print) waits its turn
+     so each one is readable instead of the second wiping out the first. */
+  const now = Date.now();
+  if (showToast._until && now < showToast._until) {
+    clearTimeout(showToast._d);
+    showToast._d = setTimeout(() => showToast(msg), showToast._until - now);
+    return;
+  }
+  showToast._until = now + 1300;
   let el = document.getElementById('toast');
   if (!el) {
     el = document.createElement('div');
