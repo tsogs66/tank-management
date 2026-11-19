@@ -2427,7 +2427,8 @@ const BunkerReports = (() => {
    * Fill ROB PRIOR BUNKERING from the Fuel Oil Report weight-by-air totals
    * (monitoring TOTAL ACTUAL / grade.actualMT). Does not touch soundings or lubes.
    */
-  function fillPriorRobFromMonitoring() {
+  async function fillPriorRobFromMonitoring() {
+    try { if (window.FuelReport && FuelReport.flushIfDirty) await FuelReport.flushIfDirty(); } catch (_) { /* offline */ }
     const prior = Core.priorRobFromFuelReport(bundle(), view.conversion);
     let filled = 0;
     for (const grade of FRCore.FUEL_TYPES) {
@@ -2511,6 +2512,8 @@ const BunkerReports = (() => {
     });
 
     document.getElementById('ba-get-data').onclick = async () => {
+      /* Soundings typed or loaded on Tank Monitoring but not saved yet are the current monitoring. */
+      try { if (window.FuelReport && FuelReport.flushIfDirty) await FuelReport.flushIfDirty(); } catch (_) { /* offline */ }
       const keep = confirm('Keep the soundings already entered here?\n\n'
         + 'OK — refresh only the ROB prior bunkering.\n'
         + 'Cancel — reload soundings from the fuel report as well.');

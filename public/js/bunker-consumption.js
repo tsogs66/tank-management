@@ -593,6 +593,7 @@ const BunkerConsumption = (function () {
     root.innerHTML = html;
     document.body.classList.add('printing-bc');
     window.print();
+    showToast('Sent to print — choose a printer or Save as PDF');
     setTimeout(() => {
       document.body.classList.remove('printing-bc');
       root.innerHTML = '';
@@ -726,6 +727,7 @@ const BunkerConsumption = (function () {
       if (name === null) return;
       _plan.saveName = name;
       await saveToHistory(_plan, name);
+      showToast('Bunker plan saved');
       doPrint(_plan);
     });
     document.getElementById('bcHistorySearch')?.addEventListener('input', () => renderHistory());

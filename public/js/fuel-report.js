@@ -926,6 +926,14 @@ const FuelReport = (() => {
         }
         if (!snap) return;
         view.pendingForm = snap.form;
+        /* A loaded report becomes the CURRENT monitoring, not just what the sheet shows: the
+           After-bunkering GET DATA, the readings and the next render all read the held copy, so
+           leaving it on the old one sent them back to older soundings. */
+        if (!snap.isDraft && snap.id !== '__draft__' && STATE.bundle) {
+          STATE.bundle.fuelReport = { ...snap.form, updatedAt: new Date().toISOString() };
+          view.form = STATE.bundle.fuelReport;
+          saveReport({ snapshot: false, quiet: true }).catch(() => {});
+        }
         navigate('fuel-report');
         showToast(snap.isDraft || snap.id === '__draft__'
           ? 'Draft loaded for editing'
