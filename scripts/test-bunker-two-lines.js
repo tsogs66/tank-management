@@ -139,5 +139,99 @@ check('the choice is kept per line and defaults to each tank\'s own method', () 
   assert.strictEqual(Core.computeBunkerPlan(bundle, Core.distillateLine(n), null).header.soundingEntry, 'ullage');
 });
 
+check('one report can carry two grades from the same supplier: VLSFO and LSMGO, each against its own delivery note', () => {
+  const c = Core.computeBunkerSummary(bundle, {
+    supplier: 'ACME BUNKERS', bargeName: 'BARGE 1', bdnNumber: 'A-1',
+    bdn: { fuelType: 'lsfo', quantityMT: '600' },
+    bdn2: { fuelType: 'lsmgo', quantityMT: '100', number: 'B-2' },
+  }, null, null);
+  assert.strictEqual(c.supplier, 'ACME BUNKERS');
+  assert.strictEqual(c.bdn.fuelType, 'lsfo');
+  assert.strictEqual(c.bdn2.fuelType, 'lsmgo');
+  assert.strictEqual(c.bdn2.number, 'B-2');
+  assert.strictEqual(c.quantities2.bdnQuantityMT, 100);
+});
+check('the second fuel can be any grade except the first, and a residual first suggests LSMGO', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '../public/js/bunkering-report.js'), 'utf8');
+  assert.ok(/FUEL_TYPES\.filter\(\(t\) => t\.id !== f\.bdn\.fuelType\)/.test(src), 'every grade but the first');
+  assert.ok(/DISTILLATE_FUEL_TYPES\.includes\(first\) \? 'lsfo' : 'lsmgo'/.test(src));
+  assert.ok(/summaryGradesText\(c\)/.test(src) && /summaryBdnNumbersText\(c\)/.test(src), 'the printed header names both grades and both notes');
+});
+
+const fakeAfter = { sections: [], grades: [
+  { id: 'lsfo', label: 'VLSFO', priorMT: 100, addedMT: 600, presentMT: 700 },
+  { id: 'lsmgo', label: 'LSMGO', priorMT: 20, addedMT: 100, presentMT: 120 },
+  { id: 'hfo', label: 'HFO', priorMT: 50, addedMT: 0, presentMT: 50 },
+] };
+check('an extra BDN of its own grade is held against what was received of that grade', () => {
+  const c = Core.computeBunkerSummary(bundle, {
+    bdn: { fuelType: 'lsfo', quantityMT: '600' },
+    extraBdns: [{ fuelType: 'lsmgo', quantityMT: '99', number: 'X-1' }],
+  }, fakeAfter, null);
+  assert.strictEqual(c.extraBdns.length, 1);
+  assert.strictEqual(c.extraBdns[0].label, 'LSMGO');
+  assert.strictEqual(c.extraQuantities[0].receivedQuantityMT, 100);
+  assert.strictEqual(c.extraQuantities[0].differenceMT, 1);
+  assert.strictEqual(c.extraQuantities[0].gradeTotalMT, null, 'one note for the grade: no total');
+  assert.strictEqual(c.quantities.differenceMT, 0, 'the first note is untouched');
+});
+check('two notes of one grade are added up before they are compared with the receipt', () => {
+  const c = Core.computeBunkerSummary(bundle, {
+    bdn: { fuelType: 'lsfo', quantityMT: '400' },
+    extraBdns: [{ fuelType: 'lsfo', quantityMT: '195', number: 'X-2' }],
+  }, fakeAfter, null);
+  assert.strictEqual(c.quantities.gradeTotalMT, 595);
+  assert.strictEqual(c.quantities.differenceMT, 5, '600 received against 400 + 195');
+  assert.strictEqual(c.extraQuantities[0].gradeTotalMT, 595);
+  assert.strictEqual(c.extraQuantities[0].differenceMT, 5);
+});
+check('three notes, three grades, and the saved summary keeps them through normalising twice', () => {
+  const form = { bdn: { fuelType: 'lsfo', quantityMT: '600' }, bdn2: { fuelType: 'lsmgo', quantityMT: '100' }, extraBdns: [{ fuelType: 'hfo', quantityMT: '10' }] };
+  const once = Core.normalizeSummary(bundle, form);
+  const twice = Core.normalizeSummary(bundle, JSON.parse(JSON.stringify(once)));
+  assert.deepStrictEqual(twice.extraBdns, once.extraBdns);
+  assert.strictEqual(twice.extraBdns[0].number, '');
+  assert.deepStrictEqual(Core.normalizeSummary(bundle, {}).extraBdns, [], 'none unless added');
+  const c = Core.computeBunkerSummary(bundle, form, fakeAfter, null);
+  assert.strictEqual(c.extraQuantities[0].receivedQuantityMT, 0);
+});
+check('the summary has an Add extra BDN button and prints each extra note', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '../public/js/bunkering-report.js'), 'utf8');
+  assert.ok(/id="bs-add-xbdn"/.test(src) && /data-xbdn-remove/.test(src));
+  assert.ok(/Bunker details \(BDN\) — extra \$\{i \+ 1\}/.test(src));
+  assert.ok(/\.\.\.\(c\.extraBdns \|\| \[\]\)\.map\(\(b\) => b\.number\)/.test(src), 'header lists every note number');
+});
+
+check('the plan can hold the drafts expected after bunkering, and works the target soundings at that trim', () => {
+  const p = single(); p.header.draftFwd = 8.5; p.header.draftAft = 9.5;
+  assert.strictEqual(Core.computeBunkerPlan(bundle, p, null).header.afterDraftsSet, false, 'blank: same as now');
+  assert.strictEqual(Core.computeBunkerPlan(bundle, p, null).header.afterTrim, null);
+  p.header.afterDraftFwd = 10.2; p.header.afterDraftAft = 10.6;
+  const h = Core.computeBunkerPlan(bundle, p, null).header;
+  assert.strictEqual(h.afterDraftsSet, true);
+  assert.strictEqual(h.trim, -1, 'trim now');
+  assert.ok(Math.abs(h.afterTrim - (-0.4)) < 1e-9, 'trim expected after');
+  assert.ok(Math.abs(h.afterMeanDraft - 10.4) < 1e-9);
+  const src = require('fs').readFileSync(require('path').join(__dirname, '../public/js/bunkering-core.js'), 'utf8');
+  assert.ok(/readingForVolume\(tank, out\.targetVolumeM3, targetCtx\)/.test(src), 'the target is read at the after trim');
+  assert.ok(/readingForVolume\(tank, estVol, ctx\)/.test(src), 'the live estimate stays at the trim now');
+});
+check('the expected drafts belong to the whole delivery, not to a line, and an existing plan has none', () => {
+  assert.ok(Core.LINE_SHARED_FIELDS ? Core.LINE_SHARED_FIELDS.includes('afterDraftFwd') : true);
+  const p = Core.addDistillateLine(bundle, single());
+  assert.strictEqual(p.distillate.header.afterDraftFwd, '', 'the distillate line keeps none of its own');
+  assert.strictEqual(single().header.afterDraftFwd, '');
+});
+check('the after-bunkering report starts from the drafts the plan expects, and still takes the real ones', () => {
+  const b2 = { ...bundle, bunkerPlan: { header: { afterDraftFwd: '10.2', afterDraftAft: '10.6' } } };
+  const a = Core.emptyAfterReport(b2, null);
+  assert.strictEqual(a.header.draftFwd, '10.2');
+  assert.strictEqual(a.header.draftAft, '10.6');
+  const kept = Core.normalizeAfterReport(b2, { header: { draftFwd: '10.05', draftAft: '10.71' } }, null);
+  assert.strictEqual(kept.header.draftFwd, '10.05', 'the real figure typed on the page is kept');
+  const plain = Core.emptyAfterReport(bundle, null);
+  assert.notStrictEqual(plain.header.draftFwd, '10.2');
+});
+
 console.log(failed ? '\nFAILED — ' + failed + ' of ' + (pass + failed) : '\nPASSED — ' + pass + ' checks');
 process.exit(failed ? 1 : 0);

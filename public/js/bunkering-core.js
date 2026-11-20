@@ -341,6 +341,10 @@ function emptyBunkerPlan(bundle, conversion) {
       port: voyage.port || '',
       draftFwd: report.header.draftFwd || '',
       draftAft: report.header.draftAft || '',
+      // Where the ship is expected to float when the delivery is done. Loading a large quantity trims the ship, so the
+      // target soundings are worked at these drafts; blank means "same as now".
+      afterDraftFwd: '',
+      afterDraftAft: '',
       heel: report.header.heel || 0,
       fuelType: 'lsfo',
       fuelGrade: '',
@@ -378,7 +382,7 @@ function emptyBunkerPlan(bundle, conversion) {
    two hoses, so each line has its own grade, density, rate, tanks and clock, and they can run side by side. */
 const RESIDUAL_FUEL_TYPES = ['hfo', 'lsfo'];
 const DISTILLATE_FUEL_TYPES = ['mdo', 'lsmgo'];
-const LINE_SHARED_FIELDS = ['date', 'voyageNo', 'port', 'draftFwd', 'draftAft', 'heel'];
+const LINE_SHARED_FIELDS = ['date', 'voyageNo', 'port', 'draftFwd', 'draftAft', 'afterDraftFwd', 'afterDraftAft', 'heel'];
 
 function normalizeLineForm(base, src) {
   const seq = [];
@@ -530,6 +534,13 @@ function computeBunkerPlan(bundle, form, conversion) {
   const trim = draftFwd - draftAft;
   const heel = num(header.heel, 0) || 0;
   const ctx = { trim, list: heel };
+  /* The target soundings are for the end of the delivery, when the ship has taken the fuel and trimmed to the drafts
+     expected then; the soundings being read now are read at the drafts now. */
+  const afterFwd = num(header.afterDraftFwd);
+  const afterAft = num(header.afterDraftAft);
+  const hasAfterDrafts = afterFwd != null && afterAft != null;
+  const afterTrim = hasAfterDrafts ? afterFwd - afterAft : null;
+  const targetCtx = hasAfterDrafts ? { trim: afterTrim, list: heel } : ctx;
 
   const rate = num(header.deliveryRateMTPerHour);
   const quantity = num(header.bunkerQuantityMT);
@@ -636,7 +647,7 @@ function computeBunkerPlan(bundle, form, conversion) {
 
     if (out.targetVolumeM3 != null) {
       out.targetVolumePercent = capacity > 0 ? round((out.targetVolumeM3 / capacity) * 100, 1) : null;
-      const reading = readingForVolume(tank, out.targetVolumeM3, ctx);
+      const reading = readingForVolume(tank, out.targetVolumeM3, targetCtx);
       out.targetReadingMM = reading;
       out.targetUllageMM = reading != null ? asUllage(tank, reading) : null;
       if (reading == null) out.warnings.push('target volume outside the calibration table');
@@ -948,6 +959,9 @@ function computeBunkerPlan(bundle, form, conversion) {
       tempC,
       meanDraft: round(meanDraft, 3),
       trim: round(trim, 3),
+      afterDraftsSet: hasAfterDrafts,
+      afterMeanDraft: hasAfterDrafts ? round((afterFwd + afterAft) / 2, 3) : null,
+      afterTrim: hasAfterDrafts ? round(afterTrim, 3) : null,
       heel,
       deliveryRateMTPerHour: rate,
       soundingEntry: entryModeOf(plan.soundingEntry),
@@ -1275,9 +1289,14 @@ function emptyAfterReport(bundle, conversion) {
   // Start from the pre-bunkering soundings so only what changed has to be typed.
   const src = (bundle && bundle.fuelReport) || null;
   const merged = src ? FuelReport.normalizeForm(bundle, src) : form;
+  /* Loading a large quantity trims the ship: when the plan says where she is expected to float afterwards, start from
+     those drafts (they are then replaced with the real ones read off the marks). */
+  const planHeader = bundle && bundle.bunkerPlan && bundle.bunkerPlan.header;
+  const expected = planHeader && num(planHeader.afterDraftFwd) != null && num(planHeader.afterDraftAft) != null
+    ? { draftFwd: String(planHeader.afterDraftFwd), draftAft: String(planHeader.afterDraftAft) } : {};
   return {
     ...merged,
-    header: { ...merged.header, reportType: 'Bunker Survey' },
+    header: { ...merged.header, ...expected, reportType: 'Bunker Survey' },
     priorRob: priorRobFromFuelReport(bundle, conversion),
     linkedPlanId: null,
     updatedAt: null,
@@ -1374,6 +1393,9 @@ function normalizeSummary(bundle, form) {
     bdn: { ...base.bdn, ...(src.bdn || {}) },
     /* A delivery through two hoses has a second delivery note, for the distillate. */
     bdn2: src.bdn2 ? { fuelType: 'mdo', quantityMT: '', sulphurPercent: '', density15: '', number: '', ...src.bdn2 } : null,
+    /* Any further delivery notes of the same delivery: another grade, or the same grade on a second note. */
+    extraBdns: (Array.isArray(src.extraBdns) ? src.extraBdns : []).map((e) =>
+      ({ fuelType: 'lsfo', quantityMT: '', sulphurPercent: '', density15: '', number: '', ...(e || {}) })),
   };
 }
 
@@ -1421,6 +1443,18 @@ function computeBunkerSummary(bundle, form, after, conversion) {
   const bdnQuantity = num(summary.bdn.quantityMT);
   const receivedRow = fuelOnboard.find((f) => f.id === bdnGrade) || null;
   const receivedQuantity = receivedRow ? receivedRow.receivedMT : null;
+  /* Every delivery note of the delivery, so a grade that is on more than one note is compared in total. */
+  const allNotes = [{ grade: bdnGrade, qty: bdnQuantity }];
+  if (summary.bdn2) allNotes.push({ grade: summary.bdn2.fuelType || 'mdo', qty: num(summary.bdn2.quantityMT) });
+  (summary.extraBdns || []).forEach((e) => allNotes.push({ grade: e.fuelType || 'lsfo', qty: num(e.quantityMT) }));
+  const gradeNotes = (grade) => allNotes.filter((x) => x.grade === grade);
+  const gradeTotal = (grade) => {
+    const list = gradeNotes(grade).filter((x) => x.qty != null);
+    return list.length ? round(list.reduce((a, x) => a + x.qty, 0), 3) : null;
+  };
+  const sharedGrade = (grade) => gradeNotes(grade).length > 1;
+  /* The figure a grade's received quantity is held against: its own note, or all its notes added up. */
+  const compareFigure = (grade, own) => (sharedGrade(grade) ? gradeTotal(grade) : own);
 
   const tanksAfter = [];
   for (const section of afterComputed.sections) {
@@ -1444,7 +1478,8 @@ function computeBunkerSummary(bundle, form, after, conversion) {
      there is no measured figure, and the difference is unknown — not zero, and
      emphatically not a shortfall. Saying otherwise on this sheet would advise a
      letter of protest against a supplier over soundings nobody has taken yet. */
-  const comparable = bdnQuantity != null && receivedQuantity != null;
+  const bdnCompare = compareFigure(bdnGrade, bdnQuantity);
+  const comparable = bdnCompare != null && receivedQuantity != null;
 
   /* The second delivery note (distillate line), against the received quantity of its own grade. */
   let bdn2 = null; let quantities2 = null;
@@ -1453,7 +1488,8 @@ function computeBunkerSummary(bundle, form, after, conversion) {
     const qty2 = num(summary.bdn2.quantityMT);
     const row2 = fuelOnboard.find((f) => f.id === grade2) || null;
     const recv2 = row2 ? row2.receivedMT : null;
-    const comparable2 = qty2 != null && recv2 != null;
+    const cmp2 = compareFigure(grade2, qty2);
+    const comparable2 = cmp2 != null && recv2 != null;
     bdn2 = {
       ...summary.bdn2,
       quantityMT: qty2,
@@ -1464,12 +1500,37 @@ function computeBunkerSummary(bundle, form, after, conversion) {
     quantities2 = {
       bdnQuantityMT: qty2,
       receivedQuantityMT: recv2,
-      differenceMT: comparable2 ? round(recv2 - qty2, 3) : null,
-      differencePercent: comparable2 && qty2 ? round(((recv2 - qty2) / qty2) * 100, 3) : null,
+      differenceMT: comparable2 ? round(recv2 - cmp2, 3) : null,
+      differencePercent: comparable2 && cmp2 ? round(((recv2 - cmp2) / cmp2) * 100, 3) : null,
+      gradeTotalMT: sharedGrade(grade2) ? gradeTotal(grade2) : null,
       comparable: comparable2,
       pendingReason: comparable2 ? null : qty2 == null ? 'no-bdn' : 'no-measurement',
     };
   }
+
+  /* The extra delivery notes, each held against what was received of its grade. */
+  const extraBdns = []; const extraQuantities = [];
+  (summary.extraBdns || []).forEach((e) => {
+    const grade = e.fuelType || 'lsfo';
+    const qty = num(e.quantityMT);
+    const row = fuelOnboard.find((f) => f.id === grade) || null;
+    const recv = row ? row.receivedMT : null;
+    const cmp = compareFigure(grade, qty);
+    const ok = cmp != null && recv != null;
+    extraBdns.push({
+      ...e, quantityMT: qty, sulphurPercent: num(e.sulphurPercent), density15: num(e.density15),
+      label: (FuelReport.FUEL_TYPES.find((f) => f.id === grade) || {}).label || grade,
+    });
+    extraQuantities.push({
+      bdnQuantityMT: qty,
+      gradeTotalMT: sharedGrade(grade) ? gradeTotal(grade) : null,
+      receivedQuantityMT: recv,
+      differenceMT: ok ? round(recv - cmp, 3) : null,
+      differencePercent: ok && cmp ? round(((recv - cmp) / cmp) * 100, 3) : null,
+      comparable: ok,
+      pendingReason: ok ? null : qty == null ? 'no-bdn' : 'no-measurement',
+    });
+  });
 
   return {
     vessel: {
@@ -1500,19 +1561,22 @@ function computeBunkerSummary(bundle, form, after, conversion) {
     },
     bdn2,
     quantities2,
+    extraBdns,
+    extraQuantities,
     quantities: {
       bdnQuantityMT: bdnQuantity,
+      gradeTotalMT: sharedGrade(bdnGrade) ? gradeTotal(bdnGrade) : null,
       receivedQuantityMT: receivedQuantity,
-      differenceMT: comparable ? round(receivedQuantity - bdnQuantity, 3) : null,
+      differenceMT: comparable ? round(receivedQuantity - bdnCompare, 3) : null,
       // A BDN is normally accepted within 0.5%; anything past that is a protest.
       // Guarded on both figures: without the measurement this divided a missing
       // receipt by the BDN and reported a flat -100%.
-      differencePercent: comparable && bdnQuantity
-        ? round(((receivedQuantity - bdnQuantity) / bdnQuantity) * 100, 3)
+      differencePercent: comparable && bdnCompare
+        ? round(((receivedQuantity - bdnCompare) / bdnCompare) * 100, 3)
         : null,
       comparable,
       pendingReason: comparable ? null
-        : bdnQuantity == null ? 'no-bdn'
+        : bdnCompare == null ? 'no-bdn'
           : 'no-measurement',
     },
     timing: {

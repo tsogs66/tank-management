@@ -127,8 +127,83 @@ const BunkerReports = (() => {
     });
   }
 
-  async function saveChainPart(path, part, form, { snapshot = false, extra = {}, deferServer = false, quiet = false } = {}) {
+  /* ---------- drafts: every edit on Plan / After / Summary is kept as the current draft ----------
+     The page reads the draft back when it is opened again, the program is reopened, or the device restarts. A copy is
+     also written straight to local storage on every edit, so a window closed before the 0.7 s save still finds it. */
+  const DRAFT_DELAY_MS = 700;
+  const draftTimers = {};
+  const DRAFTS = {
+    'bunker-plan': {
+      part: 'bunkerPlan', live: () => !!(document.getElementById('bp-save') && view.plan), form: () => fullPlan(true),
+    },
+    'bunker-after': {
+      part: 'bunkerAfter', live: () => !!(document.getElementById('ba-save') && view.after),
+      form: () => ({ ...view.after, updatedAt: new Date().toISOString() }),
+    },
+    'bunker-summary': {
+      part: 'bunkerSummary', live: () => !!(document.getElementById('bs-save') && view.summary),
+      form: () => ({ ...view.summary, updatedAt: new Date().toISOString() }),
+    },
+  };
+  const draftMirrorKey = (path) => 'tankDraft:' + STATE.activeVesselId + ':' + path;
+
+  function discardDraft(path) {
+    clearTimeout(draftTimers[path]); delete draftTimers[path];
+    try { localStorage.removeItem(draftMirrorKey(path)); } catch (_) { /* no storage */ }
+  }
+
+  function scheduleDraft(path) {
+    const d = DRAFTS[path];
+    if (!d || !d.live()) return;
+    try {
+      const form = d.form();
+      /* a photographed BDN is large: it goes with the saved draft, not the quick copy */
+      const light = path === 'bunker-summary' ? { ...form, bdnPhoto: null } : form;
+      localStorage.setItem(draftMirrorKey(path), JSON.stringify({ ts: Date.now(), form: light }));
+    } catch (_) { /* storage full or blocked: the timed save below still runs */ }
+    clearTimeout(draftTimers[path]);
+    draftTimers[path] = setTimeout(() => flushDraft(path), DRAFT_DELAY_MS);
+  }
+
+  async function flushDraft(path) {
+    const d = DRAFTS[path];
+    if (!d || !draftTimers[path]) return;
+    clearTimeout(draftTimers[path]); delete draftTimers[path];
+    if (!d.live()) return;
+    try { await saveChainPart(path, d.part, d.form(), { snapshot: false, quiet: true, draft: true }); }
+    catch (err) { console.warn('draft', path, err); }
+  }
+
+  function flushDrafts() { return Promise.all(Object.keys(DRAFTS).map((p) => flushDraft(p))); }
+
+  /** Edits that never reached the saved copy — the program closed, or the page was left in a hurry — come back. */
+  function recoverDraft(path, current) {
+    try {
+      const m = JSON.parse(localStorage.getItem(draftMirrorKey(path)) || 'null');
+      if (!m || !m.form) return null;
+      const saved = Date.parse(current && current.updatedAt) || 0;
+      if (m.ts <= saved) { discardDraft(path); return null; }
+      if (path === 'bunker-summary' && !m.form.bdnPhoto && current && current.bdnPhoto) m.form.bdnPhoto = current.bdnPhoto;
+      return m.form;
+    } catch (_) { return null; }
+  }
+
+  /** Hook an editable page: any edit made on it is kept as the current draft. */
+  function hookDraft(wrap, path) {
+    const edited = (e) => {
+      const t = e.target;
+      if (!t || !t.matches || !t.matches('input, select, textarea') || t.closest('[data-hist-search]')) return;
+      setTimeout(() => scheduleDraft(path), 0);   // after the page's own handlers have taken this edit
+    };
+    wrap.addEventListener('input', edited);
+    wrap.addEventListener('change', edited);
+  }
+
+  async function saveChainPart(path, part, form, { snapshot = false, extra = {}, deferServer = false, quiet = false, draft = false } = {}) {
     const b = heldBundle();
+    /* A draft is kept, but it is not yet the ship's current condition: the readings are only taken from a saved report. */
+    if (draft) extra = { ...extra, syncReadings: false };
+    else discardDraft(path);
     let snapshotEntry = null;
     let fileSnapshot = !!snapshot;
     const historyKey = snapshot ? historyKeyForPath(path) : null;
@@ -579,6 +654,11 @@ const BunkerReports = (() => {
     stopBackgroundMonitor();
     await loadConversion();
     const b = bundle();
+    if (!view.pendingPlan) {
+      const back = recoverDraft('bunker-plan', b.bunkerPlan);
+      if (back) { view.pendingPlan = back; showToast('Your unsaved Bunkering Plan draft was restored'); }
+    }
+    const planFromPending = !!view.pendingPlan;
     view.full = Core.normalizePlan(b, view.pendingPlan || b.bunkerPlan, view.conversion);
     view.pendingPlan = null;
     if (view.line === 'B' && !view.full.distillate) view.line = 'A';
@@ -586,7 +666,7 @@ const BunkerReports = (() => {
     view.otherComputed = null;
     const c = recomputePlan();
 
-    main.innerHTML += `<div class="page-head no-print">
+    main.innerHTML += `${UI.bunkerNavHtml('bunker-plan')}<div class="page-head no-print">
       <div><h1>Bunkering Plan &amp; Monitoring</h1>
         <div class="desc">Target ullage per tank from the fuel report ROB, then live intake as the transfer runs</div></div>
       <div class="btn-row">
@@ -618,7 +698,10 @@ const BunkerReports = (() => {
     main.appendChild(wrap);
 
     bindPlanEvents(wrap);
+    UI.bindBunkerNav(main);
+    hookDraft(wrap, 'bunker-plan');
     refreshPlan();
+    if (planFromPending) scheduleDraft('bunker-plan');
     if (c.monitoring.clock.running || c.monitoring.tanksFilling) startClockTicker();
   }
 
@@ -735,6 +818,12 @@ const BunkerReports = (() => {
           <input type="number" step="any" data-head="draftAft"${lock} value="${esc(h.draftAft)}"></label>
         <label class="fr-field"><span>TRIM</span>
           <output class="fr-out" data-bp-head="trim"></output></label>
+        <label class="fr-field"><span>DRAFT FWD AFTER BUNKERING</span>
+          <input type="number" step="any" data-head="afterDraftFwd"${lock} value="${esc(h.afterDraftFwd)}" placeholder="expected"></label>
+        <label class="fr-field"><span>DRAFT AFT AFTER BUNKERING</span>
+          <input type="number" step="any" data-head="afterDraftAft"${lock} value="${esc(h.afterDraftAft)}" placeholder="expected"></label>
+        <label class="fr-field"><span>TRIM AFTER BUNKERING</span>
+          <output class="fr-out" data-bp-head="afterTrim"></output></label>
         <label class="fr-field"><span>DELIVERY RATE (MT/H)</span>
           <input type="number" step="any" data-head="deliveryRateMTPerHour" value="${esc(h.deliveryRateMTPerHour)}"></label>
         <label class="fr-field"><span>BUNKER QUANTITY (MT)</span>
@@ -1372,6 +1461,7 @@ const BunkerReports = (() => {
 
     set('[data-bp-head="meanDraft"]', n(c.header.meanDraft, 3));
     set('[data-bp-head="trim"]', n(c.header.trim, 2));
+    set('[data-bp-head="afterTrim"]', c.header.afterTrim != null ? n(c.header.afterTrim, 2) : '—');
     set('[data-bp-head="timeToBunker"]', c.header.timeToBunkerLabel);
 
     const advice = [];
@@ -1980,6 +2070,7 @@ const BunkerReports = (() => {
         ['Draft fwd / aft', `${n(c.header.draftFwd, 2)} / ${n(c.header.draftAft, 2)} m`],
         ['Mean draft', `${n(c.header.meanDraft, 2)} m`],
         ['Trim / heel', `${n(c.header.trim, 2)} m · ${c.header.heel}°`],
+        ...(c.header.afterDraftsSet ? [['Expected after bunkering (fwd / aft · trim)', `${n(c.header.afterDraftFwd, 2)} / ${n(c.header.afterDraftAft, 2)} m · ${n(c.header.afterTrim, 2)} m — target soundings worked at this trim`]] : []),
         ['Density @15 / temp', `${n(c.header.density15, 4, '—')} · ${n(c.header.tempC, 0)} °C`],
       ])}
       <h3 class="fr-print-h3">Loading sequence</h3>
@@ -2107,6 +2198,7 @@ const BunkerReports = (() => {
         ['Finish (later line)', cb.timeToBunkerLabel],
         ['Draft fwd / aft', `${n(a.header.draftFwd, 2)} / ${n(a.header.draftAft, 2)} m`],
         ['Trim / heel', `${n(a.header.trim, 2)} m · ${a.header.heel}°`],
+        ...(a.header.afterDraftsSet ? [['Expected after bunkering (fwd / aft · trim)', `${n(a.header.afterDraftFwd, 2)} / ${n(a.header.afterDraftAft, 2)} m · ${n(a.header.afterTrim, 2)} m`]] : []),
       ])}
       ${planPrintLineBlock(a, 'A')}
       ${planPrintLineBlock(b, 'B')}
@@ -2323,11 +2415,16 @@ const BunkerReports = (() => {
     view.page = 'bunker-after';
     await loadConversion();
     const b = bundle();
+    if (!view.pendingAfter) {
+      const back = recoverDraft('bunker-after', b.bunkerAfter);
+      if (back) { view.pendingAfter = back; showToast('Your unsaved After Bunkering draft was restored'); }
+    }
+    const afterFromPending = !!view.pendingAfter;
     view.after = Core.normalizeAfterReport(b, view.pendingAfter || b.bunkerAfter, view.conversion);
     view.pendingAfter = null;
     const c = recomputeAfter();
 
-    main.innerHTML += `<div class="page-head no-print">
+    main.innerHTML += `${UI.bunkerNavHtml('bunker-after')}<div class="page-head no-print">
       <div><h1>Tank Monitoring After Bunkering</h1>
         <div class="desc">Re-sound every tank; intake per grade is the difference against the ROB prior to bunkering</div></div>
       <div class="btn-row">
@@ -2359,7 +2456,10 @@ const BunkerReports = (() => {
     main.appendChild(wrap);
 
     bindAfterEvents(wrap);
+    UI.bindBunkerNav(main);
+    hookDraft(wrap, 'bunker-after');
     refreshAfter();
+    if (afterFromPending) scheduleDraft('bunker-after');
   }
 
   function afterHeaderPanel() {
@@ -2398,6 +2498,7 @@ const BunkerReports = (() => {
           <input data-head="port" value="${esc(h.port)}"></label>
       </div>
       <div class="hint">Heel: <b>negative</b> = port, <b>positive</b> = starboard (decimals OK). Default 0.</div>
+      <div class="hint"><b>Drafts:</b> loading a large quantity trims the ship, so type the drafts read off the marks now, after bunkering — trim and every tank's volume follow them. They start from the drafts the plan expected, if it had any.</div>
       <div class="hint" data-ba-head="attitude"></div>
     </div>`;
   }
@@ -2616,11 +2717,16 @@ const BunkerReports = (() => {
     view.page = 'bunker-summary';
     await loadConversion();
     const b = bundle();
+    if (!view.pendingSummary) {
+      const back = recoverDraft('bunker-summary', b.bunkerSummary);
+      if (back) { view.pendingSummary = back; showToast('Your unsaved Bunkering Summary draft was restored'); }
+    }
+    const summaryFromPending = !!view.pendingSummary;
     view.summary = Core.normalizeSummary(b, view.pendingSummary || b.bunkerSummary);
     view.pendingSummary = null;
     const c = recomputeSummary();
 
-    main.innerHTML += `<div class="page-head no-print">
+    main.innerHTML += `${UI.bunkerNavHtml('bunker-summary')}<div class="page-head no-print">
       <div><h1>Bunkering Report Summary</h1>
         <div class="desc">BDN paperwork, fuel onboard before and after, and the tanks after bunkering</div></div>
       <div class="btn-row">
@@ -2655,7 +2761,10 @@ const BunkerReports = (() => {
     main.appendChild(wrap);
 
     bindSummaryEvents(wrap);
+    UI.bindBunkerNav(main);
+    hookDraft(wrap, 'bunker-summary');
     refreshSummary();
+    if (summaryFromPending) scheduleDraft('bunker-summary');
   }
 
   function summaryDetailsPanel(c) {
@@ -2717,14 +2826,20 @@ const BunkerReports = (() => {
     </div>`;
   }
 
-  /** The second delivery note, for the distillate taken through the second hose. */
+  /** The grade a second delivery most likely is: a distillate with a residual fuel, and the other way round. */
+  function otherGradeFor(first) {
+    return Core.DISTILLATE_FUEL_TYPES.includes(first) ? 'lsfo' : 'lsmgo';
+  }
+
+  /** The second delivery note: another grade received in the same delivery, from the same supplier and barge. */
   function bdn2PanelHtml(f) {
     if (!f.bdn2) {
-      return '<div class="btn-row" style="margin-top:8px"><button type="button" class="btn small" id="bs-add-bdn2">+ Add distillate BDN</button></div>';
+      return '<div class="btn-row" style="margin-top:8px"><button type="button" class="btn small primary" id="bs-add-bdn2">+ Add second fuel (VLSFO with LSMGO…)</button></div>'
+        + '<div class="hint">Two grades received in one delivery, from the same supplier and barge, go on this one report: add a second delivery note.</div>';
     }
-    const grades = FRCore.FUEL_TYPES.filter((t) => Core.DISTILLATE_FUEL_TYPES.includes(t.id)).map((t) =>
+    const grades = FRCore.FUEL_TYPES.filter((t) => t.id !== f.bdn.fuelType).map((t) =>
       `<option value="${t.id}" ${f.bdn2.fuelType === t.id ? 'selected' : ''}>${esc(t.label)}</option>`).join('');
-    return `<div class="section-title">Bunker details — distillate (second BDN)</div>
+    return `<div class="section-title">Bunker details — second fuel (second BDN, same supplier)</div>
       <div class="fr-quant">
         <label class="fr-field"><span>GRADE</span><select data-bdn2="fuelType">${grades}</select></label>
         <label class="fr-field"><span>B.D.N. NO.</span><input data-bdn2="number" value="${esc(f.bdn2.number)}"></label>
@@ -2741,7 +2856,47 @@ const BunkerReports = (() => {
         <div class="bp-monitor-box" id="bs-diff-box2"><span>DIFFERENCE</span><b data-bs2="differenceMT"></b></div>
       </div>
       <div class="hint" data-bs2="difference-note"></div>
-      <div class="btn-row"><button type="button" class="btn small danger" id="bs-remove-bdn2">Remove distillate BDN</button></div>`;
+      <div class="btn-row"><button type="button" class="btn small danger" id="bs-remove-bdn2">Remove second fuel</button></div>`;
+  }
+
+  /** Extra delivery notes: any grade, any number, all from the same supplier and barge. */
+  function extraBdnPanelsHtml(f) {
+    const grades = (sel) => FRCore.FUEL_TYPES.map((t) =>
+      `<option value="${t.id}" ${sel === t.id ? 'selected' : ''}>${esc(t.label)}</option>`).join('');
+    const panels = (f.extraBdns || []).map((e, i) => `
+      <div class="section-title">Extra BDN ${i + 1}</div>
+      <div class="fr-quant">
+        <label class="fr-field"><span>GRADE</span><select data-xbdn="${i}.fuelType">${grades(e.fuelType)}</select></label>
+        <label class="fr-field"><span>B.D.N. NO.</span><input data-xbdn="${i}.number" value="${esc(e.number)}"></label>
+        <label class="fr-field"><span>QUANTITY (MT)</span>
+          <input type="number" step="any" data-xbdn="${i}.quantityMT" value="${esc(e.quantityMT)}"></label>
+        <label class="fr-field"><span>SULPHUR (%)</span>
+          <input type="number" step="any" data-xbdn="${i}.sulphurPercent" value="${esc(e.sulphurPercent)}"></label>
+        <label class="fr-field"><span>DENSITY @15°</span>
+          <input type="number" step="any" data-xbdn="${i}.density15" value="${esc(e.density15)}"></label>
+      </div>
+      <div class="bs-quantities">
+        <div class="bp-monitor-box"><span>BDN QUANTITY</span><b data-bsx="${i}.bdnQuantityMT"></b></div>
+        <div class="bp-monitor-box"><span>RECEIVED QUANTITY</span><b data-bsx="${i}.receivedQuantityMT"></b></div>
+        <div class="bp-monitor-box" id="bs-diff-box-x${i}"><span>DIFFERENCE</span><b data-bsx="${i}.differenceMT"></b></div>
+      </div>
+      <div class="hint" data-bsx="${i}.note"></div>
+      <div class="btn-row"><button type="button" class="btn small danger" data-xbdn-remove="${i}">Remove extra BDN ${i + 1}</button></div>`).join('');
+    return `${panels}
+      <div class="btn-row" style="margin-top:8px"><button type="button" class="btn small" id="bs-add-xbdn">+ Add extra BDN</button></div>
+      <div class="hint">Another delivery note of this delivery, same supplier and barge — a different grade, or a second note for a grade already listed (the notes of one grade are added up against what was received).</div>`;
+  }
+
+  /** One delivery of two grades prints both: "VLSFO + LSMGO", and both delivery note numbers. */
+  function summaryGradesText(c) {
+    let text = c.fuelGrade || (c.bdn && c.bdn.label) || '';
+    [c.bdn2, ...(c.extraBdns || [])].filter(Boolean).forEach((b) => {
+      if (!text.toLowerCase().includes(String(b.label || '').toLowerCase())) text = `${text} + ${b.label}`;
+    });
+    return text;
+  }
+  function summaryBdnNumbersText(c) {
+    return [c.bdnNumber, c.bdn2 && c.bdn2.number, ...(c.extraBdns || []).map((b) => b.number)].filter(Boolean).join(' / ');
   }
 
   function summaryQuantitiesPanel(c) {
@@ -2789,6 +2944,7 @@ const BunkerReports = (() => {
           </div>
           <div class="hint" data-bs="difference-note"></div>
           ${bdn2PanelHtml(f)}
+          ${extraBdnPanelsHtml(f)}
           <div class="section-title">BDN document / photo</div>
           <div class="btn-row" style="flex-wrap:wrap; gap:8px; align-items:center;">
             <input type="file" id="bs-bdn-photo-file" accept="image/*,application/pdf,.pdf" style="max-width:240px;">
@@ -2831,6 +2987,19 @@ const BunkerReports = (() => {
     const box = document.getElementById('bs-diff-box');
     if (box) box.classList.toggle('bp-monitor-bad', diff != null && Math.abs(diff) > 0.5);
 
+    (c.extraQuantities || []).forEach((q, i) => {
+      set(`[data-bsx="${i}.bdnQuantityMT"]`, n(q.bdnQuantityMT, 3, '—'));
+      set(`[data-bsx="${i}.receivedQuantityMT"]`, n(q.receivedQuantityMT, 3, '—'));
+      set(`[data-bsx="${i}.differenceMT"]`, q.differenceMT != null ? signed(q.differenceMT, 3) : '—');
+      const dx = q.differencePercent;
+      set(`[data-bsx="${i}.note"]`, (q.gradeTotalMT != null ? `All ${c.extraBdns[i].label} notes add up to ${n(q.gradeTotalMT, 3)} MT. ` : '')
+        + (dx != null
+          ? `${signed(dx, 3)}% against the BDN figure — ${Math.abs(dx) > 0.5 ? 'outside the 0.5% normally accepted; consider a letter of protest' : 'within the 0.5% normally accepted'}.`
+          : q.pendingReason === 'no-bdn' ? 'Enter the BDN quantity to compare it with what the tanks show.'
+            : 'Waiting on the after-bunkering soundings for this grade.'));
+      const bx = document.getElementById(`bs-diff-box-x${i}`);
+      if (bx) bx.classList.toggle('bp-monitor-bad', dx != null && Math.abs(dx) > 0.5);
+    });
     if (c.quantities2) {
       const q2 = c.quantities2;
       set('[data-bs2="bdnQuantityMT"]', n(q2.bdnQuantityMT, 3, '—'));
@@ -2901,6 +3070,7 @@ const BunkerReports = (() => {
       capturedAt: new Date().toISOString()
     };
     renderBdnPhotoPreview();
+    scheduleDraft('bunker-summary');
   }
 
   function wireBdnPhotoUi() {
@@ -2919,6 +3089,7 @@ const BunkerReports = (() => {
       view.summary.bdnPhoto = null;
       if (fileEl) fileEl.value = '';
       renderBdnPhotoPreview();
+      scheduleDraft('bunker-summary');
     });
     if (typeof ChengCamera !== 'undefined') {
       ChengCamera.wireTakePictureButton(document.getElementById('bs-bdn-take-photo'), {
@@ -2942,6 +3113,11 @@ const BunkerReports = (() => {
         view.summary.lubes[el.dataset.lube] = el.value;
       } else if (el.dataset.bdn) {
         view.summary.bdn[el.dataset.bdn] = el.value;
+      } else if (el.dataset.xbdn) {
+        const [idx, field] = el.dataset.xbdn.split('.');
+        const row = (view.summary.extraBdns || [])[Number(idx)];
+        if (!row) return false;
+        row[field] = el.value;
       } else if (el.dataset.bdn2 && view.summary.bdn2) {
         view.summary.bdn2[el.dataset.bdn2] = el.value;
       } else if (el.name === 'bs-condition') {
@@ -2952,17 +3128,44 @@ const BunkerReports = (() => {
       return true;
     };
     wrap.addEventListener('input', (e) => { if (apply(e.target)) refreshSummary(); });
-    wrap.addEventListener('change', (e) => { if (apply(e.target)) refreshSummary(); });
+    wrap.addEventListener('change', (e) => {
+      if (!apply(e.target)) return;
+      /* The second fuel is never the first grade again: moving the first onto it moves the second away, and the
+         second's list of grades follows the first. */
+      if (e.target.dataset.bdn === 'fuelType' && view.summary.bdn2) {
+        if (view.summary.bdn2.fuelType === view.summary.bdn.fuelType) view.summary.bdn2.fuelType = otherGradeFor(view.summary.bdn.fuelType);
+        view.pendingSummary = view.summary;
+        navigate('bunker-summary');
+        return;
+      }
+      refreshSummary();
+    });
     wireBdnPhotoUi();
     const addB2 = document.getElementById('bs-add-bdn2');
     if (addB2) addB2.onclick = () => {
-      view.summary.bdn2 = { fuelType: 'mdo', quantityMT: '', sulphurPercent: '', density15: '', number: '' };
+      view.summary.bdn2 = { fuelType: otherGradeFor(view.summary.bdn.fuelType), quantityMT: '', sulphurPercent: '', density15: '', number: '' };
       view.pendingSummary = view.summary;
       navigate('bunker-summary');
     };
+    const addX = document.getElementById('bs-add-xbdn');
+    if (addX) addX.onclick = () => {
+      view.summary.extraBdns = [...(view.summary.extraBdns || []),
+        { fuelType: view.summary.bdn.fuelType || 'lsfo', quantityMT: '', sulphurPercent: '', density15: '', number: '' }];
+      view.pendingSummary = view.summary;
+      navigate('bunker-summary');
+    };
+    wrap.querySelectorAll('[data-xbdn-remove]').forEach((btn) => {
+      btn.onclick = () => {
+        const i = Number(btn.dataset.xbdnRemove);
+        if (!confirm(`Remove extra BDN ${i + 1} from this summary?`)) return;
+        view.summary.extraBdns = (view.summary.extraBdns || []).filter((_, k) => k !== i);
+        view.pendingSummary = view.summary;
+        navigate('bunker-summary');
+      };
+    });
     const rmB2 = document.getElementById('bs-remove-bdn2');
     if (rmB2) rmB2.onclick = () => {
-      if (!confirm('Remove the distillate BDN from this summary?')) return;
+      if (!confirm('Remove the second fuel from this summary?')) return;
       view.summary.bdn2 = null;
       view.pendingSummary = view.summary;
       navigate('bunker-summary');
@@ -3079,8 +3282,8 @@ const BunkerReports = (() => {
         ['Port / place', c.port],
         ['Barge', c.bargeName],
         ['Supplier', c.supplier],
-        ['Fuel grade', c.fuelGrade],
-        ['B.D.N. / B.D.R.', c.bdnNumber],
+        ['Fuel grade', summaryGradesText(c)],
+        ['B.D.N. / B.D.R.', summaryBdnNumbersText(c)],
         ["Ship's condition", (Core.SHIP_CONDITIONS.find((s) => s.id === c.shipCondition) || {}).label || '—'],
         ['Letter of protest', c.letterOfProtest ? 'YES' : 'NO'],
         ['Samples for analysis', c.samplesGiven ? 'YES' : 'NO'],
@@ -3114,7 +3317,7 @@ const BunkerReports = (() => {
             <tr><td class="fr-print-name">Average rate</td>
               <td>${n(c.timing.averageRateMTPerHour, 1, '—')} MT/h</td></tr>
           </tbody></table>
-          ${c.bdn2 ? `<h3 class="fr-print-h3">Bunker details (BDN) — distillate</h3>
+          ${c.bdn2 ? `<h3 class="fr-print-h3">Bunker details (BDN) — ${esc(c.bdn2.label)}</h3>
           <table class="fr-print-table"><tbody>
             <tr><td class="fr-print-name">Grade</td><td>${esc(c.bdn2.label)}</td></tr>
             <tr><td class="fr-print-name">B.D.N. no.</td><td>${esc(c.bdn2.number || '—')}</td></tr>
@@ -3122,7 +3325,7 @@ const BunkerReports = (() => {
             <tr><td class="fr-print-name">Sulphur</td><td>${n(c.bdn2.sulphurPercent, 3, '—')} %</td></tr>
             <tr><td class="fr-print-name">Density @15°</td><td>${n(c.bdn2.density15, 4, '—')}</td></tr>
           </tbody></table>
-          <h3 class="fr-print-h3">BDN vs measured — distillate</h3>
+          <h3 class="fr-print-h3">BDN vs measured — ${esc(c.bdn2.label)}</h3>
           <table class="fr-print-table"><tbody>
             <tr><td class="fr-print-name">BDN quantity</td><td>${n(c.quantities2.bdnQuantityMT, 3, '—')} MT</td></tr>
             <tr><td class="fr-print-name">Received quantity</td><td>${n(c.quantities2.receivedQuantityMT, 3, '—')} MT</td></tr>
@@ -3130,6 +3333,17 @@ const BunkerReports = (() => {
               <td class="fr-print-weight">${c.quantities2.differenceMT != null ? signed(c.quantities2.differenceMT, 3) : '—'} MT
               ${c.quantities2.differencePercent != null ? `(${signed(c.quantities2.differencePercent, 3)}%)` : ''}</td></tr>
           </tbody></table>` : ''}
+          ${(c.extraBdns || []).map((b, i) => `<h3 class="fr-print-h3">Bunker details (BDN) — extra ${i + 1}: ${esc(b.label)}</h3>
+          <table class="fr-print-table"><tbody>
+            <tr><td class="fr-print-name">B.D.N. no.</td><td>${esc(b.number || '—')}</td></tr>
+            <tr><td class="fr-print-name">Quantity</td><td>${n(b.quantityMT, 3, '—')} MT</td></tr>
+            <tr><td class="fr-print-name">Sulphur</td><td>${n(b.sulphurPercent, 3, '—')} %</td></tr>
+            <tr><td class="fr-print-name">Density @15°</td><td>${n(b.density15, 4, '—')}</td></tr>
+            <tr><td class="fr-print-name">Received quantity</td><td>${n(c.extraQuantities[i].receivedQuantityMT, 3, '—')} MT${c.extraQuantities[i].gradeTotalMT != null ? ` (all ${esc(b.label)} notes: ${n(c.extraQuantities[i].gradeTotalMT, 3)} MT)` : ''}</td></tr>
+            <tr><td class="fr-print-name">Difference</td>
+              <td class="fr-print-weight">${c.extraQuantities[i].differenceMT != null ? signed(c.extraQuantities[i].differenceMT, 3) : '—'} MT
+              ${c.extraQuantities[i].differencePercent != null ? `(${signed(c.extraQuantities[i].differencePercent, 3)}%)` : ''}</td></tr>
+          </tbody></table>`).join('')}
         </div>
       </div>
       <h3 class="fr-print-h3">Fuel remaining onboard (MT)</h3>
@@ -3160,10 +3374,12 @@ const BunkerReports = (() => {
   try {
     window.addEventListener('pagehide', () => {
       if (planClockLive()) persistPlanClock({ deferServer: false });
+      flushDrafts();
     });
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden' && planClockLive()) {
-        persistPlanClock({ deferServer: false });
+      if (document.visibilityState === 'hidden') {
+        if (planClockLive()) persistPlanClock({ deferServer: false });
+        flushDrafts();
       }
     });
   } catch (_) { /* ignore */ }
@@ -3187,6 +3403,7 @@ const BunkerReports = (() => {
   return {
     renderPlan,
     flushOpenForms,
+    flushDrafts,
     renderAfter,
     renderSummary,
     planPrintPages,
