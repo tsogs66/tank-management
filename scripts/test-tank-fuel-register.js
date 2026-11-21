@@ -92,14 +92,37 @@ console.log('After-page preview');
   is('re-saving the same bunkering does not blend it with itself', R.previewBunkering({ bunkerSummary: { ...now, tankLoads: loads, loadsTs: '2026-11-01T00:00:00Z', updatedAt: 'x' } }, loads, now).tanks[0].result.sulphur,
     R.previewBunkering({}, loads, now).tanks[0].result.sulphur);
 }
+console.log('figures typed for the fuel already in a tank');
+{
+  const ev = { id: 'n1', ts: '2026-11-01T00:00:00Z', tanks: [{ tankId: 'A', grade: 'hfo', beforeMt: 100, afterMt: 400,
+      prior: { bdn: 'OLD-7', lcv: 40000, sulphur: 2.5, density: 0.98 } }],
+    bdns: [{ number: 'NEW-1', grade: 'hfo', qty: 300, lcv: 41000, sulphur: 0.1, density: 0.98 }] };
+  const r = R.applyEvent({}, ev).tanks[0];
+  near('typed old figures give a mass-weighted LCV', r.result.lcv, (100 * 40000 + 300 * 41000) / 400, 1);
+  near('and sulphur', r.result.sulphur, (100 * 2.5 + 300 * 0.1) / 400, 1e-3);
+  is('both BDNs are listed, the old one marked as typed', [r.lots.length, r.lots[0].typed === true, r.lots[0].numbers], [2, true, ['OLD-7']]);
+  is('nothing is flagged unknown once figures are typed', r.priorUnknown, false);
+  const none = R.applyEvent({}, { ...ev, tanks: [{ tankId: 'A', grade: 'hfo', beforeMt: 100, afterMt: 400 }] }).tanks[0];
+  is('without them a tank that held fuel is flagged, and its blend stays unknown', [none.priorUnknown, none.result.lcv], [true, null]);
+  const empty = R.applyEvent({}, { ...ev, tanks: [{ tankId: 'A', grade: 'hfo', beforeMt: 0, afterMt: 300 }] }).tanks[0];
+  is('an empty tank needs no old figures', [empty.priorUnknown, empty.result.lcv], [false, 41000]);
+  const known = R.applyEvent({ A: { mt: 100, lcv: 39000, sulphur: 3, density: 0.98, bdns: [{ numbers: ['REG'], mt: 100 }] } },
+    { ...ev, tanks: [{ tankId: 'A', grade: 'hfo', beforeMt: 100, afterMt: 400, prior: { lcv: 1, sulphur: 9 } }] }).tanks[0];
+  near('figures already on record win over typed ones', known.result.lcv, (100 * 39000 + 300 * 41000) / 400, 1);
+  const loads = Core.tankLoadsFromAfter({ priorTank: { A: { mt: 100 } }, priorFigures: { A: { bdn: 'OLD-7', lcv: 40000 } },
+    sections: [{ rows: [{ tankId: 'A', name: 'A', fuelType: 'hfo', weightAirMT: 400 }] }] });
+  is('the typed figures travel with the tank load', loads[0].prior && loads[0].prior.bdn, 'OLD-7');
+  is('a blank figure set is not attached', Core.tankLoadsFromAfter({ priorTank: { A: { mt: 100 } }, priorFigures: { A: { bdn: '', lcv: '' } },
+    sections: [{ rows: [{ tankId: 'A', name: 'A', fuelType: 'hfo', weightAirMT: 400 }] }] })[0].prior, undefined);
+}
 console.log('Tank Chief hooks');
 {
   const after = { priorTank: { A: { mt: 100, grade: 'hfo' }, B: { mt: 50, grade: 'mdo' }, C: { mt: 20, grade: 'hfo' } },
     sections: [{ rows: [
-      { tankId: 'A', name: 'HFO 2P', fuelType: 'hfo', actualMT: 400 },
-      { tankId: 'B', name: 'MGO 1', fuelType: 'mdo', actualMT: 110 },
-      { tankId: 'C', name: 'HFO 3P', fuelType: 'hfo', actualMT: 20 },
-      { tankId: 'D', name: 'HFO 4P', fuelType: 'hfo', actualMT: null }] }] };
+      { tankId: 'A', name: 'HFO 2P', fuelType: 'hfo', weightAirMT: 400 },
+      { tankId: 'B', name: 'MGO 1', fuelType: 'mdo', weightAirMT: 110 },
+      { tankId: 'C', name: 'HFO 3P', fuelType: 'hfo', weightAirMT: 20 },
+      { tankId: 'D', name: 'HFO 4P', fuelType: 'hfo', weightAirMT: null }] }] };
   const loads = Core.tankLoadsFromAfter(after);
   is('tanks that gained come first, an unsounded tank is left out', loads.map((l) => l.tankId), ['A', 'B', 'C']);
   is('before and after are carried', [loads[0].beforeMt, loads[0].afterMt], [100, 400]);

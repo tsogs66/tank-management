@@ -118,6 +118,16 @@
       var before = num(t.beforeMt), after = num(t.afterMt);
       var cur = (state && state[t.tankId]) || { mt: 0, lcv: null, sulphur: null, density: null, bdns: [] };
       if (after == null) return;
+      /* A tank's content with no figures on record can be given them by hand (the fuel it held before this
+         program saw it): they stand in for the old content, so the blend is not left unknown. */
+      var prior = t.prior || null;
+      var priorGiven = prior && (num(prior.lcv) != null || num(prior.sulphur) != null || num(prior.density) != null);
+      var curKnown = cur.lcv != null || cur.sulphur != null;
+      if (!curKnown && priorGiven) {
+        cur = { mt: cur.mt, lcv: lcvKjKg(prior.lcv), sulphur: num(prior.sulphur), density: num(prior.density),
+          bdns: [{ numbers: prior.bdn ? [String(prior.bdn)] : [], mt: num(t.beforeMt) == null ? cur.mt : num(t.beforeMt), lcv: lcvKjKg(prior.lcv), sulphur: num(prior.sulphur), typed: true }] };
+        curKnown = true;
+      }
       var beforeMt = before == null ? (num(cur.mt) || 0) : before;
       var loaded = after - beforeMt;
       if (!(loaded > GAIN_EPS)) {
@@ -140,7 +150,9 @@
       out.push({
         tankId: t.tankId, tankName: t.tankName, grade: t.grade, beforeMt: beforeMt, afterMt: after, loadedMt: round(loaded, 3),
         lots: lots, result: { lcv: mixed.lcv, sulphur: mixed.sulphur, density: mixed.density }, gained: true,
-        estimatedBefore: before == null
+        estimatedBefore: before == null,
+        /* the fuel already in the tank has no figures, and none were typed: the blend cannot be worked out */
+        priorUnknown: beforeMt > GAIN_EPS && !curKnown
       });
     });
     return { tanks: out, notes: notes };

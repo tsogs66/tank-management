@@ -6448,7 +6448,7 @@ window.addEventListener('message', async (ev) => {
     const rep = FuelReportCore.computeFuelReport(STATE.bundle, form, STATE.conversionTable || null);
     for (const section of rep.sections) {
       for (const row of section.rows) {
-        if (row.actualMT != null) out.monitoring.rob[row.tankId] = { mt: row.actualMT, grade: row.fuelType, name: row.name };
+        if (row.weightAirMT != null) out.monitoring.rob[row.tankId] = { mt: row.weightAirMT, grade: row.fuelType, name: row.name };
       }
     }
     const h = (form && form.header) || {};

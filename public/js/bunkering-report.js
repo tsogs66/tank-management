@@ -2507,6 +2507,7 @@ const BunkerReports = (() => {
     main.appendChild(wrap);
 
     bindAfterEvents(wrap);
+    bindBlendPanel();
     UI.bindBunkerNav(main);
     hookDraft(wrap, 'bunker-after');
     refreshAfter();
@@ -2635,16 +2636,50 @@ const BunkerReports = (() => {
     const rows = prev ? prev.tanks.filter((t) => t.gained) : [];
     if (!rows.length) { host.hidden = true; host.innerHTML = ''; return; }
     host.hidden = false;
+    /* Typing in a box repaints this panel; keep the cursor where it was. */
+    const active = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.pf
+      ? { key: document.activeElement.dataset.pf, at: document.activeElement.selectionStart } : null;
     const f = (v, d) => (v == null ? '—' : n(v, d));
+    const figures = view.after.priorFigures || {};
+    const box = (tankId, field, ph, w) => `<input class="bp-pf" data-pf="${esc(tankId)}.${field}" placeholder="${ph}" style="width:${w}"`
+      + ` value="${esc((figures[tankId] || {})[field] == null ? '' : figures[tankId][field])}">`;
     host.innerHTML = `<div class="section-title" style="margin-top:0"><span>What each tank holds after this bunkering</span></div>
-      <div class="table-scroll"><table class="fr-table"><thead><tr><th>Tank</th><th>Before (MT)</th><th>Loaded (MT)</th><th>After (MT)</th><th>S (%)</th><th>LCV (kJ/kg)</th><th>ρ @15</th><th>BDN</th></tr></thead><tbody>${
-        rows.map((t) => `<tr><td>${esc(t.tankName || t.tankId)}</td><td>${f(t.beforeMt, 1)}${t.estimatedBefore ? ' est.' : ''}</td><td>${f(t.loadedMt, 1)}</td><td>${f(t.afterMt, 1)}</td>
+      <div class="table-scroll"><table class="fr-table"><thead><tr><th>Tank</th><th>Before (MT)</th><th>Loaded (MT)</th><th>After (MT)</th><th>S (%)</th><th>LCV (kJ/kg)</th><th>ρ @15</th><th>BDN</th><th>Fuel already in the tank</th></tr></thead><tbody>${
+        rows.map((t) => {
+          const typed = t.lots.length && t.lots[0].typed;
+          const wantsFigures = t.priorUnknown || typed;
+          return `<tr><td>${esc(t.tankName || t.tankId)}</td><td>${f(t.beforeMt, 1)}${t.estimatedBefore ? ' est.' : ''}</td><td>${f(t.loadedMt, 1)}</td><td>${f(t.afterMt, 1)}</td>
           <td>${f(t.result.sulphur, 3)}</td><td>${f(t.result.lcv, 0)}</td><td>${f(t.result.density, 3)}</td>
-          <td>${esc(t.lots.map((l) => (l.numbers || []).join('/')).filter(Boolean).join(' + '))}${t.lots.length > 1 ? ' <i>(blend)</i>' : ''}</td></tr>`).join('')
+          <td>${esc(t.lots.map((l) => (l.numbers || []).join('/')).filter(Boolean).join(' + '))}${t.lots.length > 1 ? ' <i>(blend)</i>' : ''}</td>
+          <td>${wantsFigures
+            ? `${box(t.tankId, 'bdn', 'BDN', '5.5em')} ${box(t.tankId, 'sulphur', 'S %', '4em')} ${box(t.tankId, 'lcv', 'LCV', '5em')} ${box(t.tankId, 'density', 'ρ', '4em')}`
+              + (t.priorUnknown ? '<div class="hint">The fuel already in this tank has no figures on record — type them to get the blend.</div>' : '')
+            : '<span class="hint">on record</span>'}</td></tr>`;
+        }).join('')
       }</tbody></table></div>
       <p class="hint">A tank bunkered empty takes the delivery note as it is; a tank that already held fuel is the mass-weighted blend of the old content and the delivery (density by volume).
         ${prev.hasBdn ? '' : '<b>Enter the delivery notes (sulphur, LCV) on the Summary page to fill the figures.</b>'}
         ${(prev.notes || []).map((x) => esc(x)).join(' ')}</p>`;
+    if (active) {
+      const el = host.querySelector(`[data-pf="${active.key}"]`);
+      if (el) { el.focus(); try { el.setSelectionRange(active.at, active.at); } catch (_) { /* number-less input */ } }
+    }
+  }
+
+  /** Figures typed for fuel already in a tank are kept with the after-bunkering report. */
+  function bindBlendPanel() {
+    const host = document.getElementById('ba-blend-panel');
+    if (!host || host.dataset.bound) return;
+    host.dataset.bound = '1';
+    host.addEventListener('input', (e) => {
+      const key = e.target.dataset && e.target.dataset.pf;
+      if (!key) return;
+      const [tankId, field] = key.split('.');
+      view.after.priorFigures = view.after.priorFigures || {};
+      view.after.priorFigures[tankId] = { ...(view.after.priorFigures[tankId] || {}), [field]: e.target.value };
+      scheduleDraft('bunker-after');
+      paintBlendPreview(recomputeAfter());
+    });
   }
 
   function bindAfterEvents(wrap) {
