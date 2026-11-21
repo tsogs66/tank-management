@@ -2849,6 +2849,8 @@ const BunkerReports = (() => {
           <input type="number" step="any" data-bdn2="sulphurPercent" value="${esc(f.bdn2.sulphurPercent)}"></label>
         <label class="fr-field"><span>DENSITY @15°</span>
           <input type="number" step="any" data-bdn2="density15" value="${esc(f.bdn2.density15)}"></label>
+        <label class="fr-field"><span>LCV (kJ/kg)</span>
+          <input type="number" step="any" data-bdn2="lcv" value="${esc(f.bdn2.lcv)}" placeholder="net energy"></label>
       </div>
       <div class="bs-quantities">
         <div class="bp-monitor-box"><span>BDN QUANTITY</span><b data-bs2="bdnQuantityMT"></b></div>
@@ -2874,6 +2876,8 @@ const BunkerReports = (() => {
           <input type="number" step="any" data-xbdn="${i}.sulphurPercent" value="${esc(e.sulphurPercent)}"></label>
         <label class="fr-field"><span>DENSITY @15°</span>
           <input type="number" step="any" data-xbdn="${i}.density15" value="${esc(e.density15)}"></label>
+        <label class="fr-field"><span>LCV (kJ/kg)</span>
+          <input type="number" step="any" data-xbdn="${i}.lcv" value="${esc(e.lcv)}" placeholder="net energy"></label>
       </div>
       <div class="bs-quantities">
         <div class="bp-monitor-box"><span>BDN QUANTITY</span><b data-bsx="${i}.bdnQuantityMT"></b></div>
@@ -2936,6 +2940,8 @@ const BunkerReports = (() => {
               <input type="number" step="any" data-bdn="sulphurPercent" value="${esc(f.bdn.sulphurPercent)}"></label>
             <label class="fr-field"><span>DENSITY @15°</span>
               <input type="number" step="any" data-bdn="density15" value="${esc(f.bdn.density15)}"></label>
+            <label class="fr-field"><span>LCV (kJ/kg)</span>
+              <input type="number" step="any" data-bdn="lcv" value="${esc(f.bdn.lcv)}" placeholder="net energy"></label>
           </div>
           <div class="bs-quantities">
             <div class="bp-monitor-box"><span>BDN QUANTITY</span><b data-bs="bdnQuantityMT"></b></div>
@@ -3171,11 +3177,28 @@ const BunkerReports = (() => {
       navigate('bunker-summary');
     };
 
+    /* The tanks' before and after ROB go with the summary, so the tank fuel register can work out what each tank now holds. */
+    const withTankLoads = (form) => {
+      const out = { ...form, bunkeringId: form.bunkeringId || `bk_${Date.now().toString(36)}` };
+      try {
+        const after = bundle().bunkerAfter
+          ? Core.computeAfterBunkering(bundle(), bundle().bunkerAfter, view.conversion) : null;
+        if (after) {
+          const loads = Core.tankLoadsFromAfter(after);
+          if (loads.length) {
+            out.tankLoads = loads;
+            out.loadsTs = out.loadsTs || (after.header && after.header.date
+              ? new Date(`${after.header.date}T${after.header.time || '00:00'}`).toISOString() : new Date().toISOString());
+          }
+        }
+      } catch (err) { console.warn('tank loads not captured', err); }
+      return out;
+    };
     document.getElementById('bs-print-save').onclick = async () => {
       Branding.beginPrintHold();
       try {
         await saveChainPart('bunker-summary', 'bunkerSummary',
-          { ...view.summary, updatedAt: new Date().toISOString() }, { snapshot: true, deferServer: true });
+          withTankLoads({ ...view.summary, updatedAt: new Date().toISOString() }), { snapshot: true, deferServer: true });
         UI.printHtml(summaryPrintPages(recomputeSummary()));
       } catch (err) {
         Branding.endPrintHold();
@@ -3183,7 +3206,7 @@ const BunkerReports = (() => {
       }
     };
     document.getElementById('bs-save').onclick = () => saveChainPart('bunker-summary', 'bunkerSummary',
-      { ...view.summary, updatedAt: new Date().toISOString() }, { snapshot: true });
+      withTankLoads({ ...view.summary, updatedAt: new Date().toISOString() }), { snapshot: true });
     document.getElementById('bs-print-only').onclick = () =>
       UI.printHtml(summaryPrintPages(recomputeSummary()));
     const bsMenu = document.getElementById('bs-menu');
@@ -3306,6 +3329,7 @@ const BunkerReports = (() => {
             <tr><td class="fr-print-name">Quantity</td><td>${n(c.bdn.quantityMT, 3, '—')} MT</td></tr>
             <tr><td class="fr-print-name">Sulphur</td><td>${n(c.bdn.sulphurPercent, 3, '—')} %</td></tr>
             <tr><td class="fr-print-name">Density @15°</td><td>${n(c.bdn.density15, 4, '—')}</td></tr>
+            <tr><td class="fr-print-name">LCV (kJ/kg)</td><td>${n(c.bdn.lcv, 0, '—')}</td></tr>
           </tbody></table>
           <h3 class="fr-print-h3">BDN vs measured</h3>
           <table class="fr-print-table"><tbody>
@@ -3324,6 +3348,7 @@ const BunkerReports = (() => {
             <tr><td class="fr-print-name">Quantity</td><td>${n(c.bdn2.quantityMT, 3, '—')} MT</td></tr>
             <tr><td class="fr-print-name">Sulphur</td><td>${n(c.bdn2.sulphurPercent, 3, '—')} %</td></tr>
             <tr><td class="fr-print-name">Density @15°</td><td>${n(c.bdn2.density15, 4, '—')}</td></tr>
+            <tr><td class="fr-print-name">LCV (kJ/kg)</td><td>${n(c.bdn2.lcv, 0, '—')}</td></tr>
           </tbody></table>
           <h3 class="fr-print-h3">BDN vs measured — ${esc(c.bdn2.label)}</h3>
           <table class="fr-print-table"><tbody>
@@ -3339,6 +3364,7 @@ const BunkerReports = (() => {
             <tr><td class="fr-print-name">Quantity</td><td>${n(b.quantityMT, 3, '—')} MT</td></tr>
             <tr><td class="fr-print-name">Sulphur</td><td>${n(b.sulphurPercent, 3, '—')} %</td></tr>
             <tr><td class="fr-print-name">Density @15°</td><td>${n(b.density15, 4, '—')}</td></tr>
+            <tr><td class="fr-print-name">LCV (kJ/kg)</td><td>${n(b.lcv, 0, '—')}</td></tr>
             <tr><td class="fr-print-name">Received quantity</td><td>${n(c.extraQuantities[i].receivedQuantityMT, 3, '—')} MT${c.extraQuantities[i].gradeTotalMT != null ? ` (all ${esc(b.label)} notes: ${n(c.extraQuantities[i].gradeTotalMT, 3)} MT)` : ''}</td></tr>
             <tr><td class="fr-print-name">Difference</td>
               <td class="fr-print-weight">${c.extraQuantities[i].differenceMT != null ? signed(c.extraQuantities[i].differenceMT, 3) : '—'} MT

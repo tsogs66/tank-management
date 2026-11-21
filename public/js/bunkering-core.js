@@ -1298,9 +1298,23 @@ function emptyAfterReport(bundle, conversion) {
     ...merged,
     header: { ...merged.header, ...expected, reportType: 'Bunker Survey' },
     priorRob: priorRobFromFuelReport(bundle, conversion),
+    /* ROB of each tank before the delivery — what the tank's blend of old and new fuel is worked from. */
+    priorTank: priorTankFromFuelReport(bundle, conversion),
     linkedPlanId: null,
     updatedAt: null,
   };
+}
+
+/** ROB of each fuel tank in the saved fuel report: { tankId: { mt, grade } }. */
+function priorTankFromFuelReport(bundle, conversion) {
+  const out = {};
+  const report = FuelReport.computeFuelReport(bundle, bundle && bundle.fuelReport, conversion);
+  for (const section of report.sections) {
+    for (const row of section.rows) {
+      if (row.actualMT != null) out[row.tankId] = { mt: row.actualMT, grade: row.fuelType, name: row.name };
+    }
+  }
+  return out;
 }
 
 /** Per-grade totals of the saved fuel report — the ROB prior to bunkering. */
@@ -1318,6 +1332,7 @@ function normalizeAfterReport(bundle, form, conversion) {
   return {
     ...merged,
     priorRob: { ...(base.priorRob || {}), ...(src.priorRob || {}) },
+    priorTank: (src.priorTank && Object.keys(src.priorTank).length) ? src.priorTank : (base.priorTank || {}),
     linkedPlanId: src.linkedPlanId || null,
     updatedAt: src.updatedAt || null,
   };
@@ -1342,6 +1357,7 @@ function computeAfterBunkering(bundle, form, conversion) {
     ...report,
     grades,
     priorRob: normalized.priorRob,
+    priorTank: normalized.priorTank,
     totals: {
       ...report.totals,
       priorMT: round(grades.reduce((a, g) => a + (g.priorMT || 0), 0), 3),
@@ -1350,6 +1366,27 @@ function computeAfterBunkering(bundle, form, conversion) {
     form: normalized,
     generatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * What each tank held before and after the delivery, for the tank fuel register.
+ * Tanks that gained fuel come first; tanks with no reading after are left out.
+ */
+function tankLoadsFromAfter(afterComputed) {
+  const out = [];
+  const prior = (afterComputed && afterComputed.priorTank) || {};
+  for (const section of ((afterComputed && afterComputed.sections) || [])) {
+    for (const row of section.rows) {
+      if (row.actualMT == null) continue;
+      const before = prior[row.tankId] ? prior[row.tankId].mt : null;
+      out.push({
+        tankId: row.tankId, tankName: row.name, grade: row.fuelType,
+        beforeMt: before == null ? null : round(before, 3), afterMt: round(row.actualMT, 3),
+      });
+    }
+  }
+  return out.filter((t) => t.beforeMt == null || t.afterMt - t.beforeMt > 0.05)
+    .concat(out.filter((t) => t.beforeMt != null && t.afterMt - t.beforeMt <= 0.05));
 }
 
 /* --------------------------------------------------------------- summary ---- */
@@ -1372,7 +1409,7 @@ function emptySummary(bundle) {
     samplesGiven: false,
     remarks: '',
     lubes: { cylHigh: '', cylLow: '', meSystem: '', dgSystem: '' },
-    bdn: { fuelType: 'lsfo', quantityMT: '', sulphurPercent: '', density15: '' },
+    bdn: { fuelType: 'lsfo', quantityMT: '', sulphurPercent: '', density15: '', lcv: '' },
     bdnPhoto: null,
     updatedAt: null,
   };
@@ -1392,10 +1429,10 @@ function normalizeSummary(bundle, form) {
     lubes: { ...base.lubes, ...(src.lubes || {}) },
     bdn: { ...base.bdn, ...(src.bdn || {}) },
     /* A delivery through two hoses has a second delivery note, for the distillate. */
-    bdn2: src.bdn2 ? { fuelType: 'mdo', quantityMT: '', sulphurPercent: '', density15: '', number: '', ...src.bdn2 } : null,
+    bdn2: src.bdn2 ? { fuelType: 'mdo', quantityMT: '', sulphurPercent: '', density15: '', lcv: '', number: '', ...src.bdn2 } : null,
     /* Any further delivery notes of the same delivery: another grade, or the same grade on a second note. */
     extraBdns: (Array.isArray(src.extraBdns) ? src.extraBdns : []).map((e) =>
-      ({ fuelType: 'lsfo', quantityMT: '', sulphurPercent: '', density15: '', number: '', ...(e || {}) })),
+      ({ fuelType: 'lsfo', quantityMT: '', sulphurPercent: '', density15: '', lcv: '', number: '', ...(e || {}) })),
   };
 }
 
@@ -1495,6 +1532,7 @@ function computeBunkerSummary(bundle, form, after, conversion) {
       quantityMT: qty2,
       sulphurPercent: num(summary.bdn2.sulphurPercent),
       density15: num(summary.bdn2.density15),
+      lcv: num(summary.bdn2.lcv),
       label: (FuelReport.FUEL_TYPES.find((f) => f.id === grade2) || {}).label || grade2,
     };
     quantities2 = {
@@ -1518,7 +1556,7 @@ function computeBunkerSummary(bundle, form, after, conversion) {
     const cmp = compareFigure(grade, qty);
     const ok = cmp != null && recv != null;
     extraBdns.push({
-      ...e, quantityMT: qty, sulphurPercent: num(e.sulphurPercent), density15: num(e.density15),
+      ...e, quantityMT: qty, sulphurPercent: num(e.sulphurPercent), density15: num(e.density15), lcv: num(e.lcv),
       label: (FuelReport.FUEL_TYPES.find((f) => f.id === grade) || {}).label || grade,
     });
     extraQuantities.push({
@@ -1557,6 +1595,7 @@ function computeBunkerSummary(bundle, form, after, conversion) {
       quantityMT: bdnQuantity,
       sulphurPercent: num(summary.bdn.sulphurPercent),
       density15: num(summary.bdn.density15),
+      lcv: num(summary.bdn.lcv),
       label: (FuelReport.FUEL_TYPES.find((f) => f.id === bdnGrade) || {}).label || bdnGrade,
     },
     bdn2,
@@ -1754,6 +1793,8 @@ return {
   sequenceTankIds,
   filterReportToTankIds,
   priorRobFromFuelReport,
+  priorTankFromFuelReport,
+  tankLoadsFromAfter,
   emptyBunkerPlan,
   normalizePlan,
   RESIDUAL_FUEL_TYPES,

@@ -6428,6 +6428,35 @@ window.addEventListener('message', async (ev) => {
   try { target.postMessage({ type: 'tank-list-response', tanks: out }, '*'); } catch (_) {}
 });
 
+/* Tank fuel bridge: Voyage Chief asks what is in each storage tank — the BDN behind it, LCV, sulphur, density — and the
+   last measured ROB of each tank, so the log entry can pick a tank and work its SFOC from the right fuel. */
+window.addEventListener('message', async (ev) => {
+  const msg = ev.data || {};
+  if (msg.type !== 'request-tank-fuel') return;
+  for (let i = 0; i < 100 && !(STATE.bundle && STATE.bundle.tanks); i++) {
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  const out = { loaded: !!(STATE.bundle && STATE.bundle.tanks), tanks: {}, events: [], monitoring: { ts: null, rob: {} } };
+  try {
+    if (window.FuelReport && FuelReport.flushIfDirty) await FuelReport.flushIfDirty();
+  } catch (_) { /* offline */ }
+  try {
+    out.events = TankFuelRegister.eventsFromBundle(STATE.bundle);
+    out.tanks = TankFuelRegister.build(out.events).tanks;
+    const form = STATE.bundle && STATE.bundle.fuelReport;
+    const rep = FuelReportCore.computeFuelReport(STATE.bundle, form, STATE.conversionTable || null);
+    for (const section of rep.sections) {
+      for (const row of section.rows) {
+        if (row.actualMT != null) out.monitoring.rob[row.tankId] = { mt: row.actualMT, grade: row.fuelType, name: row.name };
+      }
+    }
+    const h = (form && form.header) || {};
+    if (h.date) out.monitoring.ts = new Date(`${h.date}T${h.time || '00:00'}`).toISOString();
+  } catch (_) { /* bundle not ready */ }
+  const target = ev.source || window.parent;
+  try { target.postMessage({ type: 'tank-fuel-response', fuel: out }, '*'); } catch (_) {}
+});
+
 document.addEventListener('DOMContentLoaded', boot);
 
 /* Ship's clock from Voyage Chief when both programs share this device.
