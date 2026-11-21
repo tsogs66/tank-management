@@ -2392,6 +2392,7 @@ function renderTankDetail(main, tankId) {
     const list = parseFloat(document.getElementById('in-list')?.value) || 0;
     const cur = parseFloat(document.getElementById('in-reading')?.value);
     window.TankDoubleInterpManual.open({
+      tankId: tank.id,
       tankName: tank.name,
       initialVolumeM3: Number.isFinite(cur) ? cur : null,
       trimByStern: trim,

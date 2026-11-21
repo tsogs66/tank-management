@@ -63,9 +63,34 @@
     });
   }
 
-  function heelMode() {
+  const METHODS = ['volume', 'sounding', 'trimHeelCm', 'heelThenTrimCm'];
+
+  /** Which of the book's arrangements is being worked. */
+  function method() {
     const el = document.querySelector('input[name="dim-heel-mode"]:checked');
-    return el && el.value === 'sounding' ? 'sounding' : 'volume';
+    return el && METHODS.includes(el.value) ? el.value : 'volume';
+  }
+  function isCmMethod(m) { return m === 'trimHeelCm' || m === 'heelThenTrimCm'; }
+
+  function readCapacity() {
+    const v = (id) => num(document.getElementById(id)?.value, null);
+    return [
+      { sounding: v('dim-cap-s0'), volume: v('dim-cap-v0') },
+      { sounding: v('dim-cap-s1'), volume: v('dim-cap-v1') },
+    ];
+  }
+
+  const memKey = (tankId) => `tankDimMethod:${tankId}`;
+  function rememberMethod(tankId, m) {
+    if (!tankId) return;
+    try { localStorage.setItem(memKey(tankId), m); } catch (_) { /* private mode */ }
+  }
+  function recallMethod(tankId) {
+    if (!tankId) return null;
+    try {
+      const v = localStorage.getItem(memKey(tankId));
+      return METHODS.includes(v) ? v : null;
+    } catch (_) { return null; }
   }
 
   function applyAxisBracket(prefix, center, force) {
@@ -84,25 +109,38 @@
     });
   }
 
-  function updateHeelSectionLabels(mode) {
+  function updateMethodLabels(mode) {
+    const cm = isCmMethod(mode);
+    const unit = document.getElementById('dim-corr-unit')?.value || 'mm';
+    const trimTitle = document.getElementById('dim-trim-section-title');
+    if (trimTitle) {
+      trimTitle.textContent = cm ? `TRIM CORRECTION (${unit} on sounding)` : 'TRIM CORRECTION (volume m³)';
+    }
     const title = document.getElementById('dim-heel-section-title');
     if (title) {
-      title.textContent = mode === 'sounding'
-        ? 'HEELING CORRECTION (cm on sounding)'
-        : 'HEELING CORRECTION (m³ to add to volume)';
+      title.textContent = mode === 'volume'
+        ? 'HEELING CORRECTION (m³ to add to volume)'
+        : `HEELING CORRECTION (${mode === 'sounding' ? 'cm' : unit} on sounding)`;
     }
     const hint = document.getElementById('dim-heel-mode-hint');
     if (hint) {
-      hint.textContent = mode === 'sounding'
-        ? 'Heel table is in cm: interpolated correction is added to target sounding, then trim volume is read at that length.'
-        : 'Heel table is in m³: centre heel (D11) is added to trim centre (D4), then volume is interpolated at target sounding.';
+      hint.textContent = {
+        volume: 'Trim table is volume (m³) and the heel table is m³: the centre heel (D11) is added to the trim centre (D4), then volume is interpolated at the target sounding.',
+        sounding: 'Heel table is in cm: the interpolated correction is added to the target sounding, then the trim volume (m³) is read at that length.',
+        trimHeelCm: 'Trim and heel are length corrections read at the sounding as read. Corrected sounding = sounding + trim + heel; the volume is then interpolated between the two capacity-table rows typed below.',
+        heelThenTrimCm: 'Heel is applied to the sounding first; the trim correction is then read at the heel-corrected sounding. The volume is interpolated between the two capacity-table rows typed below.',
+      }[mode] || '';
     }
+    const cap = document.getElementById('dim-capacity-block');
+    if (cap) cap.hidden = !cm;
+    const units = document.getElementById('dim-units-row');
+    if (units) units.hidden = !cm;
   }
 
   function computeResult() {
     const fn = root.manualDoubleInterpolation;
     if (typeof fn !== 'function') return null;
-    const mode = heelMode();
+    const mode = method();
     const soundingAxis = readAxis('dim-sounding');
     const trimAxis = readAxis('dim-trim');
     const heelAxis = readAxis('dim-heel');
@@ -117,7 +155,7 @@
       const corners = root.excelQuadrantCornersFromGrid;
       const heelFilled = build(soundingAxis, heelAxis, corners(heelGrid));
       let heelCenter = 0;
-      if (mode === 'volume' && heelFilled && heelFilled[1]) heelCenter = heelFilled[1][1];
+      if (mode === 'volume' && heelFilled && heelFilled[1]) heelCenter = heelFilled[1][1];  /* length corrections add nothing to the volume grid */
       const trimFilled = build(soundingAxis, trimAxis, corners(trimGrid), heelCenter);
       paintFormulaCells('dim-trim-grid', trimFilled);
       paintFormulaCells('dim-heel-grid', heelFilled);
@@ -132,13 +170,16 @@
       heelAxis,
       heelGrid,
       trimGrid,
-      heelMode: mode,
+      arrangement: mode,
+      capacity: readCapacity(),
+      soundingUnit: document.getElementById('dim-snd-unit')?.value || 'cm',
+      correctionUnit: document.getElementById('dim-corr-unit')?.value || 'mm',
     });
   }
 
   function resultVolume(raw) {
     if (raw == null) return null;
-    if (typeof raw === 'object' && raw.volumeM3 != null) return raw.volumeM3;
+    if (typeof raw === 'object') return raw.volumeM3 != null ? raw.volumeM3 : null;
     return Number(raw);
   }
 
@@ -213,6 +254,7 @@
    * @param {number|null} opts.initialVolumeM3
    * @param {number} opts.trimByStern — from header (e.g. 0.41 m)
    * @param {number} opts.heelDeg — from header (e.g. −0.4°)
+   * @param {string} [opts.tankId] — the chosen method is remembered per tank
    * @param {function(number):void} opts.onApply
    */
   function openDoubleInterpManual(opts) {
@@ -239,24 +281,47 @@
           <input type="text" inputmode="decimal" data-signed="1" id="dim-target-heel" value="${esc(heel)}" readonly tabindex="-1"></label>
       </div>
       <fieldset class="dim-heel-mode-field">
-        <legend>Heel correction type</legend>
+        <legend>Interpolation method — as the book is worked</legend>
         <label class="dim-radio"><input type="radio" name="dim-heel-mode" value="volume" checked>
-          Volume correction (m³) — add to corrected volume</label>
+          Volume corrections (m³) — trim table in m³, heel m³ added to it</label>
         <label class="dim-radio"><input type="radio" name="dim-heel-mode" value="sounding">
-          Sounding correction (cm) — add to sounding length</label>
+          Heel in cm on the sounding, then trim volume (m³)</label>
+        <label class="dim-radio"><input type="radio" name="dim-heel-mode" value="trimHeelCm">
+          Trim and heel length corrections together, then volume from the capacity table</label>
+        <label class="dim-radio"><input type="radio" name="dim-heel-mode" value="heelThenTrimCm">
+          Heel first, then trim at the corrected sounding, then volume from the capacity table</label>
         <p class="hint" id="dim-heel-mode-hint"></p>
       </fieldset>
+      <div class="dim-targets form-row-3" id="dim-units-row" hidden>
+        <label class="fr-field"><span>Sounding unit</span>
+          <select id="dim-snd-unit"><option value="cm" selected>cm</option><option value="mm">mm</option><option value="m">m</option></select></label>
+        <label class="fr-field"><span>Corrections in</span>
+          <select id="dim-corr-unit"><option value="mm" selected>mm</option><option value="cm">cm</option><option value="m">m</option></select></label>
+      </div>
       ${soundingAxisRow()}
       <div class="dim-axis-actions">
         <button type="button" class="btn ghost small" id="dim-bracket-axis">Reset trim/heel columns from header</button>
       </div>
-      ${quadrantSection('TRIM CORRECTION (volume m³)', 'Trim (m)', 'dim-trim-grid', 'dim-trim')}
+      ${quadrantSection('TRIM CORRECTION (volume m³)', 'Trim (m)', 'dim-trim-grid', 'dim-trim', 'dim-trim-section-title')}
       ${quadrantSection('HEELING CORRECTION (m³ to add to volume)', 'Heel (°)', 'dim-heel-grid', 'dim-heel', 'dim-heel-section-title')}
+      <div class="dim-quadrant-block" id="dim-capacity-block" hidden>
+        <div class="section-title">CAPACITY TABLE — the two rows around the corrected sounding</div>
+        <div class="form-row-3">
+          <label class="fr-field"><span>Row 1 sounding</span><input type="text" inputmode="decimal" id="dim-cap-s0"></label>
+          <label class="fr-field"><span>Row 1 volume (m³)</span><input type="text" inputmode="decimal" id="dim-cap-v0"></label>
+        </div>
+        <div class="form-row-3">
+          <label class="fr-field"><span>Row 2 sounding</span><input type="text" inputmode="decimal" id="dim-cap-s1"></label>
+          <label class="fr-field"><span>Row 2 volume (m³)</span><input type="text" inputmode="decimal" id="dim-cap-v1"></label>
+        </div>
+        <p class="hint" id="dim-cap-hint">Type the two capacity-table rows from the book that bracket the corrected sounding shown below. The volume is interpolated between them.</p>
+      </div>
       <div class="dim-result-row">
         <strong>Corrected volume (m³):</strong>
         <output id="dim-result-out">${vol != null ? esc(vol) : '—'}</output>
         <span class="dim-corr-sounding hint" id="dim-corr-sounding-wrap" hidden>
-          Sounding after heel: <output id="dim-corr-sounding-out">—</output>
+          <span id="dim-corr-label">Sounding after heel</span>: <output id="dim-corr-sounding-out">—</output>
+          <span id="dim-corr-detail"></span>
         </span>
         <button type="button" class="btn small" id="dim-recalc">Calculate</button>
       </div>
@@ -291,6 +356,17 @@
         const show = raw && typeof raw === 'object' && raw.correctedSounding != null;
         wrap.hidden = !show;
         if (show) sout.textContent = fmt(raw.correctedSounding);
+        const lab = document.getElementById('dim-corr-label');
+        const det = document.getElementById('dim-corr-detail');
+        const cm = isCmMethod(method());
+        if (lab) lab.textContent = cm ? 'Corrected sounding' : 'Sounding after heel';
+        if (det) {
+          const u = document.getElementById('dim-corr-unit')?.value || 'mm';
+          det.textContent = show && cm
+            ? ` (trim ${fmt(raw.trimCorrection)} ${u}, heel ${fmt(raw.heelCorrection)} ${u})`
+              + (raw.outsideCapacity ? ' — outside the two capacity rows: type the rows either side of it' : '')
+            : '';
+        }
       }
       return r;
     };
@@ -301,13 +377,17 @@
       if (e.target.matches('.dim-axis[data-dim-auto]') && e.target.id !== 'dim-sounding-1') {
         e.target.dataset.dimAuto = '0';
       }
-      if (e.target.matches('[data-dim-corner], .dim-axis, #dim-target-sounding')) recalc();
+      if (e.target.matches('[data-dim-corner], .dim-axis, #dim-target-sounding, #dim-capacity-block input')) recalc();
     });
     overlay.querySelectorAll('input[name="dim-heel-mode"]').forEach((inp) => {
       inp.addEventListener('change', () => {
-        updateHeelSectionLabels(heelMode());
+        updateMethodLabels(method());
+        rememberMethod(o.tankId, method());
         recalc();
       });
+    });
+    ['dim-snd-unit', 'dim-corr-unit'].forEach((id) => {
+      document.getElementById(id)?.addEventListener('change', () => { updateMethodLabels(method()); recalc(); });
     });
     document.getElementById('dim-bracket-axis').onclick = () => {
       applyAxisBracket('dim-trim', trim, true);
@@ -335,7 +415,10 @@
     setIfEmpty('dim-target-sounding', '4041');
     applyAxisBracket('dim-trim', trim, true);
     applyAxisBracket('dim-heel', heel, true);
-    updateHeelSectionLabels('volume');
+    const first = recallMethod(o.tankId) || (METHODS.includes(o.method) ? o.method : 'volume');
+    const radio = overlay.querySelector(`input[name="dim-heel-mode"][value="${first}"]`);
+    if (radio) radio.checked = true;
+    updateMethodLabels(method());
 
     if (root.TmsSignedNumeric && typeof root.TmsSignedNumeric.scan === 'function') {
       root.TmsSignedNumeric.scan(overlay);

@@ -878,14 +878,72 @@ function excelQuadrantValueAt(soundingAxis, secAxis, corners, sounding, sec) {
   return bilinearGridInterp(soundingAxis, secAxis, filled, sounding, sec);
 }
 
+/** Length units the manual window accepts, in centimetres. */
+const MANUAL_UNIT_CM = { mm: 0.1, cm: 1, m: 100 };
+
+/**
+ * The book's other arrangement, worked by hand: trim and heel are LENGTH corrections read from the book at
+ * the sounding, applied to the sounding first, and only then is the volume taken from the capacity table —
+ * by interpolating between the two capacity rows the chief types from the book around the corrected sounding.
+ * Nothing is read from the tank's stored tables.
+ *
+ *   'trimHeelCm'     both corrections at the sounding as read:  S' = S + trim + heel
+ *   'heelThenTrimCm' heel first; the trim correction is then read at the heel-corrected sounding:
+ *                    S1 = S + heel(S);  S' = S1 + trim(S1)
+ *
+ * Corrections are in o.correctionUnit (default mm), the sounding in o.soundingUnit (default cm).
+ * o.capacity = [{ sounding, volume }, { sounding, volume }] — two capacity-table rows (m³).
+ * Returns { volumeM3 (null until both rows are typed), trimCorrection, heelCorrection, correctedSounding,
+ *           outsideCapacity }, or null if the corner tables are not filled in.
+ */
+function manualCmCorrections(o, arrangement) {
+  const heelCorners = excelQuadrantCornersFromGrid(o.heelGrid) || o.heelGrid;
+  const trimCorners = excelQuadrantCornersFromGrid(o.trimGrid) || o.trimGrid;
+  const heelFilled = buildExcelQuadrantGrid(o.soundingAxis, o.heelAxis, heelCorners);
+  const trimFilled = buildExcelQuadrantGrid(o.soundingAxis, o.trimAxis, trimCorners);
+  if (!heelFilled || !trimFilled) return null;
+  const toSounding = (MANUAL_UNIT_CM[o.correctionUnit] || MANUAL_UNIT_CM.mm) / (MANUAL_UNIT_CM[o.soundingUnit] || MANUAL_UNIT_CM.cm);
+  const S = Number(o.sounding);
+  const at = (grid, axis, y, x) => bilinearGridInterp(o.soundingAxis, axis, grid, y, x);
+  let heelCorr, trimCorr, corrected;
+  if (arrangement === 'heelThenTrimCm') {
+    heelCorr = at(heelFilled, o.heelAxis, S, o.heel);
+    if (heelCorr == null) return null;
+    const s1 = S + heelCorr * toSounding;
+    trimCorr = at(trimFilled, o.trimAxis, s1, o.trim);
+    if (trimCorr == null) return null;
+    corrected = s1 + trimCorr * toSounding;
+  } else {
+    trimCorr = at(trimFilled, o.trimAxis, S, o.trim);
+    heelCorr = at(heelFilled, o.heelAxis, S, o.heel);
+    if (trimCorr == null || heelCorr == null) return null;
+    corrected = S + (trimCorr + heelCorr) * toSounding;
+  }
+  const rows = Array.isArray(o.capacity) ? o.capacity : [];
+  const a = rows[0], b = rows[1];
+  const ok = (r) => r && Number.isFinite(Number(r.sounding)) && Number.isFinite(Number(r.volume));
+  let volumeM3 = null, outsideCapacity = false;
+  if (ok(a) && ok(b) && Number(a.sounding) !== Number(b.sounding)) {
+    const v = linearInterpAxis(corrected, a.sounding, b.sounding, a.volume, b.volume);
+    if (v != null) volumeM3 = Math.round(v * 1000) / 1000;
+    const lo = Math.min(Number(a.sounding), Number(b.sounding));
+    const hi = Math.max(Number(a.sounding), Number(b.sounding));
+    outsideCapacity = corrected < lo - 1e-9 || corrected > hi + 1e-9;
+  }
+  return { volumeM3, trimCorrection: trimCorr, heelCorrection: heelCorr, correctedSounding: corrected, outsideCapacity, arrangement };
+}
+
 /**
  * Workbook-style manual double interpolation.
- * @param {'volume'|'sounding'} [opts.heelMode] — volume: heel m³ in trim centre (D4+D11);
- *   sounding: heel cm added to sounding before trim volume lookup.
+ * @param {'volume'|'sounding'|'trimHeelCm'|'heelThenTrimCm'} [opts.arrangement]
+ * @param {'volume'|'sounding'} [opts.heelMode] — older form of the first two arrangements
  */
 function manualDoubleInterpolation(opts) {
   const o = opts || {};
-  const heelMode = o.heelMode === 'sounding' ? 'sounding' : 'volume';
+  const arrangement = ['volume', 'sounding', 'trimHeelCm', 'heelThenTrimCm'].includes(o.arrangement)
+    ? o.arrangement : (o.heelMode === 'sounding' ? 'sounding' : 'volume');
+  if (arrangement === 'trimHeelCm' || arrangement === 'heelThenTrimCm') return manualCmCorrections(o, arrangement);
+  const heelMode = arrangement === 'sounding' ? 'sounding' : 'volume';
   const heelCorners = excelQuadrantCornersFromGrid(o.heelGrid) || o.heelGrid;
   const trimCorners = excelQuadrantCornersFromGrid(o.trimGrid) || o.trimGrid;
   const heelFilled = buildExcelQuadrantGrid(o.soundingAxis, o.heelAxis, heelCorners);
