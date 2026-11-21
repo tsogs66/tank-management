@@ -2441,6 +2441,7 @@ const BunkerReports = (() => {
       ${afterHeaderPanel()}
       ${c.sections.map((s) => UI.sheetTableHtml(s, view.after.rows)).join('')}
       ${afterGradesPanel(c)}
+      <div class="form-panel no-print" id="ba-blend-panel" hidden></div>
       <div class="form-panel no-print">
         <details class="saved-reports-fold">
           <summary class="section-title" style="margin-top:0; cursor:pointer;">Saved after-bunkering reports</summary>
@@ -2556,6 +2557,7 @@ const BunkerReports = (() => {
       `Trim ${c.header.trimLabel} · heel ${c.header.heelLabel} — tables read at trim `
       + `${signed(c.header.trim, 2)} m ${FRCore.trimSense(c.header.trim)}.`);
     UI.paintSectionCells(c.sections);
+    paintBlendPreview(c);
     for (const g of c.grades) {
       set(`[data-ba-grade="${g.id}.addedMT"]`, g.addedMT != null ? `${signed(g.addedMT, 3)}` : '—');
       set(`[data-ba-grade="${g.id}.presentMT"]`, n(g.presentMT, 3, '—'));
@@ -2565,6 +2567,34 @@ const BunkerReports = (() => {
         box.classList.toggle('fr-grade-good', g.addedMT != null && g.addedMT > 0.001);
       }
     }
+  }
+
+  /**
+   * What each tank that took fuel now holds: the old content blended with the delivery, using the delivery notes
+   * on the Summary page. Shown so the figures can be checked before they are filed.
+   */
+  function paintBlendPreview(c) {
+    const host = document.getElementById('ba-blend-panel');
+    if (!host) return;
+    if (typeof TankFuelRegister === 'undefined') { host.hidden = true; return; }
+    let prev = null;
+    try {
+      const summary = (document.getElementById('bs-save') && view.summary) ? view.summary : (bundle().bunkerSummary || {});
+      prev = TankFuelRegister.previewBunkering(bundle(), Core.tankLoadsFromAfter(c), summary);
+    } catch (err) { console.warn('blend preview', err); }
+    const rows = prev ? prev.tanks.filter((t) => t.gained) : [];
+    if (!rows.length) { host.hidden = true; host.innerHTML = ''; return; }
+    host.hidden = false;
+    const f = (v, d) => (v == null ? '—' : n(v, d));
+    host.innerHTML = `<div class="section-title" style="margin-top:0"><span>What each tank holds after this bunkering</span></div>
+      <div class="table-scroll"><table class="fr-table"><thead><tr><th>Tank</th><th>Before (MT)</th><th>Loaded (MT)</th><th>After (MT)</th><th>S (%)</th><th>LCV (kJ/kg)</th><th>ρ @15</th><th>BDN</th></tr></thead><tbody>${
+        rows.map((t) => `<tr><td>${esc(t.tankName || t.tankId)}</td><td>${f(t.beforeMt, 1)}${t.estimatedBefore ? ' est.' : ''}</td><td>${f(t.loadedMt, 1)}</td><td>${f(t.afterMt, 1)}</td>
+          <td>${f(t.result.sulphur, 3)}</td><td>${f(t.result.lcv, 0)}</td><td>${f(t.result.density, 3)}</td>
+          <td>${esc(t.lots.map((l) => (l.numbers || []).join('/')).filter(Boolean).join(' + '))}${t.lots.length > 1 ? ' <i>(blend)</i>' : ''}</td></tr>`).join('')
+      }</tbody></table></div>
+      <p class="hint">A tank bunkered empty takes the delivery note as it is; a tank that already held fuel is the mass-weighted blend of the old content and the delivery (density by volume).
+        ${prev.hasBdn ? '' : '<b>Enter the delivery notes (sulphur, LCV) on the Summary page to fill the figures.</b>'}
+        ${(prev.notes || []).map((x) => esc(x)).join(' ')}</p>`;
   }
 
   function bindAfterEvents(wrap) {

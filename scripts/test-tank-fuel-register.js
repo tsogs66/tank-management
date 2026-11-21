@@ -76,6 +76,22 @@ console.log('from a vessel bundle');
   is('second BDN supplies the distillate tank', R.build(evs).tanks.M.bdns[0].numbers, ['112']);
   is('a summary without tank loads is skipped', R.eventsFromBundle({ bunkerSummary: { bdn: {} } }).length, 0);
 }
+console.log('After-page preview');
+{
+  const done = { bunkeringId: 'old', loadsTs: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', bdnNumber: '001',
+    bdn: { fuelType: 'hfo', quantityMT: 100, lcv: 40000, sulphurPercent: 0.5, density15: 0.98 },
+    tankLoads: [{ tankId: 'A', grade: 'hfo', beforeMt: 0, afterMt: 100 }] };
+  const bundle = { bunkerSummary: done, bunkerHistory: { summaries: [] } };
+  const now = { bunkeringId: 'new', bdnNumber: '002', bdn: { fuelType: 'hfo', quantityMT: 300, lcv: 41000, sulphurPercent: 0.1, density15: 0.98 } };
+  const loads = [{ tankId: 'A', tankName: 'HFO A', grade: 'hfo', beforeMt: 100, afterMt: 400 }, { tankId: 'B', tankName: 'HFO B', grade: 'hfo', beforeMt: 0, afterMt: 0 }];
+  const p = R.previewBunkering(bundle, loads, now);
+  is('the preview blends the new delivery with what the tank held', Math.round(p.tanks[0].result.lcv), Math.round((100 * 40000 + 300 * 41000) / 400));
+  is('both BDN lots are listed', p.tanks[0].lots.length, 2);
+  is('a tank that took nothing is not blended', p.tanks[1].gained, false);
+  is('no delivery note yet is reported', R.previewBunkering(bundle, loads, { bunkeringId: 'new' }).hasBdn, false);
+  is('re-saving the same bunkering does not blend it with itself', R.previewBunkering({ bunkerSummary: { ...now, tankLoads: loads, loadsTs: '2026-11-01T00:00:00Z', updatedAt: 'x' } }, loads, now).tanks[0].result.sulphur,
+    R.previewBunkering({}, loads, now).tanks[0].result.sulphur);
+}
 console.log('Tank Chief hooks');
 {
   const after = { priorTank: { A: { mt: 100, grade: 'hfo' }, B: { mt: 50, grade: 'mdo' }, C: { mt: 20, grade: 'hfo' } },

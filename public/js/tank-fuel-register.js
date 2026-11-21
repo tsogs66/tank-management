@@ -182,6 +182,39 @@
    * The bunkerings a vessel bundle holds: every saved bunkering summary that carries its tanks' before and after ROB
    * (current one and the saved history). Summaries saved before this existed have no tank loads and are skipped.
    */
+  function bdnsFromSummary(f) {
+    var bdns = [];
+    var add = function (b, number) {
+      if (!b) return;
+      bdns.push({ number: number != null ? number : b.number, grade: b.fuelType, qty: b.quantityMT, lcv: b.lcv,
+        sulphur: b.sulphurPercent, density: b.density15, supplier: f && f.supplier });
+    };
+    if (!f) return bdns;
+    add(f.bdn, f.bdnNumber);
+    add(f.bdn2);
+    (f.extraBdns || []).forEach(function (e) { add(e); });
+    return bdns;
+  }
+
+  /**
+   * What a bunkering that is being worked on would leave in each tank, before it is saved:
+   * the history without this bunkering, then this one on top. `loads` are the tanks' before/after ROB.
+   */
+  function previewBunkering(bundle, loads, summaryForm) {
+    var id = summaryForm && summaryForm.bunkeringId;
+    var events = eventsFromBundle(bundle).filter(function (e) { return !id || e.id !== id; });
+    var reg = build(events);
+    var state = {};
+    Object.keys(reg.tanks).forEach(function (k) {
+      var t = reg.tanks[k];
+      state[k] = { mt: t.afterMt, lcv: t.lcv, sulphur: t.sulphur, density: t.density, bdns: t.bdns };
+    });
+    var bdns = bdnsFromSummary(summaryForm);
+    var res = applyEvent(state, { tanks: loads || [], bdns: bdns });
+    res.hasBdn = bdns.length > 0;
+    return res;
+  }
+
   function eventsFromBundle(bundle) {
     var forms = [];
     if (bundle && bundle.bunkerSummary) forms.push(bundle.bunkerSummary);
@@ -190,15 +223,7 @@
     var out = [];
     forms.forEach(function (f) {
       if (!f || !Array.isArray(f.tankLoads) || !f.tankLoads.length) return;
-      var bdns = [];
-      var add = function (b, number) {
-        if (!b) return;
-        bdns.push({ number: number != null ? number : b.number, grade: b.fuelType, qty: b.quantityMT, lcv: b.lcv,
-          sulphur: b.sulphurPercent, density: b.density15, supplier: f.supplier });
-      };
-      add(f.bdn, f.bdnNumber);
-      add(f.bdn2);
-      (f.extraBdns || []).forEach(function (e) { add(e); });
+      var bdns = bdnsFromSummary(f);
       out.push({ id: f.bunkeringId || ('sum_' + (f.updatedAt || '')), ts: f.loadsTs || f.date, savedAt: f.updatedAt,
         tanks: f.tankLoads, bdns: bdns });
     });
@@ -257,6 +282,6 @@
     return { diffMt: diff, pct: round(Math.abs(diff) / ref * 100, 2), flag: Math.abs(diff) / ref > 0.02 };
   }
 
-  return { eventsFromBundle: eventsFromBundle, blend: blend, combineBdns: combineBdns, applyEvent: applyEvent, build: build, propertiesAt: propertiesAt,
+  return { eventsFromBundle: eventsFromBundle, bdnsFromSummary: bdnsFromSummary, previewBunkering: previewBunkering, blend: blend, combineBdns: combineBdns, applyEvent: applyEvent, build: build, propertiesAt: propertiesAt,
     estimateRob: estimateRob, tankStatus: tankStatus, drift: drift, lcvKjKg: lcvKjKg, family: family };
 });
