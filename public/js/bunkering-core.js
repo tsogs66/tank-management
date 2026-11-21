@@ -633,9 +633,14 @@ function computeBunkerPlan(bundle, form, conversion) {
     /* The way this row's current sounding is read: the plan's choice, else the tank's own. */
     out.currentMethod = entryMethodFor(plan.soundingEntry, out.startingMethod);
     out.startingReadingEntryMM = convertReading(tank, out.startingReadingMM, out.startingMethod, out.currentMethod);
-    out.startingUllageMM = before && before.trace
-      ? asUllage(tank, before.trace.nativeReading)
-      : null;
+    /* A tank worked by manual (double) interpolation has no table in the program to turn a volume into a level, so
+       its readings are volumes in m³ and its ullages are the chief's own figures, typed in the plan. Showing the
+       volume as an ullage would be wrong by the whole scale. */
+    const manualGauge = typeof usesDirectM3Input === 'function' && usesDirectM3Input(tank);
+    out.manualGauge = manualGauge;
+    out.startingUllageMM = manualGauge
+      ? num(slot.startingUllageMM)
+      : (before && before.trace ? asUllage(tank, before.trace.nativeReading) : null);
     out.startingRobM3 = before ? before.measuredM3 : null;
     out.startingRobMT = before ? before.weightAirMT : null;
     if (before == null || before.measuredM3 == null) {
@@ -647,10 +652,10 @@ function computeBunkerPlan(bundle, form, conversion) {
 
     if (out.targetVolumeM3 != null) {
       out.targetVolumePercent = capacity > 0 ? round((out.targetVolumeM3 / capacity) * 100, 1) : null;
-      const reading = readingForVolume(tank, out.targetVolumeM3, targetCtx);
+      const reading = manualGauge ? null : readingForVolume(tank, out.targetVolumeM3, targetCtx);
       out.targetReadingMM = reading;
-      out.targetUllageMM = reading != null ? asUllage(tank, reading) : null;
-      if (reading == null) out.warnings.push('target volume outside the calibration table');
+      out.targetUllageMM = manualGauge ? num(slot.targetUllageMM) : (reading != null ? asUllage(tank, reading) : null);
+      if (reading == null && !manualGauge) out.warnings.push('target volume outside the calibration table');
       // Tolerate the rounding in a book capacity (463.5 vs 463.476) before crying overfill.
       if (out.targetVolumeM3 > cap85 + fillTolerance(capacity)) {
         out.warnings.push('target is above the 85% filling limit');
@@ -850,7 +855,8 @@ function computeBunkerPlan(bundle, form, conversion) {
       const estVol = Math.min(anchorVol + addedVol, capacity);
       out.estimatedVolumeM3 = round(estVol, 3);
       out.estimatedVolumePercent = round((estVol / capacity) * 100, 1);
-      const estReading = readingForVolume(tank, estVol, ctx);
+      /* No table to turn the projected volume into a level for a manual tank: the volume is what is projected. */
+      const estReading = out.manualGauge ? null : readingForVolume(tank, estVol, ctx);
       out.estimatedReadingMM = estReading;
       out.estimatedUllageMM = estReading != null ? asUllage(tank, estReading) : null;
       out.estimatedSoundingMM = estReading == null ? null
@@ -1298,9 +1304,23 @@ function emptyAfterReport(bundle, conversion) {
     ...merged,
     header: { ...merged.header, ...expected, reportType: 'Bunker Survey' },
     priorRob: priorRobFromFuelReport(bundle, conversion),
+    /* ROB of each tank before the delivery — what the tank's blend of old and new fuel is worked from. */
+    priorTank: priorTankFromFuelReport(bundle, conversion),
     linkedPlanId: null,
     updatedAt: null,
   };
+}
+
+/** ROB of each fuel tank in the saved fuel report: { tankId: { mt, grade } }. */
+function priorTankFromFuelReport(bundle, conversion) {
+  const out = {};
+  const report = FuelReport.computeFuelReport(bundle, bundle && bundle.fuelReport, conversion);
+  for (const section of report.sections) {
+    for (const row of section.rows) {
+      if (row.weightAirMT != null) out[row.tankId] = { mt: row.weightAirMT, grade: row.fuelType, name: row.name };
+    }
+  }
+  return out;
 }
 
 /** Per-grade totals of the saved fuel report — the ROB prior to bunkering. */
@@ -1318,6 +1338,9 @@ function normalizeAfterReport(bundle, form, conversion) {
   return {
     ...merged,
     priorRob: { ...(base.priorRob || {}), ...(src.priorRob || {}) },
+    priorTank: (src.priorTank && Object.keys(src.priorTank).length) ? src.priorTank : (base.priorTank || {}),
+    /* Figures typed for fuel that was already in a tank: { tankId: { bdn, sulphur, lcv, density } }. */
+    priorFigures: (src.priorFigures && typeof src.priorFigures === 'object') ? src.priorFigures : {},
     linkedPlanId: src.linkedPlanId || null,
     updatedAt: src.updatedAt || null,
   };
@@ -1342,6 +1365,8 @@ function computeAfterBunkering(bundle, form, conversion) {
     ...report,
     grades,
     priorRob: normalized.priorRob,
+    priorTank: normalized.priorTank,
+    priorFigures: normalized.priorFigures,
     totals: {
       ...report.totals,
       priorMT: round(grades.reduce((a, g) => a + (g.priorMT || 0), 0), 3),
@@ -1350,6 +1375,29 @@ function computeAfterBunkering(bundle, form, conversion) {
     form: normalized,
     generatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * What each tank held before and after the delivery, for the tank fuel register.
+ * Tanks that gained fuel come first; tanks with no reading after are left out.
+ */
+function tankLoadsFromAfter(afterComputed) {
+  const out = [];
+  const prior = (afterComputed && afterComputed.priorTank) || {};
+  for (const section of ((afterComputed && afterComputed.sections) || [])) {
+    for (const row of section.rows) {
+      if (row.weightAirMT == null) continue;
+      const before = prior[row.tankId] ? prior[row.tankId].mt : null;
+      const figures = (afterComputed.priorFigures || {})[row.tankId];
+      out.push({
+        tankId: row.tankId, tankName: row.name, grade: row.fuelType,
+        beforeMt: before == null ? null : round(before, 3), afterMt: round(row.weightAirMT, 3),
+        ...(figures && Object.values(figures).some((v) => v !== '' && v != null) ? { prior: figures } : {}),
+      });
+    }
+  }
+  return out.filter((t) => t.beforeMt == null || t.afterMt - t.beforeMt > 0.05)
+    .concat(out.filter((t) => t.beforeMt != null && t.afterMt - t.beforeMt <= 0.05));
 }
 
 /* --------------------------------------------------------------- summary ---- */
@@ -1372,7 +1420,7 @@ function emptySummary(bundle) {
     samplesGiven: false,
     remarks: '',
     lubes: { cylHigh: '', cylLow: '', meSystem: '', dgSystem: '' },
-    bdn: { fuelType: 'lsfo', quantityMT: '', sulphurPercent: '', density15: '' },
+    bdn: { fuelType: 'lsfo', quantityMT: '', sulphurPercent: '', density15: '', lcv: '' },
     bdnPhoto: null,
     updatedAt: null,
   };
@@ -1392,10 +1440,10 @@ function normalizeSummary(bundle, form) {
     lubes: { ...base.lubes, ...(src.lubes || {}) },
     bdn: { ...base.bdn, ...(src.bdn || {}) },
     /* A delivery through two hoses has a second delivery note, for the distillate. */
-    bdn2: src.bdn2 ? { fuelType: 'mdo', quantityMT: '', sulphurPercent: '', density15: '', number: '', ...src.bdn2 } : null,
+    bdn2: src.bdn2 ? { fuelType: 'mdo', quantityMT: '', sulphurPercent: '', density15: '', lcv: '', number: '', ...src.bdn2 } : null,
     /* Any further delivery notes of the same delivery: another grade, or the same grade on a second note. */
     extraBdns: (Array.isArray(src.extraBdns) ? src.extraBdns : []).map((e) =>
-      ({ fuelType: 'lsfo', quantityMT: '', sulphurPercent: '', density15: '', number: '', ...(e || {}) })),
+      ({ fuelType: 'lsfo', quantityMT: '', sulphurPercent: '', density15: '', lcv: '', number: '', ...(e || {}) })),
   };
 }
 
@@ -1495,6 +1543,7 @@ function computeBunkerSummary(bundle, form, after, conversion) {
       quantityMT: qty2,
       sulphurPercent: num(summary.bdn2.sulphurPercent),
       density15: num(summary.bdn2.density15),
+      lcv: num(summary.bdn2.lcv),
       label: (FuelReport.FUEL_TYPES.find((f) => f.id === grade2) || {}).label || grade2,
     };
     quantities2 = {
@@ -1518,7 +1567,7 @@ function computeBunkerSummary(bundle, form, after, conversion) {
     const cmp = compareFigure(grade, qty);
     const ok = cmp != null && recv != null;
     extraBdns.push({
-      ...e, quantityMT: qty, sulphurPercent: num(e.sulphurPercent), density15: num(e.density15),
+      ...e, quantityMT: qty, sulphurPercent: num(e.sulphurPercent), density15: num(e.density15), lcv: num(e.lcv),
       label: (FuelReport.FUEL_TYPES.find((f) => f.id === grade) || {}).label || grade,
     });
     extraQuantities.push({
@@ -1557,6 +1606,7 @@ function computeBunkerSummary(bundle, form, after, conversion) {
       quantityMT: bdnQuantity,
       sulphurPercent: num(summary.bdn.sulphurPercent),
       density15: num(summary.bdn.density15),
+      lcv: num(summary.bdn.lcv),
       label: (FuelReport.FUEL_TYPES.find((f) => f.id === bdnGrade) || {}).label || bdnGrade,
     },
     bdn2,
@@ -1754,6 +1804,8 @@ return {
   sequenceTankIds,
   filterReportToTankIds,
   priorRobFromFuelReport,
+  priorTankFromFuelReport,
+  tankLoadsFromAfter,
   emptyBunkerPlan,
   normalizePlan,
   RESIDUAL_FUEL_TYPES,

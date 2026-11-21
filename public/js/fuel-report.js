@@ -888,6 +888,7 @@ const FuelReport = (() => {
         ? (draftAft - draftFwd) : (Number(h.trim) || 0);
       const heel = h.heel === '' || h.heel == null ? 0 : Number(h.heel);
       window.TankDoubleInterpManual.open({
+        tankId,
         tankName: tank.name,
         initialVolumeM3: row.reading !== '' && row.reading != null ? Number(row.reading) : null,
         trimByStern,

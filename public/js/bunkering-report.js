@@ -890,6 +890,10 @@ const BunkerReports = (() => {
         + group('HFO / VLSFO', keep(heavy, showHeavy))
         + group('MDO / MGO / LSMGO', keep(distillate, showDo));
       const cell = (field) => `<td class="fr-calc" data-bp-cell="${i}.${field}"></td>`;
+      /* An ullage the program works out, or — for a manual-interpolation tank — one the chief types. */
+      const ullageCell = (slotIdx, field, slot) => `<td class="fr-calc"><span data-bp-cell="${slotIdx}.${field}"></span>`
+        + `<input type="number" step="any" class="bp-ull-input" style="width:5.5em" hidden data-slot="${slotIdx}" data-field="${field}" data-bp-ull="${slotIdx}.${field}"`
+        + ` value="${esc(slot[field] === '' || slot[field] == null ? '' : FRCore.mmToCm(slot[field]))}" title="This tank is worked by manual interpolation, so type the ullage yourself (cm)."></td>`;
       const tk = tanks.find((t) => t.id === row.tankId);
       const directM3 = tk && FRCore.usesDirectM3Input && FRCore.usesDirectM3Input(tk);
       const soundDisplay = directM3
@@ -897,13 +901,14 @@ const BunkerReports = (() => {
         : FRCore.formatCm(f.currentSoundingMM);
       return `<tr data-slot="${i}">
         <th class="fr-tank-name"><span class="bp-tank-pick"><span class="bp-seq">${i + 1}.</span><select data-slot="${i}" data-field="tankId">${opts}</select></span></th>
-        ${cell('capacity100M3')}${cell('capacity85M3')}${cell('startingUllageMM')}
+        ${cell('capacity100M3')}${cell('capacity85M3')}${ullageCell(i, 'startingUllageMM', f)}
         ${cell('startingRobM3')}${cell('freeM3At85')}
         <td class="bp-entry"><input type="number" step="any" data-slot="${i}" data-field="targetVolumeM3" value="${esc(f.targetVolumeM3)}"></td>
-        ${cell('targetVolumePercent')}${cell('targetUllageMM')}${cell('planAddMT')}
+        ${cell('targetVolumePercent')}${ullageCell(i, 'targetUllageMM', f)}${cell('planAddMT')}
         <td class="bp-valve" data-bp-valve="${i}"></td>
         <td class="bp-entry bp-sound"><input type="number" step="any" data-slot="${i}" data-field="currentSoundingMM" value="${esc(soundDisplay)}">
-          <span class="bp-method" data-bp-method="${i}"></span></td>
+          <span class="bp-method" data-bp-method="${i}"></span>
+          <button type="button" class="btn ghost small bp-dim-btn" hidden data-bp-dim="${i}" title="Work the volume out by double interpolation">Interp.</button></td>
         ${cell('currentVolumePercent')}${cell('currentVolumeM3')}${cell('quantityAddMT')}
         ${cell('remainingToTargetMT')}
         <td class="fr-calc" data-bp-cell="${i}.etaLabel"></td>
@@ -930,6 +935,10 @@ const BunkerReports = (() => {
           </select></label>
         <span class="hint">Dip or ullage for every tank, or each tank in its own method. Switch at any time during bunkering — the readings already typed are converted, so the levels do not change.</span>
       </div>
+      <div class="hint" id="bp-manual-note" hidden>A tank worked by <b>manual interpolation</b> has no table in the program to turn a
+        volume into a level. For those tanks enter the observed volume in <b>m³</b> in the current column
+        (the <b>Interp.</b> button opens the double interpolation window) and type the starting and target ullage yourself.
+        The volumes, quantities to go and times are worked from the m³ as for any other tank.</div>
       <div class="bp-layout">
         <div class="scroll-x">
           <table class="fr-sheet bp-sheet">
@@ -1478,6 +1487,8 @@ const BunkerReports = (() => {
       : `Trim ${signed(c.header.trim, 2)} m ${FRCore.trimSense(c.header.trim)} · `
         + `density ${n(c.header.density15, 4, '—')} @ ${n(c.header.tempC, 0)} °C`);
 
+    const manualNote = document.getElementById('bp-manual-note');
+    if (manualNote) manualNote.hidden = !c.rows.some((r) => r.tankId && r.manualGauge);
     for (const row of c.rows) {
       const i = row.slot - 1;
       for (const col of PLAN_COLUMNS) {
@@ -1485,6 +1496,14 @@ const BunkerReports = (() => {
           row.warnings.length ? row.warnings.join(' · ') : '');
       }
       set(`[data-bp-cell="${i}.etaLabel"]`, row.tankId ? row.etaLabel : '');
+      /* Manual-interpolation tank: the two ullages are typed, and the interpolation window is offered. */
+      document.querySelectorAll(`[data-bp-ull^="${i}."]`).forEach((inp) => { inp.hidden = !row.manualGauge; });
+      ['startingUllageMM', 'targetUllageMM'].forEach((f) => {
+        const span = document.querySelector(`[data-bp-cell="${i}.${f}"]`);
+        if (span) span.hidden = !!row.manualGauge;
+      });
+      const dimBtn = document.querySelector(`[data-bp-dim="${i}"]`);
+      if (dimBtn) dimBtn.hidden = !row.manualGauge;
       paintSoundingMethod(i, row);
       paintValveCell(i, row);
       const tr = document.querySelector(`tr[data-slot="${i}"]`);
@@ -1649,6 +1668,34 @@ const BunkerReports = (() => {
   }
 
   function bindPlanEvents(wrap) {
+    /* A manual-interpolation tank: work its volume out in the double interpolation window, with the plan's drafts. */
+    wrap.addEventListener('click', (e) => {
+      const btn = e.target.closest && e.target.closest('[data-bp-dim]');
+      if (!btn || !window.TankDoubleInterpManual) return;
+      const i = Number(btn.dataset.bpDim);
+      const slot = view.plan.sequence[i];
+      const tk = slot && slot.tankId ? tankById(slot.tankId) : null;
+      if (!slot || !tk) return;
+      const h = view.plan.header || {};
+      const fwd = Number(h.draftFwd), aft = Number(h.draftAft);
+      const heel = h.heel === '' || h.heel == null ? 0 : Number(h.heel);
+      window.TankDoubleInterpManual.open({
+        tankId: tk.id,
+        tankName: tk.name,
+        initialVolumeM3: slot.currentSoundingMM === '' || slot.currentSoundingMM == null ? null : Number(slot.currentSoundingMM),
+        trimByStern: Number.isFinite(fwd) && Number.isFinite(aft) ? (aft - fwd) : 0,
+        heelDeg: Number.isFinite(heel) ? heel : 0,
+        onApply: (m3) => {
+          slot.currentSoundingMM = Number(m3);
+          const tc = Core.tankClock(slot);
+          slot.currentSoundingAtElapsedH = tc.elapsedHours || 0;
+          slot.currentSoundingAt = new Date().toISOString();
+          const box = document.querySelector(`input[data-slot="${i}"][data-field="currentSoundingMM"]`);
+          if (box) box.value = String(m3);
+          refreshPlan();
+        },
+      });
+    });
     wrap.addEventListener('input', (e) => {
       const el = e.target;
       if (el.dataset.slot != null && el.dataset.field) {
@@ -1665,6 +1712,9 @@ const BunkerReports = (() => {
             const tc = Core.tankClock(slot);
             slot.currentSoundingAtElapsedH = tc.elapsedHours || 0;
             slot.currentSoundingAt = new Date().toISOString();
+          } else if (el.dataset.field === 'startingUllageMM' || el.dataset.field === 'targetUllageMM') {
+            /* Typed in cm by the chief for a manual tank; kept in mm like every other level. */
+            slot[el.dataset.field] = el.value === '' ? '' : FRCore.cmToMm(el.value);
           } else {
             slot[el.dataset.field] = el.value;
           }
@@ -2045,7 +2095,7 @@ const BunkerReports = (() => {
       <td>${pct(r.targetVolumePercent)}</td>
       <td>${n(FRCore.mmToCm(r.targetUllageMM), 1)}</td>
       <td>${n(r.planAddMT, 3)}</td>
-      <td>${n(FRCore.mmToCm(r.currentSoundingMM), 1)}</td>
+      <td>${r.manualGauge ? '—' : n(FRCore.mmToCm(r.currentSoundingMM), 1)}</td>
       <td>${pct(r.currentVolumePercent)}</td>
       <td>${n(r.currentVolumeM3, 3)}</td>
       <td class="fr-print-weight">${n(r.quantityAddMT, 3)}</td>
@@ -2141,7 +2191,7 @@ const BunkerReports = (() => {
       <td>${n(FRCore.mmToCm(r.startingUllageMM), 1)}</td><td>${n(r.startingRobM3, 3)}</td>
       <td>${n(r.freeM3At85, 3)}</td><td>${n(r.targetVolumeM3, 3)}</td><td>${pct(r.targetVolumePercent)}</td>
       <td>${n(FRCore.mmToCm(r.targetUllageMM), 1)}</td><td>${n(r.planAddMT, 3)}</td>
-      <td>${n(FRCore.mmToCm(r.currentSoundingMM), 1)}</td><td>${pct(r.currentVolumePercent)}</td>
+      <td>${r.manualGauge ? '—' : n(FRCore.mmToCm(r.currentSoundingMM), 1)}</td><td>${pct(r.currentVolumePercent)}</td>
       <td>${n(r.currentVolumeM3, 3)}</td><td class="fr-print-weight">${n(r.quantityAddMT, 3)}</td>
       <td>${esc((Core.TANK_STATES.find((st) => st.id === r.status) || {}).label || '')}</td>
       <td>${esc(r.clock.elapsedLabel)}</td>
@@ -2441,6 +2491,7 @@ const BunkerReports = (() => {
       ${afterHeaderPanel()}
       ${c.sections.map((s) => UI.sheetTableHtml(s, view.after.rows)).join('')}
       ${afterGradesPanel(c)}
+      <div class="form-panel no-print" id="ba-blend-panel" hidden></div>
       <div class="form-panel no-print">
         <details class="saved-reports-fold">
           <summary class="section-title" style="margin-top:0; cursor:pointer;">Saved after-bunkering reports</summary>
@@ -2456,6 +2507,7 @@ const BunkerReports = (() => {
     main.appendChild(wrap);
 
     bindAfterEvents(wrap);
+    bindBlendPanel();
     UI.bindBunkerNav(main);
     hookDraft(wrap, 'bunker-after');
     refreshAfter();
@@ -2556,6 +2608,7 @@ const BunkerReports = (() => {
       `Trim ${c.header.trimLabel} · heel ${c.header.heelLabel} — tables read at trim `
       + `${signed(c.header.trim, 2)} m ${FRCore.trimSense(c.header.trim)}.`);
     UI.paintSectionCells(c.sections);
+    paintBlendPreview(c);
     for (const g of c.grades) {
       set(`[data-ba-grade="${g.id}.addedMT"]`, g.addedMT != null ? `${signed(g.addedMT, 3)}` : '—');
       set(`[data-ba-grade="${g.id}.presentMT"]`, n(g.presentMT, 3, '—'));
@@ -2565,6 +2618,68 @@ const BunkerReports = (() => {
         box.classList.toggle('fr-grade-good', g.addedMT != null && g.addedMT > 0.001);
       }
     }
+  }
+
+  /**
+   * What each tank that took fuel now holds: the old content blended with the delivery, using the delivery notes
+   * on the Summary page. Shown so the figures can be checked before they are filed.
+   */
+  function paintBlendPreview(c) {
+    const host = document.getElementById('ba-blend-panel');
+    if (!host) return;
+    if (typeof TankFuelRegister === 'undefined') { host.hidden = true; return; }
+    let prev = null;
+    try {
+      const summary = (document.getElementById('bs-save') && view.summary) ? view.summary : (bundle().bunkerSummary || {});
+      prev = TankFuelRegister.previewBunkering(bundle(), Core.tankLoadsFromAfter(c), summary);
+    } catch (err) { console.warn('blend preview', err); }
+    const rows = prev ? prev.tanks.filter((t) => t.gained) : [];
+    if (!rows.length) { host.hidden = true; host.innerHTML = ''; return; }
+    host.hidden = false;
+    /* Typing in a box repaints this panel; keep the cursor where it was. */
+    const active = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.pf
+      ? { key: document.activeElement.dataset.pf, at: document.activeElement.selectionStart } : null;
+    const f = (v, d) => (v == null ? '—' : n(v, d));
+    const figures = view.after.priorFigures || {};
+    const box = (tankId, field, ph, w) => `<input class="bp-pf" data-pf="${esc(tankId)}.${field}" placeholder="${ph}" style="width:${w}"`
+      + ` value="${esc((figures[tankId] || {})[field] == null ? '' : figures[tankId][field])}">`;
+    host.innerHTML = `<div class="section-title" style="margin-top:0"><span>What each tank holds after this bunkering</span></div>
+      <div class="table-scroll"><table class="fr-table"><thead><tr><th>Tank</th><th>Before (MT)</th><th>Loaded (MT)</th><th>After (MT)</th><th>S (%)</th><th>LCV (kJ/kg)</th><th>ρ @15</th><th>BDN</th><th>Fuel already in the tank</th></tr></thead><tbody>${
+        rows.map((t) => {
+          const typed = t.lots.length && t.lots[0].typed;
+          const wantsFigures = t.priorUnknown || typed;
+          return `<tr><td>${esc(t.tankName || t.tankId)}</td><td>${f(t.beforeMt, 1)}${t.estimatedBefore ? ' est.' : ''}</td><td>${f(t.loadedMt, 1)}</td><td>${f(t.afterMt, 1)}</td>
+          <td>${f(t.result.sulphur, 3)}</td><td>${f(t.result.lcv, 0)}</td><td>${f(t.result.density, 3)}</td>
+          <td>${esc(t.lots.map((l) => (l.numbers || []).join('/')).filter(Boolean).join(' + '))}${t.lots.length > 1 ? ' <i>(blend)</i>' : ''}</td>
+          <td>${wantsFigures
+            ? `${box(t.tankId, 'bdn', 'BDN', '5.5em')} ${box(t.tankId, 'sulphur', 'S %', '4em')} ${box(t.tankId, 'lcv', 'LCV', '5em')} ${box(t.tankId, 'density', 'ρ', '4em')}`
+              + (t.priorUnknown ? '<div class="hint">The fuel already in this tank has no figures on record — type them to get the blend.</div>' : '')
+            : '<span class="hint">on record</span>'}</td></tr>`;
+        }).join('')
+      }</tbody></table></div>
+      <p class="hint">A tank bunkered empty takes the delivery note as it is; a tank that already held fuel is the mass-weighted blend of the old content and the delivery (density by volume).
+        ${prev.hasBdn ? '' : '<b>Enter the delivery notes (sulphur, LCV) on the Summary page to fill the figures.</b>'}
+        ${(prev.notes || []).map((x) => esc(x)).join(' ')}</p>`;
+    if (active) {
+      const el = host.querySelector(`[data-pf="${active.key}"]`);
+      if (el) { el.focus(); try { el.setSelectionRange(active.at, active.at); } catch (_) { /* number-less input */ } }
+    }
+  }
+
+  /** Figures typed for fuel already in a tank are kept with the after-bunkering report. */
+  function bindBlendPanel() {
+    const host = document.getElementById('ba-blend-panel');
+    if (!host || host.dataset.bound) return;
+    host.dataset.bound = '1';
+    host.addEventListener('input', (e) => {
+      const key = e.target.dataset && e.target.dataset.pf;
+      if (!key) return;
+      const [tankId, field] = key.split('.');
+      view.after.priorFigures = view.after.priorFigures || {};
+      view.after.priorFigures[tankId] = { ...(view.after.priorFigures[tankId] || {}), [field]: e.target.value };
+      scheduleDraft('bunker-after');
+      paintBlendPreview(recomputeAfter());
+    });
   }
 
   function bindAfterEvents(wrap) {
@@ -2849,6 +2964,8 @@ const BunkerReports = (() => {
           <input type="number" step="any" data-bdn2="sulphurPercent" value="${esc(f.bdn2.sulphurPercent)}"></label>
         <label class="fr-field"><span>DENSITY @15°</span>
           <input type="number" step="any" data-bdn2="density15" value="${esc(f.bdn2.density15)}"></label>
+        <label class="fr-field"><span>LCV (kJ/kg)</span>
+          <input type="number" step="any" data-bdn2="lcv" value="${esc(f.bdn2.lcv)}" placeholder="net energy"></label>
       </div>
       <div class="bs-quantities">
         <div class="bp-monitor-box"><span>BDN QUANTITY</span><b data-bs2="bdnQuantityMT"></b></div>
@@ -2874,6 +2991,8 @@ const BunkerReports = (() => {
           <input type="number" step="any" data-xbdn="${i}.sulphurPercent" value="${esc(e.sulphurPercent)}"></label>
         <label class="fr-field"><span>DENSITY @15°</span>
           <input type="number" step="any" data-xbdn="${i}.density15" value="${esc(e.density15)}"></label>
+        <label class="fr-field"><span>LCV (kJ/kg)</span>
+          <input type="number" step="any" data-xbdn="${i}.lcv" value="${esc(e.lcv)}" placeholder="net energy"></label>
       </div>
       <div class="bs-quantities">
         <div class="bp-monitor-box"><span>BDN QUANTITY</span><b data-bsx="${i}.bdnQuantityMT"></b></div>
@@ -2936,6 +3055,8 @@ const BunkerReports = (() => {
               <input type="number" step="any" data-bdn="sulphurPercent" value="${esc(f.bdn.sulphurPercent)}"></label>
             <label class="fr-field"><span>DENSITY @15°</span>
               <input type="number" step="any" data-bdn="density15" value="${esc(f.bdn.density15)}"></label>
+            <label class="fr-field"><span>LCV (kJ/kg)</span>
+              <input type="number" step="any" data-bdn="lcv" value="${esc(f.bdn.lcv)}" placeholder="net energy"></label>
           </div>
           <div class="bs-quantities">
             <div class="bp-monitor-box"><span>BDN QUANTITY</span><b data-bs="bdnQuantityMT"></b></div>
@@ -3171,11 +3292,28 @@ const BunkerReports = (() => {
       navigate('bunker-summary');
     };
 
+    /* The tanks' before and after ROB go with the summary, so the tank fuel register can work out what each tank now holds. */
+    const withTankLoads = (form) => {
+      const out = { ...form, bunkeringId: form.bunkeringId || `bk_${Date.now().toString(36)}` };
+      try {
+        const after = bundle().bunkerAfter
+          ? Core.computeAfterBunkering(bundle(), bundle().bunkerAfter, view.conversion) : null;
+        if (after) {
+          const loads = Core.tankLoadsFromAfter(after);
+          if (loads.length) {
+            out.tankLoads = loads;
+            out.loadsTs = out.loadsTs || (after.header && after.header.date
+              ? new Date(`${after.header.date}T${after.header.time || '00:00'}`).toISOString() : new Date().toISOString());
+          }
+        }
+      } catch (err) { console.warn('tank loads not captured', err); }
+      return out;
+    };
     document.getElementById('bs-print-save').onclick = async () => {
       Branding.beginPrintHold();
       try {
         await saveChainPart('bunker-summary', 'bunkerSummary',
-          { ...view.summary, updatedAt: new Date().toISOString() }, { snapshot: true, deferServer: true });
+          withTankLoads({ ...view.summary, updatedAt: new Date().toISOString() }), { snapshot: true, deferServer: true });
         UI.printHtml(summaryPrintPages(recomputeSummary()));
       } catch (err) {
         Branding.endPrintHold();
@@ -3183,7 +3321,7 @@ const BunkerReports = (() => {
       }
     };
     document.getElementById('bs-save').onclick = () => saveChainPart('bunker-summary', 'bunkerSummary',
-      { ...view.summary, updatedAt: new Date().toISOString() }, { snapshot: true });
+      withTankLoads({ ...view.summary, updatedAt: new Date().toISOString() }), { snapshot: true });
     document.getElementById('bs-print-only').onclick = () =>
       UI.printHtml(summaryPrintPages(recomputeSummary()));
     const bsMenu = document.getElementById('bs-menu');
@@ -3306,6 +3444,7 @@ const BunkerReports = (() => {
             <tr><td class="fr-print-name">Quantity</td><td>${n(c.bdn.quantityMT, 3, '—')} MT</td></tr>
             <tr><td class="fr-print-name">Sulphur</td><td>${n(c.bdn.sulphurPercent, 3, '—')} %</td></tr>
             <tr><td class="fr-print-name">Density @15°</td><td>${n(c.bdn.density15, 4, '—')}</td></tr>
+            <tr><td class="fr-print-name">LCV (kJ/kg)</td><td>${n(c.bdn.lcv, 0, '—')}</td></tr>
           </tbody></table>
           <h3 class="fr-print-h3">BDN vs measured</h3>
           <table class="fr-print-table"><tbody>
@@ -3324,6 +3463,7 @@ const BunkerReports = (() => {
             <tr><td class="fr-print-name">Quantity</td><td>${n(c.bdn2.quantityMT, 3, '—')} MT</td></tr>
             <tr><td class="fr-print-name">Sulphur</td><td>${n(c.bdn2.sulphurPercent, 3, '—')} %</td></tr>
             <tr><td class="fr-print-name">Density @15°</td><td>${n(c.bdn2.density15, 4, '—')}</td></tr>
+            <tr><td class="fr-print-name">LCV (kJ/kg)</td><td>${n(c.bdn2.lcv, 0, '—')}</td></tr>
           </tbody></table>
           <h3 class="fr-print-h3">BDN vs measured — ${esc(c.bdn2.label)}</h3>
           <table class="fr-print-table"><tbody>
@@ -3339,6 +3479,7 @@ const BunkerReports = (() => {
             <tr><td class="fr-print-name">Quantity</td><td>${n(b.quantityMT, 3, '—')} MT</td></tr>
             <tr><td class="fr-print-name">Sulphur</td><td>${n(b.sulphurPercent, 3, '—')} %</td></tr>
             <tr><td class="fr-print-name">Density @15°</td><td>${n(b.density15, 4, '—')}</td></tr>
+            <tr><td class="fr-print-name">LCV (kJ/kg)</td><td>${n(b.lcv, 0, '—')}</td></tr>
             <tr><td class="fr-print-name">Received quantity</td><td>${n(c.extraQuantities[i].receivedQuantityMT, 3, '—')} MT${c.extraQuantities[i].gradeTotalMT != null ? ` (all ${esc(b.label)} notes: ${n(c.extraQuantities[i].gradeTotalMT, 3)} MT)` : ''}</td></tr>
             <tr><td class="fr-print-name">Difference</td>
               <td class="fr-print-weight">${c.extraQuantities[i].differenceMT != null ? signed(c.extraQuantities[i].differenceMT, 3) : '—'} MT
