@@ -6448,7 +6448,10 @@ window.addEventListener('message', async (ev) => {
     const rep = FuelReportCore.computeFuelReport(STATE.bundle, form, STATE.conversionTable || null);
     for (const section of rep.sections) {
       for (const row of section.rows) {
-        if (row.weightAirMT != null) out.monitoring.rob[row.tankId] = { mt: row.weightAirMT, grade: row.fuelType, name: row.name };
+        if (row.weightAirMT != null) {
+          const tk = ((STATE.bundle.tanks && STATE.bundle.tanks.fuel) || []).find((x) => x.id === row.tankId);
+          out.monitoring.rob[row.tankId] = { mt: row.weightAirMT, grade: row.fuelType, name: row.name, role: tk && tk.fuelRole ? String(tk.fuelRole).toLowerCase() : '' };
+        }
       }
     }
     const h = (form && form.header) || {};
