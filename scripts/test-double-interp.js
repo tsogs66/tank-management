@@ -186,4 +186,100 @@ assert.strictEqual(FRCore.trimSense(0.004), 'even keel', 'a hair of trim still r
 assert.strictEqual(FRCore.trimLabel(-1.2), '1.20 m by stern', 'the label spells the sense out');
 pass += 5;
 
+
+/* The book's other arrangement, every figure typed by hand: trim and heel are length corrections, then the
+   volume is interpolated between two capacity-table rows. Worked by hand below. */
+{
+  const sounding = [130, 125, 120];          /* cm: high, target, low */
+  const trimAx = [0, 0.5, 1], heelAx = [0, 0.5, 1];
+  /* mm corrections at the two bracketing soundings, upright column then the end column */
+  const trimCorners = [[0, null, 8], [null, null, null], [0, null, 6]];
+  const heelCorners = [[0, null, 4], [null, null, null], [0, null, 2]];
+  const capacity = [{ sounding: 125, volume: 10.000 }, { sounding: 126, volume: 10.080 }];
+  const base = { sounding: 125, trim: 0.5, heel: 0.5, soundingAxis: sounding, trimAxis: trimAx, heelAxis: heelAx,
+    trimGrid: trimCorners, heelGrid: heelCorners, capacity, soundingUnit: 'cm', correctionUnit: 'mm' };
+
+  const a = calc.manualDoubleInterpolation({ ...base, arrangement: 'trimHeelCm' });
+  near(a.trimCorrection, 3.5, 1e-9, 'trim correction at the sounding: (4 + 3) / 2 mm');
+  near(a.heelCorrection, 1.5, 1e-9, 'heel correction at the sounding: (2 + 1) / 2 mm');
+  near(a.correctedSounding, 125.5, 1e-9, 'corrected sounding = 125 cm + 5 mm');
+  near(a.volumeM3, 10.040, 1e-9, 'volume interpolated between the two capacity rows');
+  assert.strictEqual(a.outsideCapacity, false, 'the corrected sounding is inside the rows');
+
+  const b = calc.manualDoubleInterpolation({ ...base, arrangement: 'heelThenTrimCm' });
+  const s1 = 125 + 1.5 / 10;
+  const trimAtS1 = 3 + (s1 - 120) / 10 * 1;      /* 3 mm at 120 cm rising 1 mm per 10 cm */
+  near(b.heelCorrection, 1.5, 1e-9, 'heel first');
+  near(b.trimCorrection, trimAtS1, 1e-9, 'trim read at the heel-corrected sounding');
+  near(b.correctedSounding, s1 + trimAtS1 / 10, 1e-9, 'then trim on top');
+  near(b.volumeM3, 10 + 0.08 * (s1 + trimAtS1 / 10 - 125), 6e-4, 'volume from the capacity rows (the program rounds m³ to 0.001)');
+  assert.ok(b.correctedSounding > a.correctedSounding, 'reading the trim at the heel-corrected length gives a slightly larger correction');
+
+  const cm = calc.manualDoubleInterpolation({ ...base, arrangement: 'trimHeelCm', correctionUnit: 'cm' });
+  near(cm.correctedSounding, 125 + 5, 1e-9, 'the same numbers read as cm move the sounding ten times as far');
+  const mmSnd = calc.manualDoubleInterpolation({ ...base, arrangement: 'trimHeelCm', soundingUnit: 'mm', sounding: 1250,
+    soundingAxis: [1300, 1250, 1200], capacity: [{ sounding: 1250, volume: 10 }, { sounding: 1260, volume: 10.08 }] });
+  near(mmSnd.correctedSounding, 1255, 1e-9, 'a sounding in mm with corrections in mm adds them one for one');
+
+  const noRows = calc.manualDoubleInterpolation({ ...base, arrangement: 'trimHeelCm', capacity: [{ sounding: 125, volume: 10 }, {}] });
+  assert.strictEqual(noRows.volumeM3, null, 'no volume until both capacity rows are typed');
+  near(noRows.correctedSounding, 125.5, 1e-9, 'but the corrected sounding is still shown');
+  const out = calc.manualDoubleInterpolation({ ...base, arrangement: 'trimHeelCm', capacity: [{ sounding: 120, volume: 9 }, { sounding: 121, volume: 9.08 }] });
+  assert.strictEqual(out.outsideCapacity, true, 'rows that do not bracket the corrected sounding are flagged');
+  const blank = calc.manualDoubleInterpolation({ ...base, arrangement: 'trimHeelCm', trimGrid: [[null, null, null], [null, null, null], [null, null, null]], heelGrid: [[null, null, null], [null, null, null], [null, null, null]] });
+  near(blank.correctedSounding, 125, 1e-9, 'blank correction cells are no correction (as in the volume arrangement)');
+  near(blank.volumeM3, 10.0, 1e-9, 'so the volume is the capacity-table figure at the sounding as read');
+  /* The two existing arrangements are untouched. */
+  const old = calc.manualDoubleInterpolation({ ...base, arrangement: 'volume', trimGrid: [[400, null, 410], [null, null, null], [390, null, 400]], heelGrid: [[0, null, 1], [null, null, null], [0, null, 1]] });
+  assert.ok(Number.isFinite(old), 'volume arrangement still returns a number');
+  pass += 18;
+}
+
+
+/* Capacity table with corrections, each in the unit the book gives it. Worked by hand. */
+{
+  const sounding = [130, 125, 120];
+  const axisT = [0, 0.5, 1], axisH = [0, 0.5, 1];
+  const blank = [[null, null, null], [null, null, null], [null, null, null]];
+  const corners = (hi1, lo1) => [[0, null, hi1], [null, null, null], [0, null, lo1]];
+  const cap = [{ sounding: 125, volume: 10.000 }, { sounding: 126, volume: 10.080 }];
+  const base = { sounding: 125, trim: 0.5, heel: 0.5, soundingAxis: sounding, trimAxis: axisT, heelAxis: axisH,
+    capacity: cap, soundingUnit: 'cm', correctionUnit: 'mm', arrangement: 'capacityCorr' };
+
+  /* trim 0.8 / 0.6 m³ and heel 0.4 / 0.2 m³ at the bracketing soundings: 0.35 and 0.15 at the target */
+  const vv = calc.manualDoubleInterpolation({ ...base, trimKind: 'volume', heelKind: 'volume', trimGrid: corners(0.8, 0.6), heelGrid: corners(0.4, 0.2) });
+  near(vv.trimCorrection, 0.35, 1e-9, 'trim m³ correction at the sounding');
+  near(vv.heelCorrection, 0.15, 1e-9, 'heel m³ correction at the sounding');
+  near(vv.baseVolumeM3, 10.000, 1e-9, 'capacity-table volume at the sounding as read');
+  near(vv.volumeM3, 10.5, 1e-9, 'volume = capacity volume + trim m³ + heel m³');
+  near(vv.correctedSounding, 125, 1e-9, 'volume corrections leave the sounding alone');
+
+  const mixed = calc.manualDoubleInterpolation({ ...base, trimKind: 'length', heelKind: 'volume', trimGrid: corners(8, 6), heelGrid: corners(0.4, 0.2) });
+  near(mixed.correctedSounding, 125.35, 1e-9, 'a length trim correction (3.5 mm) moves the sounding');
+  near(mixed.baseVolumeM3, 10 + 0.08 * 0.35, 1e-9, 'capacity volume at the corrected sounding');
+  near(mixed.volumeM3, 10.028 + 0.15, 1e-9, 'then the heel m³ is added');
+
+  const lenTogether = calc.manualDoubleInterpolation({ ...base, trimKind: 'length', heelKind: 'length', lengthOrder: 'together', trimGrid: corners(8, 6), heelGrid: corners(4, 2) });
+  const old = calc.manualDoubleInterpolation({ ...base, arrangement: 'trimHeelCm', trimGrid: corners(8, 6), heelGrid: corners(4, 2) });
+  near(lenTogether.volumeM3, old.volumeM3, 1e-12, 'both lengths together is the same as the trim-and-heel method');
+
+  const trimFirst = calc.manualDoubleInterpolation({ ...base, trimKind: 'length', heelKind: 'length', lengthOrder: 'trimFirst', trimGrid: corners(8, 6), heelGrid: corners(4, 2) });
+  const s1 = 125 + 3.5 / 10;
+  const heelAtS1 = 1 + (s1 - 120) / 10 * 1;      /* 1 mm at 120 cm rising 1 mm per 10 cm */
+  near(trimFirst.heelCorrection, heelAtS1, 1e-9, 'trim first: the heel is read at the trim-corrected sounding');
+  near(trimFirst.correctedSounding, s1 + heelAtS1 / 10, 1e-9, 'and added on top');
+  near(trimFirst.volumeM3, 10 + 0.08 * (s1 + heelAtS1 / 10 - 125), 6e-4, 'volume from the capacity rows');
+  const heelFirst = calc.manualDoubleInterpolation({ ...base, trimKind: 'length', heelKind: 'length', lengthOrder: 'heelFirst', trimGrid: corners(8, 6), heelGrid: corners(4, 2) });
+  const h1 = 125 + 1.5 / 10;
+  near(heelFirst.trimCorrection, 3 + (h1 - 120) / 10 * 1, 1e-9, 'heel first: the trim is read at the heel-corrected sounding');
+  assert.notStrictEqual(trimFirst.correctedSounding, heelFirst.correctedSounding, 'the order changes the answer slightly');
+
+  const noRows = calc.manualDoubleInterpolation({ ...base, trimKind: 'volume', heelKind: 'volume', trimGrid: corners(0.8, 0.6), heelGrid: corners(0.4, 0.2), capacity: [{ sounding: 125, volume: 10 }, {}] });
+  assert.strictEqual(noRows.volumeM3, null, 'no volume until both capacity rows are typed');
+  near(noRows.trimCorrection, 0.35, 1e-9, 'but the corrections are still shown');
+  const outside = calc.manualDoubleInterpolation({ ...base, trimKind: 'length', heelKind: 'length', trimGrid: corners(80, 60), heelGrid: corners(40, 20), lengthOrder: 'together' });
+  assert.strictEqual(outside.outsideCapacity, true, 'a correction that carries the sounding out of the typed rows is flagged');
+  pass += 16;
+}
+
 console.log(`double interpolation: ${pass} checks passed`);
