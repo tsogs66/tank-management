@@ -633,9 +633,14 @@ function computeBunkerPlan(bundle, form, conversion) {
     /* The way this row's current sounding is read: the plan's choice, else the tank's own. */
     out.currentMethod = entryMethodFor(plan.soundingEntry, out.startingMethod);
     out.startingReadingEntryMM = convertReading(tank, out.startingReadingMM, out.startingMethod, out.currentMethod);
-    out.startingUllageMM = before && before.trace
-      ? asUllage(tank, before.trace.nativeReading)
-      : null;
+    /* A tank worked by manual (double) interpolation has no table in the program to turn a volume into a level, so
+       its readings are volumes in m³ and its ullages are the chief's own figures, typed in the plan. Showing the
+       volume as an ullage would be wrong by the whole scale. */
+    const manualGauge = typeof usesDirectM3Input === 'function' && usesDirectM3Input(tank);
+    out.manualGauge = manualGauge;
+    out.startingUllageMM = manualGauge
+      ? num(slot.startingUllageMM)
+      : (before && before.trace ? asUllage(tank, before.trace.nativeReading) : null);
     out.startingRobM3 = before ? before.measuredM3 : null;
     out.startingRobMT = before ? before.weightAirMT : null;
     if (before == null || before.measuredM3 == null) {
@@ -647,10 +652,10 @@ function computeBunkerPlan(bundle, form, conversion) {
 
     if (out.targetVolumeM3 != null) {
       out.targetVolumePercent = capacity > 0 ? round((out.targetVolumeM3 / capacity) * 100, 1) : null;
-      const reading = readingForVolume(tank, out.targetVolumeM3, targetCtx);
+      const reading = manualGauge ? null : readingForVolume(tank, out.targetVolumeM3, targetCtx);
       out.targetReadingMM = reading;
-      out.targetUllageMM = reading != null ? asUllage(tank, reading) : null;
-      if (reading == null) out.warnings.push('target volume outside the calibration table');
+      out.targetUllageMM = manualGauge ? num(slot.targetUllageMM) : (reading != null ? asUllage(tank, reading) : null);
+      if (reading == null && !manualGauge) out.warnings.push('target volume outside the calibration table');
       // Tolerate the rounding in a book capacity (463.5 vs 463.476) before crying overfill.
       if (out.targetVolumeM3 > cap85 + fillTolerance(capacity)) {
         out.warnings.push('target is above the 85% filling limit');
@@ -850,7 +855,8 @@ function computeBunkerPlan(bundle, form, conversion) {
       const estVol = Math.min(anchorVol + addedVol, capacity);
       out.estimatedVolumeM3 = round(estVol, 3);
       out.estimatedVolumePercent = round((estVol / capacity) * 100, 1);
-      const estReading = readingForVolume(tank, estVol, ctx);
+      /* No table to turn the projected volume into a level for a manual tank: the volume is what is projected. */
+      const estReading = out.manualGauge ? null : readingForVolume(tank, estVol, ctx);
       out.estimatedReadingMM = estReading;
       out.estimatedUllageMM = estReading != null ? asUllage(tank, estReading) : null;
       out.estimatedSoundingMM = estReading == null ? null

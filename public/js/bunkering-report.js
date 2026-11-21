@@ -890,6 +890,10 @@ const BunkerReports = (() => {
         + group('HFO / VLSFO', keep(heavy, showHeavy))
         + group('MDO / MGO / LSMGO', keep(distillate, showDo));
       const cell = (field) => `<td class="fr-calc" data-bp-cell="${i}.${field}"></td>`;
+      /* An ullage the program works out, or — for a manual-interpolation tank — one the chief types. */
+      const ullageCell = (slotIdx, field, slot) => `<td class="fr-calc"><span data-bp-cell="${slotIdx}.${field}"></span>`
+        + `<input type="number" step="any" class="bp-ull-input" style="width:5.5em" hidden data-slot="${slotIdx}" data-field="${field}" data-bp-ull="${slotIdx}.${field}"`
+        + ` value="${esc(slot[field] === '' || slot[field] == null ? '' : FRCore.mmToCm(slot[field]))}" title="This tank is worked by manual interpolation, so type the ullage yourself (cm)."></td>`;
       const tk = tanks.find((t) => t.id === row.tankId);
       const directM3 = tk && FRCore.usesDirectM3Input && FRCore.usesDirectM3Input(tk);
       const soundDisplay = directM3
@@ -897,13 +901,14 @@ const BunkerReports = (() => {
         : FRCore.formatCm(f.currentSoundingMM);
       return `<tr data-slot="${i}">
         <th class="fr-tank-name"><span class="bp-tank-pick"><span class="bp-seq">${i + 1}.</span><select data-slot="${i}" data-field="tankId">${opts}</select></span></th>
-        ${cell('capacity100M3')}${cell('capacity85M3')}${cell('startingUllageMM')}
+        ${cell('capacity100M3')}${cell('capacity85M3')}${ullageCell(i, 'startingUllageMM', f)}
         ${cell('startingRobM3')}${cell('freeM3At85')}
         <td class="bp-entry"><input type="number" step="any" data-slot="${i}" data-field="targetVolumeM3" value="${esc(f.targetVolumeM3)}"></td>
-        ${cell('targetVolumePercent')}${cell('targetUllageMM')}${cell('planAddMT')}
+        ${cell('targetVolumePercent')}${ullageCell(i, 'targetUllageMM', f)}${cell('planAddMT')}
         <td class="bp-valve" data-bp-valve="${i}"></td>
         <td class="bp-entry bp-sound"><input type="number" step="any" data-slot="${i}" data-field="currentSoundingMM" value="${esc(soundDisplay)}">
-          <span class="bp-method" data-bp-method="${i}"></span></td>
+          <span class="bp-method" data-bp-method="${i}"></span>
+          <button type="button" class="btn ghost small bp-dim-btn" hidden data-bp-dim="${i}" title="Work the volume out by double interpolation">Interp.</button></td>
         ${cell('currentVolumePercent')}${cell('currentVolumeM3')}${cell('quantityAddMT')}
         ${cell('remainingToTargetMT')}
         <td class="fr-calc" data-bp-cell="${i}.etaLabel"></td>
@@ -930,6 +935,10 @@ const BunkerReports = (() => {
           </select></label>
         <span class="hint">Dip or ullage for every tank, or each tank in its own method. Switch at any time during bunkering — the readings already typed are converted, so the levels do not change.</span>
       </div>
+      <div class="hint" id="bp-manual-note" hidden>A tank worked by <b>manual interpolation</b> has no table in the program to turn a
+        volume into a level. For those tanks enter the observed volume in <b>m³</b> in the current column
+        (the <b>Interp.</b> button opens the double interpolation window) and type the starting and target ullage yourself.
+        The volumes, quantities to go and times are worked from the m³ as for any other tank.</div>
       <div class="bp-layout">
         <div class="scroll-x">
           <table class="fr-sheet bp-sheet">
@@ -1478,6 +1487,8 @@ const BunkerReports = (() => {
       : `Trim ${signed(c.header.trim, 2)} m ${FRCore.trimSense(c.header.trim)} · `
         + `density ${n(c.header.density15, 4, '—')} @ ${n(c.header.tempC, 0)} °C`);
 
+    const manualNote = document.getElementById('bp-manual-note');
+    if (manualNote) manualNote.hidden = !c.rows.some((r) => r.tankId && r.manualGauge);
     for (const row of c.rows) {
       const i = row.slot - 1;
       for (const col of PLAN_COLUMNS) {
@@ -1485,6 +1496,14 @@ const BunkerReports = (() => {
           row.warnings.length ? row.warnings.join(' · ') : '');
       }
       set(`[data-bp-cell="${i}.etaLabel"]`, row.tankId ? row.etaLabel : '');
+      /* Manual-interpolation tank: the two ullages are typed, and the interpolation window is offered. */
+      document.querySelectorAll(`[data-bp-ull^="${i}."]`).forEach((inp) => { inp.hidden = !row.manualGauge; });
+      ['startingUllageMM', 'targetUllageMM'].forEach((f) => {
+        const span = document.querySelector(`[data-bp-cell="${i}.${f}"]`);
+        if (span) span.hidden = !!row.manualGauge;
+      });
+      const dimBtn = document.querySelector(`[data-bp-dim="${i}"]`);
+      if (dimBtn) dimBtn.hidden = !row.manualGauge;
       paintSoundingMethod(i, row);
       paintValveCell(i, row);
       const tr = document.querySelector(`tr[data-slot="${i}"]`);
@@ -1649,6 +1668,34 @@ const BunkerReports = (() => {
   }
 
   function bindPlanEvents(wrap) {
+    /* A manual-interpolation tank: work its volume out in the double interpolation window, with the plan's drafts. */
+    wrap.addEventListener('click', (e) => {
+      const btn = e.target.closest && e.target.closest('[data-bp-dim]');
+      if (!btn || !window.TankDoubleInterpManual) return;
+      const i = Number(btn.dataset.bpDim);
+      const slot = view.plan.sequence[i];
+      const tk = slot && slot.tankId ? tankById(slot.tankId) : null;
+      if (!slot || !tk) return;
+      const h = view.plan.header || {};
+      const fwd = Number(h.draftFwd), aft = Number(h.draftAft);
+      const heel = h.heel === '' || h.heel == null ? 0 : Number(h.heel);
+      window.TankDoubleInterpManual.open({
+        tankId: tk.id,
+        tankName: tk.name,
+        initialVolumeM3: slot.currentSoundingMM === '' || slot.currentSoundingMM == null ? null : Number(slot.currentSoundingMM),
+        trimByStern: Number.isFinite(fwd) && Number.isFinite(aft) ? (aft - fwd) : 0,
+        heelDeg: Number.isFinite(heel) ? heel : 0,
+        onApply: (m3) => {
+          slot.currentSoundingMM = Number(m3);
+          const tc = Core.tankClock(slot);
+          slot.currentSoundingAtElapsedH = tc.elapsedHours || 0;
+          slot.currentSoundingAt = new Date().toISOString();
+          const box = document.querySelector(`input[data-slot="${i}"][data-field="currentSoundingMM"]`);
+          if (box) box.value = String(m3);
+          refreshPlan();
+        },
+      });
+    });
     wrap.addEventListener('input', (e) => {
       const el = e.target;
       if (el.dataset.slot != null && el.dataset.field) {
@@ -1665,6 +1712,9 @@ const BunkerReports = (() => {
             const tc = Core.tankClock(slot);
             slot.currentSoundingAtElapsedH = tc.elapsedHours || 0;
             slot.currentSoundingAt = new Date().toISOString();
+          } else if (el.dataset.field === 'startingUllageMM' || el.dataset.field === 'targetUllageMM') {
+            /* Typed in cm by the chief for a manual tank; kept in mm like every other level. */
+            slot[el.dataset.field] = el.value === '' ? '' : FRCore.cmToMm(el.value);
           } else {
             slot[el.dataset.field] = el.value;
           }
@@ -2045,7 +2095,7 @@ const BunkerReports = (() => {
       <td>${pct(r.targetVolumePercent)}</td>
       <td>${n(FRCore.mmToCm(r.targetUllageMM), 1)}</td>
       <td>${n(r.planAddMT, 3)}</td>
-      <td>${n(FRCore.mmToCm(r.currentSoundingMM), 1)}</td>
+      <td>${r.manualGauge ? '—' : n(FRCore.mmToCm(r.currentSoundingMM), 1)}</td>
       <td>${pct(r.currentVolumePercent)}</td>
       <td>${n(r.currentVolumeM3, 3)}</td>
       <td class="fr-print-weight">${n(r.quantityAddMT, 3)}</td>
@@ -2141,7 +2191,7 @@ const BunkerReports = (() => {
       <td>${n(FRCore.mmToCm(r.startingUllageMM), 1)}</td><td>${n(r.startingRobM3, 3)}</td>
       <td>${n(r.freeM3At85, 3)}</td><td>${n(r.targetVolumeM3, 3)}</td><td>${pct(r.targetVolumePercent)}</td>
       <td>${n(FRCore.mmToCm(r.targetUllageMM), 1)}</td><td>${n(r.planAddMT, 3)}</td>
-      <td>${n(FRCore.mmToCm(r.currentSoundingMM), 1)}</td><td>${pct(r.currentVolumePercent)}</td>
+      <td>${r.manualGauge ? '—' : n(FRCore.mmToCm(r.currentSoundingMM), 1)}</td><td>${pct(r.currentVolumePercent)}</td>
       <td>${n(r.currentVolumeM3, 3)}</td><td class="fr-print-weight">${n(r.quantityAddMT, 3)}</td>
       <td>${esc((Core.TANK_STATES.find((st) => st.id === r.status) || {}).label || '')}</td>
       <td>${esc(r.clock.elapsedLabel)}</td>
