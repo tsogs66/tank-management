@@ -63,7 +63,7 @@
     });
   }
 
-  const METHODS = ['volume', 'sounding', 'trimHeelCm', 'heelThenTrimCm'];
+  const METHODS = ['volume', 'sounding', 'trimHeelCm', 'heelThenTrimCm', 'capacityCorr'];
 
   /** Which of the book's arrangements is being worked. */
   function method() {
@@ -71,6 +71,13 @@
     return el && METHODS.includes(el.value) ? el.value : 'volume';
   }
   function isCmMethod(m) { return m === 'trimHeelCm' || m === 'heelThenTrimCm'; }
+  /** Methods that read the volume from the typed capacity-table rows. */
+  function usesCapacity(m) { return isCmMethod(m) || m === 'capacityCorr'; }
+
+  function readCorrOpts() {
+    const v = (id, fb) => document.getElementById(id)?.value || fb;
+    return { trimKind: v('dim-trim-kind', 'length'), heelKind: v('dim-heel-kind', 'length'), lengthOrder: v('dim-length-order', 'together') };
+  }
 
   function readCapacity() {
     const v = (id) => num(document.getElementById(id)?.value, null);
@@ -84,6 +91,14 @@
   function rememberMethod(tankId, m) {
     if (!tankId) return;
     try { localStorage.setItem(memKey(tankId), m); } catch (_) { /* private mode */ }
+  }
+  function rememberOpts(tankId) {
+    if (!tankId) return;
+    try { localStorage.setItem(`tankDimOpts:${tankId}`, JSON.stringify(readCorrOpts())); } catch (_) { /* private mode */ }
+  }
+  function recallOpts(tankId) {
+    if (!tankId) return null;
+    try { return JSON.parse(localStorage.getItem(`tankDimOpts:${tankId}`) || 'null'); } catch (_) { return null; }
   }
   function recallMethod(tankId) {
     if (!tankId) return null;
@@ -111,16 +126,23 @@
 
   function updateMethodLabels(mode) {
     const cm = isCmMethod(mode);
+    const cc = mode === 'capacityCorr';
+    const opts = readCorrOpts();
     const unit = document.getElementById('dim-corr-unit')?.value || 'mm';
+    const trimLen = cm || (cc && opts.trimKind === 'length');
+    const heelLen = cm || (cc && opts.heelKind === 'length');
     const trimTitle = document.getElementById('dim-trim-section-title');
     if (trimTitle) {
-      trimTitle.textContent = cm ? `TRIM CORRECTION (${unit} on sounding)` : 'TRIM CORRECTION (volume m³)';
+      trimTitle.textContent = cc
+        ? (trimLen ? `TRIM CORRECTION (${unit} on sounding)` : 'TRIM CORRECTION (m³ added to volume)')
+        : (cm ? `TRIM CORRECTION (${unit} on sounding)` : 'TRIM CORRECTION (volume m³)');
     }
     const title = document.getElementById('dim-heel-section-title');
     if (title) {
-      title.textContent = mode === 'volume'
-        ? 'HEELING CORRECTION (m³ to add to volume)'
-        : `HEELING CORRECTION (${mode === 'sounding' ? 'cm' : unit} on sounding)`;
+      title.textContent = cc
+        ? (heelLen ? `HEELING CORRECTION (${unit} on sounding)` : 'HEELING CORRECTION (m³ added to volume)')
+        : (mode === 'volume' ? 'HEELING CORRECTION (m³ to add to volume)'
+          : `HEELING CORRECTION (${mode === 'sounding' ? 'cm' : unit} on sounding)`);
     }
     const hint = document.getElementById('dim-heel-mode-hint');
     if (hint) {
@@ -129,12 +151,17 @@
         sounding: 'Heel table is in cm: the interpolated correction is added to the target sounding, then the trim volume (m³) is read at that length.',
         trimHeelCm: 'Trim and heel are length corrections read at the sounding as read. Corrected sounding = sounding + trim + heel; the volume is then interpolated between the two capacity-table rows typed below.',
         heelThenTrimCm: 'Heel is applied to the sounding first; the trim correction is then read at the heel-corrected sounding. The volume is interpolated between the two capacity-table rows typed below.',
+        capacityCorr: 'The volume comes from the two capacity-table rows typed below. Say whether each correction table is a length (moves the sounding first) or a volume in m³ (read at the sounding as read and added to the volume).',
       }[mode] || '';
     }
     const cap = document.getElementById('dim-capacity-block');
-    if (cap) cap.hidden = !cm;
+    if (cap) cap.hidden = !usesCapacity(mode);
     const units = document.getElementById('dim-units-row');
-    if (units) units.hidden = !cm;
+    if (units) units.hidden = !(cm || (cc && (trimLen || heelLen)));
+    const copts = document.getElementById('dim-cap-opts');
+    if (copts) copts.hidden = !cc;
+    const ord = document.getElementById('dim-order-field');
+    if (ord) ord.hidden = !(cc && trimLen && heelLen);
   }
 
   function computeResult() {
@@ -171,6 +198,7 @@
       heelGrid,
       trimGrid,
       arrangement: mode,
+      ...readCorrOpts(),
       capacity: readCapacity(),
       soundingUnit: document.getElementById('dim-snd-unit')?.value || 'cm',
       correctionUnit: document.getElementById('dim-corr-unit')?.value || 'mm',
@@ -290,8 +318,18 @@
           Trim and heel length corrections together, then volume from the capacity table</label>
         <label class="dim-radio"><input type="radio" name="dim-heel-mode" value="heelThenTrimCm">
           Heel first, then trim at the corrected sounding, then volume from the capacity table</label>
+        <label class="dim-radio"><input type="radio" name="dim-heel-mode" value="capacityCorr">
+          Capacity table with corrections — each in length or in volume (m³) added to the volume</label>
         <p class="hint" id="dim-heel-mode-hint"></p>
       </fieldset>
+      <div class="dim-targets form-row-3" id="dim-cap-opts" hidden>
+        <label class="fr-field"><span>Trim table is</span>
+          <select id="dim-trim-kind"><option value="length" selected>a length correction</option><option value="volume">a volume correction (m³)</option></select></label>
+        <label class="fr-field"><span>Heel table is</span>
+          <select id="dim-heel-kind"><option value="length" selected>a length correction</option><option value="volume">a volume correction (m³)</option></select></label>
+        <label class="fr-field" id="dim-order-field"><span>Length corrections</span>
+          <select id="dim-length-order"><option value="together" selected>both at the sounding as read</option><option value="trimFirst">trim first, then heel</option><option value="heelFirst">heel first, then trim</option></select></label>
+      </div>
       <div class="dim-targets form-row-3" id="dim-units-row" hidden>
         <label class="fr-field"><span>Sounding unit</span>
           <select id="dim-snd-unit"><option value="cm" selected>cm</option><option value="mm">mm</option><option value="m">m</option></select></label>
@@ -359,13 +397,19 @@
         const lab = document.getElementById('dim-corr-label');
         const det = document.getElementById('dim-corr-detail');
         const cm = isCmMethod(method());
-        if (lab) lab.textContent = cm ? 'Corrected sounding' : 'Sounding after heel';
+        if (lab) lab.textContent = (cm || method() === 'capacityCorr') ? 'Corrected sounding' : 'Sounding after heel';
         if (det) {
           const u = document.getElementById('dim-corr-unit')?.value || 'mm';
+          const ccm = method() === 'capacityCorr';
+          const unitOf = (kind) => (kind === 'volume' ? 'm³' : u);
           det.textContent = show && cm
             ? ` (trim ${fmt(raw.trimCorrection)} ${u}, heel ${fmt(raw.heelCorrection)} ${u})`
               + (raw.outsideCapacity ? ' — outside the two capacity rows: type the rows either side of it' : '')
-            : '';
+            : (show && ccm
+              ? ` (trim ${fmt(raw.trimCorrection)} ${unitOf(raw.trimKind)}, heel ${fmt(raw.heelCorrection)} ${unitOf(raw.heelKind)}`
+                + (raw.baseVolumeM3 != null ? `; capacity volume ${fmt(raw.baseVolumeM3)} m³` : '') + ')'
+                + (raw.outsideCapacity ? ' — outside the two capacity rows: type the rows either side of it' : '')
+              : '');
         }
       }
       return r;
@@ -383,6 +427,13 @@
       inp.addEventListener('change', () => {
         updateMethodLabels(method());
         rememberMethod(o.tankId, method());
+        recalc();
+      });
+    });
+    ['dim-trim-kind', 'dim-heel-kind', 'dim-length-order'].forEach((id) => {
+      document.getElementById(id)?.addEventListener('change', () => {
+        updateMethodLabels(method());
+        rememberOpts(o.tankId);
         recalc();
       });
     });
@@ -415,6 +466,13 @@
     setIfEmpty('dim-target-sounding', '4041');
     applyAxisBracket('dim-trim', trim, true);
     applyAxisBracket('dim-heel', heel, true);
+    const saved = recallOpts(o.tankId);
+    if (saved) {
+      [['dim-trim-kind', saved.trimKind], ['dim-heel-kind', saved.heelKind], ['dim-length-order', saved.lengthOrder]].forEach(([id, val]) => {
+        const el = document.getElementById(id);
+        if (el && val && [...el.options].some((op) => op.value === val)) el.value = val;
+      });
+    }
     const first = recallMethod(o.tankId) || (METHODS.includes(o.method) ? o.method : 'volume');
     const radio = overlay.querySelector(`input[name="dim-heel-mode"][value="${first}"]`);
     if (radio) radio.checked = true;

@@ -931,15 +931,90 @@ function manualCmCorrections(o, arrangement) {
 }
 
 /**
+ * Capacity table with corrections, each in the unit the book gives it (everything typed by the chief):
+ *   - a LENGTH correction (mm/cm/m) moves the sounding before the capacity table is read;
+ *   - a VOLUME correction (m³) is read at the sounding as the book is entered and added to the volume.
+ * The base volume is interpolated between the two capacity-table rows typed from the book, at the corrected sounding.
+ * When both corrections are lengths, o.lengthOrder says how they are applied:
+ *   'together'  — both read at the sounding as read, then added;   'trimFirst' / 'heelFirst' — the second is
+ *   read at the sounding the first has already moved.
+ * o.trimKind / o.heelKind: 'length' (default) or 'volume'.
+ */
+function manualCapacityCorrections(o) {
+  const heelCorners = excelQuadrantCornersFromGrid(o.heelGrid) || o.heelGrid;
+  const trimCorners = excelQuadrantCornersFromGrid(o.trimGrid) || o.trimGrid;
+  const heelFilled = buildExcelQuadrantGrid(o.soundingAxis, o.heelAxis, heelCorners);
+  const trimFilled = buildExcelQuadrantGrid(o.soundingAxis, o.trimAxis, trimCorners);
+  if (!heelFilled || !trimFilled) return null;
+  const trimKind = o.trimKind === 'volume' ? 'volume' : 'length';
+  const heelKind = o.heelKind === 'volume' ? 'volume' : 'length';
+  const toSounding = (MANUAL_UNIT_CM[o.correctionUnit] || MANUAL_UNIT_CM.mm) / (MANUAL_UNIT_CM[o.soundingUnit] || MANUAL_UNIT_CM.cm);
+  const S = Number(o.sounding);
+  const at = (grid, axis, y, x) => bilinearGridInterp(o.soundingAxis, axis, grid, y, x);
+  const trimAt = (y) => at(trimFilled, o.trimAxis, y, o.trim);
+  const heelAt = (y) => at(heelFilled, o.heelAxis, y, o.heel);
+
+  /* Volume corrections are read at the sounding as read. */
+  const trimVol = trimKind === 'volume' ? trimAt(S) : null;
+  const heelVol = heelKind === 'volume' ? heelAt(S) : null;
+  if ((trimKind === 'volume' && trimVol == null) || (heelKind === 'volume' && heelVol == null)) return null;
+
+  /* Length corrections move the sounding. */
+  let corrected = S, trimLen = null, heelLen = null;
+  const order = ['trimFirst', 'heelFirst'].includes(o.lengthOrder) ? o.lengthOrder : 'together';
+  if (trimKind === 'length' && heelKind === 'length' && order !== 'together') {
+    if (order === 'trimFirst') {
+      trimLen = trimAt(S);
+      if (trimLen == null) return null;
+      const s1 = S + trimLen * toSounding;
+      heelLen = heelAt(s1);
+      if (heelLen == null) return null;
+      corrected = s1 + heelLen * toSounding;
+    } else {
+      heelLen = heelAt(S);
+      if (heelLen == null) return null;
+      const s1 = S + heelLen * toSounding;
+      trimLen = trimAt(s1);
+      if (trimLen == null) return null;
+      corrected = s1 + trimLen * toSounding;
+    }
+  } else {
+    if (trimKind === 'length') { trimLen = trimAt(S); if (trimLen == null) return null; }
+    if (heelKind === 'length') { heelLen = heelAt(S); if (heelLen == null) return null; }
+    corrected = S + ((trimLen || 0) + (heelLen || 0)) * toSounding;
+  }
+
+  const rows = Array.isArray(o.capacity) ? o.capacity : [];
+  const a = rows[0], b = rows[1];
+  const ok = (r) => r && Number.isFinite(Number(r.sounding)) && Number.isFinite(Number(r.volume));
+  let baseVolume = null, outsideCapacity = false;
+  if (ok(a) && ok(b) && Number(a.sounding) !== Number(b.sounding)) {
+    baseVolume = linearInterpAxis(corrected, a.sounding, b.sounding, a.volume, b.volume);
+    const lo = Math.min(Number(a.sounding), Number(b.sounding));
+    const hi = Math.max(Number(a.sounding), Number(b.sounding));
+    outsideCapacity = corrected < lo - 1e-9 || corrected > hi + 1e-9;
+  }
+  const volumeM3 = baseVolume == null ? null : Math.round((baseVolume + (trimVol || 0) + (heelVol || 0)) * 1000) / 1000;
+  return {
+    volumeM3, baseVolumeM3: baseVolume == null ? null : Math.round(baseVolume * 1000) / 1000,
+    trimKind, heelKind,
+    trimCorrection: trimKind === 'length' ? trimLen : trimVol,
+    heelCorrection: heelKind === 'length' ? heelLen : heelVol,
+    correctedSounding: corrected, outsideCapacity, arrangement: 'capacityCorr',
+  };
+}
+
+/**
  * Workbook-style manual double interpolation.
- * @param {'volume'|'sounding'|'trimHeelCm'|'heelThenTrimCm'} [opts.arrangement]
+ * @param {'volume'|'sounding'|'trimHeelCm'|'heelThenTrimCm'|'capacityCorr'} [opts.arrangement]
  * @param {'volume'|'sounding'} [opts.heelMode] — older form of the first two arrangements
  */
 function manualDoubleInterpolation(opts) {
   const o = opts || {};
-  const arrangement = ['volume', 'sounding', 'trimHeelCm', 'heelThenTrimCm'].includes(o.arrangement)
+  const arrangement = ['volume', 'sounding', 'trimHeelCm', 'heelThenTrimCm', 'capacityCorr'].includes(o.arrangement)
     ? o.arrangement : (o.heelMode === 'sounding' ? 'sounding' : 'volume');
   if (arrangement === 'trimHeelCm' || arrangement === 'heelThenTrimCm') return manualCmCorrections(o, arrangement);
+  if (arrangement === 'capacityCorr') return manualCapacityCorrections(o);
   const heelMode = arrangement === 'sounding' ? 'sounding' : 'volume';
   const heelCorners = excelQuadrantCornersFromGrid(o.heelGrid) || o.heelGrid;
   const trimCorners = excelQuadrantCornersFromGrid(o.trimGrid) || o.trimGrid;
