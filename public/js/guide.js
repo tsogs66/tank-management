@@ -611,6 +611,29 @@
         "A wrong figure: retype it in the same box. Entries already saved keep the figure they were saved with; open the entry, choose the tank again and press Update Entry to refresh it.",
         "A figure typed as 40.5 when you meant 40 500 is the same thing: both are stored as 40 500 kJ/kg."
 ]
+    },
+    {
+      group: "Bunkering",
+      q: "Two fuels came together on one BDN. How do I record the hose and pump times of the second fuel?",
+      purpose: "When one barge from one supplier delivers two fuels in one transaction (for example VLSFO and LSMGO on one BDN), each fuel goes through its own hose and its own pump run. The report keeps a second set of hose and pump times for the second fuel, with its own pumping time and rate. Alongside and cast off stay the ship's, once.",
+      steps: [
+        "Open Bunker Summary. Under Times, fill alongside, connect, pump start, pump stop, disconnect and cast off for the first fuel.",
+        "Press + Add second fuel (VLSFO with LSMGO…) in the bunker details. Choose the grade of the second fuel and type its delivery note: BDN number, quantity, sulphur, density and LCV.",
+        "A second block appears under Times: Times — second fuel, with its own CONNECT, PUMP START, PUMP STOP and DISCONNECT. Type the date and time of each for the second fuel.",
+        "Under each block a line shows the pumping time, the hose-connected time (second fuel) and the average rate once the soundings after bunkering are in. If a stop is before its start, the line says so: check the times.",
+        "PRINT & SAVE prints the first fuel's times, then Times — second fuel with the same four events and its pumping time and hose time.",
+        "A third or later delivery note is added with + Add extra BDN. It has no separate times: use the second-fuel block for the other grade."
+],
+      buttons: [
+        "+ Add second fuel — gives the second grade its delivery note and its own hose and pump times",
+        "Times — second fuel — CONNECT, PUMP START, PUMP STOP, DISCONNECT",
+        "Remove second fuel — removes the second note and its times from this report"
+],
+      undo: [
+        "A wrong time: retype it; the pumping time and rate are recalculated.",
+        "Remove second fuel takes the second grade and its times off the report. Adding it again starts with empty times.",
+        "A summary saved before this change has no second times; open it, add the second fuel, and fill them in."
+]
     }
   ];
 
