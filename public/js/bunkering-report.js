@@ -2890,6 +2890,12 @@ const BunkerReports = (() => {
         <input type="date" data-event="${e.id}.date" value="${esc(f.events[e.id].date)}">
         <input type="time" data-event="${e.id}.time" value="${esc(f.events[e.id].time)}">
       </div>`).join('');
+    const eventRows2 = f.bdn2 ? Core.SUMMARY_LINE_EVENTS.map((e) => `
+      <div class="bs-event">
+        <span>${esc(e.label)}</span>
+        <input type="date" data-event2="${e.id}.date" value="${esc(((f.events2 || {})[e.id] || {}).date || '')}">
+        <input type="time" data-event2="${e.id}.time" value="${esc(((f.events2 || {})[e.id] || {}).time || '')}">
+      </div>`).join('') : '';
     const conditions = Core.SHIP_CONDITIONS.map((s) => `
       <label class="bs-check"><input type="radio" name="bs-condition" value="${s.id}"
         ${f.shipCondition === s.id ? 'checked' : ''}> ${esc(s.label)}</label>`).join('');
@@ -2912,6 +2918,9 @@ const BunkerReports = (() => {
           <div class="section-title">Times</div>
           <div class="bs-events">${eventRows}</div>
           <div class="hint" data-bs="timing"></div>
+          ${f.bdn2 ? `<div class="section-title">Times — second fuel (${esc((FRCore.FUEL_TYPES.find((t) => t.id === f.bdn2.fuelType) || {}).label || 'second fuel')}, its own hose and pump)</div>
+          <div class="bs-events">${eventRows2}</div>
+          <div class="hint" data-bs="timing2"></div>` : ''}
         </div>
         <div>
           <div class="section-title" style="margin-top:0">Delivery</div>
@@ -3139,6 +3148,12 @@ const BunkerReports = (() => {
       + (c.timing.averageRateMTPerHour != null
         ? ` · average rate ${n(c.timing.averageRateMTPerHour, 1)} MT/h` : '')
       + ((c.timing.warnings || []).length ? ` · ${c.timing.warnings.join(' ')}` : ''));
+    const t2 = c.timing.second;
+    if (t2) {
+      set('[data-bs="timing2"]', `${t2.fuelLabel}: pumping ${t2.pumpingLabel} · hose connected ${t2.hoseLabel}`
+        + (t2.averageRateMTPerHour != null ? ` · average rate ${n(t2.averageRateMTPerHour, 1)} MT/h` : '')
+        + ((t2.warnings || []).length ? ` · ${t2.warnings.join(' ')}` : ''));
+    }
   }
 
   function renderBdnPhotoPreview() {
@@ -3230,6 +3245,11 @@ const BunkerReports = (() => {
       } else if (el.dataset.event) {
         const [id, field] = el.dataset.event.split('.');
         view.summary.events[id][field] = el.value;
+      } else if (el.dataset.event2) {
+        const [id, field] = el.dataset.event2.split('.');
+        if (!view.summary.events2) view.summary.events2 = {};
+        if (!view.summary.events2[id]) view.summary.events2[id] = { date: '', time: '' };
+        view.summary.events2[id][field] = el.value;
       } else if (el.dataset.lube) {
         view.summary.lubes[el.dataset.lube] = el.value;
       } else if (el.dataset.bdn) {
@@ -3406,6 +3426,12 @@ const BunkerReports = (() => {
         <td>${esc(v.date || '—')}</td><td>${esc(v.time || '—')}</td></tr>`;
     }).join('');
 
+    const eventRows2 = (c.events2 && c.bdn2) ? (c.lineEventLabels || []).map((e) => {
+      const v = c.events2[e.id] || {};
+      return `<tr><td class="fr-print-name">${esc(e.label)}</td>
+        <td>${esc(v.date || '—')}</td><td>${esc(v.time || '—')}</td></tr>`;
+    }).join('') : '';
+
     const lubeRows = FRCore.LUBE_FIELDS.map((l) => `<tr>
       <td class="fr-print-name">${esc(l.label)}</td>
       <td>${n(c.lubes[l.id], 2, '—')}</td>
@@ -3434,6 +3460,12 @@ const BunkerReports = (() => {
             <thead><tr><th>Event</th><th>Date</th><th>Time</th></tr></thead>
             <tbody>${eventRows}</tbody>
           </table>
+          ${c.events2 && c.bdn2 ? `<h3 class="fr-print-h3">Times — second fuel (${esc(c.bdn2.label)})</h3>
+          <table class="fr-print-table">
+            <thead><tr><th>Event</th><th>Date</th><th>Time</th></tr></thead>
+            <tbody>${eventRows2}</tbody>
+          </table>
+          ${c.timing.second ? `<p class="hint" style="font-size:11px;margin:4px 0 0;">${esc(c.bdn2.label)}: pumping ${esc(c.timing.second.pumpingLabel)}, hose connected ${esc(c.timing.second.hoseLabel)}${c.timing.second.averageRateMTPerHour != null ? `, average rate ${n(c.timing.second.averageRateMTPerHour, 1, '—')} MT/h` : ''}.</p>` : ''}` : ''}
           <h3 class="fr-print-h3">Lubes remaining onboard</h3>
           <table class="fr-print-table"><tbody>${lubeRows}</tbody></table>
         </div>

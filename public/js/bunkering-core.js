@@ -57,6 +57,10 @@ const SUMMARY_EVENTS = [
   { id: 'castOff', label: 'CAST OFF' },
 ];
 
+/** A second fuel delivered by the same barge in the same transaction (VLSFO with LSMGO on one BDN) goes through its own hose
+ *  and its own pump run, so it has its own connect, pump start, pump stop and disconnect. Alongside and cast off are the ship's. */
+const SUMMARY_LINE_EVENTS = SUMMARY_EVENTS.filter((e) => ['connect', 'pumpStart', 'pumpStop', 'disconnect'].includes(e.id));
+
 /**
  * Ways of spreading a delivery over the tanks, as on the old bunkering page.
  * These fill the plan sequence with targets; nothing is written to the tanks
@@ -1413,11 +1417,14 @@ function emptySummary(bundle) {
   const voyage = (bundle && bundle.voyage) || {};
   const events = {};
   for (const e of SUMMARY_EVENTS) events[e.id] = { date: '', time: '' };
+  const events2 = {};
+  for (const e of SUMMARY_LINE_EVENTS) events2[e.id] = { date: '', time: '' };
   return {
     voyageNo: voyage.voyageNo || '',
     date: voyage.date || new Date().toISOString().slice(0, 10),
     port: voyage.port || '',
     events,
+    events2,
     bargeName: '',
     supplier: '',
     fuelGrade: '',
@@ -1440,10 +1447,15 @@ function normalizeSummary(bundle, form) {
   for (const e of SUMMARY_EVENTS) {
     events[e.id] = { ...base.events[e.id], ...((src.events || {})[e.id] || {}) };
   }
+  const events2 = {};
+  for (const e of SUMMARY_LINE_EVENTS) {
+    events2[e.id] = { ...base.events2[e.id], ...((src.events2 || {})[e.id] || {}) };
+  }
   return {
     ...base,
     ...src,
     events,
+    events2,
     lubes: { ...base.lubes, ...(src.lubes || {}) },
     bdn: { ...base.bdn, ...(src.bdn || {}) },
     /* A delivery through two hoses has a second delivery note, for the distillate. */
@@ -1528,6 +1540,17 @@ function computeBunkerSummary(bundle, form, after, conversion) {
   if (rawAlongside != null && rawAlongside < 0) timingWarnings.push('Cast off is before alongside — check the times.');
   const pumpingHours = rawPumping != null && rawPumping >= 0 ? rawPumping : null;
   const alongsideHours = rawAlongside != null && rawAlongside >= 0 ? rawAlongside : null;
+  /* The second fuel of the same delivery has its own hose and pump times. */
+  let second = null;
+  if (summary.bdn2) {
+    const ev2 = summary.events2;
+    const rawPump2 = eventGapHours(ev2.pumpStart, ev2.pumpStop);
+    const rawHose2 = eventGapHours(ev2.connect, ev2.disconnect);
+    const warn2 = [];
+    if (rawPump2 != null && rawPump2 < 0) warn2.push('Second fuel: pump stop is before pump start — check the times.');
+    if (rawHose2 != null && rawHose2 < 0) warn2.push('Second fuel: disconnect is before connect — check the times.');
+    second = { events: ev2, rawPump2, rawHose2, warnings: warn2 };
+  }
 
   /* The BDN can only be reconciled once the tanks have been sounded. Until then
      there is no measured figure, and the difference is unknown — not zero, and
@@ -1597,7 +1620,9 @@ function computeBunkerSummary(bundle, form, after, conversion) {
     date: summary.date,
     port: summary.port,
     events: summary.events,
+    events2: summary.bdn2 ? summary.events2 : null,
     eventLabels: SUMMARY_EVENTS,
+    lineEventLabels: SUMMARY_LINE_EVENTS,
     bargeName: summary.bargeName,
     supplier: summary.supplier,
     fuelGrade: summary.fuelGrade,
@@ -1645,6 +1670,20 @@ function computeBunkerSummary(bundle, form, after, conversion) {
       averageRateMTPerHour: pumpingHours > 0 && receivedQuantity != null
         ? round(receivedQuantity / pumpingHours, 2)
         : null,
+      second: second ? (() => {
+        const pump = second.rawPump2 != null && second.rawPump2 >= 0 ? second.rawPump2 : null;
+        const hose = second.rawHose2 != null && second.rawHose2 >= 0 ? second.rawHose2 : null;
+        const recv2 = quantities2 ? quantities2.receivedQuantityMT : null;
+        return {
+          fuelLabel: bdn2 ? bdn2.label : '',
+          warnings: second.warnings,
+          pumpingHours: pump,
+          pumpingLabel: pump != null ? hoursLabel(pump) : '—',
+          hoseHours: hose,
+          hoseLabel: hose != null ? hoursLabel(hose) : '—',
+          averageRateMTPerHour: pump > 0 && recv2 != null ? round(recv2 / pump, 2) : null,
+        };
+      })() : null,
     },
     tanksAfter,
     after: afterComputed,
@@ -1796,6 +1835,7 @@ return {
   pumpingClock,
   SHIP_CONDITIONS,
   SUMMARY_EVENTS,
+  SUMMARY_LINE_EVENTS,
   COMMON_FUEL_GRADES,
   readingForVolume,
   asUllage,
