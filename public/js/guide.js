@@ -509,6 +509,87 @@
       undo: [
         "Printing never changes the record. A Save & Print has already saved it before the print window opens."
 ]
+    },
+    {
+      group: "Bunkering",
+      q: "How do I record the sulphur, LCV and density of a bunkering, tank by tank?",
+      purpose: "The delivery note (BDN) gives the sulphur, LCV and density of what was delivered. Tank Chief keeps them for each tank, so Voyage Chief can use the LCV of the fuel actually burned. A tank bunkered empty takes the delivery note as it is; a tank that already held fuel gets the mass-weighted blend of the old fuel and the delivery (density by volume).",
+      steps: [
+        "After the delivery, open Bunker Summary and enter the delivery note: the BDN number, grade, quantity, density, sulphur and LCV.",
+        "Open Bunkering (the survey after delivery). The table lists each tank with Before (MT), Loaded (MT) and After (MT), and the resulting S, LCV, ρ and BDN.",
+        "In the last column, a tank that already held fuel with no figures on record shows boxes for BDN, S %, LCV and ρ. Type the figures of the fuel that was already in the tank and the blend follows.",
+        "Distillate is normally mixed into whatever is in the tank, so it is blended. Residual is normally put into an empty tank and the BDN stays with that tank.",
+        "Save the survey. The tank loads and the monitoring are kept so ChEng AIO can pass them to Voyage Chief."
+],
+      buttons: [
+        "Bunker Summary — the delivery note figures",
+        "Bunkering — the survey and the per-tank figures",
+        "BDN / S % / LCV / ρ boxes — figures of the fuel already in the tank"
+],
+      undo: [
+        "A wrong figure: reopen the survey, correct the box and save again; the blend is recalculated.",
+        "A tank with no prior figures stays unknown until you type them."
+]
+    },
+    {
+      group: "Bunkering",
+      q: "How does Voyage Chief get the fuel in each tank from Tank Chief?",
+      purpose: "Tank Chief records, tank by tank, the figures of each delivery and the latest monitoring. In ChEng AIO Voyage Chief asks for them in the background, so no typing is needed.",
+      steps: [
+        "Save the bunkering survey and the monitoring in Tank Chief.",
+        "Open Voyage Chief in ChEng AIO. It asks Tank Chief for the tanks about every half hour, and again when you press Get fuel from Tank Chief in Setup.",
+        "The tanks appear in Fuel in use on the Log Entry and in Setup › Ship Details › Fuel in the storage tanks, with their sulphur, LCV and BDN.",
+        "Only storage tanks that hold fuel are offered. Settling, service and overflow tanks are left out.",
+        "A tank with no figures can have them typed in Voyage Chief's Setup, on top of the Tank Chief figures."
+],
+      buttons: [
+        "Get fuel from Tank Chief — in Voyage Chief Setup",
+        "Save (Bunkering, Monitoring) — in Tank Chief"
+],
+      undo: [
+        "If a tank is missing, open Tank Chief, save the monitoring again, and press Get fuel from Tank Chief."
+]
+    },
+    {
+      group: "Bunkering",
+      q: "How do I run a bunkering plan on a tank worked by manual interpolation?",
+      purpose: "A manual-interpolation tank has no sounding table in the program, so the plan cannot turn a volume into an ullage by itself. You type the figures from the book, and the times and the remainders are calculated as for any tank.",
+      steps: [
+        "Open Bunker Plan and pick the tank in a slot. The row says the tank is worked by manual interpolation.",
+        "The current reading is in m³, not a sounding. Type the volume the tank holds now.",
+        "Type the starting ullage and the target ullage in cm yourself. The Interp. button on the row opens the manual interpolation window to work them out from the book.",
+        "The quantity to receive, the estimated time and the remaining space are calculated as usual.",
+        "While bunkering, type the volume received in m³; the remaining time and quantities follow."
+],
+      buttons: [
+        "Interp. — opens the manual double interpolation window for this tank",
+        "Starting / Target ullage (cm) — typed for these tanks"
+],
+      undo: [
+        "Clear the ullage box and retype it, or reopen the manual window."
+]
+    },
+    {
+      group: "Soundings",
+      q: "How do I use manual double interpolation with the correction method in my book?",
+      purpose: "Some sounding books do not give a single table. They give a capacity table and separate trim and heel corrections, in length or in volume, to be applied in a stated order. The manual window lets you type the figures from the book and choose the method that matches it.",
+      steps: [
+        "Set the tank's calculation to double interpolation (manual) in Add Tank or Calibration. Open the tank and press Double interpolation…. Type the target sounding; the trim and heel used are shown.",
+        "Choose the method that matches the book: Volume corrections (m³) — trim table in m³, heel m³ added to it; Heel in cm on the sounding, then trim volume (m³); Trim and heel length corrections together, then volume from the capacity table; Heel first, then trim at the corrected sounding, then volume from the capacity table; or Capacity table with corrections, each in length or volume (m³) added to the volume.",
+        "For the last method choose whether the Trim table and the Heel table are a length correction or a volume correction (m³).",
+        "When both are length corrections choose the order: both at the sounding as read, trim first then heel, or heel first then trim.",
+        "Choose the Sounding unit (cm, mm or m) and the unit the corrections are in.",
+        "Type the corner cells and axis ends of each table from the book. The coloured blocks are calculated live. Read the interpolated volume and use it on the sounding."
+],
+      buttons: [
+        "Method radio buttons — the book's arrangement",
+        "Trim table is / Heel table is — length or volume",
+        "Length corrections — order of trim and heel",
+        "Sounding unit / Corrections in"
+],
+      undo: [
+        "A wrong cell: retype it, the blocks recalculate. A wrong method: choose the right button, the figures stay."
+]
     }
   ];
 

@@ -6053,6 +6053,9 @@ function renderAbout(main) {
     <p>Enter ullage or dip with trim and heel. <b>Sounding-correction</b> applies heel then trim/volume.
       <b>Trim-heel correction</b> takes trim and heel at the original sounding (converting mm/cm/m as needed), then the capacity/volume table.
       <b>Volume-correction</b> uses trim m³ plus signed heel correction from the table.
+      <b>Double interpolation (manual)</b> is for a book whose corrections you type yourself: choose the arrangement that matches it
+      (volume corrections; heel in cm then trim volume; trim and heel length corrections together or in order, then volume from the capacity table;
+      or a capacity table with each correction in length or in m³ added to the volume).
       Weight uses ASTM Table 54B VCF and
       Table 56 WCF. Specific gravity and density @15°C convert both ways on the sounding and bunkering pages.</p>
 
@@ -6065,7 +6068,9 @@ function renderAbout(main) {
     <h2>Bunkering</h2>
     <p>One operation across three screens. <b>Bunker Plan</b> sets the fill sequence, target ullages, delivery
       rate and live pumping clock. <b>After Bunkering</b> re-sounds the tanks. <b>Bunker Summary</b> compares
-      BDN figures with measured intake.</p>
+      BDN figures with measured intake. Each bunkered tank also keeps the delivery's <b>sulphur, LCV, density and BDN</b>
+      (typed on the Summary, blended with the fuel already in a tank, and the fuel already there can be typed on After Bunkering).
+      ChEng AIO passes them to Voyage Chief. A tank worked by manual interpolation takes its current volume in m³ and typed ullages on the Bunker Plan.</p>
 
     <h2>Calibration and import</h2>
     <p>Edit sounding × trim grids in Calibration DB. Import capacity-book PDFs (including scanned books with
