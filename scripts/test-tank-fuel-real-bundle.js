@@ -70,6 +70,12 @@ ok(prev.tanks.length === 1 && prev.tanks[0].gained, 'the preview sees the tank g
 ok(prev.tanks[0].result.lcv == null, 'the tank held fuel with no figures on record, so its blend stays unknown rather than invented');
 ok(prev.tanks[0].lots.length === 1 && prev.tanks[0].lots[0].numbers[0] === 'T-001', 'but the delivery is listed against it');
 
+/* net specific energy typed in MJ/kg (a test report gives it that way) is kept as kJ/kg */
+const mj = Core.computeBunkerSummary(bundle, { bunkeringId: 'bk_mj', bdnNumber: 'MJ-1', bdn: { fuelType: 'hfo', quantityMT: 100, sulphurPercent: 0.49, density15: 0.98, lcv: 40.5 } }, null, null);
+ok(mj.bdn && mj.bdn.lcv === 40500, 'an LCV typed as 40.5 (MJ/kg) is kept as 40 500 kJ/kg');
+const kj = Core.computeBunkerSummary(bundle, { bunkeringId: 'bk_kj', bdnNumber: 'KJ-1', bdn: { fuelType: 'hfo', quantityMT: 100, sulphurPercent: 0.49, density15: 0.98, lcv: 40500 } }, null, null);
+ok(kj.bdn && kj.bdn.lcv === 40500, 'an LCV typed in kJ/kg is left alone');
+
 /* with an earlier bunkering on record for the tank, the blend is worked out */
 const earlier = { bunkeringId: 'bk_old', loadsTs: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', bdnNumber: 'T-000',
   bdn: { fuelType: 'hfo', quantityMT: 40, sulphurPercent: 2.5, density15: 0.98, lcv: 40000 },
