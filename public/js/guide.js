@@ -684,7 +684,7 @@
       '<h2>How to operate</h2>' +
       '<p>Search a question. Each answer says what the job is for, the steps, what the buttons do, and how to undo a mistake.</p>' +
       '<label for="tankGuideSearch">Search the guide</label>' +
-      '<input id="tankGuideSearch" class="op-guide-search" type="search" placeholder="Search, e.g. lcv sulphur, edit receipt, empty tank, interpolation, eca mt/hr" autocomplete="off">' +
+      '<input id="tankGuideSearch" class="op-guide-search" type="search" placeholder="Search (press /), e.g. lcv sulphur, edit receipt, empty tank, interpolation, eca mt/hr" autocomplete="off">' +
       '<button type="button" class="op-guide-clear" id="tankGuideClear" hidden style="margin-left:6px;">Clear</button>' +
       '<div class="op-guide-chips" id="tankGuideChips"></div>' +
       '<p class="hint" id="tankGuideCount"></p>' +
@@ -738,6 +738,18 @@
     }
     if (clearBtn) clearBtn.addEventListener('click', () => { search.value = ''; draw(); search.focus(); });
     search.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && search.value) { search.value = ''; draw(); } });
+    /* "/" or Ctrl+K jumps to the search box while this guide is on screen (not while typing in another box). */
+    if (!host.dataset.searchKey) {
+      host.dataset.searchKey = '1';
+      document.addEventListener('keydown', (ev) => {
+        if (!host.isConnected || !host.offsetParent) return;
+        const t = ev.target, tag = t && t.tagName;
+        const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable);
+        if ((ev.key === '/' && !typing && !ev.ctrlKey && !ev.metaKey && !ev.altKey) || ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'k')) {
+          ev.preventDefault(); search.focus(); search.select();
+        }
+      });
+    }
     search.addEventListener('input', draw);
     draw();
   }
