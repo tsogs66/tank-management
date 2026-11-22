@@ -509,6 +509,87 @@
       undo: [
         "Printing never changes the record. A Save & Print has already saved it before the print window opens."
 ]
+    },
+    {
+      group: "Bunkering",
+      q: "How do I record the sulphur, LCV and density of a bunkering, tank by tank?",
+      purpose: "The delivery note (BDN) gives the sulphur, LCV and density of what was delivered. Tank Chief keeps them for each tank, so Voyage Chief can use the LCV of the fuel actually burned. A tank bunkered empty takes the delivery note as it is; a tank that already held fuel gets the mass-weighted blend of the old fuel and the delivery (density by volume).",
+      steps: [
+        "After the delivery, open Bunker Summary and enter the delivery note: the BDN number, grade, quantity, density, sulphur and LCV.",
+        "Open Bunkering (the survey after delivery). The table lists each tank with Before (MT), Loaded (MT) and After (MT), and the resulting S, LCV, ρ and BDN.",
+        "In the last column, a tank that already held fuel with no figures on record shows boxes for BDN, S %, LCV and ρ. Type the figures of the fuel that was already in the tank and the blend follows.",
+        "Distillate is normally mixed into whatever is in the tank, so it is blended. Residual is normally put into an empty tank and the BDN stays with that tank.",
+        "Save the survey. The tank loads and the monitoring are kept so ChEng AIO can pass them to Voyage Chief."
+],
+      buttons: [
+        "Bunker Summary — the delivery note figures",
+        "Bunkering — the survey and the per-tank figures",
+        "BDN / S % / LCV / ρ boxes — figures of the fuel already in the tank"
+],
+      undo: [
+        "A wrong figure: reopen the survey, correct the box and save again; the blend is recalculated.",
+        "A tank with no prior figures stays unknown until you type them."
+]
+    },
+    {
+      group: "Bunkering",
+      q: "How does Voyage Chief get the fuel in each tank from Tank Chief?",
+      purpose: "Tank Chief records, tank by tank, the figures of each delivery and the latest monitoring. In ChEng AIO Voyage Chief asks for them in the background, so no typing is needed.",
+      steps: [
+        "Save the bunkering survey and the monitoring in Tank Chief.",
+        "Open Voyage Chief in ChEng AIO. It asks Tank Chief for the tanks about every half hour, and again when you press Get fuel from Tank Chief in Setup.",
+        "The tanks appear in Fuel in use on the Log Entry and in Setup › Ship Details › Fuel in the storage tanks, with their sulphur, LCV and BDN.",
+        "Only storage tanks that hold fuel are offered. Settling, service and overflow tanks are left out.",
+        "A tank with no figures can have them typed in Voyage Chief's Setup, on top of the Tank Chief figures."
+],
+      buttons: [
+        "Get fuel from Tank Chief — in Voyage Chief Setup",
+        "Save (Bunkering, Monitoring) — in Tank Chief"
+],
+      undo: [
+        "If a tank is missing, open Tank Chief, save the monitoring again, and press Get fuel from Tank Chief."
+]
+    },
+    {
+      group: "Bunkering",
+      q: "How do I run a bunkering plan on a tank worked by manual interpolation?",
+      purpose: "A manual-interpolation tank has no sounding table in the program, so the plan cannot turn a volume into an ullage by itself. You type the figures from the book, and the times and the remainders are calculated as for any tank.",
+      steps: [
+        "Open Bunker Plan and pick the tank in a slot. The row says the tank is worked by manual interpolation.",
+        "The current reading is in m³, not a sounding. Type the volume the tank holds now.",
+        "Type the starting ullage and the target ullage in cm yourself. The Interp. button on the row opens the manual interpolation window to work them out from the book.",
+        "The quantity to receive, the estimated time and the remaining space are calculated as usual.",
+        "While bunkering, type the volume received in m³; the remaining time and quantities follow."
+],
+      buttons: [
+        "Interp. — opens the manual double interpolation window for this tank",
+        "Starting / Target ullage (cm) — typed for these tanks"
+],
+      undo: [
+        "Clear the ullage box and retype it, or reopen the manual window."
+]
+    },
+    {
+      group: "Soundings",
+      q: "How do I use manual double interpolation with the correction method in my book?",
+      purpose: "Some sounding books do not give a single table. They give a capacity table and separate trim and heel corrections, in length or in volume, to be applied in a stated order. The manual window lets you type the figures from the book and choose the method that matches it.",
+      steps: [
+        "Set the tank's calculation to double interpolation (manual) in Add Tank or Calibration. Open the tank and press Double interpolation…. Type the target sounding; the trim and heel used are shown.",
+        "Choose the method that matches the book: Volume corrections (m³) — trim table in m³, heel m³ added to it; Heel in cm on the sounding, then trim volume (m³); Trim and heel length corrections together, then volume from the capacity table; Heel first, then trim at the corrected sounding, then volume from the capacity table; or Capacity table with corrections, each in length or volume (m³) added to the volume.",
+        "For the last method choose whether the Trim table and the Heel table are a length correction or a volume correction (m³).",
+        "When both are length corrections choose the order: both at the sounding as read, trim first then heel, or heel first then trim.",
+        "Choose the Sounding unit (cm, mm or m) and the unit the corrections are in.",
+        "Type the corner cells and axis ends of each table from the book. The coloured blocks are calculated live. Read the interpolated volume and use it on the sounding."
+],
+      buttons: [
+        "Method radio buttons — the book's arrangement",
+        "Trim table is / Heel table is — length or volume",
+        "Length corrections — order of trim and heel",
+        "Sounding unit / Corrections in"
+],
+      undo: [
+        "A wrong cell: retype it, the blocks recalculate. A wrong method: choose the right button, the figures stay."
+]
     }
   ];
 
@@ -545,6 +626,56 @@
     document.head.appendChild(style);
   }
 
+  /* Search: every word must be found somewhere in a topic (any order); best matches first; related words
+     (for example "calorific" finds LCV) are matched too. When no topic has all the words, the closest ones are shown. */
+  const SYNONYMS = {
+    lcv: 'calorific heating value energy kj/kg sfoc', sulphur: 'sulfur s% sox', sulfur: 'sulphur', bdn: 'bunker delivery note',
+    blend: 'mix mixed mixing', ullage: 'dip sounding', sounding: 'ullage dip', empty: 'low run out estimate estimated',
+    receipt: 'bunker delivery received receipts', interpolation: 'interpolate table book correction trim heel',
+    eca: 'seca emission control area changeover', seca: 'eca', 'mt/hr': 'consumption rate hourly', rob: 'remaining on board stock',
+    backup: 'restore export save', delete: 'remove erase', edit: 'change correct amend fix', correct: 'edit fix amend change',
+    density: 'sg specific gravity', warning: 'alert alarm', print: 'printout pdf'
+  };
+  function guideHay(item) {
+    const base = [item.group, item.q, item.purpose].concat(item.steps || [], item.buttons || [], item.undo || []).join(' ').toLowerCase();
+    let extra = '';
+    Object.keys(SYNONYMS).forEach((k) => { if (base.indexOf(k) !== -1) extra += ' ' + SYNONYMS[k]; });
+    return { base: base, extra: extra };
+  }
+  function guideSearch(items, query) {
+    const tokens = String(query || '').toLowerCase().split(/[\s,;]+/).filter(Boolean);
+    if (!tokens.length) return { list: items.slice(), tokens: tokens, partial: false };
+    const scored = items.map((item) => {
+      const h = item._h || (item._h = guideHay(item));
+      const title = String(item.q).toLowerCase(), grp = String(item.group).toLowerCase(), pur = String(item.purpose).toLowerCase();
+      let score = 0, hits = 0;
+      tokens.forEach((t) => {
+        let s = 0;
+        if (title.indexOf(t) !== -1) s += 6;
+        if (grp.indexOf(t) !== -1) s += 3;
+        if (pur.indexOf(t) !== -1) s += 2;
+        if (h.base.indexOf(t) !== -1) s += 1; else if (h.extra.indexOf(t) !== -1) s += 0.5;
+        if (s > 0) hits++;
+        score += s;
+      });
+      return { item: item, score: score, hits: hits };
+    });
+    let found = scored.filter((x) => x.hits === tokens.length);
+    let partial = false;
+    if (!found.length) { found = scored.filter((x) => x.hits > 0); partial = true; }
+    found.sort((a, b) => b.score - a.score);
+    return { list: found.map((x) => x.item), tokens: tokens, partial: partial };
+  }
+  function guideMark(escaped, tokens) {
+    let out = escaped;
+    (tokens || []).forEach((t) => {
+      const e = esc(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (!e) return;
+      out = out.replace(new RegExp('(?![^<]*>)(' + e + ')', 'gi'), '<mark style="background:rgba(255,200,80,.38);color:inherit;border-radius:3px;padding:0 1px">$1</mark>');
+    });
+    return out;
+  }
+
   function render(host) {
     if (!host) return;
     ensureStyle();
@@ -553,7 +684,8 @@
       '<h2>How to operate</h2>' +
       '<p>Search a question. Each answer says what the job is for, the steps, what the buttons do, and how to undo a mistake.</p>' +
       '<label for="tankGuideSearch">Search the guide</label>' +
-      '<input id="tankGuideSearch" class="op-guide-search" type="search" placeholder="Try: sounding, calibration, delete tank, backup" autocomplete="off">' +
+      '<input id="tankGuideSearch" class="op-guide-search" type="search" placeholder="Search (press /), e.g. lcv sulphur, edit receipt, empty tank, interpolation, eca mt/hr" autocomplete="off">' +
+      '<button type="button" class="op-guide-clear" id="tankGuideClear" hidden style="margin-left:6px;">Clear</button>' +
       '<div class="op-guide-chips" id="tankGuideChips"></div>' +
       '<p class="hint" id="tankGuideCount"></p>' +
       '<div id="tankGuideList"></div>';
@@ -576,30 +708,47 @@
       });
       chips.appendChild(btn);
     });
-    function hay(item) {
-      return [item.group, item.q, item.purpose].concat(item.steps, item.buttons, item.undo).join(' ').toLowerCase();
-    }
+    const clearBtn = host.querySelector('#tankGuideClear');
     function draw() {
-      const q = search.value.trim().toLowerCase();
-      const shown = ITEMS.filter((item) => (active === 'All' || item.group === active) && (!q || hay(item).indexOf(q) !== -1));
+      const qraw = search.value.trim();
+      const pool = ITEMS.filter((item) => active === 'All' || item.group === active);
+      const res = guideSearch(pool, qraw);
+      const shown = res.list, toks = res.tokens;
+      if (clearBtn) clearBtn.hidden = !qraw;
       if (!shown.length) {
-        listEl.innerHTML = '<p>Nothing matches. Try sounding, bunker, delete, or backup.</p>';
+        listEl.innerHTML = '<p class="hint">Nothing matches. Try fewer words, or sounding, bunker, lcv, interpolation, or backup.</p>';
       } else {
         let html = '';
         let last = '';
+        if (qraw && res.partial) html += '<p class="hint">No topic has all those words. These are the closest, matching some of them:</p>';
         shown.forEach((item) => {
-          if (item.group !== last) {
+          if (!qraw && item.group !== last) {
             html += '<h3 class="op-guide-sub">' + esc(item.group) + '</h3>';
             last = item.group;
           }
-          html += '<details class="op-guide-item"' + (q ? ' open' : '') + '><summary>' + esc(item.q) + '</summary>' +
-            '<p class="op-guide-purpose">' + esc(item.purpose) + '</p>' +
+          html += '<details class="op-guide-item"' + (qraw && shown.length <= 3 ? ' open' : '') + '><summary>' + guideMark(esc(item.q), toks) +
+            (qraw ? ' <small style="opacity:.65;">· ' + esc(item.group) + '</small>' : '') + '</summary>' +
+            '<p class="op-guide-purpose">' + guideMark(esc(item.purpose), toks) + '</p>' +
             list('Steps', item.steps) + list('Buttons', item.buttons) + list('If this was a mistake', item.undo) +
             '</details>';
         });
         listEl.innerHTML = html;
       }
-      countEl.textContent = shown.length + (shown.length === 1 ? ' topic' : ' topics') + (q ? ' match the search.' : ' in this list.');
+      countEl.textContent = shown.length + (shown.length === 1 ? ' topic' : ' topics') + (qraw ? (res.partial ? ' partly match the search.' : ' match the search, best first.') : ' in this list.');
+    }
+    if (clearBtn) clearBtn.addEventListener('click', () => { search.value = ''; draw(); search.focus(); });
+    search.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && search.value) { search.value = ''; draw(); } });
+    /* "/" or Ctrl+K jumps to the search box while this guide is on screen (not while typing in another box). */
+    if (!host.dataset.searchKey) {
+      host.dataset.searchKey = '1';
+      document.addEventListener('keydown', (ev) => {
+        if (!host.isConnected || !host.offsetParent) return;
+        const t = ev.target, tag = t && t.tagName;
+        const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable);
+        if ((ev.key === '/' && !typing && !ev.ctrlKey && !ev.metaKey && !ev.altKey) || ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'k')) {
+          ev.preventDefault(); search.focus(); search.select();
+        }
+      });
     }
     search.addEventListener('input', draw);
     draw();
