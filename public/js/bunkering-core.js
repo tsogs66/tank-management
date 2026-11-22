@@ -84,6 +84,13 @@ function num(v, fallback = null) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/** A BDN or a fuel test report gives the heating value as "net specific energy" (MJ/kg): that is the LCV.
+ *  The program works in kJ/kg, so a figure under 100 is read as MJ/kg (40.5 -> 40 500). */
+function lcvNum(v) {
+  const n = num(v);
+  return n != null && n > 0 && n < 100 ? Math.round(n * 1000) : n;
+}
+
 function round(v, d = 3) {
   if (v == null || !Number.isFinite(Number(v))) return null;
   const f = Math.pow(10, d);
@@ -1543,7 +1550,7 @@ function computeBunkerSummary(bundle, form, after, conversion) {
       quantityMT: qty2,
       sulphurPercent: num(summary.bdn2.sulphurPercent),
       density15: num(summary.bdn2.density15),
-      lcv: num(summary.bdn2.lcv),
+      lcv: lcvNum(summary.bdn2.lcv),
       label: (FuelReport.FUEL_TYPES.find((f) => f.id === grade2) || {}).label || grade2,
     };
     quantities2 = {
@@ -1567,7 +1574,7 @@ function computeBunkerSummary(bundle, form, after, conversion) {
     const cmp = compareFigure(grade, qty);
     const ok = cmp != null && recv != null;
     extraBdns.push({
-      ...e, quantityMT: qty, sulphurPercent: num(e.sulphurPercent), density15: num(e.density15), lcv: num(e.lcv),
+      ...e, quantityMT: qty, sulphurPercent: num(e.sulphurPercent), density15: num(e.density15), lcv: lcvNum(e.lcv),
       label: (FuelReport.FUEL_TYPES.find((f) => f.id === grade) || {}).label || grade,
     });
     extraQuantities.push({
@@ -1606,7 +1613,7 @@ function computeBunkerSummary(bundle, form, after, conversion) {
       quantityMT: bdnQuantity,
       sulphurPercent: num(summary.bdn.sulphurPercent),
       density15: num(summary.bdn.density15),
-      lcv: num(summary.bdn.lcv),
+      lcv: lcvNum(summary.bdn.lcv),
       label: (FuelReport.FUEL_TYPES.find((f) => f.id === bdnGrade) || {}).label || bdnGrade,
     },
     bdn2,

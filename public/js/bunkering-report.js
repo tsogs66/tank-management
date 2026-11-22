@@ -2652,7 +2652,7 @@ const BunkerReports = (() => {
           <td>${f(t.result.sulphur, 3)}</td><td>${f(t.result.lcv, 0)}</td><td>${f(t.result.density, 3)}</td>
           <td>${esc(t.lots.map((l) => (l.numbers || []).join('/')).filter(Boolean).join(' + '))}${t.lots.length > 1 ? ' <i>(blend)</i>' : ''}</td>
           <td>${wantsFigures
-            ? `${box(t.tankId, 'bdn', 'BDN', '5.5em')} ${box(t.tankId, 'sulphur', 'S %', '4em')} ${box(t.tankId, 'lcv', 'LCV', '5em')} ${box(t.tankId, 'density', 'ρ', '4em')}`
+            ? `${box(t.tankId, 'bdn', 'BDN', '5.5em')} ${box(t.tankId, 'sulphur', 'S %', '4em')} ${box(t.tankId, 'lcv', 'LCV kJ/kg', '5.5em')} ${box(t.tankId, 'density', 'ρ', '4em')}`
               + (t.priorUnknown ? '<div class="hint">The fuel already in this tank has no figures on record — type them to get the blend.</div>' : '')
             : '<span class="hint">on record</span>'}</td></tr>`;
         }).join('')
@@ -2964,8 +2964,8 @@ const BunkerReports = (() => {
           <input type="number" step="any" data-bdn2="sulphurPercent" value="${esc(f.bdn2.sulphurPercent)}"></label>
         <label class="fr-field"><span>DENSITY @15°</span>
           <input type="number" step="any" data-bdn2="density15" value="${esc(f.bdn2.density15)}"></label>
-        <label class="fr-field"><span>LCV (kJ/kg)</span>
-          <input type="number" step="any" data-bdn2="lcv" value="${esc(f.bdn2.lcv)}" placeholder="net energy"></label>
+        <label class="fr-field"><span>LCV / net specific energy (kJ/kg or MJ/kg)</span>
+          <input type="number" step="any" data-bdn2="lcv" value="${esc(f.bdn2.lcv)}" placeholder="e.g. 40500 or 40.5"></label>
       </div>
       <div class="bs-quantities">
         <div class="bp-monitor-box"><span>BDN QUANTITY</span><b data-bs2="bdnQuantityMT"></b></div>
@@ -2991,8 +2991,8 @@ const BunkerReports = (() => {
           <input type="number" step="any" data-xbdn="${i}.sulphurPercent" value="${esc(e.sulphurPercent)}"></label>
         <label class="fr-field"><span>DENSITY @15°</span>
           <input type="number" step="any" data-xbdn="${i}.density15" value="${esc(e.density15)}"></label>
-        <label class="fr-field"><span>LCV (kJ/kg)</span>
-          <input type="number" step="any" data-xbdn="${i}.lcv" value="${esc(e.lcv)}" placeholder="net energy"></label>
+        <label class="fr-field"><span>LCV / net specific energy (kJ/kg or MJ/kg)</span>
+          <input type="number" step="any" data-xbdn="${i}.lcv" value="${esc(e.lcv)}" placeholder="e.g. 40500 or 40.5"></label>
       </div>
       <div class="bs-quantities">
         <div class="bp-monitor-box"><span>BDN QUANTITY</span><b data-bsx="${i}.bdnQuantityMT"></b></div>
@@ -3055,8 +3055,8 @@ const BunkerReports = (() => {
               <input type="number" step="any" data-bdn="sulphurPercent" value="${esc(f.bdn.sulphurPercent)}"></label>
             <label class="fr-field"><span>DENSITY @15°</span>
               <input type="number" step="any" data-bdn="density15" value="${esc(f.bdn.density15)}"></label>
-            <label class="fr-field"><span>LCV (kJ/kg)</span>
-              <input type="number" step="any" data-bdn="lcv" value="${esc(f.bdn.lcv)}" placeholder="net energy"></label>
+            <label class="fr-field"><span>LCV / net specific energy (kJ/kg or MJ/kg)</span>
+              <input type="number" step="any" data-bdn="lcv" value="${esc(f.bdn.lcv)}" placeholder="e.g. 40500 or 40.5"></label>
           </div>
           <div class="bs-quantities">
             <div class="bp-monitor-box"><span>BDN QUANTITY</span><b data-bs="bdnQuantityMT"></b></div>
@@ -3558,3 +3558,17 @@ const BunkerReports = (() => {
 })();
 
 window.BunkerReports = BunkerReports;
+
+/* Net specific energy typed in MJ/kg (40.5) becomes kJ/kg (40500) as the box is left. */
+if (typeof document !== 'undefined') document.addEventListener('change', (ev) => {
+  const el = ev.target;
+  if (!el || !el.getAttribute) return;
+  const isLcv = el.getAttribute('data-bdn') === 'lcv' || el.getAttribute('data-bdn2') === 'lcv'
+    || /\.lcv$/.test(el.getAttribute('data-xbdn') || '') || /\.lcv$/.test(el.getAttribute('data-pf') || '');
+  if (!isLcv || el.value === '') return;
+  const v = Number(el.value);
+  if (isFinite(v) && v > 0 && v < 100) {
+    el.value = String(Math.round(v * 1000));
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+}, true);

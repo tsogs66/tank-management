@@ -590,6 +590,27 @@
       undo: [
         "A wrong cell: retype it, the blocks recalculate. A wrong method: choose the right button, the figures stay."
 ]
+    },
+    {
+      group: "Bunkering",
+      q: "The LCV is not on my BDN or fuel specs, only “net specific energy”. What do I enter?",
+      purpose: "LCV (lower calorific value) is the same quantity as net specific energy, net calorific value or lower heating value. A bunker delivery note often does not show it. The supplier's quality certificate or the independent sample test report gives it as Net specific energy, normally in MJ/kg. Type that figure as it is.",
+      steps: [
+        "Find Net specific energy on the fuel test report or the supplier's certificate. That is the LCV.",
+        "Type it in any LCV box in MJ/kg (for example 40.5) or in kJ/kg (40500). A figure below 100 is read as MJ/kg and converted: 40.5 becomes 40 500 kJ/kg. The box shows the converted figure when you leave it.",
+        "Where to type it: Voyage Chief — Receipts (LCV / net specific energy), Setup › Ship Details › Fuel in the storage tanks, and Setup › Bunker LCV. Tank Chief — Bunker Summary (delivery note) and the boxes on After Bunkering.",
+        "If you do not have the figure yet, leave the box empty. The entry then uses the Setup LCV for the SFOC, and the line under the tank says so. Nothing is blocked.",
+        "For a first estimate the Reference page lists typical values: HFO about 40 000–41 000, VLSFO about 41 000–42 000, MDO about 42 000–43 000, MGO and LSMGO about 42 700 kJ/kg. Replace them with the report's figure when it arrives.",
+        "The sulphur content and the density at 15 °C are on the BDN and on the same test report: type them with the LCV."
+],
+      buttons: [
+        "LCV / net specific energy boxes — MJ/kg or kJ/kg",
+        "Bunker LCV (Voyage Setup) — used when no tank is chosen or the tank has no LCV"
+],
+      undo: [
+        "A wrong figure: retype it in the same box. Entries already saved keep the figure they were saved with; open the entry, choose the tank again and press Update Entry to refresh it.",
+        "A figure typed as 40.5 when you meant 40 500 is the same thing: both are stored as 40 500 kJ/kg."
+]
     }
   ];
 
@@ -629,7 +650,7 @@
   /* Search: every word must be found somewhere in a topic (any order); best matches first; related words
      (for example "calorific" finds LCV) are matched too. When no topic has all the words, the closest ones are shown. */
   const SYNONYMS = {
-    lcv: 'calorific heating value energy kj/kg sfoc', sulphur: 'sulfur s% sox', sulfur: 'sulphur', bdn: 'bunker delivery note',
+    lcv: 'calorific heating value energy net specific energy mj/kg kj/kg sfoc', sulphur: 'sulfur s% sox', sulfur: 'sulphur', bdn: 'bunker delivery note',
     blend: 'mix mixed mixing', ullage: 'dip sounding', sounding: 'ullage dip', empty: 'low run out estimate estimated',
     receipt: 'bunker delivery received receipts', interpolation: 'interpolate table book correction trim heel',
     eca: 'seca emission control area changeover', seca: 'eca', 'mt/hr': 'consumption rate hourly', rob: 'remaining on board stock',
