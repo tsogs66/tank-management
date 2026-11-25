@@ -349,7 +349,7 @@
         "Use Margin % on a line for a reserve on that line only. Add destination / stay adds the next line. Remove last line removes the last one.",
         "Enter Current ROB and Quantity to Receive to see Arrival ROB and Next Departure ROB. Load Voyage ROB or Load Tank ROB fill the ROB for you.",
         "Enter the Delivery / Redelivery ROB to see two excess figures. Excess (Margin) Quantity = Next Departure ROB − Delivery ROB. Excess (Actual) Quantity = ((Current ROB + Quantity to Receive) − Total Consumption) − Delivery ROB, with no margin. A negative figure makes its box glow red.",
-        "The result boxes are in three columns with the tablet upright and six sideways. Days are shown to one decimal; the quantity still uses the exact days.",
+        "The result boxes are in three columns with the tablet upright and six sideways. Days are shown to two decimals (for example 3.47); the quantity still uses the exact days.",
         "Saved Calculations is folded away. Tap its heading to open it, then search by date or name."
 ],
       buttons: [
