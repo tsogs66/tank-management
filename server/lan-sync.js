@@ -41,7 +41,7 @@ const DISCOVERED_TTL_MS = 30 * 1000;
 const DIGEST_KEYS = [
   'vessel', 'tanks', 'readings', 'voyage', 'bunkering', 'transfers', 'bunkerOps', 'fuelReport',
   'reportHistory', 'voyageHistory', 'tankSummaryHistory', 'tankSummaryDraft', 'bunkerPlan',
-  'bunkerAfter', 'bunkerSummary', 'bunkerHistory', 'assets',
+  'bunkerAfter', 'bunkerSummary', 'bunkerConsumption', 'bunkerHistory', 'assets',
 ];
 /* Where a phone looks for the other device when nothing has announced itself:
    typical router ranges, Android's hotspot (192.168.43.x), Windows' hotspot
