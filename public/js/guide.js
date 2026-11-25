@@ -658,6 +658,30 @@
         "A wrong fuel on a line: pick the right one in that box; the totals move to it.",
         "A fuel column with figures asks before it is removed."
 ]
+    },
+    {
+      group: "Bunkering",
+      q: "How do I plan two voyage legs one after the other in the consumption plan?",
+      purpose: "A voyage that follows another is added as a next voyage leg. It has its own route and quantities, starts with the ROB the leg before it ends with, and every leg is shown side by side with the combined total.",
+      steps: [
+        "Fill in leg 1 as usual: its route lines, fuels and MT per day, Current ROB and Quantity to Receive.",
+        "Press + Next voyage leg. Leg 2 appears below with its own route lines; its fuels start as the last line of leg 1 used.",
+        "Type leg 2's route, fuels and MT per day. Its Current ROB cannot be typed: it is the Next Departure ROB of leg 1, so a change in leg 1 moves leg 2 at once.",
+        "Quantity to Receive, unpumpable, weather reserve and delivery ROB are kept for each leg, because each leg ends at its own port.",
+        "Give a leg a name (optional) to recognise it, for example Singapore → Rotterdam.",
+        "The table All voyage legs side by side shows, for every leg and for the combined total: days at port and at sea, distance, and for each fuel the starting ROB, consumption, margin, required quantity, quantity to receive, arrival ROB, next departure ROB and the stem still needed. A shortage shows in red and carries into the next leg.",
+        "Combined: days, distance, consumption, margin, required quantity and quantity to receive are added up; the starting ROB is that of leg 1; the arrival, next departure ROB and stem are those at the end of the last leg.",
+        "Print and Save & Print give each leg its own pages followed by the combined total. Up to six legs can be planned."
+],
+      buttons: [
+        "+ Next voyage leg — add a leg that continues from the one above",
+        "− Last voyage leg — take off the last leg (asks first when it has figures)",
+        "Leg name — an optional label shown in the table and the printout"
+],
+      undo: [
+        "A leg added by mistake: − Last voyage leg removes it.",
+        "A calculation with one leg looks and prints exactly as before."
+]
     }
   ];
 

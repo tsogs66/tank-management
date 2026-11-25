@@ -137,4 +137,44 @@ ok(rc['Total Distance'] === '1600', 'distance is a whole number');
 const gc = cardsOf(CP.gradeCardsHtml(CP.gradeSummary(conv, 'HFO')));
 ok(/^\d+\.\d{3}$/.test(gc['Total Consumption']) && /^\d+\.\d{3}$/.test(gc['Required Quantity']), 'the quantity boxes are three decimals');
 
+
+/* ---- consecutive voyage legs ---- */
+const mv = CP.defaultPlan(vessel);
+Object.assign(mv.legs[0], { from: 'A', to: 'B', distance: 1200, speed: 12.5 });           /* 4 days */
+mv.legs[0].fuels[0].daily = 30; mv.legs[0].fuels[1].daily = 2;
+mv.stocks.HFO = { label: 'HFO', currentRob: 500, qtyReceive: 100 };
+mv.stocks['MDO/MGO'] = { label: 'MDO/MGO', currentRob: 20 };
+const single = CP.gradeSummary(mv, 'HFO');
+ok(CP.chain(mv).sections.length === 1 && near(CP.chain(mv).sections[0].sums.HFO.required, single.required), 'one leg gives the same figures as before');
+ok(CP.overviewHtml(mv) === '', 'no side-by-side table with one leg');
+CP.sectionList(mv); mv.extra = [CP.newSection(mv, vessel)];
+ok(mv.extra[0].legs[0].fuels[0].grade === 'HFO' && mv.extra[0].legs[0].fuels[1].grade === 'MDO/MGO', 'a next leg starts on the fuels the last line used');
+Object.assign(mv.extra[0].legs[0], { from: 'B', to: 'C', distance: 2400, speed: 10 });    /* 10 days */
+mv.extra[0].legs[0].fuels[0].daily = 25; mv.extra[0].legs[0].fuels[1].daily = 1.5;
+mv.extra[0].stocks.HFO = { label: 'HFO', qtyReceive: 50 };
+const ch = CP.chain(mv);
+ok(near(ch.sections[0].sums.HFO.nextDepRob, 500 - 120 + 100), 'leg 1 ends with ROB + receive - consumption');
+ok(near(ch.sections[1].sums.HFO.rob, 480) && near(ch.sections[1].sums.HFO.arrivalRob, 480 - 250) && near(ch.sections[1].sums.HFO.nextDepRob, 280), 'leg 2 starts with the ROB leg 1 ends with');
+ok(near(ch.sections[1].sums['MDO/MGO'].rob, 20 - 8), 'the distillate carries over too');
+const cm = CP.combined(mv);
+const cH = cm.grades.find((g) => g.grade === 'HFO');
+ok(near(cH.totalCons, 370) && near(cH.startRob, 500) && near(cH.receive, 150) && near(cH.nextDepRob, 280), 'combined: burned, start ROB, received and end ROB');
+ok(near(cm.route.daysSea, 14) && near(cm.route.totalDist, 3600), 'combined days and distance');
+ok(/Leg 1/.test(CP.overviewHtml(mv)) && /Combined/.test(CP.overviewHtml(mv)) && /<td class="cp-comb ">370\.000/.test(CP.overviewHtml(mv)), 'the side-by-side table lists every leg and the combined figures');
+/* a leg that runs short shows a negative start on the next one, and the stem carries */
+mv.stocks.HFO.currentRob = 100;
+const sh = CP.chain(mv);
+ok(sh.sections[0].sums.HFO.arrivalRob < 0 && sh.sections[1].sums.HFO.rob === sh.sections[0].sums.HFO.nextDepRob, 'a shortage carries into the next leg');
+mv.stocks.HFO.currentRob = 500;
+/* saved and loaded again, and an old app that ignores the extra legs */
+const back2 = CP.ensurePlan(JSON.parse(JSON.stringify(CP.finalize(mv))), vessel);
+ok(back2.extra && back2.extra.length === 1 && near(CP.combined(back2).grades[0].totalCons, cH.totalCons), 'the next legs survive saving and loading');
+const oldApp = JSON.parse(JSON.stringify(CP.finalize(mv))); oldApp.residual.legs[0].dailyCons = 99;
+const edited = CP.ensurePlan(oldApp, vessel);
+ok(edited.extra && edited.extra.length === 1 && edited.legs[0].fuels[0].daily === 99, 'an edit made by an older app wins on leg 1 and keeps the next legs');
+const pm = CP.printBody(mv, vessel, {});
+ok(/Leg 1 — route and fuels/.test(pm) && /Leg 2 — route and fuels/.test(pm) && /All voyage legs combined/.test(pm) && /HFO — combined/.test(pm) && /Final Next Departure ROB/.test(pm), 'the printout has each leg and the combined total');
+const many = CP.ensurePlan({ v: 2, legs: [CP.emptyLeg(2)], extra: Array.from({ length: 9 }, () => ({ legs: [CP.emptyLeg(2)] })) }, vessel);
+ok(many.extra.length === CP.MAX_LEGS - 1, 'at most six voyage legs');
+
 console.log(`consumption plan: ${pass} checks passed`);
