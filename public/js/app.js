@@ -933,6 +933,7 @@ function visibleSavedReportBody() {
     bunkerPlan: b.bunkerPlan || null,
     bunkerAfter: b.bunkerAfter || null,
     bunkerSummary: b.bunkerSummary || null,
+    bunkerConsumption: b.bunkerConsumption || null,
   };
   const bunkerCount = body.bunkerHistory.plans.length + body.bunkerHistory.after.length + body.bunkerHistory.summaries.length;
   if (!body.reportHistory.length && !body.voyageHistory.length && !body.tankSummaryHistory.length

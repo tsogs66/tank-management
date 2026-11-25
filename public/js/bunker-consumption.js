@@ -131,6 +131,7 @@ const BunkerConsumption = (function () {
         if (!st || !STATE.activeVesselId) return;
         st.plan = data.plan;
         st.history = data.history;
+        st.updatedAt = new Date().toISOString();
         await persistPart('bunkerConsumption', st);
       },
       vesselName: () => vesselName(),

@@ -156,6 +156,7 @@ const VESSEL_FILES = [
   'bunker-plan.json',
   'bunker-after.json',
   'bunker-summary.json',
+  'bunker-consumption.json',
   'bunker-history.json',
   'assets.json',
   'meta.json',
@@ -494,6 +495,7 @@ function createVessel(details = {}) {
   writeJson(vesselPath(id, 'bunker-plan.json'), details.bunkerPlan || null);
   writeJson(vesselPath(id, 'bunker-after.json'), details.bunkerAfter || null);
   writeJson(vesselPath(id, 'bunker-summary.json'), details.bunkerSummary || null);
+  writeJson(vesselPath(id, 'bunker-consumption.json'), details.bunkerConsumption || null);
   writeJson(vesselPath(id, 'bunker-history.json'), details.bunkerHistory || emptyBunkerHistory());
   writeJson(vesselPath(id, 'assets.json'), details.assets || emptyAssets());
   writeJson(vesselPath(id, 'meta.json'), {
@@ -570,6 +572,7 @@ function getVesselBundle(id) {
     bunkerPlan: readJson(vesselPath(id, 'bunker-plan.json'), null),
     bunkerAfter: readJson(vesselPath(id, 'bunker-after.json'), null),
     bunkerSummary: readJson(vesselPath(id, 'bunker-summary.json'), null),
+    bunkerConsumption: readJson(vesselPath(id, 'bunker-consumption.json'), null),
     bunkerHistory: readJson(vesselPath(id, 'bunker-history.json'), emptyBunkerHistory()),
     assets: readJson(vesselPath(id, 'assets.json'), emptyAssets()),
     meta: readJson(vesselPath(id, 'meta.json'), {}),
@@ -594,6 +597,7 @@ function saveVesselPart(id, part, data) {
     bunkerPlan: 'bunker-plan.json',
     bunkerAfter: 'bunker-after.json',
     bunkerSummary: 'bunker-summary.json',
+    bunkerConsumption: 'bunker-consumption.json',
     bunkerHistory: 'bunker-history.json',
     assets: 'assets.json',
   };
@@ -643,7 +647,7 @@ function replaceVesselPart(id, part, data) {
  * the whole readings map used to replace the other side, so a sync whose
  * revision was ahead wiped gaugings the revision did not know about.
  */
-const DRAFT_PARTS = ['fuelReport', 'tankSummaryDraft', 'bunkerPlan', 'bunkerAfter', 'bunkerSummary'];
+const DRAFT_PARTS = ['fuelReport', 'tankSummaryDraft', 'bunkerPlan', 'bunkerAfter', 'bunkerSummary', 'bunkerConsumption'];
 
 function partStamp(item) {
   if (!item || typeof item !== 'object') return '';
@@ -684,6 +688,22 @@ function mergeDraftDoc(current, incoming) {
   return current;
 }
 
+/** The consumption plan ({ plan, history, updatedAt }): the side saved later keeps the plan in hand; saved calculations from both sides are kept. */
+function mergeConsumptionDoc(current, incoming) {
+  if (isBlankDraft(incoming)) return isBlankDraft(current) ? (incoming == null ? current : incoming) : current;
+  if (isBlankDraft(current)) return incoming;
+  const newer = String(incoming.updatedAt || '') >= String(current.updatedAt || '') ? incoming : current;
+  const older = newer === incoming ? current : incoming;
+  const seen = new Set(); const history = [];
+  [].concat(Array.isArray(newer.history) ? newer.history : [], Array.isArray(older.history) ? older.history : []).forEach((h) => {
+    if (!h || typeof h !== 'object') return;
+    const key = String(h.savedAt || '') + '|' + String(h.saveName || '');
+    if (seen.has(key)) return; seen.add(key); history.push(h);
+  });
+  history.sort((a, b) => String(b.savedAt || '').localeCompare(String(a.savedAt || '')));
+  return { ...newer, history: history.slice(0, 50) };
+}
+
 function readLiveParts(id) {
   if (!fs.existsSync(vesselDir(id))) return null;
   return {
@@ -697,6 +717,7 @@ function readLiveParts(id) {
     bunkerPlan: readJson(vesselPath(id, 'bunker-plan.json'), null),
     bunkerAfter: readJson(vesselPath(id, 'bunker-after.json'), null),
     bunkerSummary: readJson(vesselPath(id, 'bunker-summary.json'), null),
+    bunkerConsumption: readJson(vesselPath(id, 'bunker-consumption.json'), null),
   };
 }
 
@@ -720,6 +741,7 @@ function mergedLiveParts(current, incoming) {
     bunkerPlan: mergeDraftDoc(cur.bunkerPlan, inc.bunkerPlan),
     bunkerAfter: mergeDraftDoc(cur.bunkerAfter, inc.bunkerAfter),
     bunkerSummary: mergeDraftDoc(cur.bunkerSummary, inc.bunkerSummary),
+    bunkerConsumption: mergeConsumptionDoc(cur.bunkerConsumption, inc.bunkerConsumption),
   };
 }
 
@@ -734,6 +756,7 @@ function writeLiveParts(id, parts) {
   writeJson(vesselPath(id, 'bunker-plan.json'), parts.bunkerPlan);
   writeJson(vesselPath(id, 'bunker-after.json'), parts.bunkerAfter);
   writeJson(vesselPath(id, 'bunker-summary.json'), parts.bunkerSummary);
+  writeJson(vesselPath(id, 'bunker-consumption.json'), parts.bunkerConsumption);
 }
 
 /**
@@ -765,6 +788,9 @@ function mergePartOnWrite(id, part, file, data) {
   }
   if (part === 'readings') {
     return mergeReadings(readJson(vesselPath(id, file), {}), data);
+  }
+  if (part === 'bunkerConsumption') {
+    return mergeConsumptionDoc(readJson(vesselPath(id, file), null), data);
   }
   if (DRAFT_PARTS.indexOf(part) >= 0) {
     return mergeDraftDoc(readJson(vesselPath(id, file), null), data);
@@ -1149,7 +1175,7 @@ function isBackupPayload(backup) {
 const BUNDLE_PART_KEYS = [
   'tanks', 'readings', 'voyage', 'bunkering', 'transfers', 'bunkerOps',
   'fuelReport', 'reportHistory',   'voyageHistory', 'tankSummaryHistory', 'tankSummaryDraft',
-  'bunkerPlan', 'bunkerAfter', 'bunkerSummary',
+  'bunkerPlan', 'bunkerAfter', 'bunkerSummary', 'bunkerConsumption',
   'bunkerHistory', 'assets', 'meta',
 ];
 
@@ -1185,7 +1211,9 @@ const FILE_KEY_TO_PART = {
   'bunker-after.json': 'bunkerAfter',
   bunkerAfter: 'bunkerAfter',
   'bunker-summary.json': 'bunkerSummary',
+  'bunker-consumption.json': 'bunkerConsumption',
   bunkerSummary: 'bunkerSummary',
+  bunkerConsumption: 'bunkerConsumption',
   'bunker-history.json': 'bunkerHistory',
   bunkerHistory: 'bunkerHistory',
   'assets.json': 'assets',
@@ -1292,6 +1320,7 @@ function normalizeImportedBundle(bundle) {
     bunkerPlan: base.bunkerPlan != null ? base.bunkerPlan : null,
     bunkerAfter: base.bunkerAfter != null ? base.bunkerAfter : null,
     bunkerSummary: base.bunkerSummary != null ? base.bunkerSummary : null,
+    bunkerConsumption: base.bunkerConsumption != null ? base.bunkerConsumption : null,
     bunkerHistory: base.bunkerHistory || emptyBunkerHistory(),
     assets: base.assets || emptyAssets(),
     meta: base.meta && typeof base.meta === 'object' ? base.meta : {},
@@ -1483,6 +1512,7 @@ function importBackup(backup, { merge = true } = {}) {
     writeJson(vesselPath(id, 'bunker-plan.json'), norm.bunkerPlan);
     writeJson(vesselPath(id, 'bunker-after.json'), norm.bunkerAfter);
     writeJson(vesselPath(id, 'bunker-summary.json'), norm.bunkerSummary);
+    writeJson(vesselPath(id, 'bunker-consumption.json'), norm.bunkerConsumption);
     writeJson(vesselPath(id, 'bunker-history.json'), norm.bunkerHistory);
     writeJson(vesselPath(id, 'assets.json'), norm.assets);
     writeJson(vesselPath(id, 'meta.json'), {
@@ -1632,6 +1662,7 @@ function applySyncPayload(payload, options) {
           'bunker-plan': 'bunkerPlan',
           'bunker-after': 'bunkerAfter',
           'bunker-summary': 'bunkerSummary',
+          'bunker-consumption': 'bunkerConsumption',
           'bunker-history': 'bunkerHistory',
           assets: 'assets',
           meta: 'meta',
@@ -1713,6 +1744,7 @@ function readVesselBundleAt(dataDir, id) {
     bunkerPlan: readJson(vesselFileAt(dataDir, id, 'bunker-plan.json'), null),
     bunkerAfter: readJson(vesselFileAt(dataDir, id, 'bunker-after.json'), null),
     bunkerSummary: readJson(vesselFileAt(dataDir, id, 'bunker-summary.json'), null),
+    bunkerConsumption: readJson(vesselFileAt(dataDir, id, 'bunker-consumption.json'), null),
     bunkerHistory: readJson(vesselFileAt(dataDir, id, 'bunker-history.json'), emptyBunkerHistory()),
     assets: readJson(vesselFileAt(dataDir, id, 'assets.json'), emptyAssets()),
     meta: readJson(vesselFileAt(dataDir, id, 'meta.json'), {}),
@@ -1733,6 +1765,7 @@ function readLivePartsAt(dataDir, id) {
     bunkerPlan: file('bunker-plan.json', null),
     bunkerAfter: file('bunker-after.json', null),
     bunkerSummary: file('bunker-summary.json', null),
+    bunkerConsumption: file('bunker-consumption.json', null),
   };
 }
 
@@ -1748,6 +1781,7 @@ function writeLivePartsAt(dataDir, id, parts) {
   put('bunker-plan.json', parts.bunkerPlan);
   put('bunker-after.json', parts.bunkerAfter);
   put('bunker-summary.json', parts.bunkerSummary);
+  put('bunker-consumption.json', parts.bunkerConsumption);
 }
 
 function vesselHullSame(a, b) {
