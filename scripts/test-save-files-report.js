@@ -11,9 +11,9 @@ const root = path.join(__dirname, '..');
 const fuel = fs.readFileSync(path.join(root, 'public/js/fuel-report.js'), 'utf8');
 const bunker = fs.readFileSync(path.join(root, 'public/js/bunkering-report.js'), 'utf8');
 const app = fs.readFileSync(path.join(root, 'public/js/app.js'), 'utf8');
-const cons = fs.readFileSync(path.join(root, 'public/js/bunker-consumption.js'), 'utf8');
-assert.match(cons, /fmtN\(sum\.daysSea, 1\)/);
-assert.match(cons, /fmtN\(sum\.totalDist, 0\)/);
+const cons = fs.readFileSync(path.join(root, 'public/js/consumption-plan.js'), 'utf8');
+assert.match(cons, /Days at Sea', fmtN\(route\.daysSea, 2\)/);
+assert.match(cons, /Total Distance', fmtN\(route\.totalDist, 0\)/);
 
 assert.match(fuel, /fr-save'\)\.onclick = \(\) => saveReport\(\{ snapshot: true/);
 assert.match(fuel, /async function flushIfDirty[\s\S]{0,700}snapshot: true/);

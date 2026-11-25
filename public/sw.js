@@ -36,6 +36,7 @@ const ASSETS = [
   '/js/tank-fuel-register.js',
   '/js/bunker-alert.js',
   '/js/bunkering-report.js',
+  '/js/consumption-plan.js',
   '/js/bunker-consumption.js',
   '/js/stem-advice.js',
   '/manifest.json',

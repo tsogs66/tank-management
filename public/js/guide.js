@@ -343,11 +343,11 @@
         "Tick P/A for a port or anchorage stay. Distance and speed are then not used; type the days.",
         "For a sea leg type Distance (nm) and Speed (kn). Days = distance ÷ (speed × 24). Clear the distance or the speed and the days clear with them.",
         "You may type the days yourself on a sea leg. That figure is kept until you change the distance or the speed.",
-        "Type the Daily Cons (MT per day). Quantity = Daily Cons × Days.",
-        "If Distance, Speed and Days are blank or 0 and both From and To are filled in, the Daily Cons is taken as the quantity for that line.",
+        "On each line pick the Fuel (the vessel's own fuels; Residual and Distillate when none are set up) and type its MT per day. Quantity = MT per day × Days. + Fuel column puts a third fuel on every line.",
+        "If Distance, Speed and Days are blank or 0 and both From and To are filled in, the MT per day typed is taken as the quantity for that line.",
         "If From or To is empty and nothing else is entered, the quantity stays empty.",
-        "Use Margin % on a line for a reserve on that line only. Add destination / stay adds the next line. Remove last line removes the last one.",
-        "Enter Current ROB and Quantity to Receive to see Arrival ROB and Next Departure ROB. Load Voyage ROB or Load Tank ROB fill the ROB for you.",
+        "Use Margin % on a line for a reserve on that line only; it applies to every fuel on the line. Add destination / stay adds the next line. Remove last line removes the last one.",
+        "Each fuel in use has its own block under the table: enter its Current ROB and Quantity to Receive to see Arrival ROB and Next Departure ROB. Load Voyage ROB or Load Tank ROB fill the ROB for you.",
         "Enter the Delivery / Redelivery ROB to see two excess figures. Excess (Margin) Quantity = Next Departure ROB − Delivery ROB. Excess (Actual) Quantity = ((Current ROB + Quantity to Receive) − Total Consumption) − Delivery ROB, with no margin. A negative figure makes its box glow red.",
         "The result boxes are in three columns with the tablet upright and six sideways. Days are shown to two decimals (for example 3.47); the quantity still uses the exact days.",
         "Saved Calculations is folded away. Tap its heading to open it, then search by date or name."
@@ -633,6 +633,30 @@
         "A wrong time: retype it; the pumping time and rate are recalculated.",
         "Remove second fuel takes the second grade and its times off the report. Adding it again starts with empty times.",
         "A summary saved before this change has no second times; open it, add the second fuel, and fill them in."
+]
+    },
+    {
+      group: "Bunkering",
+      q: "How do I enter two fuels on one voyage, and LSMGO that is burned as needed?",
+      purpose: "The route is typed once. Each line then carries the fuels burned on it, each with its own MT per day, so a second fuel needs no second table. A fuel used as demand arises, such as LSMGO, is entered as its average MT per day.",
+      steps: [
+        "Type each destination or stay as one line: From, To, distance and speed (or the days for a port stay).",
+        "On the line pick Fuel 1, for example HFO, and type its MT per day. Pick Fuel 2, for example LSMGO, and type its MT per day. The fuels offered are the grades of the vessel's fuel tanks; with none set up they are Residual and Distillate.",
+        "A fuel burned as needed (LSMGO for generators, boiler or other uses) is typed as its average MT per day. The plan multiplies it by the days of the line like any other fuel. Leave the box empty on a line where it is not burned.",
+        "For a fuel changeover during the voyage use two lines, before and after, and pick the different fuel on each line.",
+        "+ Fuel column adds a third fuel to every line (up to four); − Fuel column takes the last one off.",
+        "The days and the distance are worked out once. Below the table each fuel has its own block: Current ROB, Quantity to Receive, unpumpable, weather reserve, Delivery ROB, the result boxes and the stem advice.",
+        "The margin % of a line applies to every fuel on that line.",
+        "A calculation saved with the earlier layout opens converted: its residual and distillate figures sit side by side on the same lines."
+],
+      buttons: [
+        "Fuel 1 / Fuel 2 — the fuel picked from the vessel's grades, with its MT per day",
+        "+ Fuel column / − Fuel column — another fuel on every line",
+        "Add destination / stay, Remove last line — the lines of the route"
+],
+      undo: [
+        "A wrong fuel on a line: pick the right one in that box; the totals move to it.",
+        "A fuel column with figures asks before it is removed."
 ]
     }
   ];
