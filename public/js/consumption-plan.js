@@ -212,6 +212,21 @@
     });
     return { route, grades, chain: c };
   }
+  /** Fill the empty MT/day boxes from what the ship really burned. stats: { grade: { sea, port } } in MT per day.
+   *  Sea lines get the sea figure, port and anchorage lines the port figure. A box that already has a figure is never changed.
+   *  A fuel only gets figures when the grade is picked on the line, so nothing is added that was not chosen. Returns how many were filled. */
+  function suggestDaily(plan, stats) {
+    const by = {};
+    Object.keys(stats || {}).forEach((g) => { by[normGrade(g)] = stats[g]; });
+    let filled = 0;
+    sectionList(plan).forEach((sec) => (sec.legs || []).forEach((leg) => (leg.fuels || []).forEach((f) => {
+      if (!f.grade || num(f.daily) != null) return;
+      const st = by[normGrade(f.grade)];
+      const v = st ? (leg.port ? st.port : st.sea) : null;
+      if (v != null && isFinite(v) && v > 0) { f.daily = Math.round(v * 100) / 100; filled++; }
+    })));
+    return filled;
+  }
   function secTitle(sec, i) { return 'Leg ' + (i + 1) + (sec && String(sec.legTitle || '').trim() ? ': ' + String(sec.legTitle).trim() : ''); }
   /** A following voyage leg: one blank line on the fuels the last line used. */
   function newSection(plan, fuels) {
@@ -892,6 +907,7 @@
         const b = (A.buttons || []).find((x) => x.id === btn);
         if (b && b.onClick) {
           const r = await b.onClick({ loadRob, plan: ctx.plan, render: renderGrid });
+          if (r && r.changed != null) { renderGrid(); scheduleSave(); toast(r.changed ? r.message : r.empty); }
           if (r && r.rob) { const any = loadRob(r.rob); toast(any ? (r.message || 'ROB loaded') : (r.empty || 'No fuel weight found')); }
         }
       }
@@ -953,7 +969,7 @@
   }
 
   return {
-    MAX_SLOTS, MAX_LEGS, FALLBACK_FUELS, sectionList, chain, combined, newSection, overviewHtml, normGrade, familyOf, cleanFuels,
+    MAX_SLOTS, MAX_LEGS, FALLBACK_FUELS, sectionList, suggestDaily, chain, combined, newSection, overviewHtml, normGrade, familyOf, cleanFuels,
     emptyLeg, defaultPlan, newLeg, legIsBlank, legDays, fuelQty, fuelMargin, routeSummary, gradeSummary, gradesInUse, stockOf,
     ensurePlan, finalize, fromLegacy, toLegacy, legacySig, daysShown, printBody, fmtN, fmtFuel, routeCardsHtml, gradeCardsHtml,
     mount,

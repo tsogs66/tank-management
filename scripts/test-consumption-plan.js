@@ -177,4 +177,15 @@ ok(/Leg 1 — route and fuels/.test(pm) && /Leg 2 — route and fuels/.test(pm) 
 const many = CP.ensurePlan({ v: 2, legs: [CP.emptyLeg(2)], extra: Array.from({ length: 9 }, () => ({ legs: [CP.emptyLeg(2)] })) }, vessel);
 ok(many.extra.length === CP.MAX_LEGS - 1, 'at most six voyage legs');
 
+
+/* ---- fill the empty MT/day boxes from the log ---- */
+const sg = CP.defaultPlan(vessel);
+Object.assign(sg.legs[0], { from: 'A', to: 'B', distance: 600, speed: 12 });
+sg.legs[0].fuels[0].daily = 31;                       /* typed: must stay */
+sg.legs.push(CP.newLeg(sg, vessel)); Object.assign(sg.legs[1], { port: true, from: 'B', to: 'B', days: 2 });
+const nFilled = CP.suggestDaily(sg, { HFO: { sea: 29.5, port: 1.2 }, 'MDO/MGO': { sea: 2.345, port: 3.1 }, LSMGO: { sea: 9, port: 9 } });
+ok(nFilled === 3 && sg.legs[0].fuels[0].daily === 31, 'a figure already typed is never changed');
+ok(sg.legs[0].fuels[1].daily === 2.35 && sg.legs[1].fuels[0].daily === 1.2 && sg.legs[1].fuels[1].daily === 3.1, 'sea lines get the sea average, port lines the port average, to two decimals');
+ok(CP.suggestDaily(sg, {}) === 0 && CP.suggestDaily(sg, { HFO: { sea: null, port: 0 } }) === 0, 'nothing is filled when the log has nothing for that fuel');
+
 console.log(`consumption plan: ${pass} checks passed`);
