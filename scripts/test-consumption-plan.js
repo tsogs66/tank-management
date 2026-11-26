@@ -178,14 +178,14 @@ const many = CP.ensurePlan({ v: 2, legs: [CP.emptyLeg(2)], extra: Array.from({ l
 ok(many.extra.length === CP.MAX_LEGS - 1, 'at most six voyage legs');
 
 
-/* ---- fill the empty MT/day boxes from the log ---- */
+/* ---- fill the empty leg figures (MT/day) from the log ---- */
 const sg = CP.defaultPlan(vessel);
 Object.assign(sg.legs[0], { from: 'A', to: 'B', distance: 600, speed: 12 });
-sg.legs[0].fuels[0].daily = 31;                       /* typed: must stay */
+sg.over = CP.ensurePlan(sg, vessel).over; sg.over.sea[0] = 31;                       /* typed: must stay */
 sg.legs.push(CP.newLeg(sg, vessel)); Object.assign(sg.legs[1], { port: true, from: 'B', to: 'B', days: 2 });
 const nFilled = CP.suggestDaily(sg, { HFO: { sea: 29.5, port: 1.2 }, 'MDO/MGO': { sea: 2.345, port: 3.1 }, LSMGO: { sea: 9, port: 9 } });
-ok(nFilled === 3 && sg.legs[0].fuels[0].daily === 31, 'a figure already typed is never changed');
-ok(sg.legs[0].fuels[1].daily === 2.35 && sg.legs[1].fuels[0].daily === 1.2 && sg.legs[1].fuels[1].daily === 3.1, 'sea lines get the sea average, port lines the port average, to two decimals');
+ok(nFilled === 3 && sg.over.sea[0] === 31, 'a leg figure already typed is never changed');
+ok(sg.over.sea[1] === 2.35 && sg.over.port[0] === 1.2 && sg.over.port[1] === 3.1, 'the sea figures get the sea average, the port figures the port average, to two decimals');
 ok(CP.suggestDaily(sg, {}) === 0 && CP.suggestDaily(sg, { HFO: { sea: null, port: 0 } }) === 0, 'nothing is filled when the log has nothing for that fuel');
 
 /* ---- ports and automatic distance (the data for it is optional; the plan keeps what it is told) ---- */
@@ -280,6 +280,34 @@ ok(mapParts.every((l) => l.routeFrom === 7 && l.routeTo === 9), 'the stretches o
 ok(CP.ensurePlan({ v: 2, legs: [CP.emptyLeg(2)] }, vessel).sea.approachNm === 0 && CP.ensurePlan({ v: 2, legs: [CP.emptyLeg(2)], sea: { approachNm: 12 } }, vessel).sea.approachNm === 12 && CP.ensurePlan({ v: 2, legs: [CP.emptyLeg(2)], sea: { approachNm: 900 } }, vessel).sea.approachNm === 100, 'the approach allowance is off by default, saved, and limited to 100 nm');
 ok(Array.isArray(CP.ensurePlan({ v: 2, legs: [CP.emptyLeg(2)], sea: { ecaOn: ['north_east_atlantic'] } }, vessel).sea.ecaOn), 'areas switched on before they take effect are kept with the plan');
 
+/* ---- leg figures (override) and miscellaneous consumption ---- */
+{
+  const mk = (over) => CP.ensurePlan({ v: 2, over, legs: [
+    Object.assign(CP.emptyLeg(2), { from: 'A', to: 'B', distance: 480, mode: '', fuels: [{ grade: 'HFO', daily: null }, { grade: 'LSMGO', daily: null }] }),
+    Object.assign(CP.emptyLeg(2), { port: true, from: 'B', to: 'B', days: 1, mode: '', fuels: [{ grade: 'HFO', daily: null }, { grade: 'LSMGO', daily: null }] })] }, vessel);
+  const p = mk({ speed: 10, sea: [28, 2], port: [3, 1], misc: 0.05, miscGrade: 'LSMGO' });
+  CP.applyProfileToPlan(p, CP.cleanProfile(null), 'ballast');
+  ok(p.legs[0].speed === 10 && p.legs[0].fuels[0].daily === 28 && p.legs[0].fuels[1].daily === 2, 'a line on "Leg figures" takes the speed and the sea MT/day typed for the voyage leg');
+  ok(p.legs[1].speed === null && p.legs[1].fuels[0].daily === 3 && p.legs[1].fuels[1].daily === 1, 'a port stay takes the port MT/day');
+  const sums = CP.chain(p).sections[0].sums;
+  ok(Math.abs(sums.HFO.totalCons - (28 * 2 + 3 * 1)) < 1e-9, 'the fuel is the MT/day times the days of each line');
+  ok(Math.abs(sums.LSMGO.totalCons - (2 * 2 + 1 * 1 + 0.05 * 3)) < 1e-9, 'miscellaneous consumption is the daily figure times sea, anchorage and port days together, added to its fuel');
+  const q = mk({ speed: 10, sea: [28, 2], port: [3, 1], misc: 0.05, miscGrade: '' });
+  CP.applyProfileToPlan(q, CP.cleanProfile(null), 'ballast');
+  ok(Math.abs(CP.chain(q).sections[0].sums.LSMGO.totalCons - (5 + 0.15)) < 1e-9, 'without a chosen fuel it is burned from the first distillate on the lines');
+  const oldLeg = Object.assign(CP.emptyLeg(2), { from: 'A', to: 'B', distance: 480, speed: 12, fuels: [{ grade: 'HFO', daily: 30 }, { grade: '', daily: null }] }); delete oldLeg.auto; /* a plan saved before the leg figures existed has no such flag */
+  const old = CP.ensurePlan({ v: 2, legs: [oldLeg] }, vessel);
+  ok(old.legs[0].auto === false, 'a line typed by hand in an earlier version is marked as such');
+  CP.applyProfileToPlan(old, CP.cleanProfile(null), 'ballast');
+  ok(old.legs[0].speed === 12 && old.legs[0].fuels[0].daily === 30, 'and keeps its own speed and MT/day');
+  const pro = CP.cleanProfile({ sea: { ballast: { full: { kn: 14, c: [38, 3] } } } }, 2);
+  const m = mk({ speed: 10, sea: [28, 2], port: [3, 1] }); m.legs[0].mode = 'full';
+  CP.applyProfileToPlan(m, pro, 'ballast');
+  ok(m.legs[0].speed === 14 && m.legs[0].fuels[0].daily === 38, 'a line on a profile mode ignores the leg figures');
+  const mm = CP.scenMetrics(p);
+  ok(mm.total > 0, 'scenarios include the miscellaneous fuel');
+}
+
 /* ---- grade names written differently still match ---- */
 ok(CP.normGrade('LS MGO') === 'LSMGO' && CP.normGrade('ulsmgo') === 'LSMGO' && CP.normGrade('LS-MGO') === 'LSMGO' && CP.normGrade('LSMGO') === 'LSMGO', 'LSMGO written in its usual ways is one grade');
 ok(CP.normGrade('VLSFO') === 'LSFO' && CP.normGrade('HSFO') === 'HFO' && CP.normGrade('MGO') === 'MDO/MGO', 'fuel names stay mapped');
@@ -293,7 +321,7 @@ ok(CP.cleanFuels([{ id: 'HFO' }, { id: 'LSMGO' }, { id: 'MDO/MGO', active: false
   ok(CP.profileEntry(prof, 'ballast', 'safe') === null && CP.profileEntry(prof, 'ballast', 'full').kn === 14.5, 'a mode without figures is not offered');
   const leg = CP.emptyLeg(2); leg.mode = 'eco';
   ok(CP.applyMode(leg, prof, 'ballast') && leg.speed === 12 && leg.fuels[0].daily === 27 && leg.fuels[1].daily === 3, 'a line in a mode takes the speed and MT/day of the profile');
-  ok(CP.applyMode(leg, prof, 'laden') === false && leg.speed === 12, 'a mode without figures for the condition leaves the line alone');
+  ok(CP.applyMode(leg, prof, 'laden') === false && leg.speed === null && leg.fuels[0].daily === null, 'a mode without figures for the condition leaves the line with none (no stale figures)');
   const pl = CP.emptyLeg(2); pl.port = true; pl.mode = 'full';
   CP.applyMode(pl, prof, 'ballast'); ok(pl.mode === 'port' && pl.fuels[0].daily === 2, 'a sea mode on a port stay becomes Port');
   ok(CP.defaultMode(leg, CP.emptyLeg(2), prof, 'ballast') === 'eco' && CP.defaultMode(null, CP.emptyLeg(2), prof, 'ballast') === 'full', 'a new line starts in the mode of the line before, else full speed');

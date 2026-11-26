@@ -63,7 +63,7 @@
   function emptyLeg(slots) {
     const fuels = [];
     for (let i = 0; i < (slots || 2); i++) fuels.push(emptyFuel());
-    return { port: false, from: '', to: '', fromPort: null, toPort: null, distance: null, distAuto: false, seaNote: '', ecaNm: null, ecaZones: '', ecaRuns: null, routeFrom: null, routeTo: null, grp: null, keepWhole: false, mode: '', speed: null, days: null, daysManual: false, marginPct: null, fuels };
+    return { port: false, from: '', to: '', fromPort: null, toPort: null, distance: null, distAuto: false, seaNote: '', ecaNm: null, ecaZones: '', ecaRuns: null, routeFrom: null, routeTo: null, grp: null, keepWhole: false, mode: '', auto: true, speed: null, days: null, daysManual: false, marginPct: null, fuels };
   }
   function legIsBlank(leg) {
     if (!leg) return true;
@@ -124,7 +124,7 @@
    * MT per day of each fuel slot. A line picks a mode and takes its speed and MT/day from here, so nothing is typed on every line. Fuel 1..N are the fuel columns of the plan
    * (Fuel 1 is the main fuel and becomes the ECA fuel inside an ECA). */
   const PROFILE_CONDS = [['ballast', 'Ballast'], ['laden', 'Laden']];
-  const SEA_MODES = [['full', 'Full speed'], ['eco', 'Eco speed'], ['safe', 'Safe speed']];
+  const SEA_MODES = [['full', 'Full speed'], ['eco', 'Eco speed'], ['safe', 'Safe speed'], ['maneuver', 'Manoeuvring (pilot areas)']];
   const PORT_MODES = [['port', 'Port'], ['anchorage', 'Anchorage']];
   const modeKind = (m) => (SEA_MODES.some((x) => x[0] === m) ? 'sea' : PORT_MODES.some((x) => x[0] === m) ? 'port' : null);
   const condOf = (c) => (/^(l|laden)$/i.test(String(c == null ? '' : c).trim()) ? 'laden' : 'ballast');
@@ -158,14 +158,24 @@
       leg.mode = alt; kind = modeKind(alt);
     }
     const e = profileEntry(p, cond, leg.mode);
-    if (!e) return false;
-    if (kind === 'sea' && e.kn > 0) { leg.speed = e.kn; if (!leg.daysManual) leg.days = null; }
-    (e.c || []).forEach((v, i) => { if (v != null && leg.fuels && leg.fuels[i]) leg.fuels[i].daily = v; });
+    if (!e) { if (leg.auto !== false) { if (kind === 'sea') leg.speed = null; (leg.fuels || []).forEach((f) => { f.daily = null; }); } return false; }
+    if (kind === 'sea') { leg.speed = e.kn > 0 ? e.kn : null; if (!leg.daysManual) leg.days = null; } else leg.speed = null;
+    (leg.fuels || []).forEach((f, i) => { f.daily = e.c && e.c[i] != null ? e.c[i] : null; });
+    return true;
+  }
+  /** The speed and MT/day of a line: from its mode in the vessel profile, or (mode "Leg figures") from the figures typed for the voyage leg. A line typed by hand in an earlier version keeps its own figures. */
+  function applyLine(leg, sec, p, cond) {
+    if (!leg || leg.auto === false) return false;
+    if (leg.mode && !(leg.mode === 'maneuver' && !profileEntry(p, cond, 'maneuver'))) return applyMode(leg, p, cond); /* manoeuvring without profile figures uses the leg figures */
+    const o = (sec && sec.over) || {};
+    if (!leg.port) { leg.speed = o.speed > 0 ? o.speed : null; if (!leg.daysManual) leg.days = null; } else leg.speed = null;
+    const src = leg.port ? o.port : o.sea;
+    (leg.fuels || []).forEach((f, i) => { f.daily = src && src[i] != null ? src[i] : null; });
     return true;
   }
   function applyProfileToPlan(plan, p, dfltCond) {
-    if (!profileHasData(p)) return 0; let n = 0;
-    sectionList(plan).forEach((sec) => { const cond = sec.cond || dfltCond || 'ballast'; (sec.legs || []).forEach((l) => { if (applyMode(l, p, cond)) n++; }); });
+    let n = 0;
+    sectionList(plan).forEach((sec) => { const cond = sec.cond || dfltCond || 'ballast'; (sec.legs || []).forEach((l) => { if (applyLine(l, sec, p, cond)) n++; }); });
     return n;
   }
   /** The mode a new line starts with: the one of the line before it (when it fits), else the first sea mode that has figures (full speed first), or Port. */
@@ -234,6 +244,7 @@
     const out = []; const seen = new Set();
     const add = (g) => { const k = normGrade(g); if (k && !seen.has(k)) { seen.add(k); out.push(g); } };
     sectionList(plan).forEach((sec) => (sec.legs || []).forEach((leg) => (leg.fuels || []).forEach((f) => { if (f.grade && num(f.daily) != null) add(f.grade); })));
+    sectionList(plan).forEach((sec) => { const g = miscGradeOf(sec); if (g) add(g); });
     sectionList(plan).forEach((sec) => Object.keys(sec.stocks || {}).forEach((k) => {
       const st = sec.stocks[k] || {};
       if (['currentRob', 'qtyReceive', 'deliveryRob', 'unpumpableMt', 'weatherMarginMt'].some((f) => num(st[f]) != null)) add(st.label || k);
@@ -242,9 +253,25 @@
   }
 
   /** One grade across the whole plan: what it burns, what it needs, what is left. Same formulas as the earlier two-block plan. */
+  /** The fuel the miscellaneous consumption is burned from: the one chosen, else the first distillate on the lines. */
+  function miscGradeOf(sec) {
+    const o = sec && sec.over; if (!(o && o.misc > 0)) return '';
+    if (o.miscGrade) return o.miscGrade;
+    const hit = []; ((sec && sec.legs) || []).forEach((l) => (l.fuels || []).forEach((f) => { if (f.grade && familyOf(f.grade) === 'distillate') hit.push(f.grade); }));
+    return hit[0] || '';
+  }
+  /** Days of the whole voyage leg: sea, anchorage and port stays added up. */
+  function legTotalDays(sec) { let d = 0; ((sec && sec.legs) || []).forEach((l) => { const x = legDays(l); if (x != null && x > 0) d += x; }); return d; }
+  /** Miscellaneous consumption (MT) of a voyage leg: the daily figure times all its days, for the fuel it is burned from. */
+  function miscQty(sec, grade) {
+    const o = sec && sec.over; if (!(o && o.misc > 0)) return 0;
+    const g = miscGradeOf(sec); if (!g || normGrade(g) !== normGrade(grade)) return 0;
+    return o.misc * legTotalDays(sec);
+  }
   function gradeSummary(plan, grade) {
     const want = normGrade(grade);
     let totalCons = 0; let margin = 0;
+    totalCons += miscQty(plan, grade);
     (plan.legs || []).forEach((leg) => {
       (leg.fuels || []).forEach((f) => {
         if (normGrade(f.grade) !== want) return;
@@ -285,7 +312,7 @@
           const p = prev.sums[k];
           st.currentRob = p && p.nextDepRob != null ? p.nextDepRob : null;
         });
-        eff = { legs: sec.legs, stocks };
+        eff = { legs: sec.legs, stocks, over: sec.over };
       }
       const sums = {};
       grades.forEach((g) => { sums[normGrade(g)] = gradeSummary(eff, g); });
@@ -315,12 +342,18 @@
     const by = {};
     Object.keys(stats || {}).forEach((g) => { by[normGrade(g)] = stats[g]; });
     let filled = 0;
-    sectionList(plan).forEach((sec) => (sec.legs || []).forEach((leg) => (leg.fuels || []).forEach((f) => {
-      if (!f.grade || num(f.daily) != null) return;
-      const st = by[normGrade(f.grade)];
-      const v = st ? (leg.port ? st.port : st.sea) : null;
-      if (v != null && isFinite(v) && v > 0) { f.daily = Math.round(v * 100) / 100; filled++; }
-    })));
+    sectionList(plan).forEach((sec) => {
+      sec.over = sec.over || cleanOver(null, plan.fuelSlots || 2);
+      const grade = (kind, i) => { const l = (sec.legs || []).find((x) => (kind === 'port') === !!x.port && x.fuels && x.fuels[i] && x.fuels[i].grade); return l ? l.fuels[i].grade : ((sec.legs || []).find((x) => x.fuels && x.fuels[i] && x.fuels[i].grade) || { fuels: [] }).fuels[i]; };
+      ['sea', 'port'].forEach((kind) => {
+        for (let i = 0; i < (plan.fuelSlots || 2); i++) {
+          if (sec.over[kind][i] != null) continue;
+          const g = grade(kind, i); const gname = g && g.grade ? g.grade : g; if (!gname) continue;
+          const st = by[normGrade(gname)]; const v = st ? st[kind] : null;
+          if (v != null && isFinite(v) && v > 0) { sec.over[kind][i] = Math.round(v * 100) / 100; filled++; }
+        }
+      });
+    });
     return filled;
   }
   function secTitle(sec, i) { return 'Leg ' + (i + 1) + (sec && String(sec.legTitle || '').trim() ? ': ' + String(sec.legTitle).trim() : ''); }
@@ -328,7 +361,7 @@
   function newSection(plan, fuels) {
     const secs = sectionList(plan);
     const last = secs[secs.length - 1];
-    return { legTitle: '', legs: [newLeg({ fuelSlots: plan.fuelSlots || 2, legs: last.legs }, fuels)], stocks: {} };
+    return { legTitle: '', over: cleanOver(null, plan.fuelSlots || 2), legs: [newLeg({ fuelSlots: plan.fuelSlots || 2, legs: last.legs }, fuels)], stocks: {} };
   }
 
   /* ------------------------------------------------- the earlier two-block shape ---- */
@@ -423,6 +456,7 @@
       totalDays += days;
       const frac = Math.max(0, Math.min(1, (elapsedDays - t) / days));
       if (frac > 0) {
+        const mg = miscGradeOf(sec); if (mg && sec.over.misc > 0) fuel[normGrade(mg)] = (fuel[normGrade(mg)] || 0) + sec.over.misc * days * frac;
         if (!l.port && Number(l.distance) > 0) dist += Number(l.distance) * frac;
         (l.fuels || []).forEach((f) => { const q = fuelQty(l, f); if (q != null && f.grade) fuel[normGrade(f.grade)] = (fuel[normGrade(f.grade)] || 0) + q * frac; });
       }
@@ -520,7 +554,16 @@
     Object.keys(used).forEach((c) => { const fee = plan.canal && plan.canal[c] && plan.canal[c].fee; if (fee > 0) { fees += fee * used[c]; anyFee = true; } });
     return { dist: cm.route.totalDist, daysSea: cm.route.daysSea, daysPort: cm.route.daysPort, eca: cm.route.totalEca, fuels, total, canalFees: anyFee ? fees : null, cost: (anyCost || anyFee) ? cost + fees : null };
   }
+  /** The figures typed for one voyage leg, used by every line that is on "Leg figures": speed (kn), MT per day at sea and in port / at anchorage for each fuel column,
+   *  and the miscellaneous daily consumption (an incinerator figure agreed in the charter party) with the fuel it is burned from. */
+  function cleanOver(o, slots) {
+    const arr = (a) => { const out = []; for (let i = 0; i < slots; i++) { const v = a && a[i]; out.push(v != null && v !== '' && !isNaN(Number(v)) && Number(v) >= 0 ? Number(v) : null); } return out; };
+    const sp = Number(o && o.speed); const mi = Number(o && o.misc);
+    return { speed: sp > 0 ? sp : null, sea: arr(o && o.sea), port: arr(o && o.port), misc: mi > 0 ? mi : null, miscGrade: o && o.miscGrade ? String(o.miscGrade) : '' };
+  }
+  const legHasFigures = (l) => l.speed != null || (l.fuels || []).some((f) => f && f.daily != null);
   function normalizeSection(sec, slots) {
+    sec.over = cleanOver(sec.over, slots);
     sec.legs = (Array.isArray(sec.legs) ? sec.legs : []).map((l) => {
       const leg = Object.assign(emptyLeg(slots), l);
       leg.port = !!leg.port;
@@ -534,6 +577,8 @@
       leg.grp = (leg.grp && leg.grp.id && Number(leg.grp.fromPort) > 0 && Number(leg.grp.toPort) > 0) ? { id: String(leg.grp.id), fromPort: Number(leg.grp.fromPort), toPort: Number(leg.grp.toPort), from: String(leg.grp.from || ''), to: String(leg.grp.to || '') } : null;
       leg.keepWhole = !!leg.keepWhole;
       leg.mode = modeKind(leg.mode) ? leg.mode : '';
+      /* a line from before the leg figures existed, with typed speed / MT per day and no mode, keeps them (auto = false); every other line takes its figures from its mode or the leg figures */
+      leg.auto = l.auto === undefined ? !(!leg.mode && legHasFigures(l)) : !!l.auto;
       leg.canals = leg.distAuto && Array.isArray(leg.canals) ? leg.canals.filter((c) => CANALS[c]).slice(0, 4) : [];
       leg.risks = leg.distAuto && Array.isArray(leg.risks) ? leg.risks.map(String).filter((id) => RISK_AREAS.some((a) => a.id === id)).slice(0, 12) : [];
       leg.marginPct = (leg.marginPct == null || leg.marginPct === '' || isNaN(Number(leg.marginPct))) ? null : Number(leg.marginPct);
@@ -551,7 +596,7 @@
     plan.fuelSlots = slots;
     normalizeSection(plan, slots); plan.cond = plan.cond ? condOf(plan.cond) : '';
     const extra = (Array.isArray(plan.extra) ? plan.extra : []).slice(0, MAX_LEGS - 1).map((x) => {
-      const sec = { legTitle: (x && x.legTitle) || '', cond: x && x.cond ? condOf(x.cond) : '', legs: x && x.legs, stocks: x && x.stocks && typeof x.stocks === 'object' ? x.stocks : {} };
+      const sec = { legTitle: (x && x.legTitle) || '', cond: x && x.cond ? condOf(x.cond) : '', over: x && x.over, legs: x && x.legs, stocks: x && x.stocks && typeof x.stocks === 'object' ? x.stocks : {} };
       normalizeSection(sec, slots);
       if (!sec.legs.length) sec.legs = [emptyLeg(slots)];
       return sec;
@@ -752,7 +797,7 @@
       nl.ecaNm = r.eca ? dist[k] : null; nl.ecaZones = r.eca ? zl(r) : ''; nl.ecaRuns = null;
       nl.keepWhole = false; nl.grp = { id: gid, fromPort: leg.routeFrom || leg.fromPort, toPort: leg.routeTo || leg.toPort, from: leg.from, to: leg.to };
       if (r.eca && ecaGrade && nl.fuels && nl.fuels[0]) nl.fuels[0].grade = ecaGrade;
-      if (r.pilot) nl.mode = ''; /* the pilot areas are slow manoeuvring water: their own MT/day, not the sea speed's */
+      if (r.pilot) nl.mode = 'maneuver'; /* the pilot areas are slow manoeuvring water: the manoeuvring figures of the vessel profile (the leg figures when it has none) */
       return nl;
     });
   }
@@ -860,6 +905,16 @@
     .cp-stocktable thead th { font-size: .8em; text-transform: uppercase; letter-spacing: .04em; opacity: .8; text-align: right; font-weight: 600; }
     .cp-stocktable thead th:first-child, .cp-stocktable tbody th { text-align: left; font-weight: 700; }
     .cp-stocktable td input { width: 100%; min-width: 96px; min-height: 32px; box-sizing: border-box; text-align: right; }
+    .cp-legfig { border: 1px solid var(--cp-line); border-radius: 10px; padding: 10px 14px; margin: 8px 0 10px; background: rgba(128,128,128,.05); }
+    .cp-legfig-h { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin-bottom: 8px; } .cp-legfig-h span { font-size: .85em; opacity: .75; }
+    .cp-legfig-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+    .cp-legfig fieldset { border: 1px solid var(--cp-line); border-radius: 8px; margin: 0; padding: 6px 10px 10px; min-width: 0; }
+    .cp-legfig legend { font-size: .82em; text-transform: uppercase; letter-spacing: .04em; opacity: .85; padding: 0 6px; } .cp-legfig legend small { text-transform: none; letter-spacing: 0; opacity: .7; }
+    .cp-ovrow { display: flex; flex-wrap: wrap; gap: 8px; } .cp-ovf { display: flex; flex-direction: column; gap: 3px; font-size: .8em; flex: 1 1 110px; min-width: 100px; }
+    .cp-ovf input, .cp-ovf select { min-height: 34px; font-size: 14px; width: 100%; box-sizing: border-box; }
+    .cp-miscf { grid-column: span 2; } .cp-ro { display: block; padding: 6px 4px; font-variant-numeric: tabular-nums; opacity: .9; font-size: .92em; }
+    .cp-warn { color: #e67e22; font-weight: 600; font-size: .9em; min-height: 0; } .cp-warn:empty { display: none; }
+    @media (max-width: 720px) { .cp-miscf { grid-column: auto; } }
     .cp-subh { margin: 12px 0 6px; font-size: .9em; text-transform: uppercase; letter-spacing: .05em; opacity: .85; } .cp-subh small { text-transform: none; letter-spacing: 0; opacity: .7; margin-left: 8px; font-weight: 400; }
     .cp-stemd { margin-top: 8px; } .cp-stemd > summary { cursor: pointer; font-weight: 600; font-size: .92em; }
     @media (max-width: 720px) {
@@ -999,6 +1054,7 @@
         r.push(l.marginPct != null ? l.marginPct : ''); row(r);
       });
     });
+    secs.forEach((x, si) => { if (x.sec.over && x.sec.over.misc > 0) row([secTitle(x.sec, si), 'Miscellaneous', x.sec.over.misc + ' MT/day x ' + legTotalDays(x.sec).toFixed(2) + ' days', (x.sec.over.misc * legTotalDays(x.sec)).toFixed(3) + ' MT', miscGradeOf(x.sec)]); });
     row([]); row(['Voyage leg', 'Fuel', 'Current ROB MT', 'To receive MT', 'Consumption MT', 'Margin MT', 'Required MT', 'Arrival ROB MT', 'Next departure ROB MT', 'Stem still needed MT', 'Status']);
     const f3 = (v) => (v == null ? '' : Number(v).toFixed(3));
     secs.forEach((x, si) => { cm.grades.forEach((g) => { const m = x.sums[normGrade(g.grade)]; if (!m) return;
@@ -1015,6 +1071,7 @@
       const lines = x.sec.legs.filter((l) => !legIsBlank(l));
       if (multi) L.push('', secTitle(x.sec, si).toUpperCase());
       L.push(`Route: ${lines.filter((l) => !l.port).map((l) => `${l.from || '?'} → ${l.to || '?'}${l.distance != null ? ' ' + n(l.distance, 0) + ' nm' : ''}${l.mode ? ' (' + modeText(l.mode) + ')' : ''}`).join(' | ') || '—'}`);
+      if (x.sec.over && x.sec.over.misc > 0) L.push(`Miscellaneous: ${n(x.sec.over.misc, 3)} MT/day × ${n(legTotalDays(x.sec), 2)} d = ${n(x.sec.over.misc * legTotalDays(x.sec), 3)} MT ${miscGradeOf(x.sec)}`);
       L.push(`Distance ${n(x.route.totalDist, 0)} nm${x.route.totalEca > 0 ? ' (' + n(x.route.totalEca, 0) + ' in ECA)' : ''} · at sea ${n(x.route.daysSea, 2)} d · port/anchor ${n(x.route.daysPort, 2)} d`);
       cm.grades.forEach((g) => { const m = x.sums[normGrade(g.grade)]; if (!m || (!m.totalCons && !m.required && m.rob == null)) return;
         L.push(`${g.grade}: needs ${n(m.required, 1)} MT (burn ${n(m.totalCons, 1)} + margin ${n(m.margin, 1)}) · ROB ${n(m.rob, 1)} → arrival ${n(m.arrivalRob, 1)} MT · stem ${n(m.stem, 1)} MT · ${gradeStatus(m).text}`); });
@@ -1075,7 +1132,8 @@
         { label: 'Days Port', value: fmtN(route.daysPort, 2) },
         { label: 'Days Sea', value: fmtN(route.daysSea, 2) },
         { label: 'Total Distance', value: fmtN(route.totalDist, 0) + ' nm' },
-      ].concat(route.totalEca > 0 ? [{ label: 'Of which in ECA', value: fmtN(route.totalEca, 0) + ' nm' }] : []), route.totalEca > 0 ? 4 : 3)}</div></section>`;
+      ].concat(route.totalEca > 0 ? [{ label: 'Of which in ECA', value: fmtN(route.totalEca, 0) + ' nm' }] : [])
+        .concat(sec.over && sec.over.misc > 0 && miscGradeOf(sec) ? [{ label: 'Miscellaneous', value: `${fmtN(sec.over.misc, 3)} MT/day × ${fmtN(legTotalDays(sec), 2)} d = ${fmtFuel(sec.over.misc * legTotalDays(sec))} MT ${esc(miscGradeOf(sec))}` }] : []), 4)}</div></section>`;
     };
     const gradeBlock = (g, s, title) => `<section class="pr-section"><h3 class="pr-section-title">${esc(title)}</h3><div class="pr-section-body">
         ${metaGrid([
@@ -1257,7 +1315,7 @@
     /** Lines that follow a mode take speed and MT/day from the profile again (after a profile, condition or mode change). */
     function followProfile() { refreshProfile(); return applyProfileToPlan(ctx.plan, ctx.profile, condNow()); }
     /** A new line starts in the mode of the line before it (or the first mode that has figures). */
-    function startMode(sec, leg) { leg.mode = defaultMode(sec.legs[sec.legs.length - 2] || sec.legs.filter((l) => l !== leg).pop(), leg, refreshProfile(), secCond(sec)); applyMode(leg, ctx.profile, secCond(sec)); }
+    function startMode(sec, leg) { leg.auto = true; leg.mode = defaultMode(sec.legs[sec.legs.length - 2] || sec.legs.filter((l) => l !== leg).pop(), leg, refreshProfile(), secCond(sec)); applyMode(leg, ctx.profile, secCond(sec)); }
     /* ---- undo / redo: a snapshot of the plan before each change (typing counts as one change until a pause) ---- */
     const undo = { stack: [], redo: [], typed: 0 };
     const snapPlan = () => JSON.stringify(ctx.plan);
@@ -1362,13 +1420,14 @@
       return '<option value="">— fuel —</option>'
         + list.map((f) => `<option value="${esc(f.id)}" ${normGrade(f.id) === hit && hit ? 'selected' : ''}>${esc(f.id)}</option>`).join('');
     }
-    /** The mode of a line: Manual (typed figures), or a speed / port mode of the vessel's profile with its knots shown. */
+    /** The mode of a line: "Leg figures" (the speed and MT/day typed for the voyage leg) or a mode of the vessel profile with its knots shown. */
     function modeSelectHtml(leg, cond) {
       const p = ctx.profile; const has = profileHasData(p);
-      const list = leg.port ? PORT_MODES : SEA_MODES;
-      const opt = (m, label) => { const e = profileEntry(p, cond, m); const extra = e && e.kn > 0 ? ' — ' + fmtN(e.kn, 1) + ' kn' : ''; return `<option value="${m}" ${leg.mode === m ? 'selected' : ''} ${e ? '' : 'disabled'}>${label}${e ? extra : ' (not in profile)'}</option>`; };
-      return `<select data-f="mode" title="${has ? 'Speed and MT/day follow the vessel profile for this mode. Typing a speed or MT/day on the line makes it Manual.' : 'Fill in the vessel speed and consumption profile (below, or in Setup) to use full / eco / safe speed.'}">`
-        + `<option value="" ${leg.mode ? '' : 'selected'}>Manual</option>${list.map(([m, l]) => opt(m, l)).join('')}</select>`;
+      const list = (leg.port ? PORT_MODES : SEA_MODES).filter(([m]) => m !== 'maneuver' || profileEntry(p, cond, m) || leg.mode === m);
+      const opt = (m, label) => { const e = profileEntry(p, cond, m); const extra = e && e.kn > 0 ? ' — ' + fmtN(e.kn, 1) + ' kn' : ''; if (m === 'maneuver' && !e) return `<option value="${m}" ${leg.mode === m && leg.auto !== false ? 'selected' : ''}>Manoeuvring (leg figures)</option>`; return `<option value="${m}" ${leg.mode === m && leg.auto !== false ? 'selected' : ''} ${e ? '' : 'disabled'}>${label}${e ? extra : ' (not in profile)'}</option>`; };
+      const old = leg.auto === false ? '<option value="__typed" selected>Typed earlier</option>' : '';
+      return `<select data-f="mode" title="${has ? 'Choose the speed and consumption this line uses: a mode of the vessel profile, or the figures typed for this voyage leg.' : 'Fill in the vessel speed and consumption profile, or type the figures for this voyage leg (above the table).'}">${old}`
+        + `<option value="" ${!leg.mode && leg.auto !== false ? 'selected' : ''}>Leg figures</option>${list.map(([m, l]) => opt(m, l)).join('')}</select>`;
     }
     function rowHtml(leg, i, secCondOfLeg) {
       const days = legDays(leg);
@@ -1376,7 +1435,7 @@
       const cells = leg.fuels.slice(0, slots).map((f, s) => {
         const q = fuelQty(leg, f);
         return `<td class="col-fuel cp-fuelcell"><div class="cp-fuelbox"><select data-f="grade" data-s="${s}" title="Fuel burned on this line">${gradeOptions(f.grade)}</select>`
-          + `<input type="number" step="0.01" data-f="daily" data-s="${s}" value="${f.daily ?? ''}" placeholder="MT/day" inputmode="decimal"></div></td>`
+          + `<span class="cp-ro" data-dailytxt="${s}" title="MT per day: from the line's mode or the leg figures">${f.daily != null ? fmtN(f.daily, 2) + ' MT/day' : '—'}</span></div></td>`
           + `<td class="col-qty"><input type="number" readonly tabindex="-1" data-qty="${s}" value="${q == null ? '' : fmtFuel(q)}"></td>`;
       }).join('');
       return `<tr data-row="${i}">
@@ -1386,7 +1445,7 @@
         <td class="col-to"><input type="text" data-f="to" value="${esc(leg.to)}" placeholder="To / destination" autocomplete="off"${ctx.sea ? ' list="cp-ports"' : ''}></td>
         <td class="col-mode">${modeSelectHtml(leg, secCondOfLeg)}</td>
         <td class="col-num"><input type="number" step="0.1" data-f="distance" value="${leg.distance ?? ''}" ${leg.port ? 'disabled' : ''} inputmode="decimal"${leg.distAuto ? ' class="cp-auto" title="Calculated offline from the sea lanes: ' + esc(leg.seaNote || '') + '"' : ''}></td>
-        <td class="col-num"><input type="number" step="0.1" data-f="speed" value="${leg.speed ?? ''}" ${leg.port ? 'disabled' : ''} inputmode="decimal"></td>
+        <td class="col-num"><span class="cp-ro" data-speedtxt title="Speed: from the line's mode or the leg figures">${leg.port ? '—' : leg.speed != null ? fmtN(leg.speed, 1) : '—'}</span></td>
         <td class="col-num"><input type="number" step="0.001" data-f="days" value="${daysShown(leg, days)}" inputmode="decimal"></td>
         ${cells}
         <td class="col-margin"><input type="number" step="0.1" data-f="marginPct" value="${leg.marginPct ?? ''}" placeholder="%" title="Safety margin % for this destination / stay only" inputmode="decimal"></td>
@@ -1434,16 +1493,50 @@
       const needs = gradesInUse(ctx.plan).some((g) => { const sum = cs.sums[normGrade(g)]; return sum && sum.stem > 0.0005; });
       return `<details class="cp-stemd" ${needs ? 'open' : ''}><summary>Stem advice per fuel</summary><ul class="cp-stems">${items}</ul></details>`;
     }
+    /** The figures typed for one voyage leg, used by the lines that are on "Leg figures": speed, MT/day at sea and in port / at anchorage per fuel, and the miscellaneous daily consumption. */
+    function legFiguresHtml(sec, si) {
+      const o = sec.over || cleanOver(null, ctx.plan.fuelSlots); const slots = ctx.plan.fuelSlots;
+      const slotGrade = (i) => { const l = (sec.legs || []).find((x) => x.fuels && x.fuels[i] && x.fuels[i].grade); return l ? l.fuels[i].grade : ''; };
+      const box = (kind, i) => `<label class="cp-ovf"><span>Fuel ${i + 1}${slotGrade(i) ? ` · ${esc(slotGrade(i))}` : ''}</span><input type="number" min="0" step="0.01" inputmode="decimal" data-ov="${kind}" data-s="${i}" value="${o[kind][i] ?? ''}" placeholder="MT/day"></label>`;
+      const range = (kind) => Array.from({ length: slots }, (_, i) => box(kind, i)).join('');
+      const distil = ctx.fuels.filter((f) => f.family === 'distillate').concat(ctx.fuels.filter((f) => f.family !== 'distillate'));
+      const mg = o.miscGrade || miscGradeOf(sec) || defaultEcaFuel(ctx.fuels) || '';
+      const gopts = distil.map((f) => `<option value="${esc(f.id)}" ${normGrade(f.id) === normGrade(mg) ? 'selected' : ''}>${esc(f.id)}</option>`).join('');
+      return `<div class="cp-legfig" data-legfig>
+        <div class="cp-legfig-h"><strong>Leg figures</strong><span>Used by every line set to “Leg figures”. A line set to a mode (Full / Eco / Safe, Port, Anchorage) takes the vessel profile instead.</span></div>
+        <div class="cp-legfig-grid">
+          <fieldset><legend>Speed</legend><label class="cp-ovf"><span>Knots</span><input type="number" min="0" step="0.1" inputmode="decimal" data-ov="speed" value="${o.speed ?? ''}" placeholder="kn"></label></fieldset>
+          <fieldset><legend>At sea · MT/day</legend><div class="cp-ovrow">${range('sea')}</div></fieldset>
+          <fieldset><legend>In port and at anchorage · MT/day</legend><div class="cp-ovrow">${range('port')}</div></fieldset>
+          <fieldset class="cp-miscf"><legend>Miscellaneous · MT/day <small>(optional, charter party: incinerator)</small></legend><div class="cp-ovrow">
+            <label class="cp-ovf"><span>MT/day</span><input type="number" min="0" step="0.01" inputmode="decimal" data-ov="misc" value="${o.misc ?? ''}" placeholder="MT/day"></label>
+            <label class="cp-ovf"><span>Burned from</span><select data-ov="miscGrade" aria-label="Fuel of the miscellaneous consumption">${gopts}</select></label></div>
+            <div class="cp-seanote" data-misc-info>${miscInfoText(sec)}</div></fieldset>
+        </div></div>`;
+    }
+    /** "Miscellaneous: 0.05 MT/day x 12.40 days (sea, anchorage and port) = 0.620 MT of LSMGO". */
+    function miscInfoText(sec) {
+      const o = sec.over; if (!(o && o.misc > 0)) return 'Applied to the whole voyage leg: sea, anchorage and port days added up.';
+      const d = legTotalDays(sec); const g = miscGradeOf(sec);
+      return `${fmtN(o.misc, 3)} MT/day × ${fmtN(d, 2)} days (sea, anchorage and port) = <strong>${fmtFuel(o.misc * d)} MT</strong>${g ? ' of ' + esc(g) : ' — pick the fuel'}`;
+    }
+    /** A note when lines that take their figures from the leg or a mode have no speed or no MT/day. */
+    function missingFiguresText(sec) {
+      let n = 0;
+      (sec.legs || []).forEach((l) => { if (l.auto === false || legIsBlank(l) && !l.distance) return; const noSpeed = !l.port && Number(l.distance) > 0 && !(Number(l.speed) > 0); const noDaily = !(l.fuels || []).some((x) => x.grade && x.daily != null); if (noSpeed || (noDaily && (l.from || l.to || Number(l.distance) > 0))) n++; });
+      return n ? `${n} line${n === 1 ? ' has' : 's have'} no speed or no consumption: pick a mode on the line or type the leg figures above the table.` : '';
+    }
     function sectionHtml(cs, si, multi) {
       const sec = cs.sec;
       const slots = ctx.plan.fuelSlots;
       const head = Array.from({ length: slots }, (_, s) => `<th class="col-fuel">Fuel ${s + 1} · MT/day</th><th class="col-qty">Qty MT</th>`).join('');
       return `<section class="cp-sec" data-sec="${si}">
-        ${multi ? `<div class="cp-sec-head"><h3>Voyage leg ${si + 1}</h3><input type="text" data-cp="legTitle" value="${esc(sec.legTitle || '')}" placeholder="Name of this leg (optional), e.g. Singapore → Rotterdam" aria-label="Name of voyage leg ${si + 1}" autocomplete="off"></div>` : ''}
+        <div class="cp-sec-head">${multi ? `<h3>Voyage leg ${si + 1}</h3>` : ''}<input type="text" data-cp="legTitle" value="${esc(sec.legTitle || '')}" placeholder="Voyage description (optional), e.g. Singapore → Rotterdam" aria-label="Voyage description${multi ? ', leg ' + (si + 1) : ''}" autocomplete="off"></div>
+        ${legFiguresHtml(sec, si)}
         <div class="cp-card cp-route">
           <div class="cp-card-h"><h3>Route and fuel per line</h3>
             <label class="cp-cond">Loading condition <select data-cp="cond" aria-label="Loading condition, voyage leg ${si + 1}"><option value="ballast" ${secCond(sec) === 'ballast' ? 'selected' : ''}>Ballast</option><option value="laden" ${secCond(sec) === 'laden' ? 'selected' : ''}>Laden</option></select></label></div>
-          <div class="cp-card-sub">${profileHasData(ctx.profile) ? 'A line in a mode (Full / Eco / Safe, Port, Anchorage) takes its speed and MT/day from the vessel profile for this condition; type a figure on the line to make it Manual.' : 'Fill in the vessel speed and consumption profile (above) to choose a mode instead of typing speed and MT/day on every line.'}</div>
+          <div class="cp-card-sub">${profileHasData(ctx.profile) ? 'Each line takes its speed and MT/day from its Mode: a mode of the vessel profile for this condition (Full / Eco / Safe, Port, Anchorage), or Leg figures, typed above the table.' : 'Type the Leg figures above the table, or fill in the vessel speed and consumption profile to choose Full / Eco / Safe speed, Port or Anchorage on each line.'}</div>
           <div class="table-scroll" role="region" aria-label="Route and fuels, voyage leg ${si + 1}">
             <table class="bunker-table">
               <thead><tr>
@@ -1456,6 +1549,7 @@
               <tbody>${sec.legs.map((l, i) => rowHtml(l, i, secCond(sec))).join('')}</tbody>
             </table>
           </div>
+          <div class="cp-warn" data-missing>${esc(missingFiguresText(sec))}</div>
           <div class="cp-actions">
             <button type="button" class="${ui.btn}" data-act="add-leg">+ Add destination / stay</button>
             <button type="button" class="${ui.btn}" data-act="remove-leg" ${sec.legs.length <= 1 ? 'disabled' : ''} title="${sec.legs.length <= 1 ? 'A plan keeps at least one line' : 'Remove the last line (or use the ✕ on any line)'}">Remove last line</button>
@@ -1799,7 +1893,7 @@
               ${sw('data-sea-minecas', !!sea.minEca, 'Keep the route out of the ECA', 'Saves distillate when it costs little extra distance.')}
               <div class="cp-subopt">Accept up to ${num('data-sea-minecapct', sea.minEcaPct || 10, 1, 50, '% longer')}</div>
               <label class="cp-opt cp-opt-sel"><span class="cp-opt-t">Fuel 1 on the ECA lines</span><select data-sea-ecafuel>${ecaFuelOptions}</select></label>
-              ${sw('data-sea-pilotsplit', sea.pilotSplit !== false, 'Split off the pilot areas', 'Port to pilot drop-off and pilot pick-up to port get their own lines (slow manoeuvring, own MT/day).')}
+              ${sw('data-sea-pilotsplit', sea.pilotSplit !== false, 'Split off the pilot areas', 'Port to pilot drop-off and pilot pick-up to port get their own lines (slow manoeuvring: the Manoeuvring row of the vessel profile).')}
               <div class="cp-subopt">First and last ${num('data-sea-pilotnm', sea.pilotNm || 10, 1, 50, 'nm')}</div>
             </section>
             <section class="cp-optcard"><h4>Route calculation</h4>
@@ -1870,7 +1964,7 @@
       if (!ctx.plan.sea || !Array.isArray(ctx.plan.legs)) ctx.plan = ensurePlan(ctx.plan, ctx.fuels); // a plan without its route options would stop the page drawing
       followProfile();
       const keep = document.activeElement && host.contains(document.activeElement) ? document.activeElement : null;
-      const at = keep ? { sec: secIndexOf(keep), row: keep.closest('tr') && keep.closest('tr').dataset.row, f: keep.dataset.f, s: keep.dataset.s, sf: keep.dataset.sf, grade: keep.dataset.grade, cp: keep.dataset.cp } : null;
+      const at = keep ? { sec: secIndexOf(keep), row: keep.closest('tr') && keep.closest('tr').dataset.row, f: keep.dataset.f, s: keep.dataset.s, sf: keep.dataset.sf, grade: keep.dataset.grade, cp: keep.dataset.cp, ov: keep.dataset.ov } : null;
       g.innerHTML = gridHtml();
       const so = $('[data-cp="seaopts"]'); if (so) so.innerHTML = seaOptsHtml();
       renderScen(true); renderPva();
@@ -1880,6 +1974,7 @@
         if (at.sf) sel = `${pre}[data-sf="${at.sf}"][data-grade="${at.grade}"]`;
         else if (at.f && at.row != null) sel = `${pre}tr[data-row="${at.row}"] [data-f="${at.f}"]${at.s != null ? `[data-s="${at.s}"]` : ''}`;
         else if (at.cp === 'legTitle') sel = `${pre}[data-cp="legTitle"]`;
+        else if (at.ov) sel = `${pre}[data-ov="${at.ov}"]${at.s != null ? `[data-s="${at.s}"]` : ''}`;
         const el = sel && g.querySelector(sel);
         if (el && el.focus) el.focus();
       }
@@ -1893,6 +1988,8 @@
         el.querySelectorAll('tr[data-row]').forEach((tr) => {
           const leg = sec.legs[Number(tr.dataset.row)];
           if (!leg) return;
+          const spT = tr.querySelector('[data-speedtxt]'); if (spT) spT.textContent = leg.port ? '—' : leg.speed != null ? fmtN(leg.speed, 1) : '—';
+          leg.fuels.slice(0, ctx.plan.fuelSlots).forEach((f, s) => { const dt = tr.querySelector(`[data-dailytxt="${s}"]`); if (dt) dt.textContent = f.daily != null ? fmtN(f.daily, 2) + ' MT/day' : '—'; });
           const daysEl = tr.querySelector('[data-f="days"]');
           if (daysEl && document.activeElement !== daysEl) daysEl.value = daysShown(leg, legDays(leg));
           leg.fuels.slice(0, ctx.plan.fuelSlots).forEach((f, s) => {
@@ -1904,6 +2001,8 @@
           if (dEl && document.activeElement !== dEl) dEl.value = leg.distance == null ? '' : leg.distance;
           if (dEl) dEl.classList.toggle('cp-auto', !!leg.distAuto);
         });
+        const mi = el.querySelector('[data-misc-info]'); if (mi) mi.innerHTML = miscInfoText(sec);
+        const ms = el.querySelector('[data-missing]'); if (ms) ms.textContent = missingFiguresText(sec);
         const rc = el.querySelector('[data-results="route"]'); if (rc) rc.innerHTML = routeKpisHtml(cs.route);
         const rt = el.querySelector('[data-results="table"]'); if (rt) rt.innerHTML = resultsTableHtml(cs);
         if (si === 0) renderScen(false);
@@ -2259,6 +2358,15 @@
       if (t.dataset.cp === 'remarks') { ctx.plan.remarks = t.value; scheduleSave(); return; }
       if (t.dataset.cp === 'history-search') { renderHistory(); return; }
       if (t.dataset.cp === 'legTitle') { secAt(secIndexOf(t)).legTitle = t.value; syncAll(); scheduleSave(); return; }
+      if (t.dataset.ov !== undefined && t.dataset.ov !== 'miscGrade') {
+        const sec = secAt(secIndexOf(t)); sec.over = sec.over || cleanOver(null, ctx.plan.fuelSlots); const k = t.dataset.ov; const v = num(t.value);
+        if (k === 'speed') sec.over.speed = v > 0 ? v : null;
+        else if (k === 'sea' || k === 'port') sec.over[k][Number(t.dataset.s)] = v != null && v >= 0 ? v : null;
+        else if (k === 'misc') { sec.over.misc = v > 0 ? v : null; if (sec.over.misc && !sec.over.miscGrade) { sec.over.miscGrade = miscGradeOf(sec) || defaultEcaFuel(ctx.fuels) || ''; const gs = t.closest('[data-legfig]') && t.closest('[data-legfig]').querySelector('[data-ov="miscGrade"]'); if (gs && sec.over.miscGrade) gs.value = sec.over.miscGrade; } }
+        followProfile(); syncAll();
+        const sig = gradesSignature(); if (sig !== ctx._sig) { ctx._sig = sig; renderGrid(); }
+        scheduleSave(); return;
+      }
       if (t.dataset.canal !== undefined) { const c = t.dataset.canal; const x = (ctx.plan.canal[c] = ctx.plan.canal[c] || { hours: null, fee: null }); const v = num(t.value); x[t.dataset.ck] = v > 0 ? v : null; renderScen(false); scheduleSave(); return; }
       if (t.dataset.price !== undefined) { const v = num(t.value); const k = normGrade(t.dataset.price); if (v > 0) ctx.plan.prices[k] = v; else delete ctx.plan.prices[k]; renderScen(false); scheduleSave(); return; }
       const tr = t.closest && t.closest('tr[data-row]');
@@ -2323,6 +2431,7 @@
       if (t.tagName === 'SELECT' || t.type === 'checkbox' || (t.dataset && t.dataset.cp === 'date')) rememberUndo();
       if (t.dataset.cp === 'date') { ctx.plan.date = t.value; scheduleSave(); return; }
       if (t.dataset.cp === 'depart') { rememberUndo(); ctx.plan.depart = t.value || ''; const b = $('[data-cp="pvaBody"]'); if (b) b.innerHTML = pvaHtml(); scheduleSave(); return; }
+      if (t.dataset.ov === 'miscGrade') { const sec = secAt(secIndexOf(t)); sec.over = sec.over || cleanOver(null, ctx.plan.fuelSlots); sec.over.miscGrade = t.value; ctx._sig = gradesSignature(); renderGrid(); scheduleSave(); return; }
       if (t.dataset.cp === 'cond') { secAt(secIndexOf(t)).cond = condOf(t.value); renderGrid(); scheduleSave(); return; }
       if (t.dataset.seaApproach !== undefined) {
         const v = Number(t.value); ctx.plan.sea.approachNm = v > 0 ? Math.min(100, v) : 0;
@@ -2352,12 +2461,12 @@
       if (!tr || !t.dataset.f) return;
       const leg = secAt(secIndexOf(t)).legs[Number(tr.dataset.row)];
       if (!leg) return;
-      if (t.dataset.f === 'mode') { leg.mode = t.value; renderGrid(); scheduleSave(); return; }
+      if (t.dataset.f === 'mode') { if (t.value === '__typed') return; leg.mode = t.value; leg.auto = true; renderGrid(); scheduleSave(); return; }
       if (t.dataset.f === 'port') {
         leg.port = !!t.checked;
         if (!leg.port) { leg.daysManual = false; leg.days = null; }
         if (leg.mode) leg.mode = '';
-        { const sec2 = secAt(secIndexOf(t)); refreshProfile(); leg.mode = defaultMode(null, leg, ctx.profile, secCond(sec2)); }
+        { const sec2 = secAt(secIndexOf(t)); refreshProfile(); leg.auto = true; leg.mode = defaultMode(null, leg, ctx.profile, secCond(sec2)); }
         renderGrid(); scheduleSave();
       } else if (t.dataset.f === 'grade') {
         leg.fuels[Number(t.dataset.s)].grade = t.value;
