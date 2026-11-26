@@ -371,7 +371,7 @@
     if (typeof plan.remarks !== 'string') plan.remarks = plan.remarks == null ? '' : String(plan.remarks);
     if (!plan.stocks || typeof plan.stocks !== 'object') plan.stocks = {};
     const sea = plan.sea && typeof plan.sea === 'object' ? plan.sea : {};
-    plan.sea = { avoid: Array.isArray(sea.avoid) ? sea.avoid.map(String) : [], areas: Array.isArray(sea.areas) ? sea.areas.map(String) : [], ecaOff: Array.isArray(sea.ecaOff) ? sea.ecaOff.map(String) : [], ecaOn: Array.isArray(sea.ecaOn) ? sea.ecaOn.map(String) : [], ecaFuel: typeof sea.ecaFuel === 'string' ? sea.ecaFuel : '', printMap: sea.printMap !== false, greatCircle: sea.greatCircle !== false, approachNm: Number(sea.approachNm) > 0 ? Math.min(100, Number(sea.approachNm)) : 0 };
+    plan.sea = { avoid: Array.isArray(sea.avoid) ? sea.avoid.map(String) : [], areas: Array.isArray(sea.areas) ? sea.areas.map(String) : [], ecaOff: Array.isArray(sea.ecaOff) ? sea.ecaOff.map(String) : [], ecaOn: Array.isArray(sea.ecaOn) ? sea.ecaOn.map(String) : [], ecaFuel: typeof sea.ecaFuel === 'string' ? sea.ecaFuel : '', printMap: sea.printMap !== false, greatCircle: sea.greatCircle !== false, autoSplit: sea.autoSplit !== false, pilotSplit: sea.pilotSplit !== false, pilotNm: Number(sea.pilotNm) > 0 ? Math.min(50, Number(sea.pilotNm)) : 10, approachNm: Number(sea.approachNm) > 0 ? Math.min(100, Number(sea.approachNm)) : 0 };
     normalizeLegs(plan);
     delete plan.residual; delete plan.distillate; delete plan.legacySig;
     return plan;
@@ -461,10 +461,18 @@
     if (!p) return '';
     return Math.abs(p[0]).toFixed(1) + (p[0] >= 0 ? 'N' : 'S') + ' ' + Math.abs(p[1]).toFixed(1) + (p[1] >= 0 ? 'E' : 'W');
   }
+  /** The compliant fuel an ECA line takes when the user has not named one: LSMGO, else MDO/MGO, else any distillate of the vessel's own fuels; '' when there is none. */
+  function defaultEcaFuel(fuels) {
+    const list = Array.isArray(fuels) ? fuels : [];
+    const by = (pred) => list.find(pred);
+    const hit = by((f) => normGrade(f.id) === 'LSMGO') || by((f) => normGrade(f.id) === 'MDO/MGO') || by((f) => f.family === 'distillate');
+    return hit ? hit.id : '';
+  }
+
   /** Split a line whose route enters or leaves an ECA into one line per stretch (outside / inside), each with its own distance.
    *  runs: [{ eca, zone, nm, from:[lat,lon], to:[lat,lon] }] in order; zoneLabel(id) names a zone; ecaGrade (optional) replaces Fuel 1 on the ECA stretches.
    *  The distances add up to the original line's distance. Returns the new lines, or null when there is nothing to split. */
-  function splitLegAtEca(leg, runs, zoneLabel, ecaGrade) {
+  function splitLegAtEca(leg, runs, zoneLabel, ecaGrade, opts) {
     if (!leg || !Array.isArray(runs) || runs.length < 2) return null;
     /* neighbouring ECA stretches (for example North Sea then Baltic) are one stretch for the fuel */
     const merged = [];
@@ -475,7 +483,31 @@
     });
     runs = merged;
     if (runs.length < 2) return null;
+    /* Pilot areas: the first and last pilotNm of the route become their own lines (port to the pilot drop-off point, pilot pick-up point to port):
+       slow manoeuvring water with its own MT/day, inside or outside the ECA like the stretch next to it. The length is taken out of the stretch beside it,
+       so the lines still add up to the distance of the line; the approach allowance (if any) belongs to these lines. */
+    const pilotNm = opts && Number(opts.pilotNm) > 0 ? Number(opts.pilotNm) : 0;
+    const appr = opts && Number(opts.approachNm) > 0 ? Number(opts.approachNm) : 0;
+    if (pilotNm > 0) {
+      const lerp = (a, b, t) => { let dl = b[1] - a[1]; if (dl > 180) dl -= 360; else if (dl < -180) dl += 360; let lo = a[1] + dl * t; if (lo > 180) lo -= 360; else if (lo < -180) lo += 360; return [a[0] + (b[0] - a[0]) * t, lo]; };
+      const first = runs[0]; const last = runs[runs.length - 1];
+      const pOut = Math.min(pilotNm, (Number(first.nm) || 0) * 0.4); const pIn = Math.min(pilotNm, (Number(last.nm) || 0) * 0.4);
+      if (pOut >= 1 && first.from && first.to) {
+        const pt = lerp(first.from, first.to, pOut / first.nm);
+        const piece = { eca: first.eca, zone: first.zone, zones: (first.zones || []).slice(), nm: pOut + appr, from: first.from, to: pt, pilot: 'out' };
+        first.nm -= pOut; first.from = pt; runs.unshift(piece);
+      }
+      if (pIn >= 1 && last.from && last.to) {
+        const pt = lerp(last.from, last.to, 1 - pIn / last.nm);
+        const piece = { eca: last.eca, zone: last.zone, zones: (last.zones || []).slice(), nm: pIn + appr, from: pt, to: last.to, pilot: 'in' };
+        last.nm -= pIn; last.to = pt; runs.push(piece);
+      }
+    }
     const zl = (r) => (r.zones || []).map(zoneLabel).join(', ');
+    /* where the line between stretch k and k+1 lies, in words */
+    const edge = (k) => runs[k].pilot === 'out' ? 'Pilot drop-off ' + posText(runs[k].to)
+      : runs[k + 1].pilot === 'in' ? 'Pilot pick-up ' + posText(runs[k].to)
+      : (runs[k + 1].eca ? 'ECA entry ' : 'ECA exit ') + posText(runs[k].to) + (runs[k + 1].eca ? ' (' + zl(runs[k + 1]) + ')' : '');
     const total = Number(leg.distance) || 0;
     const sum = runs.reduce((a, r) => a + (Number(r.nm) || 0), 0);
     if (!(total > 0) || !(sum > 0)) return null;
@@ -485,9 +517,9 @@
     return runs.map((r, k) => {
       const nl = JSON.parse(JSON.stringify(leg));
       const first = k === 0; const last = k === runs.length - 1;
-      const name = (r.eca ? 'ECA ' : 'outside ECA ');
-      nl.from = first ? leg.from : (runs[k].eca ? 'ECA entry ' : 'ECA exit ') + posText(r.from) + (r.eca ? ' (' + zl(r) + ')' : '');
-      nl.to = last ? leg.to : (runs[k + 1].eca ? 'ECA entry ' : 'ECA exit ') + posText(r.to) + (runs[k + 1].eca ? ' (' + zl(runs[k + 1]) + ')' : '');
+      const name = r.pilot === 'out' ? 'pilot area at departure, ' + (r.eca ? 'ECA ' : 'outside ECA ') : r.pilot === 'in' ? 'pilot area at arrival, ' + (r.eca ? 'ECA ' : 'outside ECA ') : (r.eca ? 'ECA ' : 'outside ECA ');
+      nl.from = first ? leg.from : edge(k - 1);
+      nl.to = last ? leg.to : edge(k);
       nl.fromPort = first ? leg.fromPort : null; nl.toPort = last ? leg.toPort : null;
       nl.distance = dist[k]; nl.distAuto = true; nl.daysManual = false; nl.days = null;
       nl.seaNote = name + 'stretch of ' + leg.from + ' → ' + leg.to + (r.eca ? ' (' + zl(r) + ')' : '');
@@ -784,9 +816,28 @@
       if (leg.distance != null && !leg.distAuto) return false;
       return computeLeg(leg);
     }
+    /** The grade the ECA lines take: the one picked in the options, else the vessel's compliant distillate. */
+    function ecaFuelNow() { return ctx.plan.sea.ecaFuel || defaultEcaFuel(ctx.fuels); }
+    /** What a split also does: the pilot areas at both ends as their own lines, and the approach allowance that goes with them. */
+    function splitOpts() { return { pilotNm: ctx.plan.sea.pilotSplit !== false ? (ctx.plan.sea.pilotNm || 10) : 0, approachNm: ctx.plan.sea.approachNm || 0 }; }
+    /** Replace a line whose route crosses an ECA boundary by one line per stretch (outside / inside), when the plan is set to do so. Returns the number of lines now in its place (0 = left alone). */
+    function autoSplitAt(sec, i) {
+      const leg = sec.legs[i];
+      if (ctx.plan.sea.autoSplit === false || !leg || !ctx.sea || !ctx.sea.Eca) return 0;
+      if (!(leg.ecaNm > 0) || !Array.isArray(leg.ecaRuns) || leg.ecaRuns.length < 2) return 0;
+      const pieces = splitLegAtEca(leg, leg.ecaRuns, (z) => ctx.sea.Eca.label(z), ecaFuelNow(), splitOpts());
+      if (!pieces) return 0;
+      sec.legs.splice(i, 1, ...pieces);
+      return pieces.length;
+    }
     function recalcAuto() {
       let n = 0;
-      sectionList(ctx.plan).forEach((sec) => sec.legs.forEach((l) => { if (!l.port && l.fromPort && l.toPort && (l.distAuto || l.distance == null) && computeLeg(l)) n++; }));
+      sectionList(ctx.plan).forEach((sec) => {
+        for (let i = 0; i < sec.legs.length; i++) {
+          const l = sec.legs[i];
+          if (!l.port && l.fromPort && l.toPort && (l.distAuto || l.distance == null) && computeLeg(l)) { n++; const k = autoSplitAt(sec, i); if (k > 1) i += k - 1; }
+        }
+      });
       return n;
     }
     const ROUTE_COLORS = ['#27d3ff', '#7dff7d', '#ff7de9', '#ffd84d', '#b48cff', '#ff8c5a'];
@@ -867,13 +918,17 @@
       const areas = SR.AREAS.map((a) => chk('area', a.id, a.label, ar.has(a.id))).join('');
       const onNow = new Set(ecaIdsFor(ctx.plan));
       const ecaBoxes = ctx.sea.Eca ? ctx.sea.Eca.ZONES.map((z) => chk('eca', z.id, z.label + (z.from && !ctx.sea.Eca.inForce(ctx.plan.date).includes(z.id) ? ' · from ' + z.from : ''), onNow.has(z.id))).join('') : '';
-      const ecaFuelOptions = '<option value="">— keep the fuel —</option>' + ctx.fuels.map((f) => `<option value="${esc(f.id)}" ${f.id === ctx.plan.sea.ecaFuel ? 'selected' : ''}>${esc(f.id)}</option>`).join('');
+      const autoFuel = defaultEcaFuel(ctx.fuels);
+      const ecaFuelOptions = `<option value="">${autoFuel ? '— automatic: ' + esc(autoFuel) + ' —' : '— keep the fuel —'}</option>` + ctx.fuels.map((f) => `<option value="${esc(f.id)}" ${f.id === ctx.plan.sea.ecaFuel ? 'selected' : ''}>${esc(f.id)}</option>`).join('');
       return `<details class="cp-seaopts" ${ctx.seaOpen ? 'open' : ''}><summary>Distance from ports · route options</summary>
         <div class="cp-seanote">Type a few letters in From / To and pick the port: the distance is filled in offline (a distance you type is never replaced). Port stays have no distance.</div>
         <fieldset><legend>Avoid passages</legend>${passes}</fieldset>
         <fieldset><legend>Keep out of areas (approximate boxes you choose, not official designations)</legend>${areas}</fieldset>
         <fieldset><legend>Measure the distance inside these ECA zones (IMO coordinates: North America, US Caribbean, North-East Atlantic, Canadian Arctic, Norwegian Sea, and the Mediterranean wording of MEPC.361(79); China follows the Ministry of Transport scheme; Baltic and North Sea are drawn from the regulation wording)</legend>${ecaBoxes}</fieldset>
-        <fieldset><legend>When a line is split at the ECA</legend><label>Fuel 1 on the ECA lines becomes <select data-sea-ecafuel>${ecaFuelOptions}</select></label></fieldset>
+        <fieldset><legend>ECA lines</legend>
+          <label><input type="checkbox" data-sea-autosplit ${ctx.plan.sea.autoSplit !== false ? 'checked' : ''}> Split a line automatically where its route enters or leaves an ECA: one line outside (normal fuel), one inside (ECA fuel)</label>
+          <label>Fuel 1 on the ECA lines becomes <select data-sea-ecafuel>${ecaFuelOptions}</select></label>
+          <label><input type="checkbox" data-sea-pilotsplit ${ctx.plan.sea.pilotSplit !== false ? 'checked' : ''}> Also split off the pilot areas: the first and last <input type="number" min="1" max="50" step="1" style="width:4em" data-sea-pilotnm value="${ctx.plan.sea.pilotNm || 10}"> nm of the route become their own lines (port → pilot drop-off point, pilot pick-up point → port), so slow manoeuvring has its own MT/day</label></fieldset>
         <fieldset><legend>Route</legend><label><input type="checkbox" data-sea-greatcircle ${ctx.plan.sea.greatCircle !== false ? 'checked' : ''}> Shortest route: great-circle legs wherever the sea is open (recommended)</label></fieldset>
         <fieldset><legend>Approach</legend><label>Add <input type="number" min="0" max="100" step="1" style="width:4.5em" data-sea-approach value="${ctx.plan.sea.approachNm || ''}" placeholder="0"> nm at each end for the pilot station / port approach (published tables often measure from pilot station to pilot station; leave empty for the shortest route)</label></fieldset>
         <fieldset><legend>Printout</legend><label><input type="checkbox" data-sea-printmap ${ctx.plan.sea.printMap !== false ? 'checked' : ''}> Include the route map on the printout</label></fieldset>
@@ -1092,10 +1147,10 @@
       if (act === 'eca-split') {
         const sec = secAt(secIndexOf(t)); const i = Number(t.dataset.row); const leg = sec.legs[i];
         if (!leg || !ctx.sea || !ctx.sea.Eca) return;
-        const pieces = splitLegAtEca(leg, leg.ecaRuns, (z) => ctx.sea.Eca.label(z), ctx.plan.sea.ecaFuel);
+        const pieces = splitLegAtEca(leg, leg.ecaRuns, (z) => ctx.sea.Eca.label(z), ecaFuelNow(), splitOpts());
         if (!pieces) return;
         sec.legs.splice(i, 1, ...pieces); renderGrid(); scheduleSave();
-        toast('Line split into ' + pieces.length + ' lines' + (ctx.plan.sea.ecaFuel ? ': Fuel 1 is ' + ctx.plan.sea.ecaFuel + ' on the ECA lines' : ''));
+        toast('Line split into ' + pieces.length + ' lines' + (ecaFuelNow() ? ': Fuel 1 is ' + ecaFuelNow() + ' on the ECA lines' : ''));
         return;
       }
       if (act === 'sea-recalc') {
@@ -1175,7 +1230,8 @@
       if (t.dataset.cp === 'legTitle') { secAt(secIndexOf(t)).legTitle = t.value; syncAll(); scheduleSave(); return; }
       const tr = t.closest && t.closest('tr[data-row]');
       if (tr && t.dataset.f) {
-        const leg = secAt(secIndexOf(t)).legs[Number(tr.dataset.row)];
+        const rowSec = secAt(secIndexOf(t));
+        const leg = rowSec.legs[Number(tr.dataset.row)];
         if (!leg) return;
         const f = t.dataset.f;
         if (f === 'from' || f === 'to') {
@@ -1185,7 +1241,13 @@
             const port = ctx.portMap.get(t.value);
             if (port) {
               leg[key] = port.id;
-              if (autoDistance(leg)) { renderGrid(); scheduleSave(); toast('Distance filled from the sea lanes (planning estimate)'); return; }
+              if (autoDistance(leg)) {
+                const k = autoSplitAt(rowSec, Number(tr.dataset.row));
+                renderGrid(); scheduleSave();
+                const fuelNote = ecaFuelNow() ? ': Fuel 1 is ' + ecaFuelNow() + ' on the ECA lines' : '';
+                toast(k ? 'Distance filled and the line split into ' + k + ' lines at the ECA' + fuelNote : 'Distance filled from the sea lanes (planning estimate)');
+                return;
+              }
             } else {
               if (leg[key]) { leg[key] = null; if (leg.distAuto) { leg.distAuto = false; leg.seaNote = ''; leg.ecaNm = null; leg.ecaZones = ''; leg.ecaRuns = null; } }
               const dl = $('#cp-ports');
@@ -1229,6 +1291,9 @@
         const n = recalcAuto(); renderGrid(); scheduleSave(); if (n) toast(n + ' distance' + (n === 1 ? '' : 's') + ' recalculated'); return;
       }
       if (t.dataset.seaGreatcircle !== undefined) { ctx.plan.sea.greatCircle = !!t.checked; const n = recalcAuto(); renderGrid(); scheduleSave(); if (n) toast(n + ' distance' + (n === 1 ? '' : 's') + ' recalculated'); return; }
+      if (t.dataset.seaPilotsplit !== undefined) { ctx.plan.sea.pilotSplit = !!t.checked; scheduleSave(); return; }
+      if (t.dataset.seaPilotnm !== undefined) { const v = Number(t.value); ctx.plan.sea.pilotNm = v > 0 ? Math.min(50, v) : 10; scheduleSave(); return; }
+      if (t.dataset.seaAutosplit !== undefined) { ctx.plan.sea.autoSplit = !!t.checked; scheduleSave(); return; }
       if (t.dataset.seaPrintmap !== undefined) { ctx.plan.sea.printMap = !!t.checked; scheduleSave(); return; }
       if (t.dataset.seaEcafuel !== undefined) { ctx.plan.sea.ecaFuel = t.value; scheduleSave(); return; }
       if (t.dataset.seaAvoid !== undefined || t.dataset.seaArea !== undefined || t.dataset.seaEca !== undefined) {
@@ -1266,6 +1331,6 @@
     MAX_SLOTS, MAX_LEGS, FALLBACK_FUELS, sectionList, suggestDaily, chain, combined, newSection, overviewHtml, normGrade, familyOf, cleanFuels,
     emptyLeg, defaultPlan, newLeg, legIsBlank, legDays, fuelQty, fuelMargin, routeSummary, gradeSummary, gradesInUse, stockOf,
     ensurePlan, finalize, fromLegacy, toLegacy, legacySig, daysShown, printBody, fmtN, fmtFuel, routeCardsHtml, gradeCardsHtml,
-    mount, seaLoader, splitLegAtEca,
+    mount, seaLoader, splitLegAtEca, defaultEcaFuel,
   };
 });
