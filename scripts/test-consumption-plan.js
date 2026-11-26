@@ -216,6 +216,17 @@ ok(parts.every((l) => l.marginPct === 5 && l.speed === 12 && l.fuels[0].daily ==
 ok(CP.splitLegAtEca(ecaLeg, [runs[0]], zl) === null && CP.splitLegAtEca(ecaLeg, [], zl) === null, 'a line with a single stretch is not split');
 const adj = CP.splitLegAtEca(ecaLeg, [runs[0], { eca: true, zone: 'north_sea', nm: 400, from: [1, 1], to: [2, 2] }, { eca: true, zone: 'baltic', nm: 800, from: [2, 2], to: [3, 3] }], zl);
 ok(adj.length === 2 && /North Sea & English Channel, Baltic Sea/.test(adj[1].ecaZones), 'neighbouring ECA stretches (North Sea then Baltic) become one line');
+/* ---- fuels the plan offers: a grade nobody holds or burns is left out ---- */
+ok(CP.cleanFuels([{ id: 'HFO', active: true }, { id: 'MDO/MGO', active: false }, { id: 'LSMGO', active: true }]).map((f) => f.id).join() === 'HFO,LSMGO', 'a distillate with no stock and no use is not offered while another distillate is in use');
+ok(CP.cleanFuels([{ id: 'HFO', active: true }, { id: 'MDO/MGO', active: false }, { id: 'LSMGO', active: false }]).map((f) => f.id).join() === 'HFO,MDO/MGO,LSMGO', 'when none of a kind is in use they all stay, so there is always a fuel to pick');
+ok(CP.cleanFuels([{ id: 'HFO' }, { id: 'LSMGO' }]).map((f) => f.id).join() === 'HFO,LSMGO', 'a host that says nothing about use gets every fuel');
+const onlyLs = CP.cleanFuels([{ id: 'HFO', active: true }, { id: 'MDO/MGO', active: false }, { id: 'LSMGO', active: true }]);
+ok(CP.defaultPlan(onlyLs).legs[0].fuels[1].grade === 'LSMGO', 'the default second fuel is then the LSMGO');
+/* ---- moving a line and removing it keep the route data tidy ---- */
+const gl = CP.ensurePlan(Object.assign(JSON.parse(JSON.stringify(CP.defaultPlan(vessel))), { legs: [Object.assign(CP.emptyLeg(2), { from: 'A', to: 'B', distance: 10, distAuto: true, grp: { id: 'g1', fromPort: 1, toPort: 2, from: 'A', to: 'Z' } })] }), vessel).legs[0];
+ok(gl.grp && gl.grp.id === 'g1' && gl.grp.toPort === 2 && gl.keepWhole === false, 'the route a split line came from is kept with it');
+ok(CP.ensurePlan(Object.assign(JSON.parse(JSON.stringify(CP.defaultPlan(vessel))), { legs: [Object.assign(CP.emptyLeg(2), { grp: { id: 'x', fromPort: 0, toPort: 2 } })] }), vessel).legs[0].grp === null, 'a group without both ports is dropped');
+ok(CP.ensurePlan(Object.assign(JSON.parse(JSON.stringify(CP.defaultPlan(vessel))), { sea: { minEca: true, minEcaPct: 15 } }), vessel).sea.minEca === true && CP.ensurePlan(Object.assign(JSON.parse(JSON.stringify(CP.defaultPlan(vessel))), { sea: {} }), vessel).sea.minEcaPct === 10, 'the ECA-minimising option and its percentage are kept, 10 % by default');
 /* ---- pilot areas as their own lines ---- */
 const pRuns = [{ eca: true, zone: 'mediterranean', nm: 700, from: [43.3, 5.3], to: [36, -6] }, { eca: false, nm: 3800, from: [36, -6], to: [25, -79.7] }, { eca: true, zone: 'north_america', nm: 690, from: [25, -79.7], to: [29.95, -90] }];
 const pLeg = Object.assign(CP.emptyLeg(2), { from: 'MARSEILLE', to: 'NEW ORLEANS', fromPort: 1, toPort: 2, distance: 5190, distAuto: true, speed: 14, ecaNm: 1390, marginPct: 5 });

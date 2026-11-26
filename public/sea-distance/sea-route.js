@@ -115,6 +115,24 @@
     return out;
   }
 
+  /** Douglas-Peucker on [lat, lon] points (distance in degrees, longitude scaled by the latitude). */
+  function simplify(pts, tol) {
+    if (pts.length < 3) return pts.slice();
+    const keep = new Uint8Array(pts.length); keep[0] = keep[pts.length - 1] = 1;
+    const stack = [[0, pts.length - 1]];
+    const rel = (p, a) => { let dl = p[1] - a[1]; dl = ((dl + 540) % 360) - 180; return [(p[0] - a[0]), dl * Math.cos(a[0] * rad)]; };
+    while (stack.length) {
+      const [i, j] = stack.pop(); const a = pts[i], b = rel(pts[j], a); const L = Math.hypot(b[0], b[1]);
+      let worst = -1, wd = 0;
+      for (let k = i + 1; k < j; k++) {
+        const p = rel(pts[k], a); const d = L < 1e-9 ? Math.hypot(p[0], p[1]) : Math.abs(p[0] * b[1] - p[1] * b[0]) / L;
+        if (d > wd) { wd = d; worst = k; }
+      }
+      if (worst >= 0 && wd > tol) { keep[worst] = 1; stack.push([i, worst], [worst, j]); }
+    }
+    return pts.filter((_, k) => keep[k]);
+  }
+
   class Heap { // min-heap of [key, value]
     constructor() { this.a = []; }
     get size() { return this.a.length; }
@@ -137,6 +155,13 @@
         if (best.length < k || d < best[best.length - 1][0]) { best.push([d, i]); best.sort((x, y) => x[0] - y[0]); if (best.length > k) best.pop(); }
       }
       return best;
+    }
+    const ecaCache = new Map();
+    /** 1 for every lane node inside the area `test` describes; computed once per area set. */
+    function ecaNodes(key, test) {
+      let a = ecaCache.get(key);
+      if (!a) { a = new Uint8Array(N); for (let i = 0; i < N; i++) a[i] = test(lon[i], lat[i]) ? 1 : 0; if (ecaCache.size > 4) ecaCache.clear(); ecaCache.set(key, a); }
+      return a;
     }
     /** route(from, to, {avoid:[passage names e.g. 'suez','panama'], allowNorthwest:false, maxAttachNm:300, k:3}) with from/to = {lat, lon}. */
     function route(from, to, opts) {
@@ -161,6 +186,11 @@
           blocked[i] = 1;
         }
       }
+      /* Keep out of an area (ECA): with opts.eca = { test(lon, lat) -> bool, key, weight }, a mile of lane inside it costs (1 + weight) miles, so the
+         route stays outside as long as that is cheap; the distance reported is always the real one. */
+      const ecaOpt = opts.eca && Number(opts.eca.weight) > 0 && typeof opts.eca.test === 'function' ? opts.eca : null;
+      const inE = ecaOpt ? ecaNodes(ecaOpt.key || 'eca', ecaOpt.test) : null, kw = ecaOpt ? Number(ecaOpt.weight) : 0;
+      const prevNm = ecaOpt ? new Float64Array(N) : null;
       const exN = new Uint8Array(N); // lane nodes near the From / To port stay usable even inside an avoided region (a port can lie in it)
       if (edgeBoxes.length) for (let i = 0; i < N; i++) if (gc(from.lat, from.lon, lat[i], lon[i]) <= EXEMPT_NM || gc(to.lat, to.lon, lat[i], lon[i]) <= EXEMPT_NM) exN[i] = 1;
       const dist = new Float64Array(N).fill(Infinity), prev = new Int32Array(N).fill(-1), prevT = new Int16Array(N).fill(-1), heap = new Heap();
@@ -175,7 +205,7 @@
           if (t >= 0 && avoidT.has(t)) continue;
           if (blocked[v]) continue;
           if (edgeBoxes.length && !exN[u] && !exN[v] && edgeBoxes.some(b => segHitsBox(lon[u], lat[u], lon[v], lat[v], b))) continue;
-          const nd = du + nm; if (nd < dist[v]) { dist[v] = nd; prev[v] = u; prevT[v] = t; heap.push(nd, v); }
+          const nd = du + (inE ? nm * (1 + kw * (inE[u] + inE[v]) * 0.5) : nm); if (nd < dist[v]) { dist[v] = nd; prev[v] = u; prevT[v] = t; if (prevNm) prevNm[v] = nm; heap.push(nd, v); }
         }
       }
       if (bestNode < 0) return { ok: false, error: 'no route with the given restrictions' };
@@ -183,12 +213,13 @@
       while (c >= 0) { nodesPath.push(c); if (prevT[c] >= 0) used.add(net.tags[prevT[c]]); c = prev[c]; }
       nodesPath.reverse();
       const aNm = dist[nodesPath[0]], bNm = goal.get(bestNode);
+      if (prevNm) { let lane = 0; for (let q = bestNode; prev[q] >= 0; q = prev[q]) lane += prevNm[q]; bestTotal = aNm + lane + bNm; } // the real length of the weighted route
       const inside = pt => AREAS.filter(ar => areaIds.has(ar.id) && pt.lon >= ar.box[0] && pt.lon <= ar.box[2] && pt.lat >= ar.box[1] && pt.lat <= ar.box[3]).map(ar => ar.label);
       [['from', from], ['to', to]].forEach(([w, pt]) => { const l = inside(pt); if (l.length) warnings.push(`${w} is inside an avoided area (${l.join(', ')}): the route may be unrealistic`); });
       if (aNm > 100) warnings.push(`from is ${Math.round(aNm)} nm from the nearest lane node: low confidence`);
       if (bNm > 100) warnings.push(`to is ${Math.round(bNm)} nm from the nearest lane node: low confidence`);
       const passages = [...used].filter(t => t !== 'segment' && t !== 'segment2');
-      let pathPts = nodesPath.map(i => [lat[i], lon[i]]), total = bestTotal, shortcuts = 0;
+      let pathPts = nodesPath.map(i => [lat[i], lon[i]]), total = bestTotal, shortcuts = 0, turning = null;
       if (lt && opts.greatCircle !== false) {
         // Great-circle shortcuts: join the route's own points by the shortest line wherever the sea is open.
         const P = [[from.lat, from.lon]].concat(pathPts, [[to.lat, to.lon]]);
@@ -199,8 +230,12 @@
         const inBox = (lo, la) => blockedBoxes.some(b => lo >= b[0] && lo <= b[2] && la >= b[1] && la <= b[3]);
         const free = (pt, p) => gc(pt.lat, pt.lon, p[0], p[1]) <= ENDPOINT_FREE_NM;
         const exempt = p => gc(from.lat, from.lon, p[0], p[1]) <= EXEMPT_NM || gc(to.lat, to.lon, p[0], p[1]) <= EXEMPT_NM;
+        const ecaOf = (p, q) => { let n = 0; for (const x of gcPoints(p, q, SHORTCUT_STEP_NM, false)) if (ecaOpt.test(x[1], x[0])) n++; return n * SHORTCUT_STEP_NM; };
+        let ecaCum = null;
+        if (ecaOpt) { ecaCum = [0]; for (let q = 1; q < P.length; q++) ecaCum.push(ecaCum[q - 1] + ecaOf(P[q - 1], P[q])); }
         const clear = (a, b) => {
           if (tagAhead[a + 1] - tagAhead[b + 1] > 0) return false; // never replace a canal or strait the network marks
+          if (ecaCum && ecaOf(P[a], P[b]) > ecaCum[b] - ecaCum[a] + 2) return false; // a straight line must not spend more miles in the ECA than the lanes it replaces
           for (const p of gcPoints(P[a], P[b], SHORTCUT_STEP_NM, false)) {
             if (inBox(p[1], p[0]) && !exempt(p)) return false;
             if (free(from, p) || free(to, p)) continue;
@@ -219,7 +254,7 @@
         let len = 0; for (let k = 1; k < out.length; k++) len += gc(out[k - 1][0], out[k - 1][1], out[k][0], out[k][1]);
         // keep it only if it is really shorter than the lane route (it always should be)
         if (len < bestTotal - 0.05) {
-          total = len;
+          total = len; turning = out.slice(1, -1);
           const dense = [];
           for (let k = 1; k < out.length; k++) gcPoints(out[k - 1], out[k], DENSIFY_NM, true).forEach(q => dense.push(q));
           dense.push(out[out.length - 1]);
@@ -238,10 +273,23 @@
         directNm: r1(gc(from.lat, from.lon, to.lat, to.lon)),
         attach: { from: r1(aNm), to: r1(bNm) },
         passages,
+        /* the points where the route turns, to edit: great-circle legs between them reproduce `path` */
+        waypoints: (turning || simplify([[from.lat, from.lon]].concat(pathPts, [[to.lat, to.lon]]), 0.25).slice(1, -1)).map(p => [Math.round(p[0] * 1e4) / 1e4, Math.round(p[1] * 1e4) / 1e4]),
         path: pathPts, warnings,
       };
     }
-    return { route, nearest: (pt, kk) => nearest(pt, kk || 1).map(x => ({ nm: r1(x[0]), lat: lat[x[1]], lon: lon[x[1]] })), nodeCount: N };
+    /** Does the great-circle leg a -> b ([lat, lon]) cross land, or pass close to it? Needs the coastline; ends within a few miles of a port are not judged. */
+    function segmentCheck(a, b) {
+      if (!lt) return { land: false, near: false };
+      let land = false, near = false;
+      const pts = gcPoints(a, b, 3, false);
+      pts.forEach((p, k) => {
+        if (gc(a[0], a[1], p[0], p[1]) <= ENDPOINT_FREE_NM || gc(b[0], b[1], p[0], p[1]) <= ENDPOINT_FREE_NM) return;
+        if (lt.isLand(p[1], p[0])) land = true; else if (lt.nearLand(p[1], p[0])) near = true;
+      });
+      return { land, near: near || land };
+    }
+    return { route, segmentCheck, nearest: (pt, kk) => nearest(pt, kk || 1).map(x => ({ nm: r1(x[0]), lat: lat[x[1]], lon: lon[x[1]] })), nodeCount: N };
   }
   const api = { create, decodeLand, gcPoints, PASSAGES, AREAS, gc: (a, b) => gc(a.lat, a.lon, b.lat, b.lon) };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.SeaRoute = api;
