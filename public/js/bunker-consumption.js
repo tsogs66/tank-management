@@ -122,6 +122,7 @@ const BunkerConsumption = (function () {
     ConsumptionPlan.mount(host, {
       ui: { panel: 'form-panel', btn: 'btn small', primary: 'btn primary small', hist: 'form-panel' },
       fuels: vesselFuels,
+      sea: ConsumptionPlan.seaLoader('sea-distance/'),
       load() {
         const st = store();
         return st ? { plan: st.plan, history: st.history } : { plan: null, history: [] };

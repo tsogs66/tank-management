@@ -1,0 +1,305 @@
+{
+ "source": "Reference distances (nautical miles) supplied by the user in chat on 2026-11-26 as a benchmark; the real-world notes were not independently verified. They are rounded, may be measured pilot station to pilot station, and some are ranges. Not an authoritative table.",
+ "routes": [
+  {
+   "n": 1,
+   "from": {
+    "name": "SHANGHAI",
+    "cc": "CN"
+   },
+   "to": {
+    "name": "LOS ANGELES",
+    "cc": "US"
+   },
+   "lo": 5700,
+   "hi": 5949,
+   "tolPct": 3,
+   "note": ""
+  },
+  {
+   "n": 2,
+   "from": {
+    "name": "PUSAN",
+    "cc": "KR"
+   },
+   "to": {
+    "name": "VANCOUVER",
+    "cc": "CA"
+   },
+   "lo": 4696,
+   "hi": 4696,
+   "tolPct": 3,
+   "note": ""
+  },
+  {
+   "n": 3,
+   "from": {
+    "name": "CALLAO",
+    "cc": "PE"
+   },
+   "to": {
+    "name": "SHANGHAI",
+    "cc": "CN"
+   },
+   "lo": 9461,
+   "hi": 9461,
+   "tolPct": 3,
+   "note": ""
+  },
+  {
+   "n": 4,
+   "from": {
+    "name": "SANTOS",
+    "cc": "BR"
+   },
+   "to": {
+    "name": "SHANGHAI",
+    "cc": "CN"
+   },
+   "lo": 11056,
+   "hi": 11056,
+   "tolPct": 3,
+   "note": "via the Cape and the Sunda or Malacca Strait"
+  },
+  {
+   "n": 5,
+   "from": {
+    "name": "KEPPEL",
+    "cc": "SG"
+   },
+   "to": {
+    "name": "ROTTERDAM",
+    "cc": "NL"
+   },
+   "lo": 8288,
+   "hi": 8414,
+   "tolPct": 3,
+   "note": "via Suez"
+  },
+  {
+   "n": 6,
+   "from": {
+    "name": "ROTTERDAM",
+    "cc": "NL"
+   },
+   "to": {
+    "name": "SHANGHAI",
+    "cc": "CN"
+   },
+   "lo": 10594,
+   "hi": 10594,
+   "tolPct": 3,
+   "note": "via Suez; the reference also says over 2,600 nm inside ECAs (the plan measures about 2,350 nm with its approximate outlines)"
+  },
+  {
+   "n": 7,
+   "from": {
+    "name": "BOMBAY",
+    "cc": "IN"
+   },
+   "to": {
+    "name": "ROTTERDAM",
+    "cc": "NL"
+   },
+   "lo": 6462,
+   "hi": 6462,
+   "tolPct": 3,
+   "note": "via Suez"
+  },
+  {
+   "n": 8,
+   "from": {
+    "name": "TANNURAH",
+    "cc": "SA"
+   },
+   "to": {
+    "name": "CHIBA KO",
+    "cc": "JP"
+   },
+   "lo": 6608,
+   "hi": 6710,
+   "tolPct": 3,
+   "note": ""
+  },
+  {
+   "n": 9,
+   "from": {
+    "name": "KEPPEL",
+    "cc": "SG"
+   },
+   "to": {
+    "name": "FUJAYRAH",
+    "cc": "AE"
+   },
+   "lo": 3517,
+   "hi": 3517,
+   "tolPct": 6.5,
+   "note": "the reference says about 3,517 nm; the plan gives about 3,340-3,370 nm"
+  },
+  {
+   "n": 10,
+   "from": {
+    "name": "PORT HEDLAND",
+    "cc": "AU"
+   },
+   "to": {
+    "name": "QINGDAO",
+    "cc": "CN"
+   },
+   "lo": 3541,
+   "hi": 3570,
+   "tolPct": 3,
+   "note": ""
+  },
+  {
+   "n": 11,
+   "from": {
+    "name": "TUBARAO",
+    "cc": "BR"
+   },
+   "to": {
+    "name": "ROTTERDAM",
+    "cc": "NL"
+   },
+   "lo": 4992,
+   "hi": 5000,
+   "tolPct": 3,
+   "note": "the reference is pilot station to Maas Center buoy"
+  },
+  {
+   "n": 12,
+   "from": {
+    "name": "DURBAN",
+    "cc": "ZA"
+   },
+   "to": {
+    "name": "KEPPEL",
+    "cc": "SG"
+   },
+   "lo": 4988,
+   "hi": 4988,
+   "tolPct": 3,
+   "note": ""
+  },
+  {
+   "n": 13,
+   "from": {
+    "name": "HOUSTON",
+    "cc": "US"
+   },
+   "to": {
+    "name": "ROTTERDAM",
+    "cc": "NL"
+   },
+   "lo": 5033,
+   "hi": 5044,
+   "tolPct": 3,
+   "note": ""
+  },
+  {
+   "n": 14,
+   "from": {
+    "name": "LE HAVRE",
+    "cc": "FR"
+   },
+   "to": {
+    "name": "NEW YORK",
+    "cc": "US"
+   },
+   "lo": 3141,
+   "hi": 3141,
+   "tolPct": 3,
+   "note": "the reference says about 912 nm inside ECAs; the plan measures about 1,340 nm with its coarse North America outline"
+  },
+  {
+   "n": 15,
+   "from": {
+    "name": "NEW YORK",
+    "cc": "US"
+   },
+   "to": {
+    "name": "SOUTHAMPTON",
+    "cc": "GB"
+   },
+   "lo": 3098,
+   "hi": 3124,
+   "tolPct": 3,
+   "note": ""
+  },
+  {
+   "n": 16,
+   "from": {
+    "name": "BEAUMONT",
+    "cc": "US"
+   },
+   "to": {
+    "name": "LISBOA",
+    "cc": "PT"
+   },
+   "lo": 4557,
+   "hi": 4557,
+   "tolPct": 3,
+   "note": ""
+  },
+  {
+   "n": 17,
+   "from": {
+    "name": "BOSTON",
+    "cc": "US"
+   },
+   "to": {
+    "name": "SAN FRANCISCO",
+    "cc": "US"
+   },
+   "lo": 5465,
+   "hi": 5465,
+   "tolPct": 3,
+   "note": "via Panama"
+  },
+  {
+   "n": 18,
+   "from": {
+    "name": "DOVER",
+    "cc": "GB"
+   },
+   "to": {
+    "name": "CALAIS",
+    "cc": "FR"
+   },
+   "lo": 22.88,
+   "hi": 22.88,
+   "tolPct": 8,
+   "note": "a short crossing: a mile or two of port approach is several percent"
+  },
+  {
+   "n": 19,
+   "from": {
+    "name": "HELSINKI",
+    "cc": "FI"
+   },
+   "to": {
+    "name": "TALLINN",
+    "cc": "EE"
+   },
+   "lo": 44.15,
+   "hi": 44.15,
+   "tolPct": 3,
+   "note": ""
+  },
+  {
+   "n": 20,
+   "from": {
+    "name": "PUSAN",
+    "cc": "KR"
+   },
+   "to": {
+    "name": "SHANGHAI",
+    "cc": "CN"
+   },
+   "lo": 460,
+   "hi": 460,
+   "tolPct": 3,
+   "note": ""
+  }
+ ]
+}
