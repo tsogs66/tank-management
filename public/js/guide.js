@@ -682,6 +682,35 @@
         "A leg added by mistake: − Last voyage leg removes it.",
         "A calculation with one leg looks and prints exactly as before."
 ]
+    },
+    {
+      group: "Bunkering",
+      q: "How do I get the distance of a voyage line automatically, and avoid a canal or an area?",
+      purpose: "The consumption plan can work out the distance between two ports offline, from a built-in list of ports and a network of sea lanes. It is a planning estimate, not for navigation.",
+      steps: [
+        "On a sea line, type a few letters of the From port and pick it from the list; do the same for To. The distance is filled in at once and shown in italics with a dashed border.",
+        "The days follow from the distance and the speed you type, and the quantities follow from the days, as for any other line.",
+        "Under the table, Distance from ports · route options lets you avoid passages (Suez, Panama, Bab-el-Mandeb, Malacca, Hormuz, Cape of Good Hope and others) and keep out of areas (Gulf of Aden, Red Sea, Somali Basin, Gulf of Guinea, Black Sea, Taiwan Strait). The areas are approximate boxes that you choose; they are not official designations.",
+        "Changing an option recalculates the automatic distances. Press Recalculate automatic distances to do it again by hand.",
+        "A distance you type yourself is never replaced. Typing over an automatic distance makes it yours.",
+        "A note under the line says which passages the route uses. A warning appears when the From or To port is inside an avoided area, or far from the nearest sea lane.",
+        "Approach: published distance tables often run from pilot station to pilot station. Under Route options, Add N nm at each end adds a port-approach allowance to every automatic distance (empty = the shortest route).",
+  "Shortest route: the distance follows a network of sea lanes and is then shortened with great-circle legs wherever the sea is open (checked against a generalised coastline, keeping clear of land, never through a canal or a passage you chose to avoid). Open water gives the great circle itself; the note says how many nm the great-circle legs saved. Untick Shortest route under Route options to see the lane distance. Weather, currents and traffic schemes are not considered.",
+  "The route map is printed on its own page after the plan (tick or untick Include the route map on the printout under Route options).",
+  "ECA: when the automatic route passes through an Emission Control Area, the note under the line says how many nm are inside (for example Mediterranean 1,935 nm, North Sea & English Channel 418 nm), and a Distance in ECA box appears beside the distance boxes. North America, US Caribbean and the North-East Atlantic follow the coordinates in the IMO resolutions; Baltic, North Sea & English Channel and Mediterranean are drawn from the wording of the regulations. The North-East Atlantic ECA was adopted on 1 May 2026 and is expected to enter into force on 1 September 2027, so it is counted only for a plan dated on or after that day, or when you tick it under Route options. You can switch any zone off there. Canadian Arctic and Norwegian Sea are not included.",
+  "Split into ECA / non-ECA lines (button in the note) replaces the line by one line per stretch, each with its own distance, days and quantity. Under Route options, Fuel 1 on the ECA lines becomes lets you pick the compliant fuel for those lines (for example LSMGO). MT/day, speed and margin carry over; check them. Split lines are not recalculated when you change the route options.",
+  "Map: the Map button on a line's note, or Show map of all lines under Route options, opens the route on an offline map: the route in colour (one colour per voyage leg), the ECA stretches in orange, the ports, the passages it uses, and the ECA zones and the areas you chose to avoid shaded. Drag to move, pinch or scroll to zoom, Fit to see the whole route. It is a planning picture from a generalised coastline (Natural Earth, public domain), not a chart.",
+  "The printout marks automatic distances with * and says how they were made. Arctic routes are never used.",
+        "The port list is the NGA World Port Index (3,669 ports, edition of 2017). Compare with your own passage plan or distance tables before relying on a figure."
+],
+      buttons: [
+        "Route options — avoid passages and areas",
+        "Recalculate automatic distances — redo all lines whose distance is automatic"
+],
+      undo: [
+        "Wrong port picked: pick another; the distance follows.",
+        "Do not want the automatic figure: type your own distance."
+]
     }
   ];
 
