@@ -632,6 +632,12 @@
       resultCard('Total Distance', fmtN(route.totalDist, 0), 'NM'),
     ].concat(route.totalEca > 0 ? [resultCard('Distance in ECA', fmtN(route.totalEca, 0), 'NM')] : []).join('');
   }
+  /** Days and distance of a section as one slim strip. */
+  function routeKpisHtml(route) {
+    const k = (label, value, unit) => `<div class="cp-kpi"><b>${value}</b>${unit ? `<span>${unit}</span>` : ''}<small>${label}</small></div>`;
+    return [k('Days at sea', fmtN(route.daysSea, 2), 'days'), k('Days in port / anchor', fmtN(route.daysPort, 2), 'days'), k('Total distance', fmtN(route.totalDist, 0), 'nm')]
+      .concat(route.totalEca > 0 ? [k('Distance in ECA', fmtN(route.totalEca, 0), 'nm')] : []).join('');
+  }
   function gradeCardsHtml(sum) {
     return [
       resultCard('Total Consumption', fmtFuel(sum.totalCons), 'MT'),
@@ -795,6 +801,78 @@
     .cp-route .bunker-table .col-from, .cp-route .bunker-table .col-to { width: 220px !important; min-width: 220px; }
     .cp-route .bunker-table .col-num { width: 88px !important; }
     .cp-route .bunker-table .col-mode { width: 150px !important; }
+    /* ---- page layout: toolbar, accordion cards, option cards, tables ---- */
+    .cp-page { --cp-line: var(--line, rgba(128,128,128,.38)); --cp-soft: rgba(128,128,128,.09); }
+    .cp-how { margin: 0 0 10px; } .cp-how > summary { cursor: pointer; font-size: .9em; opacity: .85; padding: 2px 0; }
+    .cp-ident { display: grid !important; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin: 8px 0; }
+    .cp-toolbar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 12px; border: 1px solid var(--cp-line); border-radius: 10px; background: var(--cp-soft); margin: 8px 0 12px; }
+    .cp-tg { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-right: 14px; border-right: 1px solid var(--cp-line); }
+    .cp-tg:last-child { border-right: 0; padding-right: 0; } .cp-tg-end { margin-left: auto; }
+    .cp-acc { border: 1px solid var(--cp-line); border-radius: 10px; margin: 12px 0; overflow: hidden; }
+    .cp-accitem { border-bottom: 1px solid var(--cp-line); margin: 0; }
+    .cp-accitem:last-child { border-bottom: 0; }
+    .cp-accitem > summary { list-style: none; cursor: pointer; padding: 11px 14px; display: flex; gap: 4px 14px; align-items: baseline; flex-wrap: wrap; }
+    .cp-accitem > summary::-webkit-details-marker { display: none; }
+    .cp-accitem > summary::before { content: '▸'; display: inline-block; width: 1em; transition: transform .15s; }
+    .cp-accitem[open] > summary::before { transform: rotate(90deg); }
+    .cp-accitem[open] > summary { background: var(--cp-soft); }
+    .cp-acc-t { font-weight: 700; } .cp-acc-s { font-size: .85em; opacity: .7; }
+    .cp-accbody { padding: 12px 14px 14px; }
+    .cp-card { border: 1px solid var(--cp-line); border-radius: 10px; padding: 12px 14px; margin: 14px 0; background: rgba(128,128,128,.05); }
+    .cp-card-h { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+    .cp-card-h h3 { margin: 0; font-size: 1.05em; } .cp-card-h .cp-cond { margin: 0; }
+    .cp-card-sub { font-size: .85em; opacity: .75; margin: 0 0 10px; }
+    .cp-actions, .cp-structure { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
+    .cp-structure-t { font-size: .8em; text-transform: uppercase; letter-spacing: .06em; opacity: .7; margin-right: 4px; }
+    .cp-sep { width: 1px; align-self: stretch; min-height: 24px; background: var(--cp-line); margin: 0 4px; }
+    .cp-kpis { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 2px; }
+    .cp-kpi { display: grid; grid-template-columns: auto 1fr; column-gap: 6px; align-items: baseline; min-width: 140px; padding: 8px 14px; border: 1px solid var(--cp-line); border-radius: 8px; background: var(--cp-soft); }
+    .cp-kpi b { font-size: 1.35em; font-variant-numeric: tabular-nums; } .cp-kpi span { font-size: .8em; opacity: .7; } .cp-kpi small { grid-column: 1 / -1; opacity: .75; font-size: .78em; text-transform: uppercase; letter-spacing: .05em; }
+    .cp-optgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; margin-top: 8px; }
+    .cp-optcard { border: 1px solid var(--cp-line); border-radius: 8px; padding: 10px 12px; background: rgba(128,128,128,.05); min-width: 0; }
+    .cp-optcard.cp-wide { grid-column: 1 / -1; }
+    .cp-optcard h4 { margin: 0 0 6px; font-size: .95em; } .cp-help { font-size: .8em; opacity: .7; margin: 0 0 8px; }
+    .cp-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .cp-seaopts .cp-chip { display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 4px 10px; border: 1px solid var(--cp-line); border-radius: 16px; cursor: pointer; white-space: normal; max-width: 100%; font-size: .9em; user-select: none; }
+    .cp-seaopts .cp-chip:has(input:checked) { background: rgba(212,160,64,.22); border-color: rgba(212,160,64,.75); }
+    .cp-chip input { margin: 0; }
+    .cp-seaopts .cp-opt { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 7px 0; margin: 0; border-bottom: 1px dashed rgba(128,128,128,.3); white-space: normal; }
+    .cp-opt-t { display: flex; flex-direction: column; } .cp-opt-t small { font-weight: 400; opacity: .7; font-size: .82em; margin-top: 2px; }
+    .cp-subopt { padding: 4px 0 6px 18px; font-size: .9em; }
+    .cp-numunit { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+    .cp-numunit input { width: 5em; min-height: 30px; }
+    .cp-seaopts .cp-opt, .cp-subopt, .cp-seaopts .cp-numunit, .cp-seaopts .cp-opt-sel select { font-size: 13px; }
+    .cp-opt-sel select { min-width: 12em; min-height: 32px; }
+    .cp-notices { margin-top: 10px; font-size: .85em; } .cp-notices > summary { cursor: pointer; opacity: .8; }
+    .cp-rd { margin: 10px 0; } .cp-rd > summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+    .cp-rdtable { width: 100%; border-collapse: collapse; }
+    .cp-rdtable th, .cp-rdtable td { padding: 5px 8px; text-align: left; border-bottom: 1px solid rgba(128,128,128,.25); vertical-align: top; }
+    .cp-rdtable thead th { font-size: .8em; opacity: .75; text-transform: uppercase; letter-spacing: .04em; }
+    .cp-rdtable .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .cp-rd-route small { display: block; opacity: .7; font-size: .8em; margin-top: 2px; }
+    .cp-rd-b { text-align: right; white-space: nowrap; } .cp-rd-b button { margin-left: 6px; }
+    .cp-tag { display: inline-block; font-size: .75em; padding: 1px 9px; border-radius: 10px; border: 1px solid var(--cp-line); white-space: nowrap; }
+    .cp-tag-eca { background: #c77d1a; color: #fff; border-color: transparent; } .cp-tag-pilot { background: #2b6cb0; color: #fff; border-color: transparent; }
+    .cp-grouptools { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; padding: 8px 12px; margin: 8px 0; border: 1px dashed var(--cp-line); border-radius: 8px; font-size: .92em; }
+    .cp-gt-b { display: flex; gap: 6px; flex-wrap: wrap; }
+    .cp-stocktable { border-collapse: collapse; width: 100%; min-width: 700px; margin-bottom: 10px; }
+    .cp-stocktable th, .cp-stocktable td { padding: 4px 8px; }
+    .cp-stocktable thead th { font-size: .8em; text-transform: uppercase; letter-spacing: .04em; opacity: .8; text-align: right; font-weight: 600; }
+    .cp-stocktable thead th:first-child, .cp-stocktable tbody th { text-align: left; font-weight: 700; }
+    .cp-stocktable td input { width: 100%; min-width: 96px; min-height: 32px; box-sizing: border-box; text-align: right; }
+    .cp-subh { margin: 12px 0 6px; font-size: .9em; text-transform: uppercase; letter-spacing: .05em; opacity: .85; } .cp-subh small { text-transform: none; letter-spacing: 0; opacity: .7; margin-left: 8px; font-weight: 400; }
+    .cp-stemd { margin-top: 8px; } .cp-stemd > summary { cursor: pointer; font-weight: 600; font-size: .92em; }
+    @media (max-width: 720px) {
+      .cp-ident { grid-template-columns: 1fr; }
+      .cp-tg { border-right: 0; padding-right: 0; } .cp-tg-end { margin-left: 0; }
+      .cp-optgrid { grid-template-columns: 1fr; }
+      .cp-accitem > summary { padding: 10px; } .cp-accbody { padding: 10px; }
+      .cp-card { padding: 10px; }
+    }
+    .cp-stems { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; font-size: .92em; }
+    .cp-footer .bunker-remarks textarea { width: 100%; }
+    .cp-outbar { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 12px; }
+    .cp-outbar .cp-tg button { min-width: 120px; }
     .cp-restable-wrap { margin: 10px 0; }
     .cp-restable { border-collapse: collapse; width: 100%; min-width: 760px; font-variant-numeric: tabular-nums; }
     .cp-restable th, .cp-restable td { padding: 5px 8px; text-align: right; white-space: nowrap; border-bottom: 1px solid rgba(128,128,128,.25); }
@@ -846,8 +924,7 @@
     .cp-sec-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
     .cp-sec-head h3 { margin: 0; }
     .cp-sec-head input { flex: 1 1 220px; min-width: 0; }
-    .cp-seaopts { margin: 8px 0; padding: 6px 10px; border: 1px solid rgba(128,128,128,.35); border-radius: 8px; }
-    .cp-seaopts summary { cursor: pointer; font-weight: 600; }
+    .cp-seaopts { margin: 0; padding: 0; border: 0; }
     .cp-seaopts fieldset { border: 0; margin: 6px 0 0; padding: 0; }
     .cp-seaopts legend { font-size: .85em; opacity: .75; padding: 0; }
     .cp-seaopts label { display: inline-flex; gap: 5px; align-items: center; margin: 3px 12px 3px 0; white-space: nowrap; }
@@ -1338,34 +1415,35 @@
       return `<table class="cp-restable"><thead><tr><th>Fuel (MT)</th><th>Status</th><th>Current ROB</th><th>To receive</th><th>Consumption</th><th>Margin</th><th>Required</th><th>Arrival ROB</th><th>Next dep. ROB</th><th>Stem still needed</th><th>Excess (margin)</th><th>Excess (actual)</th></tr></thead><tbody>${rows}</tbody></table>`
         + (warn.length ? `<ul class="cp-warns">${warn.map((w) => `<li>${w}</li>`).join('')}</ul>` : '');
     }
-    function stockHtml(grade, si, sum) {
-      const st = stockOf(secAt(si), grade);
-      const g = esc(grade);
-      const field = (f, label, title, cls) => `<div class="field ${cls || ''}"><label>${label}</label><input type="number" step="0.001" data-sf="${f}" data-grade="${g}" value="${st[f] ?? ''}"${title ? ` title="${title}"` : ''}></div>`;
-      const robField = si === 0 ? field('currentRob', 'Current ROB (MT)')
-        : `<div class="field"><label>Current ROB (MT) · from leg ${si}</label><input type="number" readonly tabindex="-1" data-chained="${g}" value="${sum.rob == null ? '' : fmtFuel(sum.rob)}" title="The Next Departure ROB of the previous voyage leg"></div>`;
-      return `<div class="bunker-side" data-grade="${g}">
-        <h3 class="cp-grade-title">${g}</h3>
-        <div class="bunker-totals">
-          ${robField}
-          ${field('qtyReceive', 'Quantity to Receive (MT)')}
-          ${field('unpumpableMt', 'Unpumpable (MT)', 'Oil that cannot be pumped out of the tanks; it is held back from the usable quantity')}
-          ${field('weatherMarginMt', 'Weather reserve (MT)', 'Extra tonnes kept for bad weather')}
-          ${field('deliveryRob', 'Delivery / Redelivery ROB (MT)', '', 'full')}
-        </div>
-        <div class="stem-advice" data-stem="${g}">${esc(stemText(grade, sum))}</div>
-      </div>`;
+    /** The stock of every fuel in use as one table: ROB, to receive, unpumpable, weather reserve, delivery ROB. */
+    function stockTableHtml(cs, si) {
+      const grades = gradesInUse(ctx.plan);
+      if (!grades.length) return '<div class="hint">Pick a fuel and a MT/day on a line to see its stock, quantities and stem advice.</div>';
+      const fld = (g, st, f, title) => `<td><input type="number" step="0.001" data-sf="${f}" data-grade="${esc(g)}" value="${st[f] ?? ''}" aria-label="${esc(g)}: ${esc(title)}"></td>`;
+      const rows = grades.map((g) => {
+        const st = stockOf(secAt(si), g); const sum = cs.sums[normGrade(g)];
+        const rob = si === 0 ? fld(g, st, 'currentRob', 'current ROB')
+          : `<td><input type="number" readonly tabindex="-1" data-chained="${esc(g)}" value="${sum && sum.rob != null ? fmtFuel(sum.rob) : ''}" title="The Next Departure ROB of the previous voyage leg" aria-label="${esc(g)}: ROB from the previous voyage leg"></td>`;
+        return `<tr data-grade="${esc(g)}"><th scope="row">${esc(g)}</th>${rob}${fld(g, st, 'qtyReceive', 'quantity to receive')}${fld(g, st, 'unpumpableMt', 'unpumpable')}${fld(g, st, 'weatherMarginMt', 'weather reserve')}${fld(g, st, 'deliveryRob', 'delivery or redelivery ROB')}</tr>`;
+      }).join('');
+      return `<h4 class="cp-subh">Stock and reserves <small>type the figures here</small></h4><div class="table-scroll"><table class="cp-stocktable"><thead><tr><th>Fuel</th><th>Current ROB (MT)${si ? ' · from the leg before' : ''}</th><th>To receive (MT)</th><th title="Oil that cannot be pumped out of the tanks; it is held back from the usable quantity">Unpumpable (MT)</th><th title="Extra tonnes kept for bad weather">Weather reserve (MT)</th><th>Delivery / redelivery ROB (MT)</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    }
+    function stemsHtml(cs) {
+      const items = gradesInUse(ctx.plan).map((g) => { const sum = cs.sums[normGrade(g)]; const t = sum ? stemText(g, sum) : ''; return t ? `<li><div class="stem-advice" data-stem="${esc(g)}">${esc(t)}</div></li>` : ''; }).join('');
+      if (!items) return '';
+      const needs = gradesInUse(ctx.plan).some((g) => { const sum = cs.sums[normGrade(g)]; return sum && sum.stem > 0.0005; });
+      return `<details class="cp-stemd" ${needs ? 'open' : ''}><summary>Stem advice per fuel</summary><ul class="cp-stems">${items}</ul></details>`;
     }
     function sectionHtml(cs, si, multi) {
       const sec = cs.sec;
       const slots = ctx.plan.fuelSlots;
       const head = Array.from({ length: slots }, (_, s) => `<th class="col-fuel">Fuel ${s + 1} · MT/day</th><th class="col-qty">Qty MT</th>`).join('');
-      const used = gradesInUse(ctx.plan);
       return `<section class="cp-sec" data-sec="${si}">
         ${multi ? `<div class="cp-sec-head"><h3>Voyage leg ${si + 1}</h3><input type="text" data-cp="legTitle" value="${esc(sec.legTitle || '')}" placeholder="Name of this leg (optional), e.g. Singapore → Rotterdam" aria-label="Name of voyage leg ${si + 1}" autocomplete="off"></div>` : ''}
-        <div class="cp-route">
-          <div class="cp-cond"><label>Loading condition of this voyage leg <select data-cp="cond" aria-label="Loading condition, voyage leg ${si + 1}"><option value="ballast" ${secCond(sec) === 'ballast' ? 'selected' : ''}>Ballast</option><option value="laden" ${secCond(sec) === 'laden' ? 'selected' : ''}>Laden</option></select></label>
-            <span class="cp-seanote">${profileHasData(ctx.profile) ? 'Lines in a mode take speed and MT/day of the vessel profile for this condition.' : 'Set the vessel speed and consumption profile to fill speed and MT/day by mode.'}</span></div>
+        <div class="cp-card cp-route">
+          <div class="cp-card-h"><h3>Route and fuel per line</h3>
+            <label class="cp-cond">Loading condition <select data-cp="cond" aria-label="Loading condition, voyage leg ${si + 1}"><option value="ballast" ${secCond(sec) === 'ballast' ? 'selected' : ''}>Ballast</option><option value="laden" ${secCond(sec) === 'laden' ? 'selected' : ''}>Laden</option></select></label></div>
+          <div class="cp-card-sub">${profileHasData(ctx.profile) ? 'A line in a mode (Full / Eco / Safe, Port, Anchorage) takes its speed and MT/day from the vessel profile for this condition; type a figure on the line to make it Manual.' : 'Fill in the vessel speed and consumption profile (above) to choose a mode instead of typing speed and MT/day on every line.'}</div>
           <div class="table-scroll" role="region" aria-label="Route and fuels, voyage leg ${si + 1}">
             <table class="bunker-table">
               <thead><tr>
@@ -1378,16 +1456,21 @@
               <tbody>${sec.legs.map((l, i) => rowHtml(l, i, secCond(sec))).join('')}</tbody>
             </table>
           </div>
-          <div class="bunker-leg-actions cp-slotbar">
-            <button type="button" class="${ui.btn}" data-act="add-leg">Add destination / stay</button>
+          <div class="cp-actions">
+            <button type="button" class="${ui.btn}" data-act="add-leg">+ Add destination / stay</button>
             <button type="button" class="${ui.btn}" data-act="remove-leg" ${sec.legs.length <= 1 ? 'disabled' : ''} title="${sec.legs.length <= 1 ? 'A plan keeps at least one line' : 'Remove the last line (or use the ✕ on any line)'}">Remove last line</button>
-            ${ctx.sea ? `<button type="button" class="${ui.btn} cp-strong" data-act="sea-recalc" title="Work the distance of every route again from its ports, also where you typed a distance">Recalculate distances</button> <button type="button" class="${ui.btn}" data-act="sea-map-all">Map of all lines</button>` : ''}
+            ${ctx.sea ? `<span class="cp-sep"></span><button type="button" class="${ui.btn} cp-strong" data-act="sea-recalc" title="Work the distance of every route again from its ports, also where you typed a distance">Recalculate distances</button><button type="button" class="${ui.btn}" data-act="sea-map-all">Map of all lines</button>` : ''}
           </div>
           ${seaNotesHtml(sec)}
-          <div class="bunker-results" data-results="route">${routeCardsHtml(cs.route)}</div>
-          <div class="table-scroll cp-restable-wrap" data-results="table">${resultsTableHtml(cs)}</div>
+          <div class="cp-kpis" data-results="route">${routeKpisHtml(cs.route)}</div>
         </div>
-        <div class="bunker-plan-grid">${used.length ? used.map((g) => stockHtml(g, si, cs.sums[normGrade(g)])).join('') : '<div class="hint">Pick a fuel and a MT/day on a line to see its quantities, ROB and stem advice.</div>'}</div>
+        <div class="cp-card">
+          <div class="cp-card-h"><h3>Fuel stock and result</h3></div>
+          ${stockTableHtml(cs, si)}
+          <h4 class="cp-subh">Result for this voyage leg</h4>
+          <div class="table-scroll cp-restable-wrap" data-results="table">${resultsTableHtml(cs)}</div>
+          ${stemsHtml(cs)}
+        </div>
       </section>`;
     }
     /* ---- sea distance ---- */
@@ -1694,28 +1777,42 @@
     function seaOptsHtml() {
       if (!ctx.sea) return '';
       const SR = ctx.sea.SeaRoute; const av = new Set(ctx.plan.sea.avoid); const ar = new Set(ctx.plan.sea.areas);
-      const chk = (kind, id, label, on) => `<label><input type="checkbox" data-sea-${kind}="${esc(id)}" ${on ? 'checked' : ''}> ${esc(label)}</label>`;
-      const passes = SR.PASSAGES.map((p) => chk('avoid', p.id, p.label, av.has(p.id))).join('');
-      const areas = SR.AREAS.map((a) => chk('area', a.id, a.label, ar.has(a.id))).join('');
+      const chip = (kind, id, label, on, title) => `<label class="cp-chip" ${title ? `title="${esc(title)}"` : ''}><input type="checkbox" data-sea-${kind}="${esc(id)}" ${on ? 'checked' : ''}><span>${esc(label)}</span></label>`;
+      const passes = SR.PASSAGES.map((p) => chip('avoid', p.id, p.label, av.has(p.id))).join('');
+      const areas = SR.AREAS.map((a) => chip('area', a.id, a.label, ar.has(a.id))).join('');
       const onNow = new Set(ecaIdsFor(ctx.plan));
-      const ecaBoxes = ctx.sea.Eca ? ctx.sea.Eca.ZONES.map((z) => chk('eca', z.id, z.label + (z.from && !ctx.sea.Eca.inForce(ctx.plan.date).includes(z.id) ? ' · from ' + z.from : ''), onNow.has(z.id))).join('') : '';
+      const ecaBoxes = ctx.sea.Eca ? ctx.sea.Eca.ZONES.map((z) => { const later = z.from && !ctx.sea.Eca.inForce(ctx.plan.date).includes(z.id); return chip('eca', z.id, z.label.replace(/ \(adopted[^)]*\)| \(adopted, not yet in force\)/, '') + (later ? ' · from ' + z.from : ''), onNow.has(z.id), later ? 'Adopted: counts from ' + z.from + '. Tick it to measure it earlier.' : ''); }).join('') : '';
       const autoFuel = defaultEcaFuel(ctx.fuels);
-      const ecaFuelOptions = `<option value="">${autoFuel ? '— automatic: ' + esc(autoFuel) + ' —' : '— keep the fuel —'}</option>` + ctx.fuels.map((f) => `<option value="${esc(f.id)}" ${f.id === ctx.plan.sea.ecaFuel ? 'selected' : ''}>${esc(f.id)}</option>`).join('');
-      return `<details class="cp-seaopts" ${ctx.seaOpen ? 'open' : ''}><summary>Distance from ports · route options</summary>
-        <div class="cp-seanote">Type a few letters in From / To and pick the port: the distance is filled in offline (a distance you type is never replaced). Port stays have no distance.</div>
-        <fieldset><legend>Avoid passages</legend>${passes}</fieldset>
-        <fieldset><legend>Keep out of areas (approximate boxes you choose, not official designations)</legend>${areas}</fieldset>
-        <fieldset><legend>Measure the distance inside these ECA zones (IMO coordinates: North America, US Caribbean, North-East Atlantic, Canadian Arctic, Norwegian Sea, and the Mediterranean wording of MEPC.361(79); China follows the Ministry of Transport scheme; Baltic and North Sea are drawn from the regulation wording)</legend>${ecaBoxes}</fieldset>
-        <fieldset><legend>ECA lines</legend>
-          <label><input type="checkbox" data-sea-autosplit ${ctx.plan.sea.autoSplit !== false ? 'checked' : ''}> Split a line automatically where its route enters or leaves an ECA: one line outside (normal fuel), one inside (ECA fuel)</label>
-          <label><input type="checkbox" data-sea-minecas ${ctx.plan.sea.minEca ? 'checked' : ''}> Keep the route out of the ECA as far as it is cheap (saves distillate): accept up to <input type="number" min="1" max="50" step="1" style="width:4em" data-sea-minecapct value="${ctx.plan.sea.minEcaPct || 10}"> % longer distance</label>
-          <label>Fuel 1 on the ECA lines becomes <select data-sea-ecafuel>${ecaFuelOptions}</select></label>
-          <label><input type="checkbox" data-sea-pilotsplit ${ctx.plan.sea.pilotSplit !== false ? 'checked' : ''}> Also split off the pilot areas: the first and last <input type="number" min="1" max="50" step="1" style="width:4em" data-sea-pilotnm value="${ctx.plan.sea.pilotNm || 10}"> nm of the route become their own lines (port → pilot drop-off point, pilot pick-up point → port), so slow manoeuvring has its own MT/day</label></fieldset>
-        <fieldset><legend>Route</legend><label><input type="checkbox" data-sea-greatcircle ${ctx.plan.sea.greatCircle !== false ? 'checked' : ''}> Shortest route: great-circle legs wherever the sea is open (recommended)</label></fieldset>
-        <fieldset><legend>Approach</legend><label>Add <input type="number" min="0" max="100" step="1" style="width:4.5em" data-sea-approach value="${ctx.plan.sea.approachNm || ''}" placeholder="0"> nm at each end for the pilot station / port approach (published tables often measure from pilot station to pilot station; leave empty for the shortest route)</label></fieldset>
-        <fieldset><legend>Printout</legend><label><input type="checkbox" data-sea-printmap ${ctx.plan.sea.printMap !== false ? 'checked' : ''}> Include the route map on the printout</label></fieldset>
-        <div class="cp-seanote">Planning estimate: a coarse sea-lane network, shortened by great-circle legs where the sea is open (checked against a generalised coastline). Not for navigation. Arctic routes are never used.</div>
-        <div class="cp-seanote"><strong>Port data</strong>: derived from the World Port Index (Pub. 150) of the U.S. National Geospatial-Intelligence Agency (NGA), a U.S. Government work in the public domain (17 U.S.C. § 105). Provided “as is”, without warranty as to accuracy, currency or completeness (10 U.S.C. § 456). For general information and planning only: not an official NGA navigational product and not for primary navigation or passage planning; consult current charts, Sailing Directions, Notices to Mariners and port authorities. No endorsement by NGA or the U.S. Government is implied (10 U.S.C. § 425). <strong>Sea lanes</strong>: Eurostat SeaRoute network (EUPL-1.2, based on Oak Ridge National Laboratory data, 2000).</div>
+      const ecaFuelOptions = `<option value="">${autoFuel ? 'Automatic: ' + esc(autoFuel) : 'Keep the fuel'}</option>` + ctx.fuels.map((f) => `<option value="${esc(f.id)}" ${f.id === ctx.plan.sea.ecaFuel ? 'selected' : ''}>${esc(f.id)}</option>`).join('');
+      const sw = (attr, on, title, help) => `<label class="cp-opt"><span class="cp-opt-t">${title}${help ? `<small>${help}</small>` : ''}</span><input type="checkbox" ${attr} ${on ? 'checked' : ''}></label>`;
+      const num = (attr, val, min, max, unit, ph) => `<span class="cp-numunit"><input type="number" min="${min}" max="${max}" step="1" ${attr} value="${val}"${ph ? ` placeholder="${ph}"` : ''}> ${unit}</span>`;
+      const sea = ctx.plan.sea;
+      return `<details class="cp-seaopts cp-accitem" ${ctx.seaOpen ? 'open' : ''}><summary><span class="cp-acc-t">Route options</span><span class="cp-acc-s">passages, areas to avoid, ECA zones and ECA lines, route calculation</span></summary>
+        <div class="cp-accbody">
+          <p class="cp-seanote">Type a few letters in From / To and pick the port: the distance is filled in offline (a distance you type is never replaced). Port stays have no distance.</p>
+          <div class="cp-optgrid">
+            <section class="cp-optcard"><h4>Avoid passages</h4><div class="cp-chips">${passes}</div></section>
+            <section class="cp-optcard"><h4>Keep out of areas</h4><p class="cp-help">Approximate boxes you choose, not official designations.</p><div class="cp-chips">${areas}</div></section>
+            <section class="cp-optcard cp-wide"><h4>ECA zones to measure</h4><p class="cp-help">Zones in force on the plan date are ticked. IMO coordinates for North America, US Caribbean, North-East Atlantic, Canadian Arctic, Norwegian Sea and the Mediterranean (MEPC.361(79)); China follows the Ministry of Transport scheme; Baltic and North Sea are drawn from the regulation wording.</p><div class="cp-chips">${ecaBoxes}</div></section>
+            <section class="cp-optcard"><h4>ECA lines</h4>
+              ${sw('data-sea-autosplit', sea.autoSplit !== false, 'Split a line at the ECA', 'One line outside (normal fuel) and one inside (ECA fuel).')}
+              ${sw('data-sea-minecas', !!sea.minEca, 'Keep the route out of the ECA', 'Saves distillate when it costs little extra distance.')}
+              <div class="cp-subopt">Accept up to ${num('data-sea-minecapct', sea.minEcaPct || 10, 1, 50, '% longer')}</div>
+              <label class="cp-opt cp-opt-sel"><span class="cp-opt-t">Fuel 1 on the ECA lines</span><select data-sea-ecafuel>${ecaFuelOptions}</select></label>
+              ${sw('data-sea-pilotsplit', sea.pilotSplit !== false, 'Split off the pilot areas', 'Port to pilot drop-off and pilot pick-up to port get their own lines (slow manoeuvring, own MT/day).')}
+              <div class="cp-subopt">First and last ${num('data-sea-pilotnm', sea.pilotNm || 10, 1, 50, 'nm')}</div>
+            </section>
+            <section class="cp-optcard"><h4>Route calculation</h4>
+              ${sw('data-sea-greatcircle', sea.greatCircle !== false, 'Shortest route', 'Great-circle legs wherever the sea is open (recommended).')}
+              <label class="cp-opt"><span class="cp-opt-t">Approach allowance<small>Added at each end for the pilot station / port approach. Published tables often run from pilot station to pilot station; leave empty for the shortest route.</small></span>${num('data-sea-approach', sea.approachNm || '', 0, 100, 'nm', '0')}</label>
+              ${sw('data-sea-printmap', sea.printMap !== false, 'Route map on the printout')}
+            </section>
+          </div>
+          <details class="cp-notices"><summary>Data sources and notices</summary>
+            <p class="cp-seanote">Planning estimate: a coarse sea-lane network, shortened by great-circle legs where the sea is open (checked against a generalised coastline). Not for navigation. Arctic routes are never used.</p>
+            <p class="cp-seanote"><strong>Port data</strong>: derived from the World Port Index (Pub. 150) of the U.S. National Geospatial-Intelligence Agency (NGA), a U.S. Government work in the public domain (17 U.S.C. § 105). Provided “as is”, without warranty as to accuracy, currency or completeness (10 U.S.C. § 456). For general information and planning only: not an official NGA navigational product and not for primary navigation or passage planning; consult current charts, Sailing Directions, Notices to Mariners and port authorities. No endorsement by NGA or the U.S. Government is implied (10 U.S.C. § 425). <strong>Sea lanes</strong>: Eurostat SeaRoute network (EUPL-1.2, based on Oak Ridge National Laboratory data, 2000).</p>
+          </details>
+        </div>
       </details>`;
     }
     /** Reminders for the routes of a section: canals (transit hours and fee to type), high-risk areas and winter ice. */
@@ -1730,34 +1827,40 @@
       return `<div class="cp-reminders">${canalRows}${riskRows}<div class="cp-seanote">Reminders from approximate area boxes, not official limits or advice.</div></div>`;
     }
     function seaNotesHtml(sec) {
-      const rows = sec.legs.map((l, i) => {
-        if (!l.distAuto || !l.seaNote) return '';
-        const eca = l.ecaNm > 0 ? ` · ECA: ${fmtN(l.ecaNm, 0)} of ${fmtN(l.distance, 0)} nm (${esc(l.ecaZones)})` : '';
-        const split = l.ecaNm > 0 && Array.isArray(l.ecaRuns) && l.ecaRuns.length > 1
-          ? ` <button type="button" class="${ui.btn}" data-act="eca-split" data-row="${i}" title="Replace this line by one line per stretch, outside and inside the ECA">Split into ECA / non-ECA lines</button>` : '';
-        const map = l.routeFrom && l.routeTo ? ` <button type="button" class="${ui.btn}" data-act="sea-map" data-row="${i}" title="Show this route on a map">Map</button>` : '';
-        return `<div class="cp-seanote">◆ ${esc(l.from)} → ${esc(l.to)}: ${fmtN(l.distance, 0)} nm ${esc(l.seaNote)}${eca}${split}${map}</div>`;
+      const lines = [];
+      sec.legs.forEach((l, i) => {
+        if (!l.distAuto || !l.seaNote) return;
+        const pilot = /pilot area/i.test(l.seaNote);
+        const badge = pilot ? '<span class="cp-tag cp-tag-pilot">Pilot</span>' : l.ecaNm > 0 ? '<span class="cp-tag cp-tag-eca">ECA</span>' : (l.grp ? '<span class="cp-tag">Outside ECA</span>' : '');
+        const eca = l.ecaNm > 0 && !l.grp ? `ECA ${fmtN(l.ecaNm, 0)} of ${fmtN(l.distance, 0)} nm (${esc(l.ecaZones)}) · ` : '';
+        const split = l.ecaNm > 0 && !l.grp && Array.isArray(l.ecaRuns) && l.ecaRuns.length > 1
+          ? `<button type="button" class="${ui.btn}" data-act="eca-split" data-row="${i}" title="Replace this line by one line per stretch, outside and inside the ECA">Split at the ECA</button>` : '';
+        const map = l.routeFrom && l.routeTo ? `<button type="button" class="${ui.btn}" data-act="sea-map" data-row="${i}" title="Show this route on a map">Map</button>` : '';
+        const note = l.grp ? '' : esc(l.seaNote);
+        lines.push(`<tr><td>${i + 1}</td><td class="cp-rd-route">${esc(l.from)} <span aria-hidden="true">→</span> ${esc(l.to)}${note || eca ? `<small>${eca}${note}</small>` : ''}</td><td class="num">${fmtN(l.distance, 0)}</td><td>${badge}</td><td class="cp-rd-b">${split}${map}</td></tr>`);
       });
       const tools = [];
       sec.legs.forEach((l, i) => {
         if (!l.grp || (i > 0 && sec.legs[i - 1].grp && sec.legs[i - 1].grp.id === l.grp.id)) return;
         let n = 1; while (i + n < sec.legs.length && sec.legs[i + n].grp && sec.legs[i + n].grp.id === l.grp.id) n++;
-        tools.push(`<div class="cp-seanote cp-grouptools">Route ${esc(l.grp.from)} → ${esc(l.grp.to)} is split into ${n} line${n === 1 ? '' : 's'}${(ctx.plan.sea.manual || {})[l.grp.fromPort + '|' + l.grp.toPort] || (ctx.plan.sea.manual || {})[l.grp.toPort + '|' + l.grp.fromPort] ? ' (on your own route)' : ''}: <button type="button" class="${ui.btn} cp-strong" data-act="sea-recalc-group" data-row="${i}" title="Work this route again from its ports and split it again">Recalculate this route</button> <button type="button" class="${ui.btn}" data-act="merge-group" data-row="${i}" title="Replace these lines by one line again">Back to one line</button></div>`);
+        const own = (ctx.plan.sea.manual || {})[l.grp.fromPort + '|' + l.grp.toPort] || (ctx.plan.sea.manual || {})[l.grp.toPort + '|' + l.grp.fromPort];
+        tools.push(`<div class="cp-grouptools"><span>Route <strong>${esc(l.grp.from)} → ${esc(l.grp.to)}</strong> is split into ${n} line${n === 1 ? '' : 's'}${own ? ' · on your own route' : ''}</span><span class="cp-gt-b"><button type="button" class="${ui.btn} cp-strong" data-act="sea-recalc-group" data-row="${i}" title="Work this route again from its ports and split it again">Recalculate this route</button><button type="button" class="${ui.btn}" data-act="merge-group" data-row="${i}" title="Replace these lines by one line again">Back to one line</button></span></div>`);
       });
-      return rows.join('') + tools.join('') + remindersHtml(sec);
+      const table = lines.length ? `<details class="cp-rd" ${lines.length <= 4 ? 'open' : ''}><summary>Route details · ${lines.length} line${lines.length === 1 ? '' : 's'} measured from the sea lanes</summary><div class="table-scroll"><table class="cp-rdtable"><thead><tr><th>#</th><th>Line</th><th class="num">nm</th><th>Zone</th><th></th></tr></thead><tbody>${lines.join('')}</tbody></table></div></details>` : '';
+      return table + tools.join('') + remindersHtml(sec);
     }
     function gridHtml() {
       const plan = ctx.plan;
       const slots = plan.fuelSlots;
       const c = chain(plan);
       const multi = c.sections.length > 1;
-      return `<div class="bunker-leg-actions cp-slotbar">
+      return `<div class="cp-structure"><span class="cp-structure-t">Plan layout</span>
           <button type="button" class="${ui.btn}" data-act="add-fuel" ${slots >= MAX_SLOTS ? 'disabled' : ''} title="Another fuel on every line">+ Fuel column</button>
           <button type="button" class="${ui.btn}" data-act="remove-fuel" ${slots <= 1 ? 'disabled' : ''}>− Fuel column</button>
+          <span class="cp-sep"></span>
           <button type="button" class="${ui.btn}" data-act="add-voyage" ${c.sections.length >= MAX_LEGS ? 'disabled' : ''} title="A following voyage leg that starts with the ROB this one ends with">+ Next voyage leg</button>
           <button type="button" class="${ui.btn}" data-act="remove-voyage" ${multi ? '' : 'disabled'}>− Last voyage leg</button>
         </div>
-        ${seaOptsHtml()}
         ${multi ? `<h3 class="cp-ov-title">All voyage legs side by side</h3><div data-cp="overview">${overviewHtml(plan)}</div>` : ''}
         ${c.sections.map((cs, si) => sectionHtml(cs, si, multi)).join('')}`;
     }
@@ -1769,6 +1872,7 @@
       const keep = document.activeElement && host.contains(document.activeElement) ? document.activeElement : null;
       const at = keep ? { sec: secIndexOf(keep), row: keep.closest('tr') && keep.closest('tr').dataset.row, f: keep.dataset.f, s: keep.dataset.s, sf: keep.dataset.sf, grade: keep.dataset.grade, cp: keep.dataset.cp } : null;
       g.innerHTML = gridHtml();
+      const so = $('[data-cp="seaopts"]'); if (so) so.innerHTML = seaOptsHtml();
       renderScen(true); renderPva();
       if (at) {
         let sel = null;
@@ -1800,7 +1904,7 @@
           if (dEl && document.activeElement !== dEl) dEl.value = leg.distance == null ? '' : leg.distance;
           if (dEl) dEl.classList.toggle('cp-auto', !!leg.distAuto);
         });
-        const rc = el.querySelector('[data-results="route"]'); if (rc) rc.innerHTML = routeCardsHtml(cs.route);
+        const rc = el.querySelector('[data-results="route"]'); if (rc) rc.innerHTML = routeKpisHtml(cs.route);
         const rt = el.querySelector('[data-results="table"]'); if (rt) rt.innerHTML = resultsTableHtml(cs);
         if (si === 0) renderScen(false);
         el.querySelectorAll('[data-stem]').forEach((st) => { const sum = cs.sums[normGrade(st.dataset.stem)]; if (sum) st.textContent = stemText(st.dataset.stem, sum); });
@@ -1838,31 +1942,35 @@
 
     function pageHtml() {
       const nav = (A.buttons || []).map((b) => `<button type="button" class="${ui.btn}" data-btn="${esc(b.id)}" ${b.hidden ? 'style="display:none;"' : ''}>${esc(b.label)}</button>`).join('');
-      return `<div class="${ui.panel} bc-page no-print">
+      return `<div class="${ui.panel} bc-page cp-page no-print">
         <h2 class="bc-page-title">Bunker Consumption Calculation</h2>
-        <div class="hint cp-hint">Plan fuel burn by voyage leg. Type the route once; on each line pick the fuel burned and its MT per day (add a fuel column for a third fuel).
-          Sea days = Distance ÷ (Speed × 24); quantity = MT per day × days; each line can carry its own margin %. Port or anchorage days are typed in. A fuel burned as needed
-          (for example LSMGO) is just its average MT per day. A voyage that follows another is a next voyage leg: it starts with the ROB the leg before ends with, and all legs are shown side by side with the combined total.</div>
-        <div class="bunker-plan-head">
+        <details class="cp-how"><summary>How this page works</summary><div class="hint cp-hint">Plan fuel burn by voyage leg. Type the route once; on each line pick a mode (or the fuel and its MT per day). Sea days = Distance ÷ (Speed × 24); quantity = MT per day × days; each line can carry its own margin %. Port or anchorage days are typed in. A fuel burned as needed (for example LSMGO) is just its average MT per day. A voyage that follows another is a next voyage leg: it starts with the ROB the leg before ends with, and all legs are shown side by side with the combined total.</div></details>
+        <div class="bunker-plan-head cp-ident">
           <div class="field"><label>Vessel</label><input data-cp="vessel" readonly></div>
           <div class="field"><label>Voyage No.</label><input data-cp="voyageNo"></div>
           <div class="field"><label>Date</label><input type="date" data-cp="date"></div>
-          <div class="btn-row" style="margin:0;">${nav}<button type="button" class="${ui.btn}" data-btn="undo" disabled title="Take back the last change (Ctrl+Z when no box is being edited)">↶ Undo</button><button type="button" class="${ui.btn}" data-btn="redo" disabled title="Put the change back (Ctrl+Y)">↷ Redo</button><button type="button" class="${ui.btn}" data-btn="clear">Clear</button></div>
+        </div>
+        <div class="cp-toolbar" role="toolbar" aria-label="Plan tools">
+          <div class="cp-tg" role="group" aria-label="Fill in from the ship">${nav}</div>
+          <div class="cp-tg" role="group" aria-label="History"><button type="button" class="${ui.btn}" data-btn="undo" disabled title="Take back the last change (Ctrl+Z when no box is being edited)">↶ Undo</button><button type="button" class="${ui.btn}" data-btn="redo" disabled title="Put the change back (Ctrl+Y)">↷ Redo</button></div>
+          <div class="cp-tg cp-tg-end"><button type="button" class="${ui.btn}" data-btn="clear">Clear</button></div>
         </div>
         <datalist id="cp-ports"></datalist>
-        <details class="cp-seaopts cp-profile" data-cp="profbox"><summary>Vessel speed &amp; consumption profile · full / eco / safe, port, anchorage</summary><div data-cp="profile"></div></details>
+        <div class="cp-acc" aria-label="Plan settings">
+          <details class="cp-profile cp-accitem" data-cp="profbox"><summary><span class="cp-acc-t">Vessel speed &amp; consumption profile</span><span class="cp-acc-s">full / eco / safe speed, port, anchorage; ballast and laden</span></summary><div class="cp-accbody" data-cp="profile"></div></details>
+          <div data-cp="seaopts"></div>
+        </div>
         <div data-cp="grid"></div>
-        ${A.actuals ? `<details class="cp-seaopts cp-pva" data-cp="pva"><summary>Plan against actual · what the ship has done since departure compared with this plan</summary><div data-cp="pvaBody"></div></details>` : ''}
-        <details class="cp-seaopts cp-scen" data-cp="scen"><summary>Scenarios · save versions of this plan (route, speed mode, fuel) and compare them</summary><div data-cp="scenBody"></div></details>
-        <div class="bunker-plan-footer">
-          <label class="bunker-remarks"><span>Remarks</span><textarea data-cp="remarks" rows="4" placeholder="Remarks for this calculation"></textarea></label>
-          <div class="btn-row bunker-plan-actions">
-            <button type="button" class="${ui.btn}" data-btn="save">Save</button>
-            <button type="button" class="${ui.btn}" data-btn="print">Print</button>
-            <button type="button" class="${ui.primary}" data-btn="save-print">Save &amp; Print</button>
-            <button type="button" class="${ui.btn}" data-btn="summary" title="A one-page summary for the office: totals, status of every fuel, where to bunker">Summary (1 page)</button>
-            <button type="button" class="${ui.btn}" data-btn="csv" title="Save the plan as a spreadsheet file (CSV, opens in Excel)">Export CSV</button>
-            <button type="button" class="${ui.btn}" data-btn="copy" title="Copy a short report text to paste into an e-mail or message">Copy report text</button>
+        <div class="cp-acc" aria-label="Analysis">
+          ${A.actuals ? `<details class="cp-pva cp-accitem" data-cp="pva"><summary><span class="cp-acc-t">Plan against actual</span><span class="cp-acc-s">what the ship has done since departure compared with this plan</span></summary><div class="cp-accbody" data-cp="pvaBody"></div></details>` : ''}
+          <details class="cp-scen cp-accitem" data-cp="scen"><summary><span class="cp-acc-t">Scenarios</span><span class="cp-acc-s">save versions of this plan (route, speed mode, fuel) and compare them</span></summary><div class="cp-accbody" data-cp="scenBody"></div></details>
+        </div>
+        <div class="bunker-plan-footer cp-footer">
+          <label class="bunker-remarks"><span>Remarks</span><textarea data-cp="remarks" rows="3" placeholder="Remarks for this calculation"></textarea></label>
+          <div class="cp-outbar" role="toolbar" aria-label="Save, print and export">
+            <div class="cp-tg"><button type="button" class="${ui.btn}" data-btn="save">Save</button><button type="button" class="${ui.primary}" data-btn="save-print">Save &amp; Print</button></div>
+            <div class="cp-tg"><button type="button" class="${ui.btn}" data-btn="print">Print</button><button type="button" class="${ui.btn}" data-btn="summary" title="A one-page summary for the office: totals, status of every fuel, where to bunker">Summary (1 page)</button></div>
+            <div class="cp-tg"><button type="button" class="${ui.btn}" data-btn="csv" title="Save the plan as a spreadsheet file (CSV, opens in Excel)">Export CSV</button><button type="button" class="${ui.btn}" data-btn="copy" title="Copy a short report text to paste into an e-mail or message">Copy report text</button></div>
           </div>
         </div>
       </div>
