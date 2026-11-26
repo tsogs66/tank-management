@@ -216,6 +216,46 @@ ok(parts.every((l) => l.marginPct === 5 && l.speed === 12 && l.fuels[0].daily ==
 ok(CP.splitLegAtEca(ecaLeg, [runs[0]], zl) === null && CP.splitLegAtEca(ecaLeg, [], zl) === null, 'a line with a single stretch is not split');
 const adj = CP.splitLegAtEca(ecaLeg, [runs[0], { eca: true, zone: 'north_sea', nm: 400, from: [1, 1], to: [2, 2] }, { eca: true, zone: 'baltic', nm: 800, from: [2, 2], to: [3, 3] }], zl);
 ok(adj.length === 2 && /North Sea & English Channel, Baltic Sea/.test(adj[1].ecaZones), 'neighbouring ECA stretches (North Sea then Baltic) become one line');
+/* ---- fuels the plan offers: a grade nobody holds or burns is left out ---- */
+ok(CP.cleanFuels([{ id: 'HFO', active: true }, { id: 'MDO/MGO', active: false }, { id: 'LSMGO', active: true }]).map((f) => f.id).join() === 'HFO,LSMGO', 'a distillate with no stock and no use is not offered while another distillate is in use');
+ok(CP.cleanFuels([{ id: 'HFO', active: true }, { id: 'MDO/MGO', active: false }, { id: 'LSMGO', active: false }]).map((f) => f.id).join() === 'HFO,MDO/MGO,LSMGO', 'when none of a kind is in use they all stay, so there is always a fuel to pick');
+ok(CP.cleanFuels([{ id: 'HFO' }, { id: 'LSMGO' }]).map((f) => f.id).join() === 'HFO,LSMGO', 'a host that says nothing about use gets every fuel');
+const onlyLs = CP.cleanFuels([{ id: 'HFO', active: true }, { id: 'MDO/MGO', active: false }, { id: 'LSMGO', active: true }]);
+ok(CP.defaultPlan(onlyLs).legs[0].fuels[1].grade === 'LSMGO', 'the default second fuel is then the LSMGO');
+/* ---- moving a line and removing it keep the route data tidy ---- */
+const gl = CP.ensurePlan(Object.assign(JSON.parse(JSON.stringify(CP.defaultPlan(vessel))), { legs: [Object.assign(CP.emptyLeg(2), { from: 'A', to: 'B', distance: 10, distAuto: true, grp: { id: 'g1', fromPort: 1, toPort: 2, from: 'A', to: 'Z' } })] }), vessel).legs[0];
+ok(gl.grp && gl.grp.id === 'g1' && gl.grp.toPort === 2 && gl.keepWhole === false, 'the route a split line came from is kept with it');
+ok(CP.ensurePlan(Object.assign(JSON.parse(JSON.stringify(CP.defaultPlan(vessel))), { legs: [Object.assign(CP.emptyLeg(2), { grp: { id: 'x', fromPort: 0, toPort: 2 } })] }), vessel).legs[0].grp === null, 'a group without both ports is dropped');
+ok(CP.ensurePlan(Object.assign(JSON.parse(JSON.stringify(CP.defaultPlan(vessel))), { sea: { minEca: true, minEcaPct: 15 } }), vessel).sea.minEca === true && CP.ensurePlan(Object.assign(JSON.parse(JSON.stringify(CP.defaultPlan(vessel))), { sea: {} }), vessel).sea.minEcaPct === 10, 'the ECA-minimising option and its percentage are kept, 10 % by default');
+/* ---- pilot areas as their own lines ---- */
+const pRuns = [{ eca: true, zone: 'mediterranean', nm: 700, from: [43.3, 5.3], to: [36, -6] }, { eca: false, nm: 3800, from: [36, -6], to: [25, -79.7] }, { eca: true, zone: 'north_america', nm: 690, from: [25, -79.7], to: [29.95, -90] }];
+const pLeg = Object.assign(CP.emptyLeg(2), { from: 'MARSEILLE', to: 'NEW ORLEANS', fromPort: 1, toPort: 2, distance: 5190, distAuto: true, speed: 14, ecaNm: 1390, marginPct: 5 });
+pLeg.fuels[0] = { grade: 'HFO', daily: 30 };
+const pp = CP.splitLegAtEca(pLeg, pRuns, zl, 'LSMGO', { pilotNm: 10, approachNm: 0 });
+ok(pp.length === 5, 'with pilot areas the line becomes five: pilot out, ECA, outside, ECA, pilot in');
+ok(pp.reduce((a, l) => a + l.distance, 0) === 5190, 'the five lines still add up to the distance of the line');
+ok(pp[0].distance === 10 && pp[4].distance === 10, 'each pilot area is the length asked for (10 nm)');
+ok(pp[0].from === 'MARSEILLE' && /^Pilot drop-off /.test(pp[0].to) && /^Pilot drop-off /.test(pp[1].from) && /^Pilot pick-up /.test(pp[3].to) && /^Pilot pick-up /.test(pp[4].from) && pp[4].to === 'NEW ORLEANS', 'they are named by the pilot drop-off point and the pilot pick-up point');
+ok(pp[0].fromPort === 1 && pp[4].toPort === 2 && pp[1].fromPort === null && pp[2].toPort === null, 'the first and last pilot lines keep the ports');
+ok(pp[0].fuels[0].grade === 'LSMGO' && pp[1].fuels[0].grade === 'LSMGO' && pp[2].fuels[0].grade === 'HFO' && pp[3].fuels[0].grade === 'LSMGO' && pp[4].fuels[0].grade === 'LSMGO', 'a pilot area takes the ECA fuel when it lies inside the ECA');
+ok(/pilot area at departure/.test(pp[0].seaNote) && /pilot area at arrival/.test(pp[4].seaNote), 'and says what it is');
+ok(pp[0].ecaNm === 10 && pp[2].ecaNm === null, 'the ECA distance of a pilot area counts');
+const pa = CP.splitLegAtEca(Object.assign(JSON.parse(JSON.stringify(pLeg)), { distance: 5230 }), pRuns, zl, 'LSMGO', { pilotNm: 10, approachNm: 20 });
+ok(pa.length === 5 && pa[0].distance === 30 && pa[4].distance === 30 && pa.reduce((a, l) => a + l.distance, 0) === 5230, 'an approach allowance (20 nm) belongs to the pilot lines: 10 + 20 nm each, total unchanged');
+const noPilot = CP.splitLegAtEca(pLeg, pRuns, zl, 'LSMGO', { pilotNm: 0 });
+ok(noPilot.length === 3, 'without the option the line splits at the ECA only');
+ok(CP.splitLegAtEca(pLeg, [{ eca: false, nm: 5000, from: [1, 1], to: [2, 2] }], zl, 'LSMGO', { pilotNm: 10 }) === null, 'a route with no ECA is not split (pilot areas go with an ECA split)');
+const tiny = CP.splitLegAtEca(Object.assign(JSON.parse(JSON.stringify(pLeg)), { distance: 40 }), [{ eca: true, zone: 'north_sea', nm: 10, from: [51, 3], to: [51, 2] }, { eca: false, nm: 30, from: [51, 2], to: [50, 0] }], zl, 'LSMGO', { pilotNm: 10 });
+ok(tiny.reduce((a, l) => a + l.distance, 0) === 40 && tiny.every((l) => l.distance >= 1), 'a short route still adds up and has no empty line (pilot area limited to 40% of a stretch)');
+const sp0 = CP.ensurePlan(Object.assign(JSON.parse(JSON.stringify(CP.defaultPlan(vessel))), { sea: {} }), vessel).sea;
+ok(sp0.pilotSplit === true && sp0.pilotNm === 10, 'the pilot split is on by default, 10 nm');
+/* ---- automatic split: the default compliant fuel and the option ---- */
+ok(CP.defaultEcaFuel([{ id: 'HFO' }, { id: 'LSFO' }, { id: 'MDO/MGO' }, { id: 'LSMGO' }]) === 'LSMGO', 'the ECA lines default to LSMGO when the vessel has it');
+ok(CP.defaultEcaFuel([{ id: 'HFO' }, { id: 'MGO' }]) === 'MGO', 'else to MDO/MGO (MGO counts as the same grade)');
+ok(CP.defaultEcaFuel([{ id: 'Residual', family: 'residual' }, { id: 'Distillate', family: 'distillate' }]) === 'Distillate', 'else to any distillate of the vessel');
+ok(CP.defaultEcaFuel([{ id: 'HFO' }, { id: 'LSFO' }]) === '' && CP.defaultEcaFuel([]) === '', 'with no distillate the fuel is left as it is');
+const withLegs = (sea) => Object.assign(JSON.parse(JSON.stringify(CP.defaultPlan(vessel))), { sea });
+ok(CP.ensurePlan(withLegs({}), vessel).sea.autoSplit === true && CP.ensurePlan(withLegs({ autoSplit: false }), vessel).sea.autoSplit === false, 'a line splits automatically unless the plan says otherwise, and the choice is kept');
 const spl = CP.defaultPlan(vessel); spl.legs = parts; spl.legs[0].ecaNm = null;
 ok(CP.routeSummary(spl).totalEca === parts[1].distance + parts[3].distance, 'the route total counts the distance inside the ECA');
 ok(/Distance in ECA/.test(CP.routeCardsHtml(CP.routeSummary(spl))) && !/Distance in ECA/.test(CP.routeCardsHtml(CP.routeSummary(CP.defaultPlan(vessel)))), 'the ECA card appears only when there is ECA distance');

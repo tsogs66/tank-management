@@ -17,9 +17,14 @@ const BunkerConsumption = (function () {
     const out = [];
     try {
       const seen = new Set();
+      const rob = tankRobByGrade();
       (STATE.bundle?.tanks?.fuel || []).forEach((t) => {
         const label = FuelReportCore.robGradeLabel ? FuelReportCore.robGradeLabel(t) : null;
-        if (label && !seen.has(label)) { seen.add(label); out.push({ id: label }); }
+        if (!label) return;
+        /* a grade with nothing sounded in its tanks is left out, unless it is the only one of its kind */
+        const active = (Number(rob && rob[label]) || 0) > 0;
+        if (seen.has(label)) { if (active) out.find((x) => x.id === label).active = true; return; }
+        seen.add(label); out.push({ id: label, active });
       });
     } catch (_) { /* fall back below */ }
     return out;

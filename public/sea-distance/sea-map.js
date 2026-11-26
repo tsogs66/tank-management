@@ -1,6 +1,7 @@
 // Offline route map (Mercator, canvas). Works in browsers (window.SeaMap) and exports the pure helpers to Node for tests.
 //   SeaMap.decodeLand(json)  -> land rings (Float64Array of [lon, lat, ...] with a bounding box each)
 //   SeaMap.create(host, { land, zones, areas, onClose }) -> { setRoutes(routes), fit(), resize(), destroy() }
+//   map.edit({ from, to, wps, color, onChange(wps) -> { ecaRuns }, crosses(a, b) -> { land, near }, onSelect(i) }) -> { get(), set(wps), removeSelected(), selected(), stop() }: drag the waypoints, add one from the + in the middle of a leg, double-click one to remove it
 //   route = { path: [[lat, lon], ...], color, label, from: {lat, lon, name}, to: {lat, lon, name}, ecaRuns: [{eca, from, to}], passages: ['suez', ...] }
 // Planning picture only: generalised coastline, not a chart.
 (function (root) {
@@ -45,6 +46,23 @@
     const ctx2 = canvas.getContext('2d');
     const st = { lon: 0, y: 0, k: 4, routes: [], w: 300, h: 300, dpr: 1, showEca: true, showAreas: true };
     const land = opts.land || [];
+    st.edit = null; st.drag = null;
+    const wrapLon = lo => ((lo + 540) % 360) - 180;
+    /** Points along the great circle a -> b ([lat, lon]), about every `step` degrees, both ends included. */
+    function gcSample(a, b, step) {
+      const la1 = a[0] * rad, lo1 = a[1] * rad, la2 = b[0] * rad, lo2 = b[1] * rad;
+      const d = 2 * Math.asin(Math.min(1, Math.sqrt(Math.sin((la2 - la1) / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin((lo2 - lo1) / 2) ** 2)));
+      if (d < 1e-9) return [a.slice(), b.slice()];
+      const n = Math.max(1, Math.ceil(d / rad / step)), out = [];
+      for (let k = 0; k <= n; k++) {
+        const f = k / n, A = Math.sin((1 - f) * d) / Math.sin(d), B = Math.sin(f * d) / Math.sin(d);
+        const x = A * Math.cos(la1) * Math.cos(lo1) + B * Math.cos(la2) * Math.cos(lo2), y = A * Math.cos(la1) * Math.sin(lo1) + B * Math.cos(la2) * Math.sin(lo2), z = A * Math.sin(la1) + B * Math.sin(la2);
+        out.push([Math.atan2(z, Math.sqrt(x * x + y * y)) / rad, Math.atan2(y, x) / rad]);
+      }
+      return out;
+    }
+    /** The edited route as one list of points: the from port, the waypoints, the to port. */
+    const editPts = () => [[st.edit.from.lat, st.edit.from.lon]].concat(st.edit.wps, [[st.edit.to.lat, st.edit.to.lon]]);
     function resize() {
       st.dpr = (host.ownerDocument.defaultView && host.ownerDocument.defaultView.devicePixelRatio) || 1;
       const r = host.getBoundingClientRect(); st.w = Math.max(100, r.width); st.h = Math.max(100, r.height);
@@ -110,12 +128,50 @@
         });
         (r.passages || []).forEach(id => { const q = PASSAGE_AT[id]; if (!q) return; const x = X(q[0] + nearOffset(q[0], P)), y = Y(q[1]); c.fillStyle = '#fff'; c.strokeStyle = '#000'; c.lineWidth = 1; c.beginPath(); c.arc(x, y, 3.5, 0, 6.3); c.fill(); c.stroke(); label(c, q[2], x + 6, y - 5, '#fff'); });
       });
+      if (st.edit) drawEdit(c);
       // ports
-      st.routes.forEach(r => [r.from, r.to].forEach((p, i) => {
+      st.routes.concat(st.edit ? [{ from: st.edit.from, to: st.edit.to, path: unwrap(editPts()) }] : []).forEach(r => [r.from, r.to].forEach((p, i) => {
         if (!p) return; const P = unwrap(r.path); const lon = p.lon + nearOffset(p.lon, P); const x = X(lon), y = Y(p.lat);
         c.fillStyle = i ? '#ff5470' : '#4cd964'; c.strokeStyle = '#000'; c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, 5, 0, 6.3); c.fill(); c.stroke(); label(c, p.name, x + 8, y + 4, '#fff');
       }));
       drawScale(c);
+    }
+    function drawEdit(c) {
+      const E = st.edit, pts = editPts(), U = unwrap(pts);
+      [-360, 0, 360].forEach(off => {
+        c.lineJoin = 'round'; c.lineCap = 'round';
+        for (let i = 1; i < pts.length; i++) {
+          const seg = gcSample(pts[i - 1], pts[i], 1.5), Us = unwrapNear(seg, U);
+          const chk = E.crosses ? E.crosses(pts[i - 1], pts[i]) : { land: false, near: false };
+          c.strokeStyle = 'rgba(0,0,0,.55)'; c.lineWidth = 5; c.setLineDash([]);
+          c.beginPath(); Us.forEach((p, k) => { const x = X(p[1] + off), y = Y(p[0]); if (k) c.lineTo(x, y); else c.moveTo(x, y); }); c.stroke();
+          c.strokeStyle = chk.land ? '#ff3b3b' : chk.near ? '#ffd23f' : (E.color || '#27d3ff'); c.lineWidth = 3; c.setLineDash(chk.near ? [7, 5] : []);
+          c.beginPath(); Us.forEach((p, k) => { const x = X(p[1] + off), y = Y(p[0]); if (k) c.lineTo(x, y); else c.moveTo(x, y); }); c.stroke(); c.setLineDash([]);
+        }
+        (E.ecaRuns || []).filter(e => e.eca && e.pts && e.pts.length > 1).forEach(e => {
+          const Q = unwrapNear(e.pts, U); c.strokeStyle = '#ff9f1c'; c.lineWidth = 5; c.beginPath();
+          Q.forEach((p, i) => { const x = X(p[1] + off), y = Y(p[0]); if (i) c.lineTo(x, y); else c.moveTo(x, y); }); c.stroke();
+        });
+        // + in the middle of each leg, then the waypoints
+        for (let i = 1; i < pts.length; i++) {
+          const h = midOf(pts[i - 1], pts[i]); const x = X(h[1] + nearOffset(h[1], U) + off), y = Y(h[0]);
+          c.fillStyle = 'rgba(255,255,255,.85)'; c.strokeStyle = '#000'; c.lineWidth = 1; c.beginPath(); c.arc(x, y, 5, 0, 6.3); c.fill(); c.stroke();
+          c.strokeStyle = '#000'; c.beginPath(); c.moveTo(x - 3, y); c.lineTo(x + 3, y); c.moveTo(x, y - 3); c.lineTo(x, y + 3); c.stroke();
+        }
+        E.wps.forEach((w, i) => {
+          const x = X(U[i + 1][1] + off), y = Y(w[0]), sel = E.sel === i;
+          c.fillStyle = sel ? '#ffd23f' : '#ffffff'; c.strokeStyle = '#000'; c.lineWidth = 2; c.beginPath(); c.arc(x, y, sel ? 9 : 7, 0, 6.3); c.fill(); c.stroke();
+          c.fillStyle = '#000'; c.font = '10px sans-serif'; c.textAlign = 'center'; c.fillText(String(i + 1), x, y + 3.5); c.textAlign = 'start';
+        });
+      });
+    }
+    /** The great-circle half-way point of a leg. */
+    const midOf = (a, b) => gcMid(a, b);
+    function gcMid(a, b) {
+      const la1 = a[0] * rad, lo1 = a[1] * rad, la2 = b[0] * rad, lo2 = b[1] * rad;
+      const bx = Math.cos(la2) * Math.cos(lo2 - lo1), by = Math.cos(la2) * Math.sin(lo2 - lo1);
+      const la = Math.atan2(Math.sin(la1) + Math.sin(la2), Math.sqrt((Math.cos(la1) + bx) ** 2 + by * by)), lo = lo1 + Math.atan2(by, Math.cos(la1) + bx);
+      return [la / rad, wrapLon(lo / rad)];
     }
     function nearOffset(lon, P) { const mid = P[Math.floor(P.length / 2)][1]; return Math.round((mid - lon) / 360) * 360; }
     function unwrapNear(pts, P) { const u = unwrap(pts); const o = nearOffset(u[0][1], P); return u.map(p => [p[0], p[1] + o]); }
@@ -129,16 +185,46 @@
     function clamp() { st.y = Math.max(my(-MAXLAT) + 5, Math.min(my(MAXLAT) - 5, st.y)); }
     // pointers: drag and pinch
     const ptrs = new Map(); let pinch = 0;
-    canvas.addEventListener('pointerdown', e => { canvas.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, [e.offsetX, e.offsetY]); pinch = 0; canvas.style.cursor = 'grabbing'; });
+    /** What the pointer is on in edit mode: a waypoint ({wp: i}), the + of a leg ({mid: i}), or nothing. */
+    function hitEdit(px, py) {
+      if (!st.edit) return null;
+      const E = st.edit, pts = editPts(), U = unwrap(pts), R = 14;
+      for (const off of [-360, 0, 360]) {
+        for (let i = E.wps.length - 1; i >= 0; i--) if (Math.hypot(X(U[i + 1][1] + off) - px, Y(E.wps[i][0]) - py) <= R) return { wp: i };
+        for (let i = 1; i < pts.length; i++) { const h = gcMid(pts[i - 1], pts[i]); if (Math.hypot(X(h[1] + nearOffset(h[1], U) + off) - px, Y(h[0]) - py) <= R - 3) return { mid: i - 1 }; }
+      }
+      return null;
+    }
+    const changed = () => { if (st.edit.onChange) { const r = st.edit.onChange(st.edit.wps.map(w => w.slice())); if (r && r.ecaRuns) st.edit.ecaRuns = r.ecaRuns; } draw(); };
+    canvas.addEventListener('pointerdown', e => {
+      if (st.edit) {
+        const h = hitEdit(e.offsetX, e.offsetY);
+        if (h) {
+          canvas.setPointerCapture(e.pointerId);
+          if (h.mid != null) { st.edit.wps.splice(h.mid, 0, gcMid(editPts()[h.mid], editPts()[h.mid + 1])); h.wp = h.mid; st.edit.dirty = true; }
+          st.edit.sel = h.wp; st.drag = { i: h.wp, id: e.pointerId }; if (st.edit.onSelect) st.edit.onSelect(h.wp); changed(); canvas.style.cursor = 'move'; return;
+        }
+        if (st.edit.sel >= 0) { st.edit.sel = -1; if (st.edit.onSelect) st.edit.onSelect(-1); draw(); }
+      }
+      canvas.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, [e.offsetX, e.offsetY]); pinch = 0; canvas.style.cursor = 'grabbing';
+    });
     canvas.addEventListener('pointermove', e => {
+      if (st.drag && e.pointerId === st.drag.id) {
+        st.edit.wps[st.drag.i] = [Math.max(-85, Math.min(85, latAt(e.offsetY))), wrapLon(lonAt(e.offsetX))]; st.edit.dirty = true; changed(); return;
+      }
+      if (st.edit && !ptrs.has(e.pointerId)) canvas.style.cursor = hitEdit(e.offsetX, e.offsetY) ? 'move' : 'grab';
       if (!ptrs.has(e.pointerId)) return; const prev = ptrs.get(e.pointerId); ptrs.set(e.pointerId, [e.offsetX, e.offsetY]);
       if (ptrs.size === 1) { st.lon -= (e.offsetX - prev[0]) / st.k; st.y += (e.offsetY - prev[1]) / st.k; clamp(); draw(); }
       else if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; const d = Math.hypot(a[0] - b[0], a[1] - b[1]); if (pinch) zoomAt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, d / pinch); pinch = d; }
     });
-    const up = e => { ptrs.delete(e.pointerId); pinch = 0; canvas.style.cursor = 'grab'; };
+    const up = e => { if (st.drag && e.pointerId === st.drag.id) { st.drag = null; canvas.style.cursor = 'grab'; if (st.edit && st.edit.onCommit) st.edit.onCommit(st.edit.wps.map(w => w.slice())); return; } ptrs.delete(e.pointerId); pinch = 0; canvas.style.cursor = 'grab'; };
     canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
     canvas.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.offsetX, e.offsetY, e.deltaY < 0 ? 1.25 : 0.8); }, { passive: false });
-    canvas.addEventListener('dblclick', e => zoomAt(e.offsetX, e.offsetY, 2));
+    canvas.addEventListener('dblclick', e => { const h = st.edit && hitEdit(e.offsetX, e.offsetY); if (h && h.wp != null) { st.edit.sel = h.wp; removeSelected(); return; } if (h) return; zoomAt(e.offsetX, e.offsetY, 2); });
+    function removeSelected() {
+      const E = st.edit; if (!E || E.sel < 0 || E.sel >= E.wps.length) return false;
+      E.wps.splice(E.sel, 1); E.sel = -1; E.dirty = true; if (E.onSelect) E.onSelect(-1); changed(); if (E.onCommit) E.onCommit(E.wps.map(w => w.slice())); return true;
+    }
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => resize()) : null; if (ro) ro.observe(host);
     resize();
     return {
@@ -146,6 +232,17 @@
       zoom(f) { zoomAt(st.w / 2, st.h / 2, f); },
       set(opt) { Object.assign(st, opt); draw(); },
       state: () => ({ lon: st.lon, y: st.y, k: st.k }),
+      /** Edit one route: see the header of this file. */
+      edit(cfg) {
+        st.edit = { from: cfg.from, to: cfg.to, color: cfg.color, wps: (cfg.wps || []).map(w => w.slice()), sel: -1, dirty: false, ecaRuns: [], onChange: cfg.onChange, onCommit: cfg.onCommit, onSelect: cfg.onSelect, crosses: cfg.crosses };
+        changed();
+        return {
+          get: () => st.edit ? st.edit.wps.map(w => w.slice()) : [],
+          set: (w) => { if (st.edit) { st.edit.wps = (w || []).map(p => p.slice()); st.edit.sel = -1; changed(); } },
+          removeSelected, selected: () => st.edit ? st.edit.sel : -1, dirty: () => !!(st.edit && st.edit.dirty),
+          stop: () => { st.edit = null; st.drag = null; draw(); },
+        };
+      },
       toDataURL: () => canvas.toDataURL('image/png'),
       destroy() { if (ro) ro.disconnect(); canvas.remove(); },
     };
