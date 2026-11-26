@@ -1,8 +1,11 @@
 // Offline route map (Mercator, canvas). Works in browsers (window.SeaMap) and exports the pure helpers to Node for tests.
 //   SeaMap.decodeLand(json)  -> land rings (Float64Array of [lon, lat, ...] with a bounding box each)
-//   SeaMap.create(host, { land, zones, areas, onClose }) -> { setRoutes(routes), fit(), resize(), destroy() }
+//   SeaMap.create(host, { land, zones, areas, lanes, detail, onClose }) -> { setRoutes(routes), fit(), resize(), destroy() }
 //   map.edit({ from, to, wps, color, onChange(wps) -> { ecaRuns }, crosses(a, b) -> { land, near }, onSelect(i) }) -> { get(), set(wps), removeSelected(), selected(), stop() }: drag the waypoints, add one from the + in the middle of a leg, double-click one to remove it
 //   route = { path: [[lat, lon], ...], color, label, from: {lat, lon, name}, to: {lat, lon, name}, ecaRuns: [{eca, from, to}], passages: ['suez', ...] }
+//   opts.detail = { land(): Promise<detail-land json>, water(): Promise<detail-water json> } loads the 1:10m layers when the map is zoomed in (fine coastline, lakes, rivers, 200 m line, names of straits, channels, gulfs, bays);
+//   opts.lanes = the sea-lane network (marnet json): drawn as thin lines, the canals and narrow passages (tagged edges) highlighted.
+//   map.set({ showLanes, showNames, showRivers, showDepth, showGrid, showEca, showAreas }); map.where() -> { lat, lon, zoom, nmPerPx }
 // Planning picture only: generalised coastline, not a chart.
 (function (root) {
   'use strict';
@@ -28,6 +31,28 @@
     }
     return out;
   }
+  /** Lines (rivers) from the detail file: [{ r: rank, n: name, f: delta-encoded flat }] -> { pts, bbox, r, n }. */
+  function decodeLines(list, q) {
+    q = q || 100; const out = [];
+    for (const l of list || []) {
+      const f = l.f, n = f.length / 2, pts = new Float64Array(f.length); let x = 0, y = 0, minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
+      for (let i = 0; i < n; i++) { x += f[2 * i]; y += f[2 * i + 1]; const lo = x / q, la = y / q; pts[2 * i] = lo; pts[2 * i + 1] = la; if (lo < minx) minx = lo; if (lo > maxx) maxx = lo; if (la < miny) miny = la; if (la > maxy) maxy = la; }
+      out.push({ pts, minx, miny, maxx, maxy, r: l.r, n: l.n });
+    }
+    return out;
+  }
+  /** The web-map style zoom level (256 px tiles) of a view with k pixels per degree: names show from their min_label on. */
+  const zoomLevel = k => Math.log2(Math.max(1e-6, 360 * k / 256));
+  /** The grid step in degrees for a view with k pixels per degree (about 80 px between lines), and a label like 12°30'N. */
+  const GRID_STEPS = [0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 45, 90];
+  const gridStep = k => GRID_STEPS.find(s => s * k >= 80) || 90;
+  function fmtDeg(v, isLat, step) {
+    const hem = isLat ? (v < 0 ? 'S' : v > 0 ? 'N' : '') : (v < 0 ? 'W' : v > 0 ? 'E' : ''); const a = Math.abs(v);
+    if (step >= 1) return Math.round(a) + '°' + hem;
+    let d = Math.floor(a + 1e-9), m = (a - d) * 60; const dec = step >= 0.05 ? 0 : step >= 0.01 ? 1 : 2;
+    let ms = m.toFixed(dec); if (Number(ms) >= 60) { d += 1; ms = (0).toFixed(dec); }
+    return d + '°' + (Number(ms) < 10 ? '0' : '') + ms + "'" + hem;
+  }
   /** Make a path's longitudes continuous (a route across the 180th meridian goes on to 190, 200 ... instead of jumping back). */
   function unwrap(path) {
     const out = []; let off = 0;
@@ -44,7 +69,7 @@
     const canvas = doc.createElement('canvas'); canvas.style.cssText = 'width:100%;height:100%;display:block;touch-action:none;cursor:grab;';
     host.appendChild(canvas);
     const ctx2 = canvas.getContext('2d');
-    const st = { lon: 0, y: 0, k: 4, routes: [], w: 300, h: 300, dpr: 1, showEca: true, showAreas: true };
+    const st = { lon: 0, y: 0, k: 4, routes: [], w: 300, h: 300, dpr: 1, showEca: true, showAreas: true, showLanes: false, showNames: true, showRivers: true, showDepth: true, showGrid: true, cursor: null, detailLand: null, detailWater: null, asked: {} };
     const land = opts.land || [];
     st.edit = null; st.drag = null;
     const wrapLon = lo => ((lo + 540) % 360) - 180;
@@ -78,7 +103,7 @@
       pts.forEach(p => { const yy = my(p[0]); x0 = Math.min(x0, p[1]); x1 = Math.max(x1, p[1]); y0 = Math.min(y0, yy); y1 = Math.max(y1, yy); });
       const padX = Math.max(1.5, (x1 - x0) * 0.08), padY = Math.max(1.5, (y1 - y0) * 0.08);
       x0 -= padX; x1 += padX; y0 -= padY; y1 += padY;
-      st.lon = (x0 + x1) / 2; st.y = (y0 + y1) / 2; st.k = Math.min(st.w / (x1 - x0), st.h / (y1 - y0)); st.k = Math.max(0.6, Math.min(st.k, 400)); draw();
+      st.lon = (x0 + x1) / 2; st.y = (y0 + y1) / 2; st.k = Math.min(st.w / (x1 - x0), st.h / (y1 - y0)); st.k = Math.max(0.6, Math.min(st.k, 1500)); draw();
     }
     function ringPath(c, pts, off) {
       c.beginPath();
@@ -86,21 +111,65 @@
       c.closePath();
     }
     function drawGrid(c) {
-      const spans = [1, 2, 5, 10, 15, 30, 45]; const step = spans.find(s => s * st.k >= 70) || 90;
-      c.save(); c.strokeStyle = 'rgba(160,190,220,.18)'; c.fillStyle = 'rgba(180,205,230,.7)'; c.lineWidth = 1; c.font = '10px sans-serif';
+      if (!st.showGrid) return;
+      const step = gridStep(st.k);
+      c.save(); c.strokeStyle = 'rgba(160,190,220,.18)'; c.fillStyle = 'rgba(180,205,230,.8)'; c.lineWidth = 1; c.font = '10px sans-serif';
       const lo = Math.floor(lonAt(0) / step) * step, hi = lonAt(st.w);
-      for (let l = lo; l <= hi; l += step) { const x = X(l); c.beginPath(); c.moveTo(x, 0); c.lineTo(x, st.h); c.stroke(); let n = ((l + 540) % 360) - 180; c.fillText(Math.abs(n) + (n < 0 ? 'W' : n > 0 ? 'E' : ''), x + 2, st.h - 3); }
+      for (let l = lo; l <= hi + 1e-9; l += step) { const x = Math.round(X(l)) + 0.5; c.beginPath(); c.moveTo(x, 0); c.lineTo(x, st.h); c.stroke(); const n = ((l + 540) % 360) - 180; c.fillText(fmtDeg(Math.round(n / step) * step, false, step), x + 3, 11); }
       const la0 = Math.max(-MAXLAT, latAt(st.h)), la1 = Math.min(MAXLAT, latAt(0));
-      for (let l = Math.ceil(la0 / step) * step; l <= la1; l += step) { const y = Y(l); c.beginPath(); c.moveTo(0, y); c.lineTo(st.w, y); c.stroke(); c.fillText(Math.abs(l) + (l < 0 ? 'S' : l > 0 ? 'N' : ''), 3, y - 2); }
+      for (let l = Math.ceil(la0 / step) * step; l <= la1 + 1e-9; l += step) { const v = Math.round(l / step) * step, y = Math.round(Y(v)) + 0.5; c.beginPath(); c.moveTo(0, y); c.lineTo(st.w, y); c.stroke(); c.fillText(fmtDeg(v, true, step), 3, y - 2); }
       c.restore();
     }
     function polyFill(c, ring, color, offs) {
       c.fillStyle = color;
       offs.forEach(off => { c.beginPath(); ring.forEach((p, i) => { const x = X(p[0] + off), y = Y(p[1]); if (i) c.lineTo(x, y); else c.moveTo(x, y); }); c.closePath(); c.fill(); });
     }
+    /** Ask for the detailed layers once the view is zoomed in enough to need them. */
+    function wantDetail() {
+      const d = opts.detail; if (!d) return;
+      if (st.k >= 6 && !st.asked.water && d.water) { st.asked.water = 1; Promise.resolve(d.water()).then(j => { if (!j) return; st.detailWater = { lakes: decodeLand({ q: j.q, rings: j.lakes || [] }), shelf: decodeLand({ q: j.q, rings: j.shelf || [] }), rivers: decodeLines(j.rivers, j.q), names: (j.names || []).map(n => ({ name: n[0], lon: n[1], lat: n[2], cls: n[3], min: n[4] == null ? 5 : n[4], size: n[5] })).sort((p, q2) => q2.size - p.size) }; draw(); }).catch(() => { st.asked.water = 0; }); }
+      if (st.k >= 10 && !st.asked.land && d.land) { st.asked.land = 1; Promise.resolve(d.land()).then(j => { if (!j) return; st.detailLand = { mid: decodeLand({ q: j.q, rings: j.mid || [] }), fine: decodeLand({ q: j.q, rings: j.fine || [] }) }; draw(); }).catch(() => { st.asked.land = 0; }); }
+    }
+    function lanePoints() {
+      if (st.laneNodes || !opts.lanes) return;
+      st.laneNodes = opts.lanes.nodes; st.laneEdges = opts.lanes.edges; st.laneTags = opts.lanes.tags || [];
+    }
+    function drawLanes(c, offs) {
+      lanePoints(); if (!st.laneNodes) return;
+      const N = st.laneNodes, E = st.laneEdges, x0 = lonAt(0) - 1, x1 = lonAt(st.w) + 1, yT = latAt(0) + 1, yB = latAt(st.h) - 1; const all = st.k >= 8;
+      c.save(); c.lineCap = 'round';
+      for (const pass of [0, 1]) {
+        c.beginPath();
+        for (const off of offs) for (let i = 0; i < E.length; i++) {
+          const e = E[i], special = e[2] >= 0; if (special !== (pass === 1)) continue; if (!special && !all) continue;
+          const a = N[e[0]], b = N[e[1]], ax = a[0] + off, bx = b[0] + off;
+          if ((ax < x0 && bx < x0) || (ax > x1 && bx > x1) || (a[1] < yB && b[1] < yB) || (a[1] > yT && b[1] > yT)) continue;
+          c.moveTo(X(ax), Y(a[1])); c.lineTo(X(bx), Y(b[1]));
+        }
+        if (pass === 0) { c.strokeStyle = 'rgba(120,200,255,.35)'; c.lineWidth = 0.8; c.setLineDash([]); } else { c.strokeStyle = 'rgba(255,214,102,.9)'; c.lineWidth = 1.6; }
+        c.stroke();
+      }
+      c.restore();
+    }
+    function drawNames(c) {
+      const W = st.detailWater; if (!W || !st.showNames) return; const z = zoomLevel(st.k), boxes = [];
+      c.save(); c.textAlign = 'center'; c.lineJoin = 'round';
+      for (const n of W.names) {
+        if (z + 0.4 < n.min) continue; const lon = n.lon + Math.round((st.lon - n.lon) / 360) * 360, x = X(lon), y = Y(n.lat); if (x < -40 || x > st.w + 40 || y < -10 || y > st.h + 10) continue;
+        const strait = /strait|channel|passage|canal|sound|narrows|pass/i.test(n.cls + ' ' + n.name), small = /bay|gulf|bight|cove|inlet|fjord/i.test(n.cls);
+        c.font = (strait ? 'italic 600 ' : small ? 'italic ' : 'italic 500 ') + (strait ? 12 : 11) + 'px sans-serif';
+        const w = c.measureText(n.name).width + 6, bx = [x - w / 2, y - 12, x + w / 2, y + 3];
+        if (boxes.some(b => bx[0] < b[2] && bx[2] > b[0] && bx[1] < b[3] && bx[3] > b[1])) continue; boxes.push(bx);
+        c.lineWidth = 3; c.strokeStyle = 'rgba(8,24,38,.85)'; c.strokeText(n.name, x, y); c.fillStyle = strait ? '#9fe0ff' : '#8fb4d0'; c.fillText(n.name, x, y);
+      }
+      c.restore();
+    }
     function draw() {
+      wantDetail();
       const c = ctx2; c.setTransform(st.dpr, 0, 0, st.dpr, 0, 0);
-      c.fillStyle = '#0f2a40'; c.fillRect(0, 0, st.w, st.h);
+      const W = st.detailWater, shelfOn = !!(W && st.showDepth && st.k >= 6);
+      c.fillStyle = shelfOn ? '#1d4d70' : '#0f2a40'; c.fillRect(0, 0, st.w, st.h); // shelf: lighter water shallower than 200 m, the deep sea darker
+      if (shelfOn) { c.fillStyle = '#0f2a40'; for (const r of W.shelf) for (const off of [-360, 0, 360]) { if (r.maxx + off < lonAt(0) || r.minx + off > lonAt(st.w) || r.maxy < latAt(st.h) || r.miny > latAt(0)) continue; ringPath(c, r.pts, off); c.fill(); } }
       drawGrid(c);
       const x0 = lonAt(0), x1 = lonAt(st.w), yTop = latAt(0), yBot = latAt(st.h);
       const offs = [-720, -360, 0, 360, 720].filter(o => true);
@@ -108,12 +177,29 @@
       if (st.showEca && opts.zones) opts.zones.forEach(z => z.rings.forEach(r => polyFill(c, r, 'rgba(255,196,80,.30)', offs.filter(o => Math.abs(o) <= 360))));
       if (st.showAreas && opts.areas) opts.areas.forEach(a => { const b = a.box; polyFill(c, [[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]], 'rgba(230,60,60,.25)', offs.filter(o => Math.abs(o) <= 360)); });
       c.fillStyle = '#d9d4c2'; c.strokeStyle = '#8c8777'; c.lineWidth = 0.6;
-      for (const r of land) {
+      const D = st.detailLand, tier = D && st.k >= 60 && D.fine.length ? D.fine : D && st.k >= 10 && D.mid.length ? D.mid : land, minPx = tier === land ? 0 : 0.7 / st.k;
+      for (const r of tier) {
+        if (minPx && r.maxx - r.minx < minPx && r.maxy - r.miny < minPx) continue;
         for (const off of offs) {
           if (r.maxx + off < x0 || r.minx + off > x1 || r.maxy < yBot || r.miny > yTop) continue;
           ringPath(c, r.pts, off); c.fill(); c.stroke();
         }
       }
+      if (W && st.k >= 6) { // lakes and rivers above the land
+        c.fillStyle = '#1d4d70'; c.strokeStyle = '#4f8fb8'; c.lineWidth = 0.6;
+        for (const r of W.lakes) for (const off of offs) { if (r.maxx + off < x0 || r.minx + off > x1 || r.maxy < yBot || r.miny > yTop) continue; ringPath(c, r.pts, off); c.fill(); c.stroke(); }
+        if (st.showRivers) {
+          c.lineJoin = 'round'; c.strokeStyle = '#4f9fd0'; const z = zoomLevel(st.k);
+          for (const l of W.rivers) {
+            if (l.r > z + 2.5) continue; if (l.maxx < x0 || l.minx > x1 || l.maxy < yBot || l.miny > yTop) continue;
+            c.lineWidth = Math.max(0.7, Math.min(2.4, 2.8 - l.r * 0.25)); c.beginPath();
+            for (let i = 0; i < l.pts.length; i += 2) { const x = X(l.pts[i]), y = Y(l.pts[i + 1]); if (i) c.lineTo(x, y); else c.moveTo(x, y); } c.stroke();
+          }
+        }
+      }
+      if (st.showLanes) drawLanes(c, offs.filter(o => Math.abs(o) <= 360));
+      drawNames(c);
+      if (st.showNames && st.k >= 5) { c.save(); c.font = '600 11px sans-serif'; c.textAlign = 'center'; for (const id of PASSAGE_NAMES) { const q = PASSAGE_AT[id], x = X(q[0] + Math.round((st.lon - q[0]) / 360) * 360), y = Y(q[1]); if (x < 0 || x > st.w || y < 0 || y > st.h) continue; c.fillStyle = '#ffd666'; c.beginPath(); c.arc(x, y, 3, 0, 6.3); c.fill(); c.lineWidth = 3; c.strokeStyle = 'rgba(8,24,38,.85)'; c.strokeText(q[2], x, y - 7); c.fillText(q[2], x, y - 7); } c.restore(); }
       // routes
       st.routes.forEach(r => {
         const P = unwrap(r.path); if (P.length < 2) return;
@@ -181,7 +267,7 @@
       c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.moveTo(x, y); c.lineTo(x + px, y); c.moveTo(x, y - 4); c.lineTo(x, y + 4); c.moveTo(x + px, y - 4); c.lineTo(x + px, y + 4); c.stroke();
       label(c, nm.toLocaleString('en-US') + ' nm', x, y - 8, '#fff');
     }
-    function zoomAt(px, py, f) { const lo = lonAt(px), la = latAt(py); st.k = Math.max(0.5, Math.min(2500, st.k * f)); st.lon = lo - (px - st.w / 2) / st.k; st.y = my(la) + (py - st.h / 2) / st.k; clamp(); draw(); }
+    function zoomAt(px, py, f) { const lo = lonAt(px), la = latAt(py); st.k = Math.max(0.5, Math.min(9000, st.k * f)); st.lon = lo - (px - st.w / 2) / st.k; st.y = my(la) + (py - st.h / 2) / st.k; clamp(); draw(); }
     function clamp() { st.y = Math.max(my(-MAXLAT) + 5, Math.min(my(MAXLAT) - 5, st.y)); }
     // pointers: drag and pinch
     const ptrs = new Map(); let pinch = 0;
@@ -225,6 +311,10 @@
       const E = st.edit; if (!E || E.sel < 0 || E.sel >= E.wps.length) return false;
       E.wps.splice(E.sel, 1); E.sel = -1; E.dirty = true; if (E.onSelect) E.onSelect(-1); changed(); if (E.onCommit) E.onCommit(E.wps.map(w => w.slice())); return true;
     }
+    const readout = doc.createElement('div'); readout.style.cssText = 'position:absolute;right:6px;bottom:4px;font:11px/1.3 ui-monospace,Menlo,Consolas,monospace;color:#e8f2fa;background:rgba(8,24,38,.75);padding:2px 6px;border-radius:3px;pointer-events:none;';
+    if (host.ownerDocument.defaultView && host.ownerDocument.defaultView.getComputedStyle(host).position === 'static') host.style.position = 'relative'; host.appendChild(readout);
+    const showCursor = (px, py) => { const la = latAt(py), lo = wrapLon(lonAt(px)); readout.textContent = fmtDeg(la, true, 0.01) + '  ' + fmtDeg(lo, false, 0.01) + '   zoom ' + Math.round(st.k / 0.8) / 10 + '×'; };
+    canvas.addEventListener('pointermove', e => showCursor(e.offsetX, e.offsetY)); canvas.addEventListener('pointerleave', () => { readout.textContent = ''; });
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => resize()) : null; if (ro) ro.observe(host);
     resize();
     return {
@@ -244,9 +334,11 @@
         };
       },
       toDataURL: () => canvas.toDataURL('image/png'),
-      destroy() { if (ro) ro.disconnect(); canvas.remove(); },
+      where: () => ({ lat: myInv(st.y), lon: wrapLon(st.lon), zoom: zoomLevel(st.k), nmPerPx: 60 * Math.cos(myInv(st.y) * rad) / st.k }),
+      detailLoaded: () => ({ land: !!st.detailLand, water: !!st.detailWater }),
+      destroy() { if (ro) ro.disconnect(); canvas.remove(); readout.remove(); },
     };
   }
-  const api = { create, decodeLand, unwrap, my, myInv, niceNm, PASSAGE_AT, PASSAGE_NAMES };
+  const api = { create, decodeLand, decodeLines, zoomLevel, gridStep, fmtDeg, unwrap, my, myInv, niceNm, PASSAGE_AT, PASSAGE_NAMES };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.SeaMap = api;
 })(typeof self !== 'undefined' ? self : this);

@@ -404,6 +404,17 @@
     },
     {
       group: "Problems",
+      q: 'How do I see channels, rivers and canals on the route map, and send the waypoints to the ECDIS?',
+      purpose: 'The map shows a finer coastline, rivers, lakes, the names of straits and channels and a latitude / longitude grid as you zoom in, and the route can be saved as a file the ECDIS reads.',
+      steps: [
+        'Open the route map from a line (Map) or from Routes for ECDIS…. Zoom with the wheel, the + / − buttons or a two-finger pinch; drag to move. The position of the pointer and the zoom are at the lower right, the scale bar at the lower left.',
+        'Zoomed in, the detailed layers load by themselves (about 4 MB, once; they then work offline). Layers lets you switch Sea lanes and canals (the planning network, canals in yellow), Names, Rivers and lakes, the 200 m line (lighter water is shallower than 200 m) and the Grid.',
+        'Export / import route…: pick the route and the file type, then Save file. RTZ (IEC 61174, the usual ECDIS route exchange; set the cross-track limit, turn radius and great-circle or rhumb legs), GPX, KML, CSV (decimal and degree-minute columns) and NMEA 0183 WPL / RTE for plotters. Import file… reads the same types into the route; check the waypoints, then Apply and recalculate.',
+        'Always load the file on the ECDIS, check every leg against the ENC charts and the passage plan, and set the cross-track limits there. The map is generalised data for planning (no soundings, buoys, traffic separation schemes or charted canals) and is not for navigation. Vendor-only formats that are not RTZ (for example some native route files) are not read; export RTZ or CSV from the ECDIS instead.'
+      ]
+    },
+    {
+      group: "Problems",
       q: "How do I plan fuel by speed (full, eco, safe) without typing the consumption on every line?",
       purpose: "The vessel profile holds the speed and daily consumption; each plan line only picks a mode.",
       steps: [

@@ -811,13 +811,14 @@
       document.head.appendChild(el);
     });
     const json = (url) => fetch(url).then((r) => { if (!r.ok) throw new Error(url + ' ' + r.status); return r.json(); });
-    let mapPending = null; let landRings = null;
-    const loadMap = () => mapPending || (mapPending = script(base + 'sea-map.js')
-      .then(() => ({ SeaMap: window.SeaMap, land: landRings })).catch((e) => { mapPending = null; throw e; }));
+    let mapPending = null; let landRings = null; let lanes = null; let detailLandP = null; let detailWaterP = null;
+    const loadMap = () => mapPending || (mapPending = Promise.all([script(base + 'sea-map.js'), script(base + 'route-exchange.js').catch(() => null)])
+      .then(() => ({ SeaMap: window.SeaMap, RouteExchange: window.RouteExchange || null, land: landRings, lanes,
+        detail: { land: () => detailLandP || (detailLandP = json(base + 'detail-land.json').catch((e) => { detailLandP = null; throw e; })), water: () => detailWaterP || (detailWaterP = json(base + 'detail-water.json').catch((e) => { detailWaterP = null; throw e; })) } })).catch((e) => { mapPending = null; throw e; }));
     return function load() {
       if (!pending) {
         pending = Promise.all([script(base + 'port-list.js'), script(base + 'sea-route.js'), script(base + 'eca-zones.js'), json(base + 'ports.json'), json(base + 'marnet.json'), json(base + 'land.json')])
-          .then((r) => { landRings = window.SeaRoute.decodeLand(r[5]); return ({ ports: window.PortList.create(r[3]), router: window.SeaRoute.create(r[4], { land: landRings }), SeaRoute: window.SeaRoute, Eca: window.EcaZones, loadMap }); })
+          .then((r) => { landRings = window.SeaRoute.decodeLand(r[5]); lanes = r[4]; return ({ ports: window.PortList.create(r[3]), router: window.SeaRoute.create(r[4], { land: landRings }), SeaRoute: window.SeaRoute, Eca: window.EcaZones, loadMap }); })
           .catch((e) => { pending = null; throw e; });
       }
       return pending;
@@ -1003,11 +1004,17 @@
     .cp-route input.cp-auto { font-style: italic; border-style: dashed; }
     .cp-mapov { position: fixed; inset: 0; z-index: 100000; background: #0b1620; color: #e8eef5; display: flex; flex-direction: column; }
     .cp-mapbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 8px 12px; background: #13283b; }
+    .cp-maplayers { position: relative; } .cp-maplayers summary { cursor: pointer; padding: 5px 10px; border: 1px solid #3b5670; border-radius: 6px; list-style: none; }
+    .cp-maplayers > div { position: absolute; z-index: 5; top: 110%; left: 0; display: grid; gap: 6px; padding: 10px 12px; background: #13283b; border: 1px solid #3b5670; border-radius: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.45); }
     .cp-mapbar button { min-width: 38px; padding: 6px 10px; }
     .cp-askov { z-index: 100000; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.55); }
     .cp-askbox { background: #13283b; color: #fff; padding: 18px 20px; border-radius: 10px; max-width: 460px; width: calc(100% - 32px); box-shadow: 0 10px 40px rgba(0,0,0,.5); }
     .cp-askbox p { margin: 0 0 14px; line-height: 1.4; }
     .cp-askbtns { display: flex; gap: 10px; justify-content: flex-end; }
+    .cp-mapxchg { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; background: rgba(0,0,0,.25); padding: 8px 10px; border-radius: 6px; }
+    .cp-mapxchg[hidden], .cp-xrtz[hidden] { display: none; }
+    .cp-xrtz { display: inline-flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+    .cp-mapxchg .cp-seanote { flex-basis: 100%; }
     .cp-maplib { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
     .cp-maplib input { width: 150px; min-height: 30px; }
     .cp-mapcoords { flex-basis: 100%; max-height: 28vh; overflow: auto; background: rgba(0,0,0,.25); padding: 4px 8px; border-radius: 6px; }
@@ -1553,7 +1560,7 @@
           <div class="cp-actions">
             <button type="button" class="${ui.btn}" data-act="add-leg">+ Add destination / stay</button>
             <button type="button" class="${ui.btn}" data-act="remove-leg" ${sec.legs.length <= 1 ? 'disabled' : ''} title="${sec.legs.length <= 1 ? 'A plan keeps at least one line' : 'Remove the last line (or use the ✕ on any line)'}">Remove last line</button>
-            ${ctx.sea ? `<span class="cp-sep"></span><button type="button" class="${ui.btn} cp-strong" data-act="sea-recalc" title="Work the distance of every route again from its ports, also where you typed a distance">Recalculate distances</button><button type="button" class="${ui.btn}" data-act="sea-map-all">Map of all lines</button>` : ''}
+            ${ctx.sea ? `<span class="cp-sep"></span><button type="button" class="${ui.btn} cp-strong" data-act="sea-recalc" title="Work the distance of every route again from its ports, also where you typed a distance">Recalculate distances</button><button type="button" class="${ui.btn}" data-act="sea-map-all">Map of all lines</button><button type="button" class="${ui.btn}" data-act="sea-export" title="Save the routes as a file for an ECDIS (RTZ, GPX, KML, CSV, NMEA) or read one">Routes for ECDIS…</button>` : ''}
           </div>
           ${seaNotesHtml(sec)}
           <div class="cp-kpis" data-results="route">${routeKpisHtml(cs.route)}</div>
@@ -1755,7 +1762,7 @@
         const built = buildMapRoutes(items, plan); if (!built.routes.length) return '';
         const holder = document.createElement('div'); holder.style.cssText = 'position:fixed;left:-12000px;top:0;width:1100px;height:620px;';
         document.body.appendChild(holder);
-        const ctl = assets.SeaMap.create(holder, { land: assets.land, zones: ctx.sea.Eca ? ctx.sea.Eca.ZONES.filter((z) => built.ids.includes(z.id)) : [], areas: built.areas });
+        const ctl = assets.SeaMap.create(holder, { land: assets.land, lanes: assets.lanes, zones: ctx.sea.Eca ? ctx.sea.Eca.ZONES.filter((z) => built.ids.includes(z.id)) : [], areas: built.areas });
         ctl.setRoutes(built.routes);
         const url = ctl.toDataURL(); ctl.destroy(); holder.remove();
         const legend = built.info.map((i) => `<div><span style="color:${i.color}">■</span> ${esc(i.text)}</div>`).join('');
@@ -1765,7 +1772,7 @@
           + `<div style="font-size:8pt;margin-top:3px">Orange: stretches inside an ECA (outlines for planning, not the official limits). Planning picture from a coarse sea-lane network and a generalised coastline (Natural Earth), not a chart and not for navigation. Port data: NGA World Port Index (Pub. 150), U.S. Government work in the public domain, provided as is; no NGA endorsement.</div></div></section>`;
       } catch (e) { console.warn('route map for the printout', e); return ''; }
     }
-    async function showMap(items) {
+    async function showMap(items, mopts) {
       if (!ctx.sea || !mapGroups(items).length) { toast('Pick From and To ports from the list to see a route on the map'); return; }
       let assets; try { assets = await ctx.sea.loadMap(); } catch (e) { toast('The map could not be loaded'); return; }
       const SM = assets.SeaMap;
@@ -1775,9 +1782,14 @@
       const ov = document.createElement('div'); ov.className = 'cp-mapov'; ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-label', 'Route map');
       ov.innerHTML = `<div class="cp-mapbar"><strong>Route map</strong>
         <label><input type="checkbox" data-map="eca" checked> ECA zones</label><label><input type="checkbox" data-map="areas" checked> Avoided areas</label>
+        <details class="cp-maplayers"><summary>Layers</summary><div>
+          <label><input type="checkbox" data-map="lanes"> Sea lanes and canals</label><label><input type="checkbox" data-map="names" checked> Names (straits, channels, gulfs)</label>
+          <label><input type="checkbox" data-map="rivers" checked> Rivers and lakes</label><label><input type="checkbox" data-map="depth" checked> 200 m line (shelf)</label><label><input type="checkbox" data-map="grid" checked> Grid</label>
+        </div></details>
         <button type="button" class="${ui.btn}" data-map="in" aria-label="Zoom in">+</button><button type="button" class="${ui.btn}" data-map="out" aria-label="Zoom out">−</button>
         <button type="button" class="${ui.btn}" data-map="fit">Fit</button>
         <button type="button" class="${ui.btn} cp-strong" data-map="edit" title="Drag the waypoints like on an ECDIS, add one from the + on a leg, double-click one to remove it">Edit route</button>
+        <button type="button" class="${ui.btn}" data-map="xchg" title="Save the route as a file for an ECDIS or chart plotter, or read a route file">Export / import route…</button>
         <span class="cp-mapedit" hidden>${routes.length > 1 ? `<select data-map="which" aria-label="Route to edit">${routes.map((r, i) => `<option value="${i}">${esc(r.from.name)} → ${esc(r.to.name)}</option>`).join('')}</select>` : ''}
           <button type="button" class="${ui.primary}" data-map="apply" title="Use this route and recalculate the lines">Apply and recalculate</button>
           <button type="button" class="${ui.btn}" data-map="delwp" title="Remove the selected waypoint (or double-click it)">Delete waypoint</button>
@@ -1788,11 +1800,23 @@
           <span class="cp-maplib"><input type="text" data-map="rname" maxlength="60" placeholder="Name this route" aria-label="Route name"><button type="button" class="${ui.btn}" data-map="rsave" title="Keep these waypoints under this name for these two ports">Save route</button>
             <select data-map="rlist" aria-label="Saved routes for these ports"></select><button type="button" class="${ui.btn}" data-map="ruse">Use</button><button type="button" class="${ui.btn}" data-map="rdel" aria-label="Delete the saved route">✕</button></span></span>
         <button type="button" class="${ui.primary}" data-map="close">Close</button>
-        <div class="cp-mapinfo">${info.join('<br>')}</div><div class="cp-mapcoords" hidden></div><div class="cp-mapedithint" hidden>Drag a white dot to move a waypoint; drag a + to add one; double-click a waypoint to remove it. Red leg: crosses land. Yellow dashed: close to land.</div></div><div class="cp-mapcanvas"></div>
-        <div class="cp-mapnote">Planning picture from a coarse sea-lane network and a generalised coastline (Natural Earth), not a chart and not for navigation. ECA zones follow the published coordinates; avoided areas are approximate boxes.</div>`;
+        <div class="cp-mapinfo">${info.join('<br>')}</div><div class="cp-mapcoords" hidden></div>
+        <div class="cp-mapxchg" hidden>
+          ${routes.length > 1 ? `<label>Route <select data-map="xroute">${routes.map((r, i) => `<option value="${i}">${esc(r.from.name)} → ${esc(r.to.name)}</option>`).join('')}</select></label>` : ''}
+          <label>Format <select data-map="xfmt">${(assets.RouteExchange ? assets.RouteExchange.FORMATS : []).map((x) => `<option value="${x.id}">${esc(x.label)}</option>`).join('')}</select></label>
+          <span class="cp-xrtz"><label>Cross-track limit ± <input type="number" min="0" step="0.1" value="0.5" data-map="xtd" style="width:4.5em"> nm</label>
+            <label>Turn radius <input type="number" min="0" step="0.1" value="1" data-map="xrad" style="width:4.5em"> nm</label>
+            <label>Legs <select data-map="xgeo"><option value="Orthodrome">Great circle (orthodrome)</option><option value="Loxodrome">Rhumb line (loxodrome)</option></select></label></span>
+          <label><input type="checkbox" data-map="xports" checked> Ports as first and last waypoint</label>
+          <button type="button" class="${ui.primary}" data-map="xsave">Save file</button>
+          <button type="button" class="${ui.btn}" data-map="ximport" title="Read waypoints from an RTZ, GPX, KML, CSV or NMEA file into this route">Import file…</button>
+          <input type="file" data-map="xfile" accept=".rtz,.gpx,.kml,.csv,.txt,.nmea,.xml,.rt3,.rte,.wpl" hidden>
+          <div class="cp-seanote" data-map="xhint"></div>
+        </div><div class="cp-mapedithint" hidden>Drag a white dot to move a waypoint; drag a + to add one; double-click a waypoint to remove it. Red leg: crosses land. Yellow dashed: close to land.</div></div><div class="cp-mapcanvas"></div>
+        <div class="cp-mapnote">Planning picture from a coarse sea-lane network and a generalised coastline (Natural Earth, finer when you zoom in), not an electronic chart and not for navigation. ECA zones follow the published coordinates; avoided areas are approximate boxes.</div>`;
       document.body.appendChild(ov);
       const areas = built.areas;
-      const ctl = SM.create(ov.querySelector('.cp-mapcanvas'), { land: assets.land, zones: ctx.sea.Eca ? ctx.sea.Eca.ZONES.filter((z) => ids.includes(z.id)) : [], areas });
+      const ctl = SM.create(ov.querySelector('.cp-mapcanvas'), { land: assets.land, lanes: assets.lanes, detail: assets.detail, zones: ctx.sea.Eca ? ctx.sea.Eca.ZONES.filter((z) => ids.includes(z.id)) : [], areas });
       ctl.setRoutes(routes);
       const close = () => { ctl.destroy(); ov.remove(); document.removeEventListener('keydown', onKey); };
       let ed = null, edRoute = null, edLandLegs = () => 0; const bar = ov.querySelector('.cp-mapedit'), hint = ov.querySelector('.cp-mapedithint'), infoEl = ov.querySelector('.cp-mapinfo'), coordsEl = ov.querySelector('.cp-mapcoords');
@@ -1830,6 +1854,42 @@
         if (d.map === 'which' && ed) startEdit(Number(e.target.value));
         else if (d.wp !== undefined && d.wc !== undefined && ed) { const w = ed.get(); const i = Number(d.wp); const v = Number(e.target.value); if (w[i] && isFinite(v)) { w[i][Number(d.wc)] = Number(d.wc) === 0 ? Math.max(-85, Math.min(85, v)) : ((v + 540) % 360) - 180; ed.set(w); } }
       });
+      const xchgEl = ov.querySelector('.cp-mapxchg');
+      const RX = assets.RouteExchange;
+      const xsel = () => { const r = ov.querySelector('[data-map="xroute"]'); return routes[r ? Number(r.value) : 0] || routes[0]; };
+      const xhint = () => { const f = RX && RX.FORMATS.find((x) => x.id === (ov.querySelector('[data-map="xfmt"]') || {}).value); const h = ov.querySelector('[data-map="xhint"]'); if (h) h.textContent = (f ? f.hint + ' ' : '') + 'Planning aid: check every route on the ECDIS against the official charts before it is sailed.'; const rtz = xchgEl.querySelector('.cp-xrtz'); if (rtz) rtz.hidden = !f || f.id !== 'rtz'; };
+      /** The waypoints of a route as they are now: those on the map when it is being edited, else the saved or automatic ones. */
+      const wpsOf = (r) => (ed && edRoute === r ? ed.get() : (r.waypoints || [])).map((p) => p.slice());
+      const doExport = async () => {
+        if (!RX) { toast('The route file writer could not be loaded'); return; }
+        const r = xsel(); const id = (ov.querySelector('[data-map="xfmt"]') || {}).value || 'rtz'; const fmt = RX.FORMATS.find((x) => x.id === id);
+        const ports = (ov.querySelector('[data-map="xports"]') || {}).checked !== false;
+        const pts = (ports ? [{ lat: r.from.lat, lon: r.from.lon, name: r.from.name }] : []).concat(wpsOf(r).map((p, i) => ({ lat: p[0], lon: p[1], name: 'WP' + String(i + 1).padStart(2, '0') })), ports ? [{ lat: r.to.lat, lon: r.to.lon, name: r.to.name }] : []);
+        if (pts.length < 2) { toast('A route file needs at least two points: tick "Ports as first and last waypoint" or add waypoints'); return; }
+        try {
+          const text = RX.write(id, { name: r.from.name + ' to ' + r.to.name, vessel: (A.vesselName && A.vesselName()) || '', voyage: ctx.plan.voyageNo || '', imo: (A.imo && A.imo()) || '', points: pts },
+            { xtd: Number((ov.querySelector('[data-map="xtd"]') || {}).value), radius: Number((ov.querySelector('[data-map="xrad"]') || {}).value), geometry: (ov.querySelector('[data-map="xgeo"]') || {}).value });
+          const name = ('Route ' + r.from.name + ' to ' + r.to.name + (ctx.plan.voyageNo ? ' V' + ctx.plan.voyageNo : '')).replace(/[\\/:*?"<>|]+/g, '-').replace(/,/g, '') + '.' + fmt.ext;
+          await saveTextFile(name, text, fmt.mime); toast('Route saved: ' + name + ' (' + pts.length + ' points)');
+        } catch (err) { toast('The route could not be saved: ' + (err && err.message || err)); }
+      };
+      /** A route file read into the route on the map: ports at the ends are dropped, the rest become waypoints (not used until Apply and recalculate). */
+      const doImport = (text, filename) => {
+        if (!RX) { toast('The route file reader could not be loaded'); return; }
+        let res; try { res = RX.parse(text, filename); } catch (err) { toast(err.message); return; }
+        const r = xsel(); let pts = res.points.map((p) => [p.lat, p.lon]);
+        const near = (a, b) => gcNm(a, b) <= 15; const notes = [];
+        if (pts.length > 1 && near(pts[0], [r.from.lat, r.from.lon])) pts.shift(); else if (gcNm(pts[0], [r.from.lat, r.from.lon]) > 60) notes.push('the file starts ' + Math.round(gcNm(pts[0], [r.from.lat, r.from.lon])) + ' nm from ' + r.from.name);
+        if (pts.length > 1 && near(pts[pts.length - 1], [r.to.lat, r.to.lon])) pts.pop(); else if (gcNm(pts[pts.length - 1], [r.to.lat, r.to.lon]) > 60) notes.push('the file ends ' + Math.round(gcNm(pts[pts.length - 1], [r.to.lat, r.to.lon])) + ' nm from ' + r.to.name);
+        if (!ed || edRoute !== r) startEdit(routes.indexOf(r));
+        ed.set(pts);
+        toast('Imported ' + pts.length + ' waypoint' + (pts.length === 1 ? '' : 's') + ' from ' + (filename || 'the file') + ' (' + res.format.toUpperCase() + ')' + (notes.length ? ' — note: ' + notes.join('; ') : '') + '. Check the route, then Apply and recalculate.');
+      };
+      xchgEl.addEventListener('change', (e) => {
+        const d = e.target.dataset || {};
+        if (d.map === 'xfmt') xhint();
+        else if (d.map === 'xfile' && e.target.files && e.target.files[0]) { const file = e.target.files[0]; const rd = new FileReader(); rd.onload = () => doImport(String(rd.result || ''), file.name); rd.onerror = () => toast('The file could not be read'); rd.readAsText(file); }
+      });
       const doApply = (wps, key) => {
         const m = ctx.plan.sea.manual; delete m[edRoute.bId + '|' + edRoute.aId]; if (wps.length) m[key] = wps; else delete m[key];
         const n = recalcRoute(edRoute.aId, edRoute.bId); renderGrid(); scheduleSave(); close();
@@ -1837,7 +1897,10 @@
       };
       ov.addEventListener('click', (e) => {
         const k = e.target.dataset && e.target.dataset.map; if (!k) return;
-        if (k === 'edit') startEdit(0);
+        if (k === 'xchg') { xchgEl.hidden = !xchgEl.hidden; if (!xchgEl.hidden) xhint(); }
+        else if (k === 'xsave') doExport();
+        else if (k === 'ximport') { const fi = xchgEl.querySelector('[data-map="xfile"]'); if (fi) { fi.value = ''; fi.click(); } }
+        else if (k === 'edit') startEdit(0);
         else if (k === 'which') return;
         else if (k === 'cancel') stopEdit();
         else if (k === 'delwp') { if (ed && !ed.removeSelected()) toast('Click a waypoint first'); }
@@ -1866,7 +1929,9 @@
         }
         else if (k === 'close') close(); else if (k === 'in') ctl.zoom(1.6); else if (k === 'out') ctl.zoom(1 / 1.6); else if (k === 'fit') ctl.fit();
         else if (k === 'eca') ctl.set({ showEca: e.target.checked }); else if (k === 'areas') ctl.set({ showAreas: e.target.checked });
+        else if (k === 'lanes') ctl.set({ showLanes: e.target.checked }); else if (k === 'names') ctl.set({ showNames: e.target.checked }); else if (k === 'rivers') ctl.set({ showRivers: e.target.checked }); else if (k === 'depth') ctl.set({ showDepth: e.target.checked }); else if (k === 'grid') ctl.set({ showGrid: e.target.checked });
       });
+      if (mopts && mopts.xchg) { xchgEl.hidden = false; xhint(); }
     }
     function seaOptsHtml() {
       if (!ctx.sea) return '';
@@ -2099,6 +2164,12 @@
       const s = sheetHtml(plan, mapHtml, opts);
       if (A.printSheet) A.printSheet(s.html, plan, { mapHtml: A.printMapSeparate ? mapHtml : '' });
     }
+    /** A text file through the host's way of saving (app bridge, save dialog), else a download. */
+    async function saveTextFile(name, text, mime) {
+      if (A.saveFile) return A.saveFile(name, text, mime);
+      if (typeof window !== 'undefined' && window.ChengSaveFile && window.ChengSaveFile.saveJson) return window.ChengSaveFile.saveJson(name, text, { mime });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+    }
     /** The plan as a file (CSV for Excel) through the host's way of saving, else a download. */
     async function exportCsv() {
       const info = { vessel: (A.vesselName && A.vesselName()) || '', condition: condNow() };
@@ -2256,6 +2327,7 @@
         return;
       }
       if (act === 'remove-leg') { const sec = secAt(secIndexOf(t)); if (sec.legs.length > 1) sec.legs.pop(); renderGrid(); scheduleSave(); return; }
+      if (act === 'sea-export') { const items = []; sectionList(ctx.plan).forEach((sec, si) => sec.legs.forEach((leg) => items.push({ leg, si }))); showMap(items, { xchg: true }); return; }
       if (act === 'sea-map-all') { const items = []; sectionList(ctx.plan).forEach((sec, si) => sec.legs.forEach((leg) => items.push({ leg, si }))); showMap(items); return; }
       if (act === 'sea-map') { const si = secIndexOf(t); const leg = secAt(si).legs[Number(t.dataset.row)]; if (leg) showMap([{ leg, si }]); return; }
       if (act === 'eca-split') {
