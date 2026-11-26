@@ -1,7 +1,7 @@
 // Route files for ECDIS: write and read RTZ, GPX, KML, CSV and NMEA 0183.
 'use strict';
 const assert = require('assert');
-const RX = require('../public/sea-distance/route-exchange.js');
+const RX = require('./route-exchange.js');
 let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
 const route = { name: 'Nantes to New Orleans', vessel: 'MV TEST', imo: 'IMO 9722101', voyage: '08', points: [
   { lat: 47.2, lon: -1.55, name: 'NANTES' }, { lat: 48.5, lon: -5.2 }, { lat: 25.9, lon: -79.7 }, { lat: -33.9, lon: 151.2, name: 'Cape & "Bay" <1>' }, { lat: 29.95, lon: -90.07, name: 'NEW ORLEANS' }] };
@@ -36,4 +36,19 @@ ok(/No waypoints were found/.test(err), 'a file without waypoints says so in a s
 try { RX.write('rtz', { name: 'x', points: [{ lat: 1, lon: 2 }] }); } catch (e) { err = e.message; }
 ok(/at least two points/.test(err), 'a route needs two points');
 ok(RX.parse(RX.write('rtz', { name: 'x', points: [{ lat: 10, lon: 185 }, { lat: 11, lon: 190 }] })).points[0].lon === -175, 'longitudes past 180 are wrapped');
+// a real Furuno ECDIS export (RTZ 1.0, XML comments, vendor extensions, empty waypoint names, first waypoint without a leg)
+const furuno = `<?xml version="1.0" encoding="UTF-8"?>
+<!--route node-->
+<route version="1.0" xmlns="http://www.cirm.org/RTZ/1/0">
+  <routeInfo routeName="NOLA TO SINGAPORE VIA GALLEON PASS" optimizationMethod="MAX speed"><extensions><extension manufacturer="Furuno" name="AdditionalRouteInfo" version="1.0"><property income="0" safetyContour="16"/></extension></extensions></routeInfo>
+  <waypoints>
+    <!--No.1 waypoint--><waypoint id="1" name="" radius="1.000000"><position lat="28.877667" lon="-89.436667"/></waypoint>
+    <!--No.2 waypoint--><waypoint id="2" name="" radius="1.000000"><position lat="28.850000" lon="-89.435000"/>
+      <leg portsideXTD="1.000000" starboardXTD="1.000000" geometryType="Loxodrome" speedMax="14.000000"/>
+      <extensions><extension manufacturer="Furuno" name="AdditionalLegInfo" version="1.0"><property margin="185.000000"/></extension></extensions></waypoint>
+    <!--No.3 waypoint--><waypoint id="3" name="" radius="1.000000"><position lat="-34.953333" lon="18.296667"/><leg portsideXTD="1.000000" starboardXTD="1.000000" geometryType="Loxodrome"/></waypoint>
+  </waypoints><schedules/></route>`;
+const fr = RX.parse(furuno, 'x.rtz');
+ok(fr.name === 'NOLA TO SINGAPORE VIA GALLEON PASS' && fr.points.length === 3 && fr.points[2].lat === -34.953333 && fr.points[0].lon === -89.436667, 'Furuno RTZ 1.0 export is read (comments, extensions, empty names)');
+ok(RX.parse(RX.write('rtz', fr), 'y.rtz').points.length === 3, 'and written back as RTZ');
 console.log(`route exchange OK (${n} checks)`);
