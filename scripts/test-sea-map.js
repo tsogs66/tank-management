@@ -32,4 +32,7 @@ assert(M.decodeLand({ q: DW.q, rings: DW.lakes }).length > 100 && M.decodeLand({
 assert(M.gridStep(4) === 30 && M.gridStep(2000) === 0.05 && M.gridStep(9000) === 0.01, 'grid step follows the zoom');
 assert(M.fmtDeg(12.5083, true, 0.01) === "12°30.5'N" && M.fmtDeg(-3.2, false, 1) === '3°W' && M.fmtDeg(0, true, 1) === '0°', 'degree labels');
 assert(Math.abs(M.zoomLevel(256 / 360) ) < 1e-9 && M.zoomLevel(4 * 256 / 360) === 2, 'zoom level scale');
+const DP = JSON.parse(fs.readFileSync(path.join(__dirname, '../public/sea-distance/detail-places.json'), 'utf8'));
+assert(DP.format === 'detail-places-v1' && DP.places.length > 5000 && DP.places.every(p => p.length === 6 && Math.abs(p[1]) <= 180 && Math.abs(p[2]) <= 90), 'places file');
+assert(DP.places.some(p => p[0] === 'Rotterdam') && DP.places.some(p => p[0] === 'Singapore') && DP.places.some(p => p[0] === 'New Orleans'), 'port cities are in the places');
 console.log('sea-map OK (' + land.length + ' land rings)');

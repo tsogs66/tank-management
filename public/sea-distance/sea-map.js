@@ -4,7 +4,7 @@
 //   map.edit({ from, to, wps, color, onChange(wps) -> { ecaRuns }, crosses(a, b) -> { land, near }, onSelect(i) }) -> { get(), set(wps), removeSelected(), selected(), stop() }: drag the waypoints, add one from the + in the middle of a leg, double-click one to remove it
 //   route = { path: [[lat, lon], ...], color, label, from: {lat, lon, name}, to: {lat, lon, name}, ecaRuns: [{eca, from, to}], passages: ['suez', ...] }
 //   opts.detail = { land(): Promise<detail-land json>, water(): Promise<detail-water json> } loads the 1:10m layers when the map is zoomed in (fine coastline, lakes, rivers, 200 m line, names of straits, channels, gulfs, bays);
-//   opts.lanes = the sea-lane network (marnet json): drawn as thin lines, the canals and narrow passages (tagged edges) highlighted.
+//   opts.ports = the port list (World Port Index) drawn as pink squares with their names, towns and cities from detail.places(); opts.lanes = the sea-lane network (marnet json): drawn as thin lines, the canals and narrow passages (tagged edges) highlighted.
 //   map.set({ showLanes, showNames, showRivers, showDepth, showGrid, showEca, showAreas }); map.where() -> { lat, lon, zoom, nmPerPx }
 // Planning picture only: generalised coastline, not a chart.
 (function (root) {
@@ -69,7 +69,7 @@
     const canvas = doc.createElement('canvas'); canvas.style.cssText = 'width:100%;height:100%;display:block;touch-action:none;cursor:grab;';
     host.appendChild(canvas);
     const ctx2 = canvas.getContext('2d');
-    const st = { lon: 0, y: 0, k: 4, routes: [], w: 300, h: 300, dpr: 1, showEca: true, showAreas: true, showLanes: false, showNames: true, showRivers: true, showDepth: true, showGrid: true, cursor: null, detailLand: null, detailWater: null, asked: {} };
+    const st = { lon: 0, y: 0, k: 4, routes: [], w: 300, h: 300, dpr: 1, showEca: true, showAreas: true, showLanes: false, showNames: true, showRivers: true, showDepth: true, showGrid: true, showPlaces: true, showPorts: true, boxes: [], detailPlaces: null, cursor: null, detailLand: null, detailWater: null, asked: {} };
     const land = opts.land || [];
     st.edit = null; st.drag = null;
     const wrapLon = lo => ((lo + 540) % 360) - 180;
@@ -128,6 +128,7 @@
     function wantDetail() {
       const d = opts.detail; if (!d) return;
       if (st.k >= 6 && !st.asked.water && d.water) { st.asked.water = 1; Promise.resolve(d.water()).then(j => { if (!j) return; st.detailWater = { lakes: decodeLand({ q: j.q, rings: j.lakes || [] }), shelf: decodeLand({ q: j.q, rings: j.shelf || [] }), rivers: decodeLines(j.rivers, j.q), names: (j.names || []).map(n => ({ name: n[0], lon: n[1], lat: n[2], cls: n[3], min: n[4] == null ? 5 : n[4], size: n[5] })).sort((p, q2) => q2.size - p.size) }; draw(); }).catch(() => { st.asked.water = 0; }); }
+      if (st.k >= 12 && !st.asked.places && d.places) { st.asked.places = 1; Promise.resolve(d.places()).then(j => { if (!j) return; st.detailPlaces = (j.places || []).map(p => ({ name: p[0], lon: p[1], lat: p[2], z: p[3], cap: p[4], pop: p[5] })); draw(); }).catch(() => { st.asked.places = 0; }); }
       if (st.k >= 10 && !st.asked.land && d.land) { st.asked.land = 1; Promise.resolve(d.land()).then(j => { if (!j) return; st.detailLand = { mid: decodeLand({ q: j.q, rings: j.mid || [] }), fine: decodeLand({ q: j.q, rings: j.fine || [] }) }; draw(); }).catch(() => { st.asked.land = 0; }); }
     }
     function lanePoints() {
@@ -152,7 +153,7 @@
       c.restore();
     }
     function drawNames(c) {
-      const W = st.detailWater; if (!W || !st.showNames) return; const z = zoomLevel(st.k), boxes = [];
+      const W = st.detailWater; if (!W || !st.showNames) return; const z = zoomLevel(st.k), boxes = st.boxes;
       c.save(); c.textAlign = 'center'; c.lineJoin = 'round';
       for (const n of W.names) {
         if (z + 0.4 < n.min) continue; const lon = n.lon + Math.round((st.lon - n.lon) / 360) * 360, x = X(lon), y = Y(n.lat); if (x < -40 || x > st.w + 40 || y < -10 || y > st.h + 10) continue;
@@ -164,8 +165,31 @@
       }
       c.restore();
     }
+    const tcase = t => String(t || '').toLowerCase().replace(/(^|[\s\-\/(])([a-z\u00c0-\u024f])/g, (m, a, b) => a + b.toUpperCase()).replace(/ (Of|De|Du|Der|La|Le|Les|Y|Da|Do|Dos|Das|Del|Al|El|The|On|Upon|Sur)(?= )/g, (m) => m.toLowerCase());
+    /** Port symbols and names (World Port Index) and towns / cities (Natural Earth), the larger ones first, no label over another. */
+    function drawPlaces(c) {
+      const z = zoomLevel(st.k), x0 = lonAt(0) - 1, x1 = lonAt(st.w) + 1, yT = latAt(0) + 1, yB = latAt(st.h) - 1, boxes = st.boxes, items = [];
+      const clear = bx => !boxes.some(b => bx[0] < b[2] && bx[2] > b[0] && bx[1] < b[3] && bx[3] > b[1]);
+      c.save(); c.lineJoin = 'round';
+      const put = (name, lon, lat, kind, size) => {
+        const x = X(lon + Math.round((st.lon - lon) / 360) * 360), y = Y(lat); if (x < -20 || x > st.w + 20 || y < -10 || y > st.h + 10) return;
+        c.font = (kind === 'port' ? '600 ' : kind === 'cap' ? '600 ' : '') + size + 'px sans-serif'; const w = c.measureText(name).width, bx = [x + 6, y - 11, x + 10 + w, y + 4];
+        if (!clear(bx)) return; boxes.push([x - 5, y - 6, x + 5, y + 6]); boxes.push(bx);
+        if (kind === 'port') { c.fillStyle = '#ff5ea8'; c.strokeStyle = '#000'; c.lineWidth = 1; c.fillRect(x - 3, y - 3, 6, 6); c.strokeRect(x - 3, y - 3, 6, 6); }
+        else { c.fillStyle = kind === 'cap' ? '#ffe082' : '#f4f4f4'; c.strokeStyle = '#000'; c.lineWidth = 1; c.beginPath(); c.arc(x, y, kind === 'cap' ? 3.5 : 2.5, 0, 6.3); c.fill(); c.stroke(); }
+        c.textAlign = 'left'; c.lineWidth = 3; c.strokeStyle = 'rgba(8,24,38,.9)'; c.strokeText(name, x + 8, y + 3); c.fillStyle = kind === 'port' ? '#ffb3d6' : kind === 'cap' ? '#ffe082' : '#f4f4f4'; c.fillText(name, x + 8, y + 3);
+      };
+      if (st.showPorts && opts.ports) {
+        const minZ = { L: 3.5, M: 5, S: 7, V: 8.5 };
+        for (const p of opts.ports) { if (z < (minZ[p.size] != null ? minZ[p.size] : 8.5)) continue; if (p.lon < x0 - 360 || p.lat < yB || p.lat > yT) continue; items.push([0, -(p.size === 'L' ? 4 : p.size === 'M' ? 3 : p.size === 'S' ? 2 : 1), p.name, p.lon, p.lat, 'port']); }
+      }
+      if (st.showPlaces && st.detailPlaces) for (const p of st.detailPlaces) { if (z + 0.2 < p.z) continue; if (p.lat < yB || p.lat > yT) continue; items.push([1, p.cap ? -9 : -Math.log10(p.pop + 1), p.name, p.lon, p.lat, p.cap ? 'cap' : 'city']); }
+      items.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      let n = 0; for (const it of items) { if (n > 700) break; const before = boxes.length; put(it[5] === 'port' ? tcase(it[2]) : it[2], it[3], it[4], it[5], it[5] === 'port' ? 11 : it[5] === 'cap' ? 12 : 11); if (boxes.length > before) n++; }
+      c.restore();
+    }
     function draw() {
-      wantDetail();
+      st.boxes = []; wantDetail();
       const c = ctx2; c.setTransform(st.dpr, 0, 0, st.dpr, 0, 0);
       const W = st.detailWater, shelfOn = !!(W && st.showDepth && st.k >= 6);
       c.fillStyle = shelfOn ? '#1d4d70' : '#0f2a40'; c.fillRect(0, 0, st.w, st.h); // shelf: lighter water shallower than 200 m, the deep sea darker
@@ -199,6 +223,7 @@
       }
       if (st.showLanes) drawLanes(c, offs.filter(o => Math.abs(o) <= 360));
       drawNames(c);
+      if (st.k >= 3.5) drawPlaces(c);
       if (st.showNames && st.k >= 5) { c.save(); c.font = '600 11px sans-serif'; c.textAlign = 'center'; for (const id of PASSAGE_NAMES) { const q = PASSAGE_AT[id], x = X(q[0] + Math.round((st.lon - q[0]) / 360) * 360), y = Y(q[1]); if (x < 0 || x > st.w || y < 0 || y > st.h) continue; c.fillStyle = '#ffd666'; c.beginPath(); c.arc(x, y, 3, 0, 6.3); c.fill(); c.lineWidth = 3; c.strokeStyle = 'rgba(8,24,38,.85)'; c.strokeText(q[2], x, y - 7); c.fillText(q[2], x, y - 7); } c.restore(); }
       // routes
       st.routes.forEach(r => {

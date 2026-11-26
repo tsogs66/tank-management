@@ -811,14 +811,14 @@
       document.head.appendChild(el);
     });
     const json = (url) => fetch(url).then((r) => { if (!r.ok) throw new Error(url + ' ' + r.status); return r.json(); });
-    let mapPending = null; let landRings = null; let lanes = null; let detailLandP = null; let detailWaterP = null;
+    let mapPending = null; let landRings = null; let lanes = null; let detailLandP = null; let detailWaterP = null; let detailPlacesP = null; let portRows = null;
     const loadMap = () => mapPending || (mapPending = Promise.all([script(base + 'sea-map.js'), script(base + 'route-exchange.js').catch(() => null)])
-      .then(() => ({ SeaMap: window.SeaMap, RouteExchange: window.RouteExchange || null, land: landRings, lanes,
-        detail: { land: () => detailLandP || (detailLandP = json(base + 'detail-land.json').catch((e) => { detailLandP = null; throw e; })), water: () => detailWaterP || (detailWaterP = json(base + 'detail-water.json').catch((e) => { detailWaterP = null; throw e; })) } })).catch((e) => { mapPending = null; throw e; }));
+      .then(() => ({ SeaMap: window.SeaMap, RouteExchange: window.RouteExchange || null, land: landRings, lanes, ports: portRows,
+        detail: { land: () => detailLandP || (detailLandP = json(base + 'detail-land.json').catch((e) => { detailLandP = null; throw e; })), places: () => detailPlacesP || (detailPlacesP = json(base + 'detail-places.json').catch((e) => { detailPlacesP = null; throw e; })), water: () => detailWaterP || (detailWaterP = json(base + 'detail-water.json').catch((e) => { detailWaterP = null; throw e; })) } })).catch((e) => { mapPending = null; throw e; }));
     return function load() {
       if (!pending) {
         pending = Promise.all([script(base + 'port-list.js'), script(base + 'sea-route.js'), script(base + 'eca-zones.js'), json(base + 'ports.json'), json(base + 'marnet.json'), json(base + 'land.json')])
-          .then((r) => { landRings = window.SeaRoute.decodeLand(r[5]); lanes = r[4]; return ({ ports: window.PortList.create(r[3]), router: window.SeaRoute.create(r[4], { land: landRings }), SeaRoute: window.SeaRoute, Eca: window.EcaZones, loadMap }); })
+          .then((r) => { landRings = window.SeaRoute.decodeLand(r[5]); lanes = r[4]; portRows = r[3].ports || r[3]; return ({ ports: window.PortList.create(r[3]), router: window.SeaRoute.create(r[4], { land: landRings }), SeaRoute: window.SeaRoute, Eca: window.EcaZones, loadMap }); })
           .catch((e) => { pending = null; throw e; });
       }
       return pending;
@@ -1762,7 +1762,7 @@
         const built = buildMapRoutes(items, plan); if (!built.routes.length) return '';
         const holder = document.createElement('div'); holder.style.cssText = 'position:fixed;left:-12000px;top:0;width:1100px;height:620px;';
         document.body.appendChild(holder);
-        const ctl = assets.SeaMap.create(holder, { land: assets.land, lanes: assets.lanes, zones: ctx.sea.Eca ? ctx.sea.Eca.ZONES.filter((z) => built.ids.includes(z.id)) : [], areas: built.areas });
+        const ctl = assets.SeaMap.create(holder, { land: assets.land, lanes: assets.lanes, ports: assets.ports, detail: assets.detail, zones: ctx.sea.Eca ? ctx.sea.Eca.ZONES.filter((z) => built.ids.includes(z.id)) : [], areas: built.areas });
         ctl.setRoutes(built.routes);
         const url = ctl.toDataURL(); ctl.destroy(); holder.remove();
         const legend = built.info.map((i) => `<div><span style="color:${i.color}">■</span> ${esc(i.text)}</div>`).join('');
@@ -1784,7 +1784,7 @@
         <label><input type="checkbox" data-map="eca" checked> ECA zones</label><label><input type="checkbox" data-map="areas" checked> Avoided areas</label>
         <details class="cp-maplayers"><summary>Layers</summary><div>
           <label><input type="checkbox" data-map="lanes"> Sea lanes and canals</label><label><input type="checkbox" data-map="names" checked> Names (straits, channels, gulfs)</label>
-          <label><input type="checkbox" data-map="rivers" checked> Rivers and lakes</label><label><input type="checkbox" data-map="depth" checked> 200 m line (shelf)</label><label><input type="checkbox" data-map="grid" checked> Grid</label>
+          <label><input type="checkbox" data-map="ports" checked> Ports</label><label><input type="checkbox" data-map="places" checked> Towns and cities</label><label><input type="checkbox" data-map="rivers" checked> Rivers and lakes</label><label><input type="checkbox" data-map="depth" checked> 200 m line (shelf)</label><label><input type="checkbox" data-map="grid" checked> Grid</label>
         </div></details>
         <button type="button" class="${ui.btn}" data-map="in" aria-label="Zoom in">+</button><button type="button" class="${ui.btn}" data-map="out" aria-label="Zoom out">−</button>
         <button type="button" class="${ui.btn}" data-map="fit">Fit</button>
@@ -1816,7 +1816,7 @@
         <div class="cp-mapnote">Planning picture from a coarse sea-lane network and a generalised coastline (Natural Earth, finer when you zoom in), not an electronic chart and not for navigation. ECA zones follow the published coordinates; avoided areas are approximate boxes.</div>`;
       document.body.appendChild(ov);
       const areas = built.areas;
-      const ctl = SM.create(ov.querySelector('.cp-mapcanvas'), { land: assets.land, lanes: assets.lanes, detail: assets.detail, zones: ctx.sea.Eca ? ctx.sea.Eca.ZONES.filter((z) => ids.includes(z.id)) : [], areas });
+      const ctl = SM.create(ov.querySelector('.cp-mapcanvas'), { land: assets.land, lanes: assets.lanes, ports: assets.ports, detail: assets.detail, zones: ctx.sea.Eca ? ctx.sea.Eca.ZONES.filter((z) => ids.includes(z.id)) : [], areas });
       ctl.setRoutes(routes);
       const close = () => { ctl.destroy(); ov.remove(); document.removeEventListener('keydown', onKey); };
       let ed = null, edRoute = null, edLandLegs = () => 0; const bar = ov.querySelector('.cp-mapedit'), hint = ov.querySelector('.cp-mapedithint'), infoEl = ov.querySelector('.cp-mapinfo'), coordsEl = ov.querySelector('.cp-mapcoords');
@@ -1929,7 +1929,7 @@
         }
         else if (k === 'close') close(); else if (k === 'in') ctl.zoom(1.6); else if (k === 'out') ctl.zoom(1 / 1.6); else if (k === 'fit') ctl.fit();
         else if (k === 'eca') ctl.set({ showEca: e.target.checked }); else if (k === 'areas') ctl.set({ showAreas: e.target.checked });
-        else if (k === 'lanes') ctl.set({ showLanes: e.target.checked }); else if (k === 'names') ctl.set({ showNames: e.target.checked }); else if (k === 'rivers') ctl.set({ showRivers: e.target.checked }); else if (k === 'depth') ctl.set({ showDepth: e.target.checked }); else if (k === 'grid') ctl.set({ showGrid: e.target.checked });
+        else if (k === 'lanes') ctl.set({ showLanes: e.target.checked }); else if (k === 'names') ctl.set({ showNames: e.target.checked }); else if (k === 'ports') ctl.set({ showPorts: e.target.checked }); else if (k === 'places') ctl.set({ showPlaces: e.target.checked }); else if (k === 'rivers') ctl.set({ showRivers: e.target.checked }); else if (k === 'depth') ctl.set({ showDepth: e.target.checked }); else if (k === 'grid') ctl.set({ showGrid: e.target.checked });
       });
       if (mopts && mopts.xchg) { xchgEl.hidden = false; xhint(); }
     }

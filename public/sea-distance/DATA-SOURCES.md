@@ -120,6 +120,8 @@ the area deeper than 200 m (the continental shelf is the water that is not shade
 Generalised data for a planning picture: not an electronic navigational chart. There are no soundings, buoys, lights, traffic separation schemes, restricted areas or canals as charted objects.
 Canals and many passages are visible only as the sea-lane network (a separate, optional layer). Not for navigation; use the official ENC / paper charts.
 
+Towns and cities (`detail-places.json`): Natural Earth 1:10m `ne_10m_populated_places_simple` (public domain), SHA-256 `fd3fa867a320cbd5c5b6bb5bc550afeec2939fb2cef688e508007282a55ac42f`; names in plain ASCII, shown by the zoom level Natural Earth gives each place. Port names and positions on the map come from the World Port Index (see data/world-port-index/SOURCE.md).
+
 ---
 
 # Emission Control Area outlines — provenance
