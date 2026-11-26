@@ -63,7 +63,7 @@
   function emptyLeg(slots) {
     const fuels = [];
     for (let i = 0; i < (slots || 2); i++) fuels.push(emptyFuel());
-    return { port: false, from: '', to: '', fromPort: null, toPort: null, distance: null, distAuto: false, seaNote: '', ecaNm: null, ecaZones: '', ecaRuns: null, routeFrom: null, routeTo: null, grp: null, keepWhole: false, speed: null, days: null, daysManual: false, marginPct: null, fuels };
+    return { port: false, from: '', to: '', fromPort: null, toPort: null, distance: null, distAuto: false, seaNote: '', ecaNm: null, ecaZones: '', ecaRuns: null, routeFrom: null, routeTo: null, grp: null, keepWhole: false, mode: '', speed: null, days: null, daysManual: false, marginPct: null, fuels };
   }
   function legIsBlank(leg) {
     if (!leg) return true;
@@ -117,6 +117,97 @@
     const mp = Number(leg.marginPct);
     if (qty == null || leg.marginPct == null || leg.marginPct === '' || isNaN(mp)) return null;
     return qty * (mp / 100);
+  }
+
+  /* ---- the vessel's speed and consumption profile ----
+   * Per loading condition (ballast / laden): at sea three speeds (full, eco, safe) with the knots and the MT per day of each fuel slot, and in port and at anchorage the
+   * MT per day of each fuel slot. A line picks a mode and takes its speed and MT/day from here, so nothing is typed on every line. Fuel 1..N are the fuel columns of the plan
+   * (Fuel 1 is the main fuel and becomes the ECA fuel inside an ECA). */
+  const PROFILE_CONDS = [['ballast', 'Ballast'], ['laden', 'Laden']];
+  const SEA_MODES = [['full', 'Full speed'], ['eco', 'Eco speed'], ['safe', 'Safe speed']];
+  const PORT_MODES = [['port', 'Port'], ['anchorage', 'Anchorage']];
+  const modeKind = (m) => (SEA_MODES.some((x) => x[0] === m) ? 'sea' : PORT_MODES.some((x) => x[0] === m) ? 'port' : null);
+  const condOf = (c) => (/^(l|laden)$/i.test(String(c == null ? '' : c).trim()) ? 'laden' : 'ballast');
+  function cleanProfile(p, slots) {
+    const S = Math.max(2, Math.min(MAX_SLOTS, Number(slots) || Number(p && p.slots) || 2));
+    const arr = (c) => { const o = []; for (let i = 0; i < S; i++) { const v = c && c[i]; o.push(v != null && v !== '' && !isNaN(Number(v)) && Number(v) >= 0 ? Number(v) : null); } return o; };
+    const out = { v: 1, slots: S, sea: {}, port: {} };
+    PROFILE_CONDS.forEach(([cd]) => {
+      out.sea[cd] = {}; out.port[cd] = {};
+      SEA_MODES.forEach(([m]) => { const x = p && p.sea && p.sea[cd] && p.sea[cd][m]; out.sea[cd][m] = { kn: x && Number(x.kn) > 0 ? Number(x.kn) : null, c: arr(x && x.c) }; });
+      PORT_MODES.forEach(([m]) => { const x = p && p.port && p.port[cd] && p.port[cd][m]; out.port[cd][m] = { c: arr(x && x.c) }; });
+    });
+    return out;
+  }
+  function profileEntry(p, cond, mode) {
+    const kind = modeKind(mode); if (!p || !kind) return null;
+    const e = p[kind] && p[kind][cond] && p[kind][cond][mode];
+    if (!e || !((e.kn > 0) || (e.c || []).some((v) => v != null))) return null;
+    return e;
+  }
+  function profileHasData(p) {
+    return !!p && PROFILE_CONDS.some(([cd]) => SEA_MODES.some(([m]) => profileEntry(p, cd, m)) || PORT_MODES.some(([m]) => profileEntry(p, cd, m)));
+  }
+  /** Put the speed and MT/day of the line's mode on the line. Returns true when the line follows the profile. A mode that does not fit the line (a sea mode on a port stay) is changed to the matching one. */
+  function applyMode(leg, p, cond, hasData) {
+    if (!leg || !leg.mode) return false;
+    let kind = modeKind(leg.mode);
+    if (!kind) { leg.mode = ''; return false; }
+    if ((kind === 'port') !== !!leg.port) {
+      const alt = leg.port ? 'port' : (SEA_MODES.map((x) => x[0]).find((m) => profileEntry(p, cond, m)) || 'full');
+      leg.mode = alt; kind = modeKind(alt);
+    }
+    const e = profileEntry(p, cond, leg.mode);
+    if (!e) return false;
+    if (kind === 'sea' && e.kn > 0) { leg.speed = e.kn; if (!leg.daysManual) leg.days = null; }
+    (e.c || []).forEach((v, i) => { if (v != null && leg.fuels && leg.fuels[i]) leg.fuels[i].daily = v; });
+    return true;
+  }
+  function applyProfileToPlan(plan, p, dfltCond) {
+    if (!profileHasData(p)) return 0; let n = 0;
+    sectionList(plan).forEach((sec) => { const cond = sec.cond || dfltCond || 'ballast'; (sec.legs || []).forEach((l) => { if (applyMode(l, p, cond)) n++; }); });
+    return n;
+  }
+  /** The mode a new line starts with: the one of the line before it (when it fits), else the first sea mode that has figures (full speed first), or Port. */
+  function defaultMode(prevLeg, leg, p, cond) {
+    if (!profileHasData(p)) return '';
+    const fits = (m) => m && ((modeKind(m) === 'port') === !!leg.port) && profileEntry(p, cond, m);
+    if (prevLeg && fits(prevLeg.mode)) return prevLeg.mode;
+    if (leg.port) return PORT_MODES.map((x) => x[0]).find((m) => profileEntry(p, cond, m)) || '';
+    return SEA_MODES.map((x) => x[0]).find((m) => profileEntry(p, cond, m)) || '';
+  }
+
+
+  /* ---- short-bunker warnings ---- */
+  /** OK / tight / short for one grade of a section. Short: the plan needs a stem (or arrives with less than nothing). Tight: arrives with less than the
+   *  unpumpable oil and weather reserve plus 5 % of the burn. `capacityMt` (optional) flags a stem that would not fit in the tanks. */
+  function gradeStatus(sum, capacityMt) {
+    if (!sum || sum.rob == null) return { code: 'none', text: 'enter ROB' };
+    const reserve = (num(sum.stemAdvice && sum.stemAdvice.unpumpable) || 0) + (num(sum.stemAdvice && sum.stemAdvice.weather) || 0);
+    let code = 'ok'; let text = 'OK';
+    if ((sum.stem != null && sum.stem > 0.0005) || (sum.arrivalRob != null && sum.arrivalRob < 0)) { code = 'short'; text = 'SHORT'; }
+    else if (sum.arrivalRob != null && sum.arrivalRob < reserve + 0.05 * (sum.totalCons || 0)) { code = 'tight'; text = 'TIGHT'; }
+    if (capacityMt > 0 && (sum.rob + (sum.receive || 0)) > capacityMt) { code = 'over'; text = 'OVER CAPACITY'; }
+    return { code, text };
+  }
+  /** Where in a section the ROB of a grade falls below its reserve, line by line from the start (the quantity to receive counts as on board at the start).
+   *  Returns null when it never does, else { index, from, to, last, robAtLast } with `last` the place to bunker at the latest (the port the line before ends in). */
+  function lastSafeBunker(sec, grade) {
+    const st = stockOf(sec, grade);
+    const rob0 = num(st.currentRob); if (rob0 == null) return null;
+    const reserve = (num(st.unpumpableMt) || 0) + (num(st.weatherMarginMt) || 0);
+    let rob = rob0 + (num(st.qtyReceive) || 0); const k = normGrade(grade);
+    const legs = sec.legs || [];
+    for (let i = 0; i < legs.length; i++) {
+      let used = 0;
+      (legs[i].fuels || []).forEach((f) => { if (normGrade(f.grade) !== k) return; const q = fuelQty(legs[i], f); if (q != null) used += q + (fuelMargin(legs[i], f) || 0); });
+      if (used > 0 && rob - used < reserve) {
+        const prev = legs[i - 1];
+        return { index: i, from: legs[i].from || '', to: legs[i].to || '', last: prev ? (prev.to || '') : (legs[i].from || ''), robAtLast: rob };
+      }
+      rob -= used;
+    }
+    return null;
   }
 
   /** Days and distance: shared by every fuel, worked out once. */
@@ -321,6 +412,114 @@
     return hash(JSON.stringify([l.residual, l.distillate]));
   }
 
+
+
+  /* ---- plan against what the ship really did ---- */
+  /** What the plan says should have happened `elapsedDays` after departure: distance run and fuel burned per grade, line by line (the line under way counts in proportion). */
+  function plannedAt(plan, elapsedDays) {
+    let t = 0; let dist = 0; const fuel = {}; let totalDays = 0;
+    sectionList(plan).forEach((sec) => (sec.legs || []).forEach((l) => {
+      const days = legDays(l); if (!(days > 0)) return;
+      totalDays += days;
+      const frac = Math.max(0, Math.min(1, (elapsedDays - t) / days));
+      if (frac > 0) {
+        if (!l.port && Number(l.distance) > 0) dist += Number(l.distance) * frac;
+        (l.fuels || []).forEach((f) => { const q = fuelQty(l, f); if (q != null && f.grade) fuel[normGrade(f.grade)] = (fuel[normGrade(f.grade)] || 0) + q * frac; });
+      }
+      t += days;
+    }));
+    return { dist, fuel, totalDays, finished: elapsedDays >= totalDays };
+  }
+  /** The comparison: `act` = { to: ISO of the last report, dist, hrs, fuel: { grade: MT }, rob: { grade: MT } } from the ship's log since `departIso`. */
+  function planVsActual(plan, act, departIso) {
+    if (!act || !departIso) return null;
+    const dep = new Date(departIso).getTime(); const to = new Date(act.to).getTime();
+    if (!(dep > 0) || !(to > dep)) return null;
+    const elapsed = (to - dep) / 86400000; const pl = plannedAt(plan, elapsed);
+    const af = {}; Object.keys(act.fuel || {}).forEach((g) => { af[normGrade(g)] = (af[normGrade(g)] || 0) + Number(act.fuel[g] || 0); });
+    const grades = []; sectionList(plan).forEach(() => 0);
+    gradesInUse(plan).forEach((g) => { if (!grades.some((x) => normGrade(x) === normGrade(g))) grades.push(g); });
+    Object.keys(act.fuel || {}).forEach((g) => { if (!grades.some((x) => normGrade(x) === normGrade(g))) grades.push(g); });
+    const rows = grades.map((g) => {
+      const k = normGrade(g); const planned = pl.fuel[k] || 0; const actual = af[k] || 0; const st = stockOf(plan, g); const rob0 = num(st.currentRob);
+      return { grade: g, planned, actual, diff: actual - planned, pct: planned > 0 ? (actual - planned) / planned * 100 : null,
+        robPlanned: rob0 == null ? null : rob0 - planned + (num(st.qtyReceive) || 0), robActual: act.rob && act.rob[g] != null ? Number(act.rob[g]) : null };
+    }).filter((r) => r.planned > 0 || r.actual > 0);
+    const dDist = Number(act.dist || 0) - pl.dist;
+    return { elapsedDays: elapsed, planned: pl, dist: { planned: pl.dist, actual: Number(act.dist || 0), diff: dDist }, rows, finished: pl.finished };
+  }
+
+  /* ---- route reminders: canals, high-risk areas, ice ---- */
+  const CANALS = { suez: { label: 'Suez Canal', hours: 15 }, panama: { label: 'Panama Canal', hours: 24 } };
+  /* approximate boxes [lonMin, latMin, lonMax, latMax] for reminders only, not official limits */
+  const RISK_AREAS = [
+    { id: 'gulf_aden', label: 'Gulf of Aden', box: [43, 10.5, 53, 15.5], note: 'High-risk / listed area: check the current JWC listed areas, BMP guidance, MSCHOA / UKMTO advisories, the company security instructions and war-risk insurance.' },
+    { id: 'red_sea', label: 'Red Sea / Bab-el-Mandeb', box: [32, 12.5, 43.6, 28], note: 'War-risk and security advisories apply: check the current guidance, the company instructions and insurance before planning through the Red Sea.' },
+    { id: 'somali_basin', label: 'Somali Basin / West Arabian Sea', box: [44, -6, 62, 12], note: 'Piracy high-risk area: check BMP guidance, MSCHOA / UKMTO advisories and the company security instructions.' },
+    { id: 'gulf_of_guinea', label: 'Gulf of Guinea', box: [-8, -2, 10, 8], note: 'Piracy and armed-robbery area: check BMP West Africa and the company security instructions.' },
+    { id: 'black_sea', label: 'Black Sea', box: [27.5, 40.5, 42, 47.5], note: 'War-risk area: check the current advisories, the company instructions and insurance.' },
+    { id: 'malacca', label: 'Malacca / Singapore Straits', box: [95, -1.5, 106, 8], note: 'ReCAAP area (armed robbery against ships): keep a good watch at anchor and in the traffic lanes.' },
+    { id: 'ice_baltic', label: 'Northern Baltic', box: [17, 59.5, 30, 66], months: [12, 1, 2, 3, 4], note: 'Winter ice: check the ice class rules, icebreaker assistance and the ice reports.' },
+    { id: 'ice_stlawrence', label: 'Gulf and River St Lawrence / Great Lakes', box: [-92, 41, -56, 52], months: [12, 1, 2, 3], note: 'Winter ice: the Seaway is closed in mid-winter; check the ice reports and opening dates.' },
+  ];
+  /** Which of the reminder areas a route passes through (the points and the stretches between them, looked at every half degree). */
+  function riskAreasOf(pts) {
+    const hit = new Set();
+    const test = (la, lo) => RISK_AREAS.forEach((a) => { if (lo >= a.box[0] && lo <= a.box[2] && la >= a.box[1] && la <= a.box[3]) hit.add(a.id); });
+    for (let i = 0; i < pts.length; i++) {
+      test(pts[i][0], pts[i][1]);
+      if (i) {
+        const a = pts[i - 1]; const b = pts[i]; let dl = b[1] - a[1]; if (dl > 180) dl -= 360; else if (dl < -180) dl += 360;
+        const n = Math.min(400, Math.ceil(Math.max(Math.abs(b[0] - a[0]), Math.abs(dl)) / 0.5));
+        for (let k = 1; k < n; k++) { let lo = a[1] + dl * k / n; if (lo > 180) lo -= 360; else if (lo < -180) lo += 360; test(a[0] + (b[0] - a[0]) * k / n, lo); }
+      }
+    }
+    return [...hit];
+  }
+  /** The reminders that apply on a date (the ice areas only in their months). */
+  function remindersFor(ids, dateIso) {
+    const month = /^\d{4}-(\d{2})/.test(String(dateIso || '')) ? Number(String(dateIso).slice(5, 7)) : new Date().getMonth() + 1;
+    return (ids || []).map((id) => RISK_AREAS.find((a) => a.id === id)).filter((a) => a && (!a.months || a.months.includes(month)));
+  }
+  /** The canals a plan goes through, one count per route (a route split into lines counts once). */
+  function canalsUsed(plan) {
+    const seen = new Set(); const out = {};
+    sectionList(plan).forEach((sec, si) => (sec.legs || []).forEach((l, i) => (l.canals || []).forEach((c) => {
+      if (!CANALS[c]) return; const key = (l.grp ? l.grp.id : si + ':' + i) + '|' + c; if (seen.has(key)) return; seen.add(key); out[c] = (out[c] || 0) + 1;
+    })));
+    return out;
+  }
+  function cleanCanal(c) {
+    const out = {}; if (!c || typeof c !== 'object') return out;
+    Object.keys(CANALS).forEach((k) => { const x = c[k]; if (!x) return; const h = Number(x.hours); const fee = Number(x.fee); out[k] = { hours: h > 0 ? h : null, fee: fee > 0 ? fee : null }; });
+    return out;
+  }
+
+  /* ---- scenarios: saved versions of the plan, compared side by side (distance, days, fuel and its cost) ---- */
+  function cleanPrices(p) {
+    const out = {}; if (!p || typeof p !== 'object') return out;
+    Object.keys(p).slice(0, 12).forEach((k) => { const v = Number(p[k]); if (v > 0 && isFinite(v)) out[normGrade(k)] = v; });
+    return out;
+  }
+  function cleanScenarios(list) {
+    return (Array.isArray(list) ? list : []).filter((x) => x && x.snap && typeof x.snap === 'object' && Array.isArray(x.snap.legs)).slice(0, 8).map((x) => {
+      const snap = JSON.parse(JSON.stringify(x.snap)); delete snap.scenarios;
+      return { id: String(x.id || 's' + Math.random().toString(36).slice(2, 8)), name: String(x.name || 'Scenario').slice(0, 60), savedAt: String(x.savedAt || ''), snap };
+    });
+  }
+  /** What a plan comes to, for the comparison: distance, days, fuel needed per grade and in all, and the cost where prices are known. */
+  function scenMetrics(plan) {
+    const cm = combined(plan); const prices = plan.prices || {};
+    let total = 0; let cost = 0; let anyCost = false;
+    const fuels = cm.grades.map((g) => {
+      const pr = Number(prices[normGrade(g.grade)]); const c = pr > 0 ? g.required * pr : null;
+      total += g.required; if (c != null) { cost += c; anyCost = true; }
+      return { grade: g.grade, required: g.required, cost: c };
+    });
+    const used = canalsUsed(plan); let fees = 0; let anyFee = false;
+    Object.keys(used).forEach((c) => { const fee = plan.canal && plan.canal[c] && plan.canal[c].fee; if (fee > 0) { fees += fee * used[c]; anyFee = true; } });
+    return { dist: cm.route.totalDist, daysSea: cm.route.daysSea, daysPort: cm.route.daysPort, eca: cm.route.totalEca, fuels, total, canalFees: anyFee ? fees : null, cost: (anyCost || anyFee) ? cost + fees : null };
+  }
   function normalizeSection(sec, slots) {
     sec.legs = (Array.isArray(sec.legs) ? sec.legs : []).map((l) => {
       const leg = Object.assign(emptyLeg(slots), l);
@@ -334,6 +533,9 @@
       /* the route a split line came from, kept whatever is typed on the line, so Recalculate can rebuild the whole route */
       leg.grp = (leg.grp && leg.grp.id && Number(leg.grp.fromPort) > 0 && Number(leg.grp.toPort) > 0) ? { id: String(leg.grp.id), fromPort: Number(leg.grp.fromPort), toPort: Number(leg.grp.toPort), from: String(leg.grp.from || ''), to: String(leg.grp.to || '') } : null;
       leg.keepWhole = !!leg.keepWhole;
+      leg.mode = modeKind(leg.mode) ? leg.mode : '';
+      leg.canals = leg.distAuto && Array.isArray(leg.canals) ? leg.canals.filter((c) => CANALS[c]).slice(0, 4) : [];
+      leg.risks = leg.distAuto && Array.isArray(leg.risks) ? leg.risks.map(String).filter((id) => RISK_AREAS.some((a) => a.id === id)).slice(0, 12) : [];
       leg.marginPct = (leg.marginPct == null || leg.marginPct === '' || isNaN(Number(leg.marginPct))) ? null : Number(leg.marginPct);
       const f = Array.isArray(leg.fuels) ? leg.fuels.map((x) => ({ grade: (x && x.grade) || '', daily: x && x.daily != null && x.daily !== '' ? Number(x.daily) : null })) : [];
       while (f.length < slots) f.push(emptyFuel());
@@ -347,9 +549,9 @@
   function normalizeLegs(plan) {
     const slots = Math.max(1, Math.min(MAX_SLOTS, Number(plan.fuelSlots) || 2));
     plan.fuelSlots = slots;
-    normalizeSection(plan, slots);
+    normalizeSection(plan, slots); plan.cond = plan.cond ? condOf(plan.cond) : '';
     const extra = (Array.isArray(plan.extra) ? plan.extra : []).slice(0, MAX_LEGS - 1).map((x) => {
-      const sec = { legTitle: (x && x.legTitle) || '', legs: x && x.legs, stocks: x && x.stocks && typeof x.stocks === 'object' ? x.stocks : {} };
+      const sec = { legTitle: (x && x.legTitle) || '', cond: x && x.cond ? condOf(x.cond) : '', legs: x && x.legs, stocks: x && x.stocks && typeof x.stocks === 'object' ? x.stocks : {} };
       normalizeSection(sec, slots);
       if (!sec.legs.length) sec.legs = [emptyLeg(slots)];
       return sec;
@@ -378,13 +580,18 @@
     if (typeof plan.remarks !== 'string') plan.remarks = plan.remarks == null ? '' : String(plan.remarks);
     if (!plan.stocks || typeof plan.stocks !== 'object') plan.stocks = {};
     const sea = plan.sea && typeof plan.sea === 'object' ? plan.sea : {};
+    function cleanRouteLib(l) {
+      return (Array.isArray(l) ? l : []).slice(0, 30).map((x) => ({ id: String(x && x.id || 'r' + Math.random().toString(36).slice(2, 8)), name: String(x && x.name || 'Route').slice(0, 60), a: Number(x && x.a), b: Number(x && x.b),
+        wps: (Array.isArray(x && x.wps) ? x.wps : []).filter((p) => Array.isArray(p) && isFinite(p[0]) && isFinite(p[1])).slice(0, 200).map((p) => [Math.max(-85, Math.min(85, Number(p[0]))), Number(p[1])]) })).filter((x) => x.a > 0 && x.b > 0 && x.wps.length);
+    }
     function cleanManual(m) {
       const out = {}; if (!m || typeof m !== 'object') return out;
       Object.keys(m).slice(0, 40).forEach((k) => { const w = Array.isArray(m[k]) ? m[k].filter((p) => Array.isArray(p) && isFinite(p[0]) && isFinite(p[1])).slice(0, 200).map((p) => [Math.max(-85, Math.min(85, Number(p[0]))), Number(p[1])]) : []; if (w.length) out[String(k)] = w; });
       return out;
     }
-    plan.sea = { avoid: Array.isArray(sea.avoid) ? sea.avoid.map(String) : [], areas: Array.isArray(sea.areas) ? sea.areas.map(String) : [], ecaOff: Array.isArray(sea.ecaOff) ? sea.ecaOff.map(String) : [], ecaOn: Array.isArray(sea.ecaOn) ? sea.ecaOn.map(String) : [], ecaFuel: typeof sea.ecaFuel === 'string' ? sea.ecaFuel : '', printMap: sea.printMap !== false, greatCircle: sea.greatCircle !== false, autoSplit: sea.autoSplit !== false, minEca: !!sea.minEca, minEcaPct: Number(sea.minEcaPct) > 0 ? Math.min(50, Number(sea.minEcaPct)) : 10, pilotSplit: sea.pilotSplit !== false, pilotNm: Number(sea.pilotNm) > 0 ? Math.min(50, Number(sea.pilotNm)) : 10, approachNm: Number(sea.approachNm) > 0 ? Math.min(100, Number(sea.approachNm)) : 0, manual: cleanManual(sea.manual) };
+    plan.sea = { avoid: Array.isArray(sea.avoid) ? sea.avoid.map(String) : [], areas: Array.isArray(sea.areas) ? sea.areas.map(String) : [], ecaOff: Array.isArray(sea.ecaOff) ? sea.ecaOff.map(String) : [], ecaOn: Array.isArray(sea.ecaOn) ? sea.ecaOn.map(String) : [], ecaFuel: typeof sea.ecaFuel === 'string' ? sea.ecaFuel : '', printMap: sea.printMap !== false, greatCircle: sea.greatCircle !== false, autoSplit: sea.autoSplit !== false, minEca: !!sea.minEca, minEcaPct: Number(sea.minEcaPct) > 0 ? Math.min(50, Number(sea.minEcaPct)) : 10, pilotSplit: sea.pilotSplit !== false, pilotNm: Number(sea.pilotNm) > 0 ? Math.min(50, Number(sea.pilotNm)) : 10, approachNm: Number(sea.approachNm) > 0 ? Math.min(100, Number(sea.approachNm)) : 0, manual: cleanManual(sea.manual), routeLib: cleanRouteLib(sea.routeLib) };
     normalizeLegs(plan);
+    plan.prices = cleanPrices(plan.prices); plan.scenarios = cleanScenarios(plan.scenarios); plan.canal = cleanCanal(plan.canal); plan.depart = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(plan.depart || '')) ? String(plan.depart).slice(0, 16) : '';
     delete plan.residual; delete plan.distillate; delete plan.legacySig;
     return plan;
   }
@@ -539,6 +746,7 @@
       nl.ecaNm = r.eca ? dist[k] : null; nl.ecaZones = r.eca ? zl(r) : ''; nl.ecaRuns = null;
       nl.keepWhole = false; nl.grp = { id: gid, fromPort: leg.routeFrom || leg.fromPort, toPort: leg.routeTo || leg.toPort, from: leg.from, to: leg.to };
       if (r.eca && ecaGrade && nl.fuels && nl.fuels[0]) nl.fuels[0].grade = ecaGrade;
+      if (r.pilot) nl.mode = ''; /* the pilot areas are slow manoeuvring water: their own MT/day, not the sea speed's */
       return nl;
     });
   }
@@ -578,10 +786,49 @@
     .cp-route .bunker-table td { display: table-cell !important; width: auto; padding: 3px 2px !important; }
     .cp-route .bunker-table td::before { content: none !important; display: none !important; }
     .cp-route .bunker-table td.col-from, .cp-route .bunker-table td.col-to { grid-column: auto; }
-    .cp-route .bunker-table .col-drag, .cp-route .bunker-table .col-del { width: 40px !important; }
+    .cp-route .bunker-table .col-del { width: 40px !important; }
+    .cp-route .bunker-table .col-drag { width: 112px !important; }
+    .cp-dragcell { display: flex; gap: 3px; align-items: center; }
+    .cp-mv { min-width: 32px; min-height: 32px; padding: 2px 6px; font-size: 12px; cursor: pointer; border-radius: 4px; border: 1px solid rgba(128,128,128,.55); background: rgba(128,128,128,.18); color: inherit; touch-action: manipulation; }
+    .cp-mv:hover { background: rgba(128,128,128,.35); }
     .cp-route .bunker-table .col-port { width: 44px !important; }
     .cp-route .bunker-table .col-from, .cp-route .bunker-table .col-to { width: 220px !important; min-width: 220px; }
     .cp-route .bunker-table .col-num { width: 88px !important; }
+    .cp-route .bunker-table .col-mode { width: 150px !important; }
+    .cp-restable-wrap { margin: 10px 0; }
+    .cp-restable { border-collapse: collapse; width: 100%; min-width: 760px; font-variant-numeric: tabular-nums; }
+    .cp-restable th, .cp-restable td { padding: 5px 8px; text-align: right; white-space: nowrap; border-bottom: 1px solid rgba(128,128,128,.25); }
+    .cp-restable thead th { font-weight: 600; font-size: .85em; }
+    .cp-restable tbody th { text-align: left; font-weight: 700; }
+    .cp-restable .cp-na { opacity: .45; }
+    .cp-restable .cp-neg { color: #d9534f; font-weight: 600; }
+    .cp-st { display: inline-block; padding: 2px 10px; border-radius: 10px; font-weight: 700; font-size: .85em; }
+    .cp-st-ok { background: #1f7a4a; color: #fff; }
+    .cp-st-tight { background: #d99a1c; color: #1a1200; }
+    .cp-st-short, .cp-st-over { background: #c0392b; color: #fff; }
+    .cp-st-none { background: rgba(128,128,128,.35); }
+    .cp-warns { margin: 6px 0 0; padding-left: 20px; color: #e67e22; font-weight: 600; }
+    .cp-scform { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+    .cp-scform input[type=text] { min-width: 240px; flex: 1 1 240px; min-height: 34px; }
+    .cp-prices { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 6px 0 10px; }
+    .cp-price input { width: 110px; min-height: 30px; }
+    .cp-scbtns { display: flex; gap: 4px; justify-content: flex-end; margin-top: 4px; font-weight: 400; }
+    .cp-scentable th { white-space: normal; max-width: 200px; }
+    .cp-pos { color: #2e9d62; } .cp-na { opacity: .6; }
+    .cp-risk { color: #e67e22; }
+    .cp-reminders { margin: 6px 0; }
+    .cp-prof .hint { margin: 6px 0 10px; }
+    .cp-profbar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 0 0 8px; }
+    .cp-profh { margin: 12px 0 4px; }
+    .cp-proftable { border-collapse: collapse; min-width: 520px; width: 100%; font-variant-numeric: tabular-nums; }
+    .cp-proftable th, .cp-proftable td { padding: 3px 6px; text-align: left; white-space: nowrap; }
+    .cp-proftable th.num, .cp-proftable td { text-align: right; }
+    .cp-proftable tbody th { font-weight: 500; text-align: left; }
+    .cp-proftable input { width: 100%; min-width: 84px; font-size: 14px; min-height: 32px; box-sizing: border-box; }
+    .cp-proftable .cp-fh { display: block; font-weight: 400; font-size: .8em; opacity: .75; }
+    .cp-proftable .cp-na { opacity: .5; text-align: center; }
+    .cp-cond { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 4px 0 8px; }
+    .cp-cond select { min-height: 32px; }
     .cp-route .bunker-table .col-margin { width: 80px !important; }
     .cp-route .bunker-table .col-fuel { width: 150px !important; min-width: 140px; }
     .cp-route .bunker-table .col-qty { width: 96px !important; min-width: 90px; }
@@ -629,8 +876,13 @@
     .cp-askbox { background: #13283b; color: #fff; padding: 18px 20px; border-radius: 10px; max-width: 460px; width: calc(100% - 32px); box-shadow: 0 10px 40px rgba(0,0,0,.5); }
     .cp-askbox p { margin: 0 0 14px; line-height: 1.4; }
     .cp-askbtns { display: flex; gap: 10px; justify-content: flex-end; }
+    .cp-maplib { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .cp-maplib input { width: 150px; min-height: 30px; }
+    .cp-mapcoords { flex-basis: 100%; max-height: 28vh; overflow: auto; background: rgba(0,0,0,.25); padding: 4px 8px; border-radius: 6px; }
+    .cp-mapcoords .cp-proftable { min-width: 0; width: auto; }
+    .cp-mapcoords .cp-proftable input { min-width: 110px; width: 130px; }
     .cp-mapedit { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    .cp-mapedit[hidden], .cp-mapedithint[hidden], .cp-mapbar button[hidden] { display: none; }
+    .cp-mapedit[hidden], .cp-mapedithint[hidden], .cp-mapcoords[hidden], .cp-mapbar button[hidden] { display: none; }
     .cp-mapedithint { flex-basis: 100%; font-size: 12px; opacity: .85; }
     .cp-mapbar label { display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; }
     .cp-mapinfo { flex: 1 1 100%; font-size: .85em; opacity: .9; }
@@ -647,7 +899,78 @@
     .cp-overview .cp-title { display: block; font-weight: 400; font-size: .8em; opacity: .75; white-space: normal; max-width: 160px; margin-left: auto; }
   `;
 
+
+  /* ------------------------------------------------------------------ export ---- */
+  const csvCell = (v) => { const t = v == null ? '' : String(v); return /[",\r\n;]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+  const modeText = (m) => (SEA_MODES.concat(PORT_MODES).find((x) => x[0] === m) || [0, ''])[1];
+  /** The plan as a CSV (opens in Excel): the lines of every voyage leg, then the fuel results of every leg. `info` = { vessel }. */
+  function planCsv(plan, info) {
+    const cm = combined(plan); const secs = cm.chain.sections; const slots = plan.fuelSlots || 2;
+    const out = [];
+    const row = (arr) => out.push(arr.map(csvCell).join(','));
+    row(['Bunker Consumption Calculation']); row(['Vessel', info && info.vessel || '']); row(['Voyage No.', plan.voyageNo || '']); row(['Date', plan.date || '']); row([]);
+    const head = ['Voyage leg', 'Line', 'Type', 'From', 'To', 'Condition', 'Mode', 'Distance nm', 'Speed kn', 'Days'];
+    for (let i = 1; i <= slots; i++) head.push('Fuel ' + i, 'Fuel ' + i + ' MT/day', 'Fuel ' + i + ' MT');
+    head.push('Margin %'); row(head);
+    secs.forEach((x, si) => {
+      const cond = (x.sec.cond || (info && info.condition) || 'ballast') === 'laden' ? 'Laden' : 'Ballast';
+      x.sec.legs.forEach((l, i) => {
+        if (legIsBlank(l) && !(l.fuels || []).some((f) => fuelQty(l, f) != null)) return;
+        const days = legDays(l);
+        const r = [secTitle(x.sec, si), i + 1, l.port ? 'Port / anchorage' : 'Sea', l.from, l.to, cond, modeText(l.mode), l.distance != null ? Number(l.distance).toFixed(1) : '', l.speed != null ? l.speed : '', days != null ? days.toFixed(3) : ''];
+        for (let k = 0; k < slots; k++) { const f = (l.fuels || [])[k] || {}; const q = fuelQty(l, f); r.push(f.grade || '', f.daily != null ? f.daily : '', q != null ? q.toFixed(3) : ''); }
+        r.push(l.marginPct != null ? l.marginPct : ''); row(r);
+      });
+    });
+    row([]); row(['Voyage leg', 'Fuel', 'Current ROB MT', 'To receive MT', 'Consumption MT', 'Margin MT', 'Required MT', 'Arrival ROB MT', 'Next departure ROB MT', 'Stem still needed MT', 'Status']);
+    const f3 = (v) => (v == null ? '' : Number(v).toFixed(3));
+    secs.forEach((x, si) => { cm.grades.forEach((g) => { const m = x.sums[normGrade(g.grade)]; if (!m) return;
+      row([secTitle(x.sec, si), g.grade, f3(m.rob), f3(m.receive || null), f3(m.totalCons), f3(m.margin), f3(m.required), f3(m.arrivalRob), f3(m.nextDepRob), f3(m.stem), gradeStatus(m).text]); }); });
+    if (secs.length > 1) cm.grades.forEach((g) => row(['All voyage legs', g.grade, f3(g.startRob), f3(g.receive || null), f3(g.totalCons), f3(g.margin), f3(g.required), f3(g.arrivalRob), f3(g.nextDepRob), f3(g.stem), '']));
+    return '﻿' + out.join('\r\n') + '\r\n';
+  }
+  /** A short text report that can be pasted into an e-mail or a message to the office. */
+  function planText(plan, info) {
+    const cm = combined(plan); const secs = cm.chain.sections; const multi = secs.length > 1;
+    const L = []; const n = (v, d) => (v == null || isNaN(v) ? '—' : Number(v).toFixed(d));
+    L.push(`BUNKER CONSUMPTION PLAN${info && info.vessel ? ' — ' + info.vessel : ''}${plan.voyageNo ? ' — Voyage ' + plan.voyageNo : ''}${plan.date ? ' — ' + plan.date : ''}`);
+    secs.forEach((x, si) => {
+      const lines = x.sec.legs.filter((l) => !legIsBlank(l));
+      if (multi) L.push('', secTitle(x.sec, si).toUpperCase());
+      L.push(`Route: ${lines.filter((l) => !l.port).map((l) => `${l.from || '?'} → ${l.to || '?'}${l.distance != null ? ' ' + n(l.distance, 0) + ' nm' : ''}${l.mode ? ' (' + modeText(l.mode) + ')' : ''}`).join(' | ') || '—'}`);
+      L.push(`Distance ${n(x.route.totalDist, 0)} nm${x.route.totalEca > 0 ? ' (' + n(x.route.totalEca, 0) + ' in ECA)' : ''} · at sea ${n(x.route.daysSea, 2)} d · port/anchor ${n(x.route.daysPort, 2)} d`);
+      cm.grades.forEach((g) => { const m = x.sums[normGrade(g.grade)]; if (!m || (!m.totalCons && !m.required && m.rob == null)) return;
+        L.push(`${g.grade}: needs ${n(m.required, 1)} MT (burn ${n(m.totalCons, 1)} + margin ${n(m.margin, 1)}) · ROB ${n(m.rob, 1)} → arrival ${n(m.arrivalRob, 1)} MT · stem ${n(m.stem, 1)} MT · ${gradeStatus(m).text}`); });
+      cm.grades.forEach((g) => { const m = x.sums[normGrade(g.grade)]; const st = m && gradeStatus(m).code;
+        if (st === 'short' || st === 'tight') { const lb = lastSafeBunker({ legs: x.sec.legs, stocks: Object.assign({}, x.sec.stocks, { [normGrade(g.grade)]: Object.assign({}, stockOf(x.sec, g.grade), { currentRob: m.rob }) }) }, g.grade); if (lb) L.push(`! ${g.grade}: bunker at or before ${lb.last || 'the start'} (the reserve is reached on line ${lb.index + 1}, ${lb.from} → ${lb.to})`); } });
+    });
+    if (multi) { L.push('', 'ALL VOYAGE LEGS'); L.push(`Distance ${n(cm.route.totalDist, 0)} nm · sea ${n(cm.route.daysSea, 2)} d · port ${n(cm.route.daysPort, 2)} d`);
+      cm.grades.forEach((g) => L.push(`${g.grade}: needs ${n(g.required, 1)} MT · final arrival ROB ${n(g.arrivalRob, 1)} MT · stem ${n(g.stem, 1)} MT`)); }
+    if (plan.remarks) L.push('', 'Remarks: ' + plan.remarks);
+    L.push('', 'Planning estimate (Voyage / Tank Chief).');
+    return L.join('\n');
+  }
+
   /* ------------------------------------------------------------------ print ---- */
+  /** One page for the office: totals, one row per fuel and leg with its status, where to bunker, remarks. No line tables. */
+  function summaryBody(plan, fuels, adapter) {
+    const cm = combined(plan); const secs = cm.chain.sections; const multi = secs.length > 1;
+    const metaGrid = adapter.printMetaGrid || ((items) => items.map((i) => `<div>${esc(i.label)}: ${i.value}</div>`).join(''));
+    const mt = (v) => (v == null ? '—' : fmtFuel(v));
+    const route = (sec) => sec.legs.filter((l) => !legIsBlank(l) && !l.port).map((l) => `${esc(l.from || '?')} → ${esc(l.to || '?')}${l.distance != null ? ' ' + fmtN(l.distance, 0) + ' nm' : ''}${l.mode ? ' (' + esc(modeText(l.mode)) + ')' : ''}`).join(' · ') || '—';
+    let rows = ''; const warn = [];
+    secs.forEach((x, si) => { cm.grades.forEach((g) => {
+      const m = x.sums[normGrade(g.grade)]; if (!m || (!m.totalCons && !m.required && m.rob == null)) return;
+      const stt = gradeStatus(m);
+      rows += `<tr><td>${multi ? esc(secTitle(x.sec, si)) : ''}</td><td class="row-lbl">${esc(g.grade)}</td><td>${mt(m.rob)}</td><td>${mt(m.receive || null)}</td><td>${mt(m.totalCons)}</td><td>${mt(m.margin)}</td><td>${mt(m.required)}</td><td>${mt(m.arrivalRob)}</td><td>${mt(m.stem)}</td><td><strong>${esc(stt.text)}</strong></td></tr>`;
+      if (stt.code === 'short' || stt.code === 'tight') { const lb = lastSafeBunker({ legs: x.sec.legs, stocks: Object.assign({}, x.sec.stocks, { [normGrade(g.grade)]: Object.assign({}, stockOf(x.sec, g.grade), { currentRob: m.rob }) }) }, g.grade); if (lb) warn.push(`${esc(g.grade)}: bunker at or before ${esc(lb.last || 'the start')} (reserve reached on line ${lb.index + 1}, ${esc(lb.from)} → ${esc(lb.to)}).`); }
+    }); });
+    return `<section class="pr-section"><h3 class="pr-section-title">Summary</h3><div class="pr-section-body">
+      ${metaGrid([{ label: 'Total Distance', value: fmtN(cm.route.totalDist, 0) + ' nm' }, { label: 'Days at Sea', value: fmtN(cm.route.daysSea, 2) }, { label: 'Days Port / Anchor', value: fmtN(cm.route.daysPort, 2) }].concat(cm.route.totalEca > 0 ? [{ label: 'Of which in ECA', value: fmtN(cm.route.totalEca, 0) + ' nm' }] : []), cm.route.totalEca > 0 ? 4 : 3)}
+      <table class="pr-table"><thead><tr><th>${multi ? 'Leg' : ''}</th><th>Fuel</th><th>ROB</th><th>Receive</th><th>Consumption</th><th>Margin</th><th>Required</th><th>Arrival ROB</th><th>Stem needed</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="pr-remarks"><div class="pr-remarks-body">${secs.map((x, i) => `${multi ? esc(secTitle(x.sec, i)) + ': ' : 'Route: '}${route(x.sec)}`).join('<br>')}${warn.length ? '<br><strong>' + warn.join('<br>') + '</strong>' : ''}${plan.remarks ? '<br>' + esc(plan.remarks) : ''}</div></div>
+    </div></section>`;
+  }
   function printBody(plan, fuels, adapter) {
     const cm = combined(plan);
     const secs = cm.chain.sections;
@@ -666,7 +989,7 @@
           return `<td>${esc(f.grade || '')}</td><td>${num(f.daily) != null ? fmtN(f.daily, 2) : ''}</td><td>${q != null ? fmtFuel(q) : ''}</td>`;
         }).join('');
         return `<tr><td>${l.port ? '●' : ''}</td><td class="row-lbl">${esc(l.from)}</td><td class="row-lbl">${esc(l.to)}</td>`
-          + `<td>${l.distance != null ? fmtN(l.distance, 2) + (l.distAuto ? '*' : '') : ''}</td><td>${l.speed != null ? fmtN(l.speed, 2) : ''}</td>`
+          + `<td>${l.distance != null ? fmtN(l.distance, 2) + (l.distAuto ? '*' : '') : ''}</td><td>${l.speed != null ? fmtN(l.speed, 2) : ''}${l.mode ? ` <small>${esc((SEA_MODES.concat(PORT_MODES).find((x) => x[0] === l.mode) || [0, l.mode])[1])}</small>` : ''}</td>`
           + `<td>${days != null ? fmtN(days, 2) : ''}</td>${cells}<td>${l.marginPct != null ? fmtN(l.marginPct, 1) : ''}</td></tr>`;
       }).join('');
       return `<section class="pr-section"><h3 class="pr-section-title">${esc(title)}</h3><div class="pr-section-body">
@@ -735,17 +1058,67 @@
       + '</div></div>';
   }
 
+
+  /* ------------------------------------------------------------------ the profile editor ---- */
+  /** The vessel's speed and consumption profile as a form: full / eco / safe speed and the MT per day of every fuel column, at sea; and MT per day in port and at anchorage;
+   *  each for ballast and laden. `adapter`: { fuels() -> vessel fuels, load() -> profile or null, save(profile), onChange() (optional) }. Returns { refresh() }. */
+  function mountProfile(host, adapter) {
+    const A = adapter || {};
+    let prof = cleanProfile(A.load ? A.load() : null);
+    let timer = null;
+    const hints = () => { const l = cleanFuels(A.fuels ? A.fuels() : null); const r = l.find((f) => f.family === 'residual'); const d = l.find((f) => f.family === 'distillate'); return [r && r.id, d && d.id]; };
+    const save = () => { clearTimeout(timer); timer = setTimeout(() => { try { A.save && A.save(cleanProfile(prof, prof.slots)); } catch (e) { console.warn('profile save', e); } if (A.onChange) A.onChange(); }, 350); };
+    const inp = (attrs, v, ph) => `<input type="number" min="0" step="0.01" inputmode="decimal" ${attrs} value="${v == null ? '' : v}"${ph ? ` placeholder="${ph}"` : ''}>`;
+    function draw() {
+      const h = hints(); const S = prof.slots;
+      const head = '<th>Operation</th><th class="num">Speed kn</th>' + Array.from({ length: S }, (_, i) => `<th class="num">Fuel ${i + 1} MT/day${h[i] ? `<span class="cp-fh">${esc(h[i])}</span>` : ''}</th>`).join('');
+      const block = (cd, label) => {
+        const seaRows = SEA_MODES.map(([m, ml]) => `<tr><th scope="row">${ml}</th><td>${inp(`data-t="sea" data-c="${cd}" data-m="${m}" data-k="kn"`, prof.sea[cd][m].kn, 'kn')}</td>`
+          + prof.sea[cd][m].c.map((v, i) => `<td>${inp(`data-t="sea" data-c="${cd}" data-m="${m}" data-k="c" data-i="${i}"`, v, 'MT/day')}</td>`).join('') + '</tr>').join('');
+        const portRows = PORT_MODES.map(([m, ml]) => `<tr><th scope="row">${ml === 'Port' ? 'In port (working)' : 'At anchorage'}</th><td class="cp-na">—</td>`
+          + prof.port[cd][m].c.map((v, i) => `<td>${inp(`data-t="port" data-c="${cd}" data-m="${m}" data-k="c" data-i="${i}"`, v, 'MT/day')}</td>`).join('') + '</tr>').join('');
+        return `<h4 class="cp-profh">${label}</h4><div class="table-scroll"><table class="cp-proftable"><thead><tr>${head}</tr></thead><tbody>${seaRows}${portRows}</tbody></table></div>`;
+      };
+      host.innerHTML = `<div class="cp-prof">
+        <div class="hint">The vessel's performance figures: the speed (knots) of full, eco and safe speed, and the fuel burned per day at each, with the ship in ballast and laden; and the daily fuel in port and at anchorage. In the consumption plan a line only picks its mode and takes speed and MT/day from here. Fuel 1 is the main fuel (it becomes the ECA fuel inside an ECA); Fuel 2 is usually the distillate used by the generators and boiler. Leave a box empty where there is no figure.</div>
+        <div class="cp-profbar"><label>Fuel columns <select data-pf="slots">${[2, 3, 4].map((n) => `<option value="${n}" ${n === S ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+          <button type="button" class="${(A.ui && A.ui.btn) || 'ghost small'}" data-pa="copy" title="Copy every ballast figure to laden (then adjust)">Copy ballast to laden</button>
+          <button type="button" class="${(A.ui && A.ui.btn) || 'ghost small'}" data-pa="clear">Clear all</button></div>
+        ${PROFILE_CONDS.map(([cd, l]) => block(cd, l)).join('')}
+      </div>`;
+    }
+    host.addEventListener('input', (e) => {
+      const t = e.target; if (!t.dataset || !t.dataset.k) return;
+      const v = t.value === '' ? null : Number(t.value);
+      const e2 = prof[t.dataset.t][t.dataset.c][t.dataset.m];
+      if (t.dataset.k === 'kn') e2.kn = v > 0 ? v : null; else e2.c[Number(t.dataset.i)] = v != null && v >= 0 ? v : null;
+      save();
+    });
+    host.addEventListener('change', (e) => {
+      const t = e.target;
+      if (t.dataset && t.dataset.pf === 'slots') { prof = cleanProfile(prof, Number(t.value)); draw(); save(); }
+    });
+    host.addEventListener('click', (e) => {
+      const b = e.target.closest && e.target.closest('[data-pa]'); if (!b) return;
+      if (b.dataset.pa === 'copy') { prof.sea.laden = JSON.parse(JSON.stringify(prof.sea.ballast)); prof.port.laden = JSON.parse(JSON.stringify(prof.port.ballast)); draw(); save(); }
+      else if (b.dataset.pa === 'clear') { if (!(A.confirm ? A.confirm('Clear every speed and consumption figure of the vessel profile?') : true)) return; prof = cleanProfile(null, prof.slots); draw(); save(); }
+    });
+    draw();
+    return { refresh() { if (host.contains(document.activeElement) && /^(INPUT|SELECT)$/.test(document.activeElement.tagName)) return; prof = cleanProfile(A.load ? A.load() : null); draw(); }, get: () => prof };
+  }
+
   /* ------------------------------------------------------------------ the page ---- */
   function mount(host, adapter) {
     const A = adapter;
     const ui = Object.assign({ panel: 'form-panel', btn: 'btn small', primary: 'btn primary small', ghost: 'btn small', hist: 'form-panel' }, A.ui || {});
-    const ctx = { fuels: cleanFuels(A.fuels ? A.fuels() : null), plan: null, history: [], timer: null, sea: null, portMap: new Map(), seaOpen: false };
+    const ctx = { fuels: cleanFuels(A.fuels ? A.fuels() : null), profile: null, plan: null, history: [], timer: null, sea: null, portMap: new Map(), seaOpen: false };
 
     if (!document.getElementById('cp-style')) {
       const st = document.createElement('style'); st.id = 'cp-style'; st.textContent = STYLE; document.head.appendChild(st);
     }
     const data = A.load() || {};
     ctx.plan = ensurePlan(data.plan, ctx.fuels); refreshFuels(); conformToVessel();
+    refreshProfile(); sectionList(ctx.plan).forEach((sec) => { if (sec.legs.length === 1 && legIsBlank(sec.legs[0]) && !sec.legs[0].mode) startMode(sec, sec.legs[0]); });
     ctx.history = Array.isArray(data.history) ? data.history : [];
     if (!ctx.plan.voyageNo) ctx.plan.voyageNo = (A.voyageNo && A.voyageNo()) || '';
     if (!ctx.plan.date) ctx.plan.date = new Date().toISOString().slice(0, 10);
@@ -800,6 +1173,104 @@
       });
       return n;
     }
+    /** The vessel's loading condition for a plan that has not picked one: from the host (the voyage's B / L), else ballast. */
+    function condNow() { try { return condOf(A.condition ? A.condition() : 'ballast'); } catch (_) { return 'ballast'; } }
+    function secCond(sec) { return sec && sec.cond ? sec.cond : condNow(); }
+    function refreshProfile() { ctx.profile = cleanProfile(A.profile ? A.profile() : null); return ctx.profile; }
+    /** Lines that follow a mode take speed and MT/day from the profile again (after a profile, condition or mode change). */
+    function followProfile() { refreshProfile(); return applyProfileToPlan(ctx.plan, ctx.profile, condNow()); }
+    /** A new line starts in the mode of the line before it (or the first mode that has figures). */
+    function startMode(sec, leg) { leg.mode = defaultMode(sec.legs[sec.legs.length - 2] || sec.legs.filter((l) => l !== leg).pop(), leg, refreshProfile(), secCond(sec)); applyMode(leg, ctx.profile, secCond(sec)); }
+    /* ---- undo / redo: a snapshot of the plan before each change (typing counts as one change until a pause) ---- */
+    const undo = { stack: [], redo: [], typed: 0 };
+    const snapPlan = () => JSON.stringify(ctx.plan);
+    function syncUndoButtons() {
+      host.querySelectorAll('[data-btn="undo"]').forEach((b) => { b.disabled = !undo.stack.length; });
+      host.querySelectorAll('[data-btn="redo"]').forEach((b) => { b.disabled = !undo.redo.length; });
+    }
+    function rememberUndo() {
+      const sn = snapPlan(); if (undo.stack[undo.stack.length - 1] === sn) return;
+      undo.stack.push(sn); if (undo.stack.length > 60) undo.stack.shift(); undo.redo.length = 0; syncUndoButtons();
+    }
+    function rememberTyping() { const now = Date.now(); if (now - undo.typed > 1500) rememberUndo(); undo.typed = now; }
+    function restorePlan(sn) {
+      ctx.plan = ensurePlan(JSON.parse(sn), ctx.fuels);
+      const st = (sel, v) => { const el = host.querySelector(sel); if (el) el.value = v; };
+      st('[data-cp="voyageNo"]', ctx.plan.voyageNo || ''); st('[data-cp="date"]', ctx.plan.date || ''); st('[data-cp="remarks"]', ctx.plan.remarks || '');
+      renderGrid(); scheduleSave(); syncUndoButtons();
+    }
+    function doUndo() { if (!undo.stack.length) return false; undo.redo.push(snapPlan()); restorePlan(undo.stack.pop()); return true; }
+    function doRedo() { if (!undo.redo.length) return false; undo.stack.push(snapPlan()); restorePlan(undo.redo.pop()); return true; }
+    /* ---- plan against actual ---- */
+    const pvaOpen = () => { const d = $('[data-cp="pva"]'); return !!(d && d.open); };
+    function pvaHtml() {
+      const dep = ctx.plan.depart || '';
+      let act = null; try { act = A.actuals ? A.actuals(dep) : null; } catch (e) { console.warn('actuals', e); }
+      const field = `<div class="cp-scform"><label>Departure (ship time) <input type="datetime-local" data-cp="depart" value="${esc(dep)}"></label><span class="cp-na">The first line of the plan starts at this time; the ship's log from then on is compared with it.</span></div>`;
+      if (!dep) return field + '<div class="hint">Enter the date and time the voyage started (the first line of this plan).</div>';
+      if (!act) return field + '<div class="hint">There is no report in the log after this departure yet.</div>';
+      const r = planVsActual(ctx.plan, act, dep);
+      if (!r) return field + '<div class="hint">The departure must be earlier than the last report in the log.</div>';
+      const n = (v, d) => (v == null || isNaN(v) ? '—' : Number(v).toFixed(d));
+      const sg = (v, d) => (v == null || isNaN(v) ? '—' : (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(d));
+      const spd = r.planned.dist > 0 && r.elapsedDays > 0 ? r.planned.dist / (r.elapsedDays * 24) : null;
+      const sentence = [];
+      if (r.dist.planned > 0) sentence.push(r.dist.diff < -1 ? `Behind plan by ${n(-r.dist.diff, 0)} nm${spd ? ` (about ${n(-r.dist.diff / spd, 1)} h at the planned speed)` : ''}.` : r.dist.diff > 1 ? `Ahead of plan by ${n(r.dist.diff, 0)} nm.` : 'On the planned distance.');
+      r.rows.forEach((x) => { if (x.pct != null && Math.abs(x.pct) >= 3) sentence.push(`${esc(x.grade)}: ${x.pct > 0 ? 'burning' : 'using'} ${n(Math.abs(x.pct), 0)}% ${x.pct > 0 ? 'more' : 'less'} than planned.`); });
+      const rows = r.rows.map((x) => `<tr><th scope="row">${esc(x.grade)} fuel (MT)</th><td>${n(x.planned, 1)}</td><td>${n(x.actual, 1)}</td><td class="${x.diff > 0.05 ? 'cp-neg' : x.diff < -0.05 ? 'cp-pos' : ''}">${sg(x.diff, 1)}${x.pct != null ? ` (${sg(x.pct, 0)}%)` : ''}</td></tr>`
+        + (x.robPlanned != null && x.robActual != null ? `<tr><th scope="row">${esc(x.grade)} ROB now (MT)</th><td>${n(x.robPlanned, 1)}</td><td>${n(x.robActual, 1)}</td><td>${sg(x.robActual - x.robPlanned, 1)}</td></tr>` : '')).join('');
+      return `${field}<div class="table-scroll"><table class="cp-restable"><thead><tr><th>Since departure (${n(r.elapsedDays, 2)} days)</th><th>Plan</th><th>Actual (log)</th><th>Difference</th></tr></thead><tbody>
+        <tr><th scope="row">Distance (nm)</th><td>${n(r.dist.planned, 0)}</td><td>${n(r.dist.actual, 0)}</td><td class="${r.dist.diff < -1 ? 'cp-neg' : r.dist.diff > 1 ? 'cp-pos' : ''}">${sg(r.dist.diff, 0)}</td></tr>${rows}</tbody></table></div>
+        <div class="cp-seanote"><strong>${sentence.join(' ') || 'No difference to report.'}</strong>${r.finished ? ' The planned time is over: the figures are the whole plan.' : ''} The plan is counted line by line in proportion to the time elapsed; the actual figures are the sums of the reports since departure.</div>`;
+    }
+    function renderPva() {
+      if (!pvaOpen()) return; const body = $('[data-cp="pvaBody"]'); if (!body) return;
+      if (body.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
+      body.innerHTML = pvaHtml();
+    }
+    /* ---- scenarios ---- */
+    const scenOpen = () => { const d = $('[data-cp="scen"]'); return !!(d && d.open); };
+    function scenColumns() {
+      const cur = { name: 'Current plan', m: scenMetrics(ctx.plan) };
+      return [cur].concat(ctx.plan.scenarios.map((sc) => {
+        const p = ensurePlan(JSON.parse(JSON.stringify(sc.snap)), ctx.fuels); p.prices = ctx.plan.prices; p.canal = ctx.plan.canal;
+        return { name: sc.name, id: sc.id, m: scenMetrics(p) };
+      }));
+    }
+    function scenTableHtml() {
+      const cols = scenColumns(); const cur = cols[0].m;
+      const grades = []; cols.forEach((c) => c.m.fuels.forEach((f) => { if (!grades.some((g) => normGrade(g) === normGrade(f.grade))) grades.push(f.grade); }));
+      const money = (v) => (v == null ? '—' : Math.round(v).toLocaleString('en-US'));
+      const cell = (v, d, base, isScen, fmt) => {
+        if (v == null) return '<td class="cp-na">—</td>';
+        const diff = isScen && base != null ? v - base : null;
+        const dtxt = diff != null && Math.abs(diff) >= Math.pow(10, -(d || 0)) / 2 ? ` <small class="${diff > 0 ? 'cp-neg' : 'cp-pos'}">${diff > 0 ? '+' : '−'}${(fmt || ((x) => Number(x).toFixed(d)))(Math.abs(diff))}</small>` : '';
+        return `<td>${(fmt || ((x) => Number(x).toFixed(d)))(v)}${dtxt}</td>`;
+      };
+      const row = (label, get, d, fmt) => `<tr><th scope="row">${label}</th>${cols.map((c, i) => cell(get(c.m), d, get(cur), i > 0, fmt)).join('')}</tr>`;
+      const head = cols.map((c, i) => `<th>${esc(c.name)}${i > 0 ? `<div class="cp-scbtns"><button type="button" class="${ui.btn}" data-act="scen-load" data-id="${esc(c.id)}">Use</button><button type="button" class="${ui.btn}" data-act="scen-del" data-id="${esc(c.id)}" aria-label="Delete ${esc(c.name)}">✕</button></div>` : ''}</th>`).join('');
+      let rows = row('Distance (nm)', (m) => m.dist, 0) + row('Days at sea', (m) => m.daysSea, 2) + row('Days at port / anchor', (m) => m.daysPort, 2) + (cols.some((c) => c.m.eca > 0) ? row('of which in ECA (nm)', (m) => m.eca, 0) : '');
+      grades.forEach((g) => { rows += row(esc(g) + ' needed (MT)', (m) => { const f = m.fuels.find((x) => normGrade(x.grade) === normGrade(g)); return f ? f.required : null; }, 1); });
+      rows += row('Fuel needed, all (MT)', (m) => m.total, 1);
+      if (cols.some((c) => c.m.canalFees != null)) rows += row('Canal dues (USD)', (m) => m.canalFees, 0, money);
+      if (cols.some((c) => c.m.cost != null)) rows += row('Cost: fuel and canal dues (USD)', (m) => m.cost, 0, money);
+      return `<div class="table-scroll"><table class="cp-restable cp-scentable"><thead><tr><th></th>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+    }
+    function scenAllHtml() {
+      const grades = []; gradesInUse(ctx.plan).concat(ctx.fuels.map((f) => f.id)).forEach((g) => { if (!grades.some((x) => normGrade(x) === normGrade(g))) grades.push(g); });
+      const prices = grades.map((g) => `<label class="cp-price">${esc(g)} <input type="number" min="0" step="1" inputmode="decimal" data-price="${esc(g)}" value="${ctx.plan.prices[normGrade(g)] ?? ''}" placeholder="USD/MT"></label>`).join('');
+      return `<div class="hint">Save the plan as it is now, change the route, the mode (full / eco / safe) or the fuel, and compare. <strong>Use</strong> puts a saved version back (your ROB figures stay). Fuel prices (USD per MT) are optional and give the cost.</div>
+        <div class="cp-scform"><input type="text" data-cp="scenName" maxlength="60" placeholder="Name, e.g. Eco speed via Cape" aria-label="Scenario name"><button type="button" class="${ui.primary}" data-act="scen-save">Save current plan as a scenario</button><span class="cp-na">${ctx.plan.scenarios.length}/8 saved</span></div>
+        <div class="cp-prices">${prices}</div><div data-scen="table">${scenTableHtml()}</div>`;
+    }
+    function renderScen(all) {
+      if (!scenOpen()) return;
+      const body = $('[data-cp="scenBody"]'); if (!body) return;
+      if (all || !body.firstChild) body.innerHTML = scenAllHtml();
+      else { const t = body.querySelector('[data-scen="table"]'); if (t) t.innerHTML = scenTableHtml(); }
+    }
+    /** The lines of a plan version: everything but the saved scenarios. */
+    function planCopy() { const c = JSON.parse(JSON.stringify(ctx.plan)); delete c.scenarios; return c; }
     function persistNow() {
       clearTimeout(ctx.timer);
       return Promise.resolve(A.persist({ plan: finalize(ctx.plan), history: ctx.history })).catch((e) => console.warn('consumption plan persist', e));
@@ -814,7 +1285,15 @@
       return '<option value="">— fuel —</option>'
         + list.map((f) => `<option value="${esc(f.id)}" ${normGrade(f.id) === hit && hit ? 'selected' : ''}>${esc(f.id)}</option>`).join('');
     }
-    function rowHtml(leg, i) {
+    /** The mode of a line: Manual (typed figures), or a speed / port mode of the vessel's profile with its knots shown. */
+    function modeSelectHtml(leg, cond) {
+      const p = ctx.profile; const has = profileHasData(p);
+      const list = leg.port ? PORT_MODES : SEA_MODES;
+      const opt = (m, label) => { const e = profileEntry(p, cond, m); const extra = e && e.kn > 0 ? ' — ' + fmtN(e.kn, 1) + ' kn' : ''; return `<option value="${m}" ${leg.mode === m ? 'selected' : ''} ${e ? '' : 'disabled'}>${label}${e ? extra : ' (not in profile)'}</option>`; };
+      return `<select data-f="mode" title="${has ? 'Speed and MT/day follow the vessel profile for this mode. Typing a speed or MT/day on the line makes it Manual.' : 'Fill in the vessel speed and consumption profile (below, or in Setup) to use full / eco / safe speed.'}">`
+        + `<option value="" ${leg.mode ? '' : 'selected'}>Manual</option>${list.map(([m, l]) => opt(m, l)).join('')}</select>`;
+    }
+    function rowHtml(leg, i, secCondOfLeg) {
       const days = legDays(leg);
       const slots = ctx.plan.fuelSlots;
       const cells = leg.fuels.slice(0, slots).map((f, s) => {
@@ -824,10 +1303,11 @@
           + `<td class="col-qty"><input type="number" readonly tabindex="-1" data-qty="${s}" value="${q == null ? '' : fmtFuel(q)}"></td>`;
       }).join('');
       return `<tr data-row="${i}">
-        <td class="col-drag"><button type="button" class="cp-drag" data-drag="${i}" title="Drag to move this line up or down (or press the arrow keys)" aria-label="Move line ${i + 1}: drag, or press the up and down arrow keys">⠿</button></td>
+        <td class="col-drag"><div class="cp-dragcell"><button type="button" class="cp-drag" data-drag="${i}" title="Drag to move this line up or down (or press the arrow keys)" aria-label="Move line ${i + 1}: drag, or press the up and down arrow keys">⠿</button><button type="button" class="cp-mv" data-act="mv" data-dir="-1" data-row="${i}" title="Move this line up" aria-label="Move line ${i + 1} up">▲</button><button type="button" class="cp-mv" data-act="mv" data-dir="1" data-row="${i}" title="Move this line down" aria-label="Move line ${i + 1} down">▼</button></div></td>
         <td class="col-port"><input type="checkbox" data-f="port" ${leg.port ? 'checked' : ''} title="Port or anchorage stay"></td>
         <td class="col-from"><input type="text" data-f="from" value="${esc(leg.from)}" placeholder="From" autocomplete="off"${ctx.sea ? ' list="cp-ports"' : ''}></td>
         <td class="col-to"><input type="text" data-f="to" value="${esc(leg.to)}" placeholder="To / destination" autocomplete="off"${ctx.sea ? ' list="cp-ports"' : ''}></td>
+        <td class="col-mode">${modeSelectHtml(leg, secCondOfLeg)}</td>
         <td class="col-num"><input type="number" step="0.1" data-f="distance" value="${leg.distance ?? ''}" ${leg.port ? 'disabled' : ''} inputmode="decimal"${leg.distAuto ? ' class="cp-auto" title="Calculated offline from the sea lanes: ' + esc(leg.seaNote || '') + '"' : ''}></td>
         <td class="col-num"><input type="number" step="0.1" data-f="speed" value="${leg.speed ?? ''}" ${leg.port ? 'disabled' : ''} inputmode="decimal"></td>
         <td class="col-num"><input type="number" step="0.001" data-f="days" value="${daysShown(leg, days)}" inputmode="decimal"></td>
@@ -838,6 +1318,26 @@
     }
     function secAt(i) { return sectionList(ctx.plan)[i] || ctx.plan; }
     function secIndexOf(el) { const e = el && el.closest ? el.closest('[data-sec]') : null; return e ? Number(e.dataset.sec) : 0; }
+    /** One compact table for the section: a row per fuel with its status, then the warnings (where to bunker at the latest, tank capacity). */
+    function resultsTableHtml(cs, c) {
+      const grades = gradesInUse(ctx.plan);
+      if (!grades.length) return '';
+      const mt = (v, neg) => (v == null ? '<td class="cp-na">—</td>' : `<td class="${neg && v < 0 ? 'cp-neg' : ''}">${fmtFuel(v)}</td>`);
+      const warn = [];
+      const rows = grades.map((g) => {
+        const sum = cs.sums[normGrade(g)]; if (!sum) return '';
+        const cap = A.capacity ? Number(A.capacity(g)) || 0 : 0;
+        const stt = gradeStatus(sum, cap);
+        if (stt.code === 'short' || stt.code === 'tight') {
+          const lb = lastSafeBunker({ legs: cs.sec.legs, stocks: Object.assign({}, cs.sec.stocks, { [normGrade(g)]: Object.assign({}, stockOf(cs.sec, g), { currentRob: sum.rob }) }) }, g);
+          if (lb) warn.push(`${esc(g)}: the ROB falls below the reserve on line ${lb.index + 1} (${esc(lb.from)} → ${esc(lb.to)}). Bunker at or before ${esc(lb.last) || 'the start'} (about ${fmtFuel(lb.robAtLast)} MT on board then).`);
+        }
+        if (stt.code === 'over') warn.push(`${esc(g)}: ROB ${fmtFuel(sum.rob)} MT + stem ${fmtFuel(sum.receive || 0)} MT is more than the tanks hold (about ${fmtFuel(cap)} MT).`);
+        return `<tr><th scope="row">${esc(g)}</th><td><span class="cp-st cp-st-${stt.code}">${esc(stt.text)}</span></td>${mt(sum.rob)}${mt(sum.receive || null)}${mt(sum.totalCons)}${mt(sum.margin)}${mt(sum.required)}${mt(sum.arrivalRob, true)}${mt(sum.nextDepRob, true)}${mt(sum.stem)}${mt(sum.excessMargin, true)}${mt(sum.excessActual, true)}</tr>`;
+      }).join('');
+      return `<table class="cp-restable"><thead><tr><th>Fuel (MT)</th><th>Status</th><th>Current ROB</th><th>To receive</th><th>Consumption</th><th>Margin</th><th>Required</th><th>Arrival ROB</th><th>Next dep. ROB</th><th>Stem still needed</th><th>Excess (margin)</th><th>Excess (actual)</th></tr></thead><tbody>${rows}</tbody></table>`
+        + (warn.length ? `<ul class="cp-warns">${warn.map((w) => `<li>${w}</li>`).join('')}</ul>` : '');
+    }
     function stockHtml(grade, si, sum) {
       const st = stockOf(secAt(si), grade);
       const g = esc(grade);
@@ -853,7 +1353,6 @@
           ${field('weatherMarginMt', 'Weather reserve (MT)', 'Extra tonnes kept for bad weather')}
           ${field('deliveryRob', 'Delivery / Redelivery ROB (MT)', '', 'full')}
         </div>
-        <div class="bunker-results" data-results="${g}">${gradeCardsHtml(sum)}</div>
         <div class="stem-advice" data-stem="${g}">${esc(stemText(grade, sum))}</div>
       </div>`;
     }
@@ -865,15 +1364,18 @@
       return `<section class="cp-sec" data-sec="${si}">
         ${multi ? `<div class="cp-sec-head"><h3>Voyage leg ${si + 1}</h3><input type="text" data-cp="legTitle" value="${esc(sec.legTitle || '')}" placeholder="Name of this leg (optional), e.g. Singapore → Rotterdam" aria-label="Name of voyage leg ${si + 1}" autocomplete="off"></div>` : ''}
         <div class="cp-route">
+          <div class="cp-cond"><label>Loading condition of this voyage leg <select data-cp="cond" aria-label="Loading condition, voyage leg ${si + 1}"><option value="ballast" ${secCond(sec) === 'ballast' ? 'selected' : ''}>Ballast</option><option value="laden" ${secCond(sec) === 'laden' ? 'selected' : ''}>Laden</option></select></label>
+            <span class="cp-seanote">${profileHasData(ctx.profile) ? 'Lines in a mode take speed and MT/day of the vessel profile for this condition.' : 'Set the vessel speed and consumption profile to fill speed and MT/day by mode.'}</span></div>
           <div class="table-scroll" role="region" aria-label="Route and fuels, voyage leg ${si + 1}">
             <table class="bunker-table">
               <thead><tr>
                 <th class="col-drag" title="Drag a line to move it"></th><th class="col-port" title="Check if port or anchorage">P/A</th><th class="col-from">From</th><th class="col-to">To</th>
+                <th class="col-mode" title="Full / eco / safe speed at sea, port or anchorage: speed and MT/day come from the vessel's speed and consumption profile">Mode</th>
                 <th class="col-num">Dist nm</th><th class="col-num">Speed kn</th><th class="col-num">Days</th>
                 ${head}
                 <th class="col-margin" title="Optional reserve for this line only">Margin %</th><th class="col-del"></th>
               </tr></thead>
-              <tbody>${sec.legs.map(rowHtml).join('')}</tbody>
+              <tbody>${sec.legs.map((l, i) => rowHtml(l, i, secCond(sec))).join('')}</tbody>
             </table>
           </div>
           <div class="bunker-leg-actions cp-slotbar">
@@ -883,6 +1385,7 @@
           </div>
           ${seaNotesHtml(sec)}
           <div class="bunker-results" data-results="route">${routeCardsHtml(cs.route)}</div>
+          <div class="table-scroll cp-restable-wrap" data-results="table">${resultsTableHtml(cs)}</div>
         </div>
         <div class="bunker-plan-grid">${used.length ? used.map((g) => stockHtml(g, si, cs.sums[normGrade(g)])).join('') : '<div class="hint">Pick a fuel and a MT/day on a line to see its quantities, ROB and stem advice.</div>'}</div>
       </section>`;
@@ -939,6 +1442,7 @@
       const approach = ctx.plan.sea.approachNm > 0 ? 2 * ctx.plan.sea.approachNm : 0; // pilot station / approach at both ends
       leg.distance = Math.round(r.nm + approach); leg.distAuto = true; leg.daysManual = false; leg.days = null;
       leg.ecaNm = null; leg.ecaZones = ''; leg.ecaRuns = null; leg.routeFrom = leg.fromPort; leg.routeTo = leg.toPort;
+      leg.canals = (r.passages || []).filter((c) => CANALS[c]); leg.risks = riskAreasOf([[a.lat, a.lon]].concat(r.path, [[b.lat, b.lon]]));
       if (ctx.sea.Eca) {
         const ids = ecaIdsFor(ctx.plan);
         const m = ctx.sea.Eca.measure([[a.lat, a.lon]].concat(r.path, [[b.lat, b.lon]]), ids);
@@ -1100,47 +1604,88 @@
         <span class="cp-mapedit" hidden>${routes.length > 1 ? `<select data-map="which" aria-label="Route to edit">${routes.map((r, i) => `<option value="${i}">${esc(r.from.name)} → ${esc(r.to.name)}</option>`).join('')}</select>` : ''}
           <button type="button" class="${ui.primary}" data-map="apply" title="Use this route and recalculate the lines">Apply and recalculate</button>
           <button type="button" class="${ui.btn}" data-map="delwp" title="Remove the selected waypoint (or double-click it)">Delete waypoint</button>
+          <button type="button" class="${ui.btn}" data-map="snap" title="Move the selected waypoint (or every waypoint on land) to the nearest sea">Snap to sea</button>
+          <button type="button" class="${ui.btn}" data-map="coords" title="Type the position of each waypoint">Coordinates…</button>
           <button type="button" class="${ui.btn}" data-map="reset" title="Throw away your waypoints: back to the automatic route">Back to automatic</button>
-          <button type="button" class="${ui.btn}" data-map="cancel">Cancel</button></span>
+          <button type="button" class="${ui.btn}" data-map="cancel">Cancel</button>
+          <span class="cp-maplib"><input type="text" data-map="rname" maxlength="60" placeholder="Name this route" aria-label="Route name"><button type="button" class="${ui.btn}" data-map="rsave" title="Keep these waypoints under this name for these two ports">Save route</button>
+            <select data-map="rlist" aria-label="Saved routes for these ports"></select><button type="button" class="${ui.btn}" data-map="ruse">Use</button><button type="button" class="${ui.btn}" data-map="rdel" aria-label="Delete the saved route">✕</button></span></span>
         <button type="button" class="${ui.primary}" data-map="close">Close</button>
-        <div class="cp-mapinfo">${info.join('<br>')}</div><div class="cp-mapedithint" hidden>Drag a white dot to move a waypoint; drag a + to add one; double-click a waypoint to remove it. Red leg: crosses land. Yellow dashed: close to land.</div></div><div class="cp-mapcanvas"></div>
+        <div class="cp-mapinfo">${info.join('<br>')}</div><div class="cp-mapcoords" hidden></div><div class="cp-mapedithint" hidden>Drag a white dot to move a waypoint; drag a + to add one; double-click a waypoint to remove it. Red leg: crosses land. Yellow dashed: close to land.</div></div><div class="cp-mapcanvas"></div>
         <div class="cp-mapnote">Planning picture from a coarse sea-lane network and a generalised coastline (Natural Earth), not a chart and not for navigation. ECA zones follow the published coordinates; avoided areas are approximate boxes.</div>`;
       document.body.appendChild(ov);
       const areas = built.areas;
       const ctl = SM.create(ov.querySelector('.cp-mapcanvas'), { land: assets.land, zones: ctx.sea.Eca ? ctx.sea.Eca.ZONES.filter((z) => ids.includes(z.id)) : [], areas });
       ctl.setRoutes(routes);
       const close = () => { ctl.destroy(); ov.remove(); document.removeEventListener('keydown', onKey); };
-      let ed = null, edRoute = null; const bar = ov.querySelector('.cp-mapedit'), hint = ov.querySelector('.cp-mapedithint'), infoEl = ov.querySelector('.cp-mapinfo');
+      let ed = null, edRoute = null, edLandLegs = () => 0; const bar = ov.querySelector('.cp-mapedit'), hint = ov.querySelector('.cp-mapedithint'), infoEl = ov.querySelector('.cp-mapinfo'), coordsEl = ov.querySelector('.cp-mapcoords');
+      /** The waypoints as a table of positions to read and type: lat / lon in degrees. */
+      const drawCoords = (wps) => {
+        if (coordsEl.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') { coordsEl.querySelectorAll('input').forEach((el, k) => { if (el !== document.activeElement) { const w = wps[Math.floor(k / 2)]; if (w) el.value = (k % 2 ? w[1] : w[0]).toFixed(4); } }); return; }
+        coordsEl.innerHTML = wps.length ? `<table class="cp-proftable"><thead><tr><th>#</th><th class="num">Latitude °</th><th class="num">Longitude °</th><th></th></tr></thead><tbody>${wps.map((w, i) => `<tr><th scope="row">${i + 1}</th><td><input type="number" step="0.0001" min="-85" max="85" data-wp="${i}" data-wc="0" value="${w[0].toFixed(4)}"></td><td><input type="number" step="0.0001" min="-180" max="180" data-wp="${i}" data-wc="1" value="${w[1].toFixed(4)}"></td><td><button type="button" class="${ui.btn}" data-map="wpdel" data-wp="${i}" aria-label="Delete waypoint ${i + 1}">✕</button></td></tr>`).join('')}</tbody></table>` : '<div class="cp-seanote">No waypoints: the route is the direct great circle. Drag a + on the map to add one.</div>';
+      };
+      /** Saved routes for the two ports of the route being edited (either direction; read backwards when saved the other way round). */
+      const libFor = (r2) => (ctx.plan.sea.routeLib || []).filter((x) => (x.a === r2.aId && x.b === r2.bId) || (x.a === r2.bId && x.b === r2.aId)).map((x) => ({ id: x.id, name: x.name, wps: x.a === r2.aId ? x.wps.map((p) => p.slice()) : x.wps.map((p) => p.slice()).reverse() }));
+      const drawLib = () => { const sel = ov.querySelector('[data-map="rlist"]'); if (!sel || !edRoute) return; const l = libFor(edRoute); sel.innerHTML = l.length ? l.map((x) => `<option value="${esc(x.id)}">${esc(x.name)} (${x.wps.length} wp)</option>`).join('') : '<option value="">No saved routes</option>'; sel.disabled = !l.length; };
       const infoHtml = () => info.join('<br>');
-      const stopEdit = () => { if (ed) ed.stop(); ed = null; ctl.setRoutes(routes); bar.hidden = true; hint.hidden = true; ov.querySelector('[data-map="edit"]').hidden = false; infoEl.innerHTML = infoHtml(); };
+      const stopEdit = () => { if (ed) ed.stop(); ed = null; coordsEl.hidden = true; ctl.setRoutes(routes); bar.hidden = true; hint.hidden = true; ov.querySelector('[data-map="edit"]').hidden = false; infoEl.innerHTML = infoHtml(); };
       const startEdit = (idx) => {
         if (ed) ed.stop();
         const r = routes[idx]; edRoute = r;
         ctl.setRoutes(routes.filter((x) => x !== r));
+        const landLegs = (wps) => { const pts = [[r.from.lat, r.from.lon]].concat(wps, [[r.to.lat, r.to.lon]]); let n = 0; if (ctx.sea.router.segmentCheck) for (let i = 1; i < pts.length; i++) if (ctx.sea.router.segmentCheck(pts[i - 1], pts[i]).land) n++; return n; };
+        edLandLegs = landLegs;
         const live = (wps) => {
           const pts = [[r.from.lat, r.from.lon]].concat(wps, [[r.to.lat, r.to.lon]]); let nm = 0; for (let i = 1; i < pts.length; i++) nm += gcNm(pts[i - 1], pts[i]);
           const m = ctx.sea.Eca ? ctx.sea.Eca.measure(pts, ids) : { runs: [], ecaNm: 0 };
-          infoEl.innerHTML = `<strong>${esc(r.from.name)} → ${esc(r.to.name)}</strong>: ${fmtN(nm, 0)} nm${m.ecaNm >= 1 ? ` · ECA ${fmtN(m.ecaNm, 0)} nm` : ''} · ${wps.length} waypoint${wps.length === 1 ? '' : 's'}`;
+          const nl = landLegs(wps);
+          infoEl.innerHTML = `<strong>${esc(r.from.name)} → ${esc(r.to.name)}</strong>: ${fmtN(nm, 0)} nm${m.ecaNm >= 1 ? ` · ECA ${fmtN(m.ecaNm, 0)} nm` : ''} · ${wps.length} waypoint${wps.length === 1 ? '' : 's'}${nl ? ` · <span style="color:#ff6b5b;font-weight:700">${nl} leg${nl === 1 ? '' : 's'} cross land</span>` : ''}`;
+          if (!coordsEl.hidden) drawCoords(wps);
           return { ecaRuns: m.runs };
         };
         ed = ctl.edit({ from: r.from, to: r.to, color: r.color, wps: r.waypoints, onChange: live, crosses: (p, q) => (ctx.sea.router.segmentCheck ? ctx.sea.router.segmentCheck(p, q) : { land: false, near: false }) });
-        bar.hidden = false; hint.hidden = false; ov.querySelector('[data-map="edit"]').hidden = true;
+        bar.hidden = false; hint.hidden = false; ov.querySelector('[data-map="edit"]').hidden = true; drawLib(); live(ed.get());
       };
       const onKey = (e) => { if (e.key === 'Escape') { if (ed) stopEdit(); else close(); } else if ((e.key === 'Delete' || e.key === 'Backspace') && ed && ed.selected() >= 0) { e.preventDefault(); ed.removeSelected(); } };
       document.addEventListener('keydown', onKey);
-      ov.addEventListener('change', (e) => { if (e.target.dataset && e.target.dataset.map === 'which' && ed) startEdit(Number(e.target.value)); });
+      ov.addEventListener('change', (e) => {
+        const d = e.target.dataset || {};
+        if (d.map === 'which' && ed) startEdit(Number(e.target.value));
+        else if (d.wp !== undefined && d.wc !== undefined && ed) { const w = ed.get(); const i = Number(d.wp); const v = Number(e.target.value); if (w[i] && isFinite(v)) { w[i][Number(d.wc)] = Number(d.wc) === 0 ? Math.max(-85, Math.min(85, v)) : ((v + 540) % 360) - 180; ed.set(w); } }
+      });
+      const doApply = (wps, key) => {
+        const m = ctx.plan.sea.manual; delete m[edRoute.bId + '|' + edRoute.aId]; if (wps.length) m[key] = wps; else delete m[key];
+        const n = recalcRoute(edRoute.aId, edRoute.bId); renderGrid(); scheduleSave(); close();
+        toast(n ? 'Your route is used: ' + n + ' route' + (n === 1 ? '' : 's') + ' recalculated' : 'Your route is saved, but no line uses these ports yet');
+      };
       ov.addEventListener('click', (e) => {
         const k = e.target.dataset && e.target.dataset.map; if (!k) return;
         if (k === 'edit') startEdit(0);
         else if (k === 'which') return;
         else if (k === 'cancel') stopEdit();
         else if (k === 'delwp') { if (ed && !ed.removeSelected()) toast('Click a waypoint first'); }
+        else if (k === 'wpdel') { if (ed) { const w = ed.get(); w.splice(Number(e.target.dataset.wp), 1); ed.set(w); } }
+        else if (k === 'coords') { coordsEl.hidden = !coordsEl.hidden; if (!coordsEl.hidden && ed) drawCoords(ed.get()); }
+        else if (k === 'snap') {
+          if (!ed || !ctx.sea.router.snapToSea) return; const w = ed.get(); const sel = ed.selected(); let n = 0;
+          w.forEach((p, i) => { if (sel >= 0 && i !== sel) return; if (ctx.sea.router.pointCheck(p).land) { w[i] = ctx.sea.router.snapToSea(p); n++; } });
+          if (n) { ed.set(w); toast(n + ' waypoint' + (n === 1 ? '' : 's') + ' moved to the nearest sea'); } else toast(sel >= 0 ? 'That waypoint is already at sea' : 'No waypoint is on land');
+        }
+        else if (k === 'rsave') {
+          if (!ed || !edRoute) return; const w = ed.get(); if (!w.length) { toast('Add a waypoint first'); return; }
+          const nm = ((ov.querySelector('[data-map="rname"]') || {}).value || '').trim() || 'Route ' + ((ctx.plan.sea.routeLib || []).length + 1);
+          if ((ctx.plan.sea.routeLib || []).length >= 30) { toast('Thirty saved routes: delete one first'); return; }
+          ctx.plan.sea.routeLib.push({ id: 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 4), name: nm.slice(0, 60), a: edRoute.aId, b: edRoute.bId, wps: w.map((p) => p.slice()) });
+          scheduleSave(); drawLib(); toast('Route saved: ' + nm);
+        }
+        else if (k === 'ruse') { const id = (ov.querySelector('[data-map="rlist"]') || {}).value; const x = edRoute && libFor(edRoute).find((y) => y.id === id); if (ed && x) { ed.set(x.wps); toast('Route put on the map: ' + x.name + ' (press Apply and recalculate to use it)'); } }
+        else if (k === 'rdel') { const id = (ov.querySelector('[data-map="rlist"]') || {}).value; if (id) { ctx.plan.sea.routeLib = ctx.plan.sea.routeLib.filter((y) => y.id !== id); scheduleSave(); drawLib(); } }
         else if (k === 'reset') { if (!edRoute) return; const m = ctx.plan.sea.manual; delete m[edRoute.aId + '|' + edRoute.bId]; delete m[edRoute.bId + '|' + edRoute.aId]; const n = recalcRoute(edRoute.aId, edRoute.bId); renderGrid(); scheduleSave(); close(); toast(n ? 'Automatic route restored: ' + n + ' route' + (n === 1 ? '' : 's') + ' recalculated' : 'Automatic route restored'); }
         else if (k === 'apply') {
           if (!ed || !edRoute) return; const wps = ed.get(); const key = edRoute.aId + '|' + edRoute.bId;
-          const m = ctx.plan.sea.manual; delete m[edRoute.bId + '|' + edRoute.aId]; if (wps.length) m[key] = wps; else delete m[key];
-          const n = recalcRoute(edRoute.aId, edRoute.bId); renderGrid(); scheduleSave(); close();
-          toast(n ? 'Your route is used: ' + n + ' route' + (n === 1 ? '' : 's') + ' recalculated' : 'Your route is saved, but no line uses these ports yet');
+          const nl = edLandLegs(wps);
+          if (nl) { askYes(nl + ' leg' + (nl === 1 ? '' : 's') + ' of this route cross land. Use it anyway? (Snap to sea moves waypoints that are on land.)', 'Use it anyway').then((yes) => { if (yes) doApply(wps, key); }); return; }
+          doApply(wps, key); return;
         }
         else if (k === 'close') close(); else if (k === 'in') ctl.zoom(1.6); else if (k === 'out') ctl.zoom(1 / 1.6); else if (k === 'fit') ctl.fit();
         else if (k === 'eca') ctl.set({ showEca: e.target.checked }); else if (k === 'areas') ctl.set({ showAreas: e.target.checked });
@@ -1173,6 +1718,17 @@
         <div class="cp-seanote"><strong>Port data</strong>: derived from the World Port Index (Pub. 150) of the U.S. National Geospatial-Intelligence Agency (NGA), a U.S. Government work in the public domain (17 U.S.C. § 105). Provided “as is”, without warranty as to accuracy, currency or completeness (10 U.S.C. § 456). For general information and planning only: not an official NGA navigational product and not for primary navigation or passage planning; consult current charts, Sailing Directions, Notices to Mariners and port authorities. No endorsement by NGA or the U.S. Government is implied (10 U.S.C. § 425). <strong>Sea lanes</strong>: Eurostat SeaRoute network (EUPL-1.2, based on Oak Ridge National Laboratory data, 2000).</div>
       </details>`;
     }
+    /** Reminders for the routes of a section: canals (transit hours and fee to type), high-risk areas and winter ice. */
+    function remindersHtml(sec) {
+      const canalIds = {}; const riskIds = new Set();
+      (sec.legs || []).forEach((l) => { (l.canals || []).forEach((c) => { canalIds[c] = true; }); (l.risks || []).forEach((r) => riskIds.add(r)); });
+      const canals = Object.keys(canalIds); const rem = remindersFor([...riskIds], ctx.plan.date);
+      if (!canals.length && !rem.length) return '';
+      const cc = ctx.plan.canal || {};
+      const canalRows = canals.map((c) => `<div class="cp-seanote">⚓ <strong>${esc(CANALS[c].label)}</strong>: transit about <input type="number" min="0" step="0.5" style="width:5em" data-canal="${c}" data-ck="hours" value="${cc[c] && cc[c].hours != null ? cc[c].hours : ''}" placeholder="${CANALS[c].hours}"> h (typical ${CANALS[c].hours} h, waiting for the convoy / booking not included) · dues about USD <input type="number" min="0" step="100" style="width:7em" data-canal="${c}" data-ck="fee" value="${cc[c] && cc[c].fee != null ? cc[c].fee : ''}" placeholder="fee"> — the dues depend on the ship's size and are added to the cost in Scenarios. Transit time is for information: add a port / anchorage line if the ship stays longer.</div>`).join('');
+      const riskRows = rem.map((a) => `<div class="cp-seanote cp-risk">⚠ <strong>${esc(a.label)}</strong>: ${esc(a.note)}</div>`).join('');
+      return `<div class="cp-reminders">${canalRows}${riskRows}<div class="cp-seanote">Reminders from approximate area boxes, not official limits or advice.</div></div>`;
+    }
     function seaNotesHtml(sec) {
       const rows = sec.legs.map((l, i) => {
         if (!l.distAuto || !l.seaNote) return '';
@@ -1188,7 +1744,7 @@
         let n = 1; while (i + n < sec.legs.length && sec.legs[i + n].grp && sec.legs[i + n].grp.id === l.grp.id) n++;
         tools.push(`<div class="cp-seanote cp-grouptools">Route ${esc(l.grp.from)} → ${esc(l.grp.to)} is split into ${n} line${n === 1 ? '' : 's'}${(ctx.plan.sea.manual || {})[l.grp.fromPort + '|' + l.grp.toPort] || (ctx.plan.sea.manual || {})[l.grp.toPort + '|' + l.grp.fromPort] ? ' (on your own route)' : ''}: <button type="button" class="${ui.btn} cp-strong" data-act="sea-recalc-group" data-row="${i}" title="Work this route again from its ports and split it again">Recalculate this route</button> <button type="button" class="${ui.btn}" data-act="merge-group" data-row="${i}" title="Replace these lines by one line again">Back to one line</button></div>`);
       });
-      return rows.join('') + tools.join('');
+      return rows.join('') + tools.join('') + remindersHtml(sec);
     }
     function gridHtml() {
       const plan = ctx.plan;
@@ -1209,9 +1765,11 @@
       const g = $('[data-cp="grid"]');
       if (!g) return;
       if (!ctx.plan.sea || !Array.isArray(ctx.plan.legs)) ctx.plan = ensurePlan(ctx.plan, ctx.fuels); // a plan without its route options would stop the page drawing
+      followProfile();
       const keep = document.activeElement && host.contains(document.activeElement) ? document.activeElement : null;
       const at = keep ? { sec: secIndexOf(keep), row: keep.closest('tr') && keep.closest('tr').dataset.row, f: keep.dataset.f, s: keep.dataset.s, sf: keep.dataset.sf, grade: keep.dataset.grade, cp: keep.dataset.cp } : null;
       g.innerHTML = gridHtml();
+      renderScen(true); renderPva();
       if (at) {
         let sel = null;
         const pre = `[data-sec="${at.sec}"] `;
@@ -1243,13 +1801,9 @@
           if (dEl) dEl.classList.toggle('cp-auto', !!leg.distAuto);
         });
         const rc = el.querySelector('[data-results="route"]'); if (rc) rc.innerHTML = routeCardsHtml(cs.route);
-        el.querySelectorAll('[data-results]:not([data-results="route"])').forEach((r) => {
-          const sum = cs.sums[normGrade(r.dataset.results)];
-          if (!sum) return;
-          r.innerHTML = gradeCardsHtml(sum);
-          const st = el.querySelector(`[data-stem="${r.dataset.results}"]`);
-          if (st) st.textContent = stemText(r.dataset.results, sum);
-        });
+        const rt = el.querySelector('[data-results="table"]'); if (rt) rt.innerHTML = resultsTableHtml(cs);
+        if (si === 0) renderScen(false);
+        el.querySelectorAll('[data-stem]').forEach((st) => { const sum = cs.sums[normGrade(st.dataset.stem)]; if (sum) st.textContent = stemText(st.dataset.stem, sum); });
         el.querySelectorAll('[data-chained]').forEach((inp) => {
           const sum = cs.sums[normGrade(inp.dataset.chained)];
           inp.value = sum && sum.rob != null ? fmtFuel(sum.rob) : '';
@@ -1293,16 +1847,22 @@
           <div class="field"><label>Vessel</label><input data-cp="vessel" readonly></div>
           <div class="field"><label>Voyage No.</label><input data-cp="voyageNo"></div>
           <div class="field"><label>Date</label><input type="date" data-cp="date"></div>
-          <div class="btn-row" style="margin:0;">${nav}<button type="button" class="${ui.btn}" data-btn="clear">Clear</button></div>
+          <div class="btn-row" style="margin:0;">${nav}<button type="button" class="${ui.btn}" data-btn="undo" disabled title="Take back the last change (Ctrl+Z when no box is being edited)">↶ Undo</button><button type="button" class="${ui.btn}" data-btn="redo" disabled title="Put the change back (Ctrl+Y)">↷ Redo</button><button type="button" class="${ui.btn}" data-btn="clear">Clear</button></div>
         </div>
         <datalist id="cp-ports"></datalist>
+        <details class="cp-seaopts cp-profile" data-cp="profbox"><summary>Vessel speed &amp; consumption profile · full / eco / safe, port, anchorage</summary><div data-cp="profile"></div></details>
         <div data-cp="grid"></div>
+        ${A.actuals ? `<details class="cp-seaopts cp-pva" data-cp="pva"><summary>Plan against actual · what the ship has done since departure compared with this plan</summary><div data-cp="pvaBody"></div></details>` : ''}
+        <details class="cp-seaopts cp-scen" data-cp="scen"><summary>Scenarios · save versions of this plan (route, speed mode, fuel) and compare them</summary><div data-cp="scenBody"></div></details>
         <div class="bunker-plan-footer">
           <label class="bunker-remarks"><span>Remarks</span><textarea data-cp="remarks" rows="4" placeholder="Remarks for this calculation"></textarea></label>
           <div class="btn-row bunker-plan-actions">
             <button type="button" class="${ui.btn}" data-btn="save">Save</button>
             <button type="button" class="${ui.btn}" data-btn="print">Print</button>
             <button type="button" class="${ui.primary}" data-btn="save-print">Save &amp; Print</button>
+            <button type="button" class="${ui.btn}" data-btn="summary" title="A one-page summary for the office: totals, status of every fuel, where to bunker">Summary (1 page)</button>
+            <button type="button" class="${ui.btn}" data-btn="csv" title="Save the plan as a spreadsheet file (CSV, opens in Excel)">Export CSV</button>
+            <button type="button" class="${ui.btn}" data-btn="copy" title="Copy a short report text to paste into an e-mail or message">Copy report text</button>
           </div>
         </div>
       </div>
@@ -1319,18 +1879,38 @@
     }
 
     /* ---- actions ---- */
-    function sheetHtml(plan, mapHtml) {
+    function sheetHtml(plan, mapHtml, opts) {
       const vessel = (A.vesselName && A.vesselName()) || '';
       const voyageNo = plan.voyageNo || '—';
       const meta = (A.printMetaGrid || ((items) => items.map((i) => `${esc(i.label)}: ${i.value}`).join(' · ')));
       const metaItems = [{ label: 'Voyage No.', value: esc(voyageNo) }, { label: 'Date', value: esc(plan.date || '—') }, { label: 'Vessel', value: esc(vessel) }]
         .concat((A.printExtraMeta && A.printExtraMeta()) || []);
-      return { vessel, voyageNo, html: `${A.printHeader ? A.printHeader({ vessel, voyageNo }) : ''}${meta(metaItems, 4)}${printBody(plan, ctx.fuels, mapHtml && !A.printMapSeparate ? Object.assign({}, A, { mapHtml }) : A)}${A.printSignature ? A.printSignature() : ''}` };
+      return { vessel, voyageNo, html: `${A.printHeader ? A.printHeader({ vessel, voyageNo }) : ''}${meta(metaItems, 4)}${(opts && opts.summary ? summaryBody : printBody)(plan, ctx.fuels, mapHtml && !A.printMapSeparate ? Object.assign({}, A, { mapHtml }) : A)}${A.printSignature ? A.printSignature() : ''}` };
     }
-    async function doPrint(plan) {
-      const mapHtml = await printMapHtml(plan);
-      const s = sheetHtml(plan, mapHtml);
+    async function doPrint(plan, opts) {
+      const mapHtml = opts && opts.summary ? '' : await printMapHtml(plan);
+      const s = sheetHtml(plan, mapHtml, opts);
       if (A.printSheet) A.printSheet(s.html, plan, { mapHtml: A.printMapSeparate ? mapHtml : '' });
+    }
+    /** The plan as a file (CSV for Excel) through the host's way of saving, else a download. */
+    async function exportCsv() {
+      const info = { vessel: (A.vesselName && A.vesselName()) || '', condition: condNow() };
+      const text = planCsv(ctx.plan, info);
+      const name = ('Consumption plan ' + (info.vessel ? info.vessel + ' ' : '') + (ctx.plan.voyageNo ? 'V' + ctx.plan.voyageNo + ' ' : '') + (ctx.plan.date || '')).trim().replace(/[\\/:*?"<>|]+/g, '-') + '.csv';
+      try {
+        if (A.saveFile) await A.saveFile(name, text, 'text/csv');
+        else if (typeof window !== 'undefined' && window.ChengSaveFile && window.ChengSaveFile.saveJson) await window.ChengSaveFile.saveJson(name, text, { mime: 'text/csv' });
+        else { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500); }
+        toast('Exported: ' + name);
+      } catch (err) { toast('Export did not work: ' + (err && err.message || err)); }
+    }
+    async function copyReport() {
+      const text = planText(ctx.plan, { vessel: (A.vesselName && A.vesselName()) || '' });
+      let ok = false;
+      try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(text); ok = true; } } catch (_) { /* fall back below */ }
+      if (!ok) { try { const ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px;top:0'; document.body.appendChild(ta); ta.select(); ok = document.execCommand('copy'); ta.remove(); } catch (_) { ok = false; } }
+      toast(ok ? 'Report text copied: paste it into an e-mail or message' : 'Copy did not work on this device');
+      return text;
     }
     async function askName() {
       if (A.askName) return A.askName(ctx.plan);
@@ -1418,11 +1998,14 @@
       const sec = secAt(d.si);
       const to = d.pos; // the line ends up with `pos` lines above it
       const hadGroup = !!(sec.legs[d.from] && sec.legs[d.from].grp);
-      if (moveLeg(sec, d.from, to)) { renderGrid(); scheduleSave(); toast(hadGroup ? 'Line moved; its route is no longer treated as one split route' : 'Line moved'); }
+      if ((rememberUndo(), moveLeg(sec, d.from, to))) { renderGrid(); scheduleSave(); toast(hadGroup ? 'Line moved; its route is no longer treated as one split route' : 'Line moved'); }
     }
     host.addEventListener('pointerup', (e) => endDrag(e, false));
     host.addEventListener('pointercancel', (e) => endDrag(e, true));
     host.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && /^(z|y)$/i.test(e.key) && !/^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || '')) {
+        e.preventDefault(); const redo = e.key.toLowerCase() === 'y' || e.shiftKey; if (!(redo ? doRedo() : doUndo())) toast(redo ? 'Nothing to redo' : 'Nothing to undo'); return;
+      }
       const h = e.target.closest && e.target.closest('[data-drag]');
       if (!h || !host.contains(h) || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
       e.preventDefault();
@@ -1437,11 +2020,25 @@
       const t = e.target.closest('[data-act],[data-btn],[data-hist]');
       if (!t || !host.contains(t)) return;
       const act = t.dataset.act;
-      if (act === 'add-leg') { const sec = secAt(secIndexOf(t)); sec.legs.push(newLeg({ fuelSlots: ctx.plan.fuelSlots, legs: sec.legs }, ctx.fuels)); renderGrid(); scheduleSave(); return; }
+      if (act !== 'sea-map' && act !== 'sea-map-all' && !t.dataset.hist && !['undo', 'redo', 'csv', 'copy', 'summary', 'print', 'save', 'save-print'].includes(t.dataset.btn)) rememberUndo();
+      if (act === 'scen-save') {
+        if (ctx.plan.scenarios.length >= 8) { toast('Eight scenarios are saved: delete one first'); return; }
+        const nm = (($('[data-cp="scenName"]') || {}).value || '').trim() || 'Scenario ' + (ctx.plan.scenarios.length + 1);
+        ctx.plan.scenarios.push({ id: 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: nm.slice(0, 60), savedAt: new Date().toISOString(), snap: planCopy() });
+        renderScen(true); scheduleSave(); toast('Scenario saved: ' + nm); return;
+      }
+      if (act === 'scen-load') {
+        const sc = ctx.plan.scenarios.find((x) => x.id === t.dataset.id); if (!sc) return;
+        const keep = { stocks: ctx.plan.stocks, scenarios: ctx.plan.scenarios, prices: ctx.plan.prices, voyageNo: ctx.plan.voyageNo, date: ctx.plan.date, remarks: ctx.plan.remarks, saveName: ctx.plan.saveName };
+        const np = ensurePlan(JSON.parse(JSON.stringify(sc.snap)), ctx.fuels); Object.assign(np, keep);
+        ctx.plan = np; renderGrid(); scheduleSave(); toast('Scenario put back: ' + sc.name + ' (Undo takes it away)'); return;
+      }
+      if (act === 'scen-del') { ctx.plan.scenarios = ctx.plan.scenarios.filter((x) => x.id !== t.dataset.id); renderScen(true); scheduleSave(); return; }
+      if (act === 'add-leg') { const sec = secAt(secIndexOf(t)); const nl = newLeg({ fuelSlots: ctx.plan.fuelSlots, legs: sec.legs }, ctx.fuels); sec.legs.push(nl); startMode(sec, nl); renderGrid(); scheduleSave(); return; }
       if (act === 'del-leg') {
         const sec = secAt(secIndexOf(t)); const i = Number(t.dataset.row);
         if (!sec.legs[i]) return;
-        if (sec.legs.length > 1) sec.legs.splice(i, 1); else sec.legs[0] = newLeg({ fuelSlots: ctx.plan.fuelSlots, legs: sec.legs }, ctx.fuels);
+        if (sec.legs.length > 1) sec.legs.splice(i, 1); else { sec.legs[0] = newLeg({ fuelSlots: ctx.plan.fuelSlots, legs: sec.legs }, ctx.fuels); startMode(sec, sec.legs[0]); }
         renderGrid(); scheduleSave(); return;
       }
       if (act === 'merge-group' || act === 'sea-recalc-group') {
@@ -1511,12 +2108,18 @@
         return;
       }
       const btn = t.dataset.btn;
+      if (btn === 'undo') { if (!doUndo()) toast('Nothing to undo'); return; }
+      if (btn === 'redo') { if (!doRedo()) toast('Nothing to redo'); return; }
+      if (btn === 'csv') { await exportCsv(); return; }
+      if (btn === 'copy') { await copyReport(); return; }
+      if (btn === 'summary') { await doPrint(ctx.plan, { summary: true }); return; }
+      if (act === 'mv') { const sec = secAt(secIndexOf(t)); const from = Number(t.dataset.row); const to = from + Number(t.dataset.dir); if (moveLeg(sec, from, to)) { renderGrid(); scheduleSave(); const el = host.querySelector(`[data-sec="${secIndexOf(t)}"] tr[data-row="${to}"] [data-act="mv"][data-dir="${t.dataset.dir}"]`); if (el && el.focus) el.focus(); } return; }
       if (btn === 'clear') {
         if (!(await askYes('Clear the consumption plan? All lines and figures on this page are removed (saved calculations are kept).', 'Clear'))) return;
         const voyageNo = (A.voyageNo && A.voyageNo()) || ctx.plan.voyageNo || '';
         const keepSea = ctx.plan.sea ? Object.assign({}, ctx.plan.sea, { manual: {} }) : null; // the route options are settings, not figures: they stay
         refreshFuels();
-        ctx.plan = ensurePlan(defaultPlan(ctx.fuels), ctx.fuels); if (keepSea) ctx.plan.sea = keepSea; ctx.plan.voyageNo = voyageNo; ctx.plan.date = new Date().toISOString().slice(0, 10);
+        ctx.plan = ensurePlan(defaultPlan(ctx.fuels), ctx.fuels); if (keepSea) ctx.plan.sea = keepSea; startMode(ctx.plan, ctx.plan.legs[0]); ctx.plan.voyageNo = voyageNo; ctx.plan.date = new Date().toISOString().slice(0, 10);
         set('[data-cp="voyageNo"]', voyageNo); set('[data-cp="date"]', ctx.plan.date); set('[data-cp="remarks"]', '');
         renderGrid(); scheduleSave(); toast('Consumption plan cleared');
       } else if (btn === 'print') doPrint(ctx.plan);
@@ -1543,10 +2146,13 @@
 
     host.addEventListener('input', (e) => {
       const t = e.target;
+      if (t.dataset && t.dataset.cp !== 'history-search') rememberTyping();
       if (t.dataset.cp === 'voyageNo') { ctx.plan.voyageNo = t.value.trim(); scheduleSave(); return; }
       if (t.dataset.cp === 'remarks') { ctx.plan.remarks = t.value; scheduleSave(); return; }
       if (t.dataset.cp === 'history-search') { renderHistory(); return; }
       if (t.dataset.cp === 'legTitle') { secAt(secIndexOf(t)).legTitle = t.value; syncAll(); scheduleSave(); return; }
+      if (t.dataset.canal !== undefined) { const c = t.dataset.canal; const x = (ctx.plan.canal[c] = ctx.plan.canal[c] || { hours: null, fee: null }); const v = num(t.value); x[t.dataset.ck] = v > 0 ? v : null; renderScen(false); scheduleSave(); return; }
+      if (t.dataset.price !== undefined) { const v = num(t.value); const k = normGrade(t.dataset.price); if (v > 0) ctx.plan.prices[k] = v; else delete ctx.plan.prices[k]; renderScen(false); scheduleSave(); return; }
       const tr = t.closest && t.closest('tr[data-row]');
       if (tr && t.dataset.f) {
         const rowSec = secAt(secIndexOf(t));
@@ -1581,12 +2187,13 @@
         }
         else if (f === 'port') { /* handled on change */ }
         else if (f === 'grade') { /* handled on change */ }
-        else if (f === 'daily') { leg.fuels[Number(t.dataset.s)].daily = num(t.value); }
+        else if (f === 'daily') { leg.fuels[Number(t.dataset.s)].daily = num(t.value); if (leg.mode) { leg.mode = ''; const ms = tr.querySelector('[data-f="mode"]'); if (ms) ms.value = ''; } }
         else {
           const v = num(t.value);
           if (f === 'days') { leg.days = v; leg.daysManual = v != null; }
           else {
             leg[f] = v;
+            if (f === 'speed' && leg.mode) { leg.mode = ''; const ms = tr.querySelector('[data-f="mode"]'); if (ms) ms.value = ''; }
             if (f === 'distance') { leg.distAuto = false; leg.seaNote = ''; leg.ecaNm = null; leg.ecaZones = ''; leg.ecaRuns = null; leg.routeFrom = null; leg.routeTo = null; }
             if (f === 'distance' || f === 'speed') { if (!leg.port) { leg.daysManual = false; leg.days = null; } }
           }
@@ -1605,7 +2212,10 @@
     });
     host.addEventListener('change', (e) => {
       const t = e.target;
+      if (t.tagName === 'SELECT' || t.type === 'checkbox' || (t.dataset && t.dataset.cp === 'date')) rememberUndo();
       if (t.dataset.cp === 'date') { ctx.plan.date = t.value; scheduleSave(); return; }
+      if (t.dataset.cp === 'depart') { rememberUndo(); ctx.plan.depart = t.value || ''; const b = $('[data-cp="pvaBody"]'); if (b) b.innerHTML = pvaHtml(); scheduleSave(); return; }
+      if (t.dataset.cp === 'cond') { secAt(secIndexOf(t)).cond = condOf(t.value); renderGrid(); scheduleSave(); return; }
       if (t.dataset.seaApproach !== undefined) {
         const v = Number(t.value); ctx.plan.sea.approachNm = v > 0 ? Math.min(100, v) : 0;
         const n = recalcAuto(); renderGrid(); scheduleSave(); if (n) toast(n + ' distance' + (n === 1 ? '' : 's') + ' recalculated'); return;
@@ -1634,16 +2244,30 @@
       if (!tr || !t.dataset.f) return;
       const leg = secAt(secIndexOf(t)).legs[Number(tr.dataset.row)];
       if (!leg) return;
+      if (t.dataset.f === 'mode') { leg.mode = t.value; renderGrid(); scheduleSave(); return; }
       if (t.dataset.f === 'port') {
         leg.port = !!t.checked;
         if (!leg.port) { leg.daysManual = false; leg.days = null; }
+        if (leg.mode) leg.mode = '';
+        { const sec2 = secAt(secIndexOf(t)); refreshProfile(); leg.mode = defaultMode(null, leg, ctx.profile, secCond(sec2)); }
         renderGrid(); scheduleSave();
       } else if (t.dataset.f === 'grade') {
         leg.fuels[Number(t.dataset.s)].grade = t.value;
         ctx._sig = gradesSignature(); renderGrid(); scheduleSave();
       }
     });
-    host.addEventListener('toggle', (e) => { if (e.target && e.target.classList && e.target.classList.contains('cp-seaopts')) ctx.seaOpen = e.target.open; }, true);
+    host.addEventListener('toggle', (e) => {
+      if (e.target && e.target.classList && e.target.classList.contains('cp-pva')) { if (e.target.open) { const b = $('[data-cp="pvaBody"]'); if (b) b.innerHTML = pvaHtml(); } return; }
+      if (e.target && e.target.classList && e.target.classList.contains('cp-scen')) { if (e.target.open) renderScen(true); return; }
+      if (e.target && e.target.classList && e.target.classList.contains('cp-profile')) {
+        if (e.target.open && !ctx.profCtl && A.profile) {
+          ctx.profCtl = mountProfile(e.target.querySelector('[data-cp="profile"]'), { fuels: () => ctx.fuels, load: A.profile, save: A.saveProfile, ui,
+            confirm: null, onChange: () => { followProfile(); renderGrid(); } });
+        }
+        return;
+      }
+      if (e.target && e.target.classList && e.target.classList.contains('cp-seaopts')) ctx.seaOpen = e.target.open;
+    }, true);
     if (A.sea && typeof A.sea === 'function') A.sea().then((x) => { ctx.sea = x; renderGrid(); }).catch((e) => console.warn('sea distance not available', e));
     ctx._sig = gradesSignature();
     return { render: renderGrid, plan: () => ctx.plan, persist: persistNow };
@@ -1651,6 +2275,7 @@
 
   return {
     MAX_SLOTS, MAX_LEGS, FALLBACK_FUELS, sectionList, suggestDaily, chain, combined, newSection, overviewHtml, normGrade, familyOf, cleanFuels,
+    plannedAt, planVsActual, riskAreasOf, remindersFor, canalsUsed, CANALS, RISK_AREAS, scenMetrics, cleanScenarios, cleanPrices, planCsv, planText, gradeStatus, lastSafeBunker, mountProfile, cleanProfile, profileEntry, profileHasData, applyMode, applyProfileToPlan, defaultMode, PROFILE_CONDS, SEA_MODES, PORT_MODES,
     emptyLeg, defaultPlan, newLeg, legIsBlank, legDays, fuelQty, fuelMargin, routeSummary, gradeSummary, gradesInUse, stockOf,
     ensurePlan, finalize, fromLegacy, toLegacy, legacySig, daysShown, printBody, fmtN, fmtFuel, routeCardsHtml, gradeCardsHtml,
     mount, seaLoader, splitLegAtEca, defaultEcaFuel,

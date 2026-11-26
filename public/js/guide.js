@@ -404,6 +404,20 @@
     },
     {
       group: "Problems",
+      q: "How do I plan fuel by speed (full, eco, safe) without typing the consumption on every line?",
+      purpose: "The vessel profile holds the speed and daily consumption; each plan line only picks a mode.",
+      steps: [
+        "Voyage Chief: Setup → Speed & Consumption Profile. Tank Chief: Consumption Plan → Vessel speed & consumption profile. In the plan you can open the same table too.",
+        "For Ballast and for Laden fill in the knots of Full, Eco and Safe speed and the MT per day of each fuel column at that speed, then MT per day in port and at anchorage. Fuel 1 is the main fuel (it becomes the ECA fuel inside an ECA); Fuel 2 is usually the distillate of the generators and boiler.",
+        "In the Consumption Plan each line has a Mode box: Manual, Full / Eco / Safe at sea, Port or Anchorage on a port stay. The line takes its speed and MT/day from the profile, so nothing is typed on every line. Typing a speed or MT/day on the line makes it Manual.",
+        "Each voyage leg has its loading condition (Ballast or Laden); change it and the lines follow the other row of the profile. The pilot areas stay manual.",
+        "Results are one table: status per fuel (OK, TIGHT, SHORT, OVER CAPACITY) and, when a fuel runs short, the last place to bunker. Scenarios saves versions of the plan (route, mode, fuel) and compares distance, days, fuel and cost; fuel prices and canal dues are typed once. Plan against actual compares the plan with the log since departure (Voyage Chief).",
+        "Export CSV opens in Excel; Copy report text is for an e-mail; Summary prints one page; Undo / Redo (Ctrl+Z / Ctrl+Y) take back a change, also Clear and a deleted line; the ▲ ▼ buttons move a line on a phone.",
+        "On the route map, Edit route has Coordinates to type each waypoint, Snap to sea, and named saved routes for the two ports. Route reminders under the lines mention Suez / Panama transit time and dues (typed by you), high-risk and ice areas from approximate boxes: a reminder, not advice."
+      ]
+    },
+    {
+      group: "Problems",
       q: "The text is too small, or is cut off inside a box.",
       purpose: "The whole page can be made larger so small figures and cut-off text can be read.",
       steps: [

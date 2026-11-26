@@ -285,4 +285,65 @@ ok(CP.normGrade('LS MGO') === 'LSMGO' && CP.normGrade('ulsmgo') === 'LSMGO' && C
 ok(CP.normGrade('VLSFO') === 'LSFO' && CP.normGrade('HSFO') === 'HFO' && CP.normGrade('MGO') === 'MDO/MGO', 'fuel names stay mapped');
 ok(CP.cleanFuels([{ id: 'HFO' }, { id: 'LSMGO' }, { id: 'MDO/MGO', active: false }]).map((f) => f.id).join() === 'HFO,LSMGO', 'an unused MDO/MGO tank is left out of the vessel fuel list when LSMGO covers distillates');
 
+
+/* ---- speed and consumption profile ---- */
+{
+  const prof = CP.cleanProfile({ sea: { ballast: { full: { kn: 14.5, c: [38, 3] }, eco: { kn: 12, c: [27, 3] } }, laden: { full: { kn: 13, c: [40, 3] } } }, port: { ballast: { port: { c: [2, 1.5] }, anchorage: { c: [0, 1.2] } } } }, 2);
+  ok(CP.profileHasData(prof) && !CP.profileHasData(CP.cleanProfile(null)), 'a profile with figures is recognised, an empty one is not');
+  ok(CP.profileEntry(prof, 'ballast', 'safe') === null && CP.profileEntry(prof, 'ballast', 'full').kn === 14.5, 'a mode without figures is not offered');
+  const leg = CP.emptyLeg(2); leg.mode = 'eco';
+  ok(CP.applyMode(leg, prof, 'ballast') && leg.speed === 12 && leg.fuels[0].daily === 27 && leg.fuels[1].daily === 3, 'a line in a mode takes the speed and MT/day of the profile');
+  ok(CP.applyMode(leg, prof, 'laden') === false && leg.speed === 12, 'a mode without figures for the condition leaves the line alone');
+  const pl = CP.emptyLeg(2); pl.port = true; pl.mode = 'full';
+  CP.applyMode(pl, prof, 'ballast'); ok(pl.mode === 'port' && pl.fuels[0].daily === 2, 'a sea mode on a port stay becomes Port');
+  ok(CP.defaultMode(leg, CP.emptyLeg(2), prof, 'ballast') === 'eco' && CP.defaultMode(null, CP.emptyLeg(2), prof, 'ballast') === 'full', 'a new line starts in the mode of the line before, else full speed');
+  const plan = CP.ensurePlan({ v: 2, legs: [Object.assign(CP.emptyLeg(2), { mode: 'full', distance: 290, from: 'A', to: 'B', fuels: [{ grade: 'HFO', daily: null }, { grade: 'LSMGO', daily: null }] })], extra: [{ cond: 'laden', legs: [Object.assign(CP.emptyLeg(2), { mode: 'full', distance: 130, from: 'B', to: 'C', fuels: [{ grade: 'HFO', daily: null }, { grade: 'LSMGO', daily: null }] })] }] }, vessel);
+  CP.applyProfileToPlan(plan, prof, 'ballast');
+  ok(plan.legs[0].speed === 14.5 && plan.extra[0].legs[0].speed === 13 && plan.extra[0].legs[0].fuels[0].daily === 40, 'each voyage leg uses its own loading condition');
+}
+
+/* ---- short-bunker status ---- */
+{
+  const mk = (rob, daily, days) => CP.ensurePlan({ v: 2, legs: [Object.assign(CP.emptyLeg(2), { from: 'A', to: 'B', distance: days * 240, speed: 10, fuels: [{ grade: 'HFO', daily }, { grade: '', daily: null }] })], stocks: { HFO: { label: 'HFO', currentRob: rob } } }, vessel);
+  const st = (p) => CP.gradeStatus(CP.chain(p).sections[0].sums.HFO);
+  ok(st(mk(200, 30, 2)).code === 'ok' && st(mk(62, 30, 2)).code === 'tight' && st(mk(40, 30, 2)).code === 'short', 'OK, tight (less than 5 % of the burn left) and short');
+  ok(CP.gradeStatus(CP.chain(mk(null, 30, 2)).sections[0].sums.HFO).code === 'none', 'no ROB entered: no verdict');
+  ok(CP.gradeStatus(CP.chain(mk(100, 30, 2)).sections[0].sums.HFO, 80).code === 'over', 'ROB plus stem above the tank capacity is flagged');
+  const multi = CP.ensurePlan({ v: 2, legs: [Object.assign(CP.emptyLeg(2), { from: 'A', to: 'B', distance: 240, speed: 10, fuels: [{ grade: 'HFO', daily: 30 }, { grade: '', daily: null }] }), Object.assign(CP.emptyLeg(2), { from: 'B', to: 'C', distance: 240, speed: 10, fuels: [{ grade: 'HFO', daily: 30 }, { grade: '', daily: null }] })], stocks: { HFO: { label: 'HFO', currentRob: 40 } } }, vessel);
+  const lb = CP.lastSafeBunker(multi, 'HFO');
+  ok(lb && lb.index === 1 && lb.last === 'B' && Math.abs(lb.robAtLast - 10) < 1e-9, 'the last place to bunker is the port the line before ends in');
+  ok(CP.lastSafeBunker(mk(500, 30, 2), 'HFO') === null, 'no warning when the ROB never reaches the reserve');
+}
+
+/* ---- export ---- */
+{
+  const p = CP.ensurePlan({ v: 2, voyageNo: '7', date: '2026-11-26', legs: [Object.assign(CP.emptyLeg(2), { from: 'Port, A', to: 'B', distance: 240, speed: 10, mode: 'eco', fuels: [{ grade: 'HFO', daily: 30 }, { grade: 'LSMGO', daily: 2 }] })], stocks: { HFO: { label: 'HFO', currentRob: 200 } } }, vessel);
+  const csv = CP.planCsv(p, { vessel: 'MV X' }).replace(/^﻿/, '').split('\r\n');
+  ok(csv[1] === 'Vessel,MV X' && csv.some((l) => l.startsWith('Leg 1,1,Sea,"Port, A",B')), 'the CSV quotes text that holds a comma and lists every line');
+  ok(csv.some((l) => /^Leg 1,HFO,200\.000,/.test(l)), 'and a result row per fuel');
+  const txt = CP.planText(p, { vessel: 'MV X' });
+  ok(/Port, A → B 240 nm \(Eco speed\)/.test(txt) && /HFO: needs 30\.0 MT/.test(txt), 'the report text names the route, the mode and the fuel needed');
+}
+
+/* ---- scenarios, canals, risk areas, plan against actual ---- */
+{
+  const base = { v: 2, legs: [Object.assign(CP.emptyLeg(2), { from: 'A', to: 'B', distance: 240, speed: 10, canals: [], fuels: [{ grade: 'HFO', daily: 30 }, { grade: '', daily: null }] })] };
+  const a = CP.ensurePlan(Object.assign({ prices: { HFO: 500 } }, JSON.parse(JSON.stringify(base))), vessel);
+  const m = CP.scenMetrics(a);
+  ok(Math.abs(m.total - 30) < 1e-9 && Math.abs(m.cost - 15000) < 1e-6 && m.dist === 240, 'a scenario comes to its fuel, its distance and its cost');
+  const sc = CP.cleanScenarios([{ name: 'x', snap: Object.assign({ scenarios: [1] }, base) }, { name: 'bad' }]);
+  ok(sc.length === 1 && !sc[0].snap.scenarios && sc[0].name === 'x', 'saved scenarios are cleaned: no nesting, nothing without a plan');
+  ok(CP.cleanScenarios(new Array(12).fill({ snap: base })).length === 8, 'at most eight scenarios');
+  const suez = JSON.parse(JSON.stringify(base)); suez.legs[0].distAuto = true; suez.legs[0].canals = ['suez']; suez.legs[0].distance = 240;
+  const cp = CP.ensurePlan(Object.assign(suez, { canal: { suez: { hours: 16, fee: 250000 } } }), vessel);
+  ok(CP.canalsUsed(cp).suez === 1 && CP.scenMetrics(cp).canalFees === 250000, 'canal dues are counted once per route');
+  ok(CP.riskAreasOf([[12.5, 45], [12.5, 50]]).includes('gulf_aden') && !CP.riskAreasOf([[40, -40], [41, -30]]).length, 'a route through the Gulf of Aden is flagged, open Atlantic is not');
+  ok(CP.remindersFor(['ice_baltic'], '2027-01-15').length === 1 && CP.remindersFor(['ice_baltic'], '2027-07-15').length === 0, 'winter ice only in the winter months');
+  const pv = CP.planVsActual(CP.ensurePlan(Object.assign({ stocks: { HFO: { label: 'HFO', currentRob: 300 } } }, { v: 2, legs: [Object.assign(CP.emptyLeg(2), { from: 'A', to: 'B', distance: 2400, speed: 10, fuels: [{ grade: 'HFO', daily: 30 }, { grade: '', daily: null }] })] }), vessel),
+    { to: '2026-11-03T12:00', dist: 500, fuel: { HFO: 70 }, rob: { HFO: 230 } }, '2026-11-01T12:00');
+  ok(pv && Math.abs(pv.elapsedDays - 2) < 1e-9 && Math.abs(pv.dist.planned - 480) < 1e-6 && Math.abs(pv.dist.diff - 20) < 1e-6, 'plan against actual: two days of a 10-knot plan is 480 nm');
+  ok(Math.abs(pv.rows[0].planned - 60) < 1e-6 && Math.abs(pv.rows[0].pct - 16.6667) < 0.01 && Math.abs(pv.rows[0].robPlanned - 240) < 1e-6, 'and 60 MT of fuel: the log is 17 % over');
+  ok(CP.planVsActual(CP.defaultPlan(vessel), { to: '2026-11-03T12:00', dist: 1, fuel: {} }, '') === null, 'no departure, no comparison');
+}
+
 console.log(`consumption plan: ${pass} checks passed`);
