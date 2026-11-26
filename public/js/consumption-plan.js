@@ -567,8 +567,25 @@
   function portLabel(p) { return p.name + ', ' + p.cc; }
 
   const STYLE = `
-    .cp-route .bunker-table .col-fuel { width: 124px; min-width: 110px; }
-    .cp-route .bunker-table .col-qty { width: 86px; min-width: 80px; }
+    /* The entry lines keep readable box sizes and scroll sideways when the screen is narrower, instead of squeezing From / To and the figures. */
+    .cp-route .table-scroll { overflow-x: auto !important; -webkit-overflow-scrolling: touch; max-height: none !important; padding-bottom: 8px; }
+    .cp-route .bunker-table { table-layout: fixed !important; width: max-content !important; min-width: 0 !important; }
+    /* also on a phone held upright: the host may turn bunker tables into stacked cards with fixed captions, which do not fit these columns; here the line stays a row you scroll along */
+    .cp-route .bunker-table { display: table !important; }
+    .cp-route .bunker-table thead { display: table-header-group !important; }
+    .cp-route .bunker-table tbody { display: table-row-group !important; }
+    .cp-route .bunker-table tr { display: table-row !important; margin: 0 !important; padding: 0 !important; border: 0 !important; background: none !important; }
+    .cp-route .bunker-table td { display: table-cell !important; width: auto; padding: 3px 2px !important; }
+    .cp-route .bunker-table td::before { content: none !important; display: none !important; }
+    .cp-route .bunker-table td.col-from, .cp-route .bunker-table td.col-to { grid-column: auto; }
+    .cp-route .bunker-table .col-drag, .cp-route .bunker-table .col-del { width: 40px !important; }
+    .cp-route .bunker-table .col-port { width: 44px !important; }
+    .cp-route .bunker-table .col-from, .cp-route .bunker-table .col-to { width: 220px !important; min-width: 220px; }
+    .cp-route .bunker-table .col-num { width: 88px !important; }
+    .cp-route .bunker-table .col-margin { width: 80px !important; }
+    .cp-route .bunker-table .col-fuel { width: 150px !important; min-width: 140px; }
+    .cp-route .bunker-table .col-qty { width: 96px !important; min-width: 90px; }
+    .cp-route .bunker-table input[type="text"], .cp-route .bunker-table input[type="number"], .cp-route .bunker-table select { font-size: 14px !important; min-height: 32px; }
     .cp-fuelbox { display: flex; flex-direction: column; gap: 3px; width: 100%; }
     .cp-fuelbox select, .cp-fuelbox input { display: block; width: 100%; min-width: 0; box-sizing: border-box; margin: 0; }
     .cp-route .col-qty input { width: 100%; min-width: 0; }

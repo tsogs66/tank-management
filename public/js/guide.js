@@ -404,6 +404,18 @@
     },
     {
       group: "Problems",
+      q: "The text is too small, or is cut off inside a box.",
+      purpose: "The whole page can be made larger so small figures and cut-off text can be read.",
+      steps: [
+        "Press the magnifier button in the lower-left corner, then + or − (the % button goes back to 100 %). Ctrl + + / Ctrl + − / Ctrl + 0 and Ctrl + mouse wheel do the same; on a phone or tablet pinch with two fingers.",
+        "The level is remembered on this device for this page.",
+        "A text box that cuts its text off shows the whole text when you point at it or tap into it.",
+        "Consumption Plan: the entry lines scroll sideways instead of squeezing From and To.",
+        "Noon to Noon preview: it opens zoomed in; use + / − / Fit width / Whole page / Full screen, or Ctrl + wheel and pinch."
+      ]
+    },
+    {
+      group: "Problems",
       q: "Tanks do not appear in ChEng AIO, or the e-ORB says Tank Chief has no tanks.",
       purpose: "The e-ORB reads the tank list from Tank Chief of the same ship.",
       steps: [
