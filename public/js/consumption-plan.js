@@ -32,7 +32,8 @@
   /** Same fuel under different names (VLSFO / LSFO, MGO / MDO/MGO) is one grade. */
   function normGrade(g) {
     const u = String(g == null ? '' : g).trim().toUpperCase();
-    return ({ VLSFO: 'LSFO', ULSFO: 'LSFO', 'MO/MGO': 'MDO/MGO', MDO: 'MDO/MGO', MGO: 'MDO/MGO' })[u] || u;
+    const c = u.replace(/[\s_-]+/g, '');
+    return ({ VLSFO: 'LSFO', ULSFO: 'LSFO', LSHFO: 'LSFO', LSIFO: 'LSFO', HSFO: 'HFO', 'MO/MGO': 'MDO/MGO', MDO: 'MDO/MGO', MGO: 'MDO/MGO', ULSMGO: 'LSMGO', LSMDO: 'LSMGO' })[c] || ({ LSMGO: 'LSMGO', LSFO: 'LSFO', HFO: 'HFO' })[c] || u;
   }
   /** Residual or distillate: only used to keep the older two-block shape and for the Residual / Distillate fallback. */
   function familyOf(g) {
@@ -566,8 +567,25 @@
   function portLabel(p) { return p.name + ', ' + p.cc; }
 
   const STYLE = `
-    .cp-route .bunker-table .col-fuel { width: 124px; min-width: 110px; }
-    .cp-route .bunker-table .col-qty { width: 86px; min-width: 80px; }
+    /* The entry lines keep readable box sizes and scroll sideways when the screen is narrower, instead of squeezing From / To and the figures. */
+    .cp-route .table-scroll { overflow-x: auto !important; -webkit-overflow-scrolling: touch; max-height: none !important; padding-bottom: 8px; }
+    .cp-route .bunker-table { table-layout: fixed !important; width: max-content !important; min-width: 0 !important; }
+    /* also on a phone held upright: the host may turn bunker tables into stacked cards with fixed captions, which do not fit these columns; here the line stays a row you scroll along */
+    .cp-route .bunker-table { display: table !important; }
+    .cp-route .bunker-table thead { display: table-header-group !important; }
+    .cp-route .bunker-table tbody { display: table-row-group !important; }
+    .cp-route .bunker-table tr { display: table-row !important; margin: 0 !important; padding: 0 !important; border: 0 !important; background: none !important; }
+    .cp-route .bunker-table td { display: table-cell !important; width: auto; padding: 3px 2px !important; }
+    .cp-route .bunker-table td::before { content: none !important; display: none !important; }
+    .cp-route .bunker-table td.col-from, .cp-route .bunker-table td.col-to { grid-column: auto; }
+    .cp-route .bunker-table .col-drag, .cp-route .bunker-table .col-del { width: 40px !important; }
+    .cp-route .bunker-table .col-port { width: 44px !important; }
+    .cp-route .bunker-table .col-from, .cp-route .bunker-table .col-to { width: 220px !important; min-width: 220px; }
+    .cp-route .bunker-table .col-num { width: 88px !important; }
+    .cp-route .bunker-table .col-margin { width: 80px !important; }
+    .cp-route .bunker-table .col-fuel { width: 150px !important; min-width: 140px; }
+    .cp-route .bunker-table .col-qty { width: 96px !important; min-width: 90px; }
+    .cp-route .bunker-table input[type="text"], .cp-route .bunker-table input[type="number"], .cp-route .bunker-table select { font-size: 14px !important; min-height: 32px; }
     .cp-fuelbox { display: flex; flex-direction: column; gap: 3px; width: 100%; }
     .cp-fuelbox select, .cp-fuelbox input { display: block; width: 100%; min-width: 0; box-sizing: border-box; margin: 0; }
     .cp-route .col-qty input { width: 100%; min-width: 0; }
@@ -607,6 +625,10 @@
     .cp-mapov { position: fixed; inset: 0; z-index: 100000; background: #0b1620; color: #e8eef5; display: flex; flex-direction: column; }
     .cp-mapbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 8px 12px; background: #13283b; }
     .cp-mapbar button { min-width: 38px; padding: 6px 10px; }
+    .cp-askov { z-index: 100000; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.55); }
+    .cp-askbox { background: #13283b; color: #fff; padding: 18px 20px; border-radius: 10px; max-width: 460px; width: calc(100% - 32px); box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+    .cp-askbox p { margin: 0 0 14px; line-height: 1.4; }
+    .cp-askbtns { display: flex; gap: 10px; justify-content: flex-end; }
     .cp-mapedit { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .cp-mapedit[hidden], .cp-mapedithint[hidden], .cp-mapbar button[hidden] { display: none; }
     .cp-mapedithint { flex-basis: 100%; font-size: 12px; opacity: .85; }
@@ -723,7 +745,7 @@
       const st = document.createElement('style'); st.id = 'cp-style'; st.textContent = STYLE; document.head.appendChild(st);
     }
     const data = A.load() || {};
-    ctx.plan = ensurePlan(data.plan, ctx.fuels);
+    ctx.plan = ensurePlan(data.plan, ctx.fuels); refreshFuels(); conformToVessel();
     ctx.history = Array.isArray(data.history) ? data.history : [];
     if (!ctx.plan.voyageNo) ctx.plan.voyageNo = (A.voyageNo && A.voyageNo()) || '';
     if (!ctx.plan.date) ctx.plan.date = new Date().toISOString().slice(0, 10);
@@ -731,6 +753,53 @@
     const $ = (sel) => host.querySelector(sel);
     const toast = (m) => { try { A.toast && A.toast(m); } catch (_) { /* ignore */ } };
 
+    /** A question with OK / Cancel that is drawn by the page itself. The browser's own dialog is silently refused (answers "no") inside some embedded frames and apps, which made
+     *  Clear, Delete and Recalculate look dead. */
+    function askYes(message, okLabel) {
+      if (A.confirm) { try { return Promise.resolve(A.confirm(message)); } catch (_) { /* use ours */ } }
+      return new Promise((resolve) => {
+        const ov = document.createElement('div'); ov.className = 'cp-mapov cp-askov'; ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true');
+        ov.innerHTML = `<div class="cp-askbox"><p></p><div class="cp-askbtns"><button type="button" class="${ui.btn}" data-ask="no">Cancel</button><button type="button" class="${ui.primary}" data-ask="yes"></button></div></div>`;
+        ov.querySelector('p').textContent = message; ov.querySelector('[data-ask="yes"]').textContent = okLabel || 'OK';
+        const done = (v) => { document.removeEventListener('keydown', onKey, true); ov.remove(); resolve(v); };
+        const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false); } else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); done(true); } };
+        ov.addEventListener('click', (e) => { const k = e.target.dataset && e.target.dataset.ask; if (k) done(k === 'yes'); else if (e.target === ov) done(false); });
+        document.addEventListener('keydown', onKey, true);
+        document.body.appendChild(ov); const y = ov.querySelector('[data-ask="yes"]'); if (y) y.focus();
+      });
+    }
+    /** The vessel's fuels again from the host (the loaded vessel or its tanks may have changed since the page was opened). True when the list changed. */
+    function refreshFuels() {
+      const raw = A.fuels ? A.fuels() : null;
+      ctx.fuelsKnown = Array.isArray(raw) && raw.some((f) => f && (f.id || f.label));
+      const next = cleanFuels(raw);
+      const changed = next.map((f) => normGrade(f.id)).join('|') !== ctx.fuels.map((f) => normGrade(f.id)).join('|');
+      ctx.fuels = next; return changed;
+    }
+    function hasStock(st) { return !!st && ['currentRob', 'qtyReceive', 'deliveryRob', 'unpumpableMt', 'weatherMarginMt'].some((f) => num(st[f]) != null); }
+    /** Put the plan on the loaded vessel's fuels: a line whose fuel this vessel does not have takes the vessel's fuel of the same kind (residual / distillate); a ROB figure
+     *  of a fuel the vessel does not have moves with it. Returns how many lines were changed. */
+    function conformToVessel() {
+      if (!ctx.fuelsKnown) return 0;
+      const known = new Set(ctx.fuels.map((f) => normGrade(f.id)));
+      const map = new Map(); let n = 0;
+      const target = (g) => {
+        const k = normGrade(g); if (!k || known.has(k)) return null;
+        if (!map.has(k)) { const same = ctx.fuels.filter((f) => f.family === familyOf(g)); map.set(k, same.length ? same[0].id : null); }
+        return map.get(k);
+      };
+      sectionList(ctx.plan).forEach((sec) => {
+        (sec.legs || []).forEach((leg) => (leg.fuels || []).forEach((f) => { const t = f.grade ? target(f.grade) : null; if (t) { f.grade = t; n++; } }));
+        Object.keys(sec.stocks || {}).forEach((k) => {
+          const from = sec.stocks[k]; const label = (from && from.label) || k;
+          if (known.has(normGrade(label))) return;
+          const t = target(label);
+          if (t) { const nk = normGrade(t); if (!hasStock(sec.stocks[nk])) sec.stocks[nk] = Object.assign({}, from, { label: t }); }
+          delete sec.stocks[k];
+        });
+      });
+      return n;
+    }
     function persistNow() {
       clearTimeout(ctx.timer);
       return Promise.resolve(A.persist({ plan: finalize(ctx.plan), history: ctx.history })).catch((e) => console.warn('consumption plan persist', e));
@@ -1139,6 +1208,7 @@
     function renderGrid() {
       const g = $('[data-cp="grid"]');
       if (!g) return;
+      if (!ctx.plan.sea || !Array.isArray(ctx.plan.legs)) ctx.plan = ensurePlan(ctx.plan, ctx.fuels); // a plan without its route options would stop the page drawing
       const keep = document.activeElement && host.contains(document.activeElement) ? document.activeElement : null;
       const at = keep ? { sec: secIndexOf(keep), row: keep.closest('tr') && keep.closest('tr').dataset.row, f: keep.dataset.f, s: keep.dataset.s, sf: keep.dataset.sf, grade: keep.dataset.grade, cp: keep.dataset.cp } : null;
       g.innerHTML = gridHtml();
@@ -1276,28 +1346,31 @@
       await persistNow();
       renderHistory();
     }
+    /** Put the ROB of the log or the tanks into the first voyage leg. `rob` is { gradeName: MT }. Every fuel the vessel has gets its figure, also one no line burns yet.
+     *  A figure is matched by grade name; one that matches no fuel of the vessel goes to the vessel's only fuel of the same kind (residual / distillate), else it is reported.
+     *  Returns { loaded: [{ grade, mt }], unmatched: [{ grade, mt }] }. */
     function loadRob(rob) {
-      /* rob: { gradeLabel: MT } from the log or the tanks. Matched by grade; the Residual / Distillate fallback takes its family. */
-      let any = false;
-      const entries = Object.keys(rob || {}).map((k) => [k, Number(rob[k]) || 0]);
-      const pick = (grade) => {
-        let v = 0;
-        entries.forEach(([k, mt]) => { if (normGrade(k) === normGrade(grade)) v += mt; });
-        if (!(v > 0) && FALLBACK_FUELS.some((f) => normGrade(f.id) === normGrade(grade))) {
-          entries.forEach(([k, mt]) => { if (familyOf(k) === familyOf(grade)) v += mt; });
-        }
-        return v;
-      };
-      gradesInUse(ctx.plan).forEach((g) => {
-        const v = pick(g);
-        if (v > 0) {
-          const key = normGrade(g);
-          ctx.plan.stocks[key] = Object.assign(ctx.plan.stocks[key] || {}, { label: g, currentRob: Math.round(v * 1000) / 1000 });
-          any = true;
-        }
+      refreshFuels();
+      const entries = Object.keys(rob || {}).map((k) => ({ k, mt: Number(rob[k]) || 0, used: false })).filter((e) => e.mt > 0);
+      const targets = ctx.fuels.map((f) => f.id);
+      gradesInUse(ctx.plan).forEach((g) => { if (!targets.some((x) => normGrade(x) === normGrade(g))) targets.push(g); });
+      const got = new Map();
+      targets.forEach((g) => { // exact (or same-name) matches first
+        entries.forEach((e) => { if (normGrade(e.k) === normGrade(g)) { got.set(g, (got.get(g) || 0) + e.mt); e.used = true; } });
+      });
+      entries.filter((e) => !e.used && /FO\b|HFO|IFO|MGO|MDO|MFO|GAS ?OIL|DISTIL|RESID|DMA|DMB|DMZ|BUNKER|FUEL/i.test(e.k)).forEach((e) => { // then by kind, when it is a fuel name and there is no doubt which fuel it is
+        const fam = familyOf(e.k); const cands = targets.filter((g) => familyOf(g) === fam && !got.has(g));
+        const sameKind = targets.filter((g) => familyOf(g) === fam);
+        if (cands.length === 1 || (sameKind.length === 1)) { const g = cands.length === 1 ? cands[0] : sameKind[0]; got.set(g, (got.get(g) || 0) + e.mt); e.used = true; }
+      });
+      const loaded = [];
+      got.forEach((v, g) => {
+        const key = normGrade(g);
+        ctx.plan.stocks[key] = Object.assign(ctx.plan.stocks[key] || {}, { label: g, currentRob: Math.round(v * 1000) / 1000 });
+        loaded.push({ grade: g, mt: Math.round(v * 1000) / 1000 });
       });
       renderGrid(); scheduleSave();
-      return any;
+      return { loaded, unmatched: entries.filter((e) => !e.used).map((e) => ({ grade: e.k, mt: e.mt })) };
     }
 
     host.innerHTML = pageHtml();
@@ -1360,7 +1433,7 @@
         const el = host.querySelector(`[data-sec="${si}"] tr[data-row="${to}"] [data-drag]`); if (el && el.focus) el.focus();
       }
     });
-    host.addEventListener('click', async (e) => {
+    const onHostClick = async (e) => {
       const t = e.target.closest('[data-act],[data-btn],[data-hist]');
       if (!t || !host.contains(t)) return;
       const act = t.dataset.act;
@@ -1374,7 +1447,7 @@
       if (act === 'merge-group' || act === 'sea-recalc-group') {
         const sec = secAt(secIndexOf(t)); const u = routeUnits(sec).find((x) => x.group && x.start === Number(t.dataset.row));
         if (!u) return;
-        if (act === 'sea-recalc-group' && unitEdited(sec, u) && !confirm('You typed a distance on one of these lines. Recalculating rebuilds the route from its ports and replaces it. Continue?')) return;
+        if (act === 'sea-recalc-group' && unitEdited(sec, u) && !(await askYes('You typed a distance on one of these lines. Recalculating rebuilds the route from its ports and replaces it. Continue?', 'Recalculate'))) return;
         if (rebuildUnit(sec, u, act === 'merge-group')) { renderGrid(); scheduleSave(); toast(act === 'merge-group' ? 'Back to one line' : 'Route recalculated'); }
         return;
       }
@@ -1392,7 +1465,7 @@
       }
       if (act === 'sea-recalc') {
         const edited = recalcEditedCount();
-        if (edited && !confirm(edited + ' route' + (edited === 1 ? ' has' : 's have') + ' a distance you typed. Recalculate replaces it with the sea-lane distance (a split route is rebuilt, with the MT/day of its line outside the ECA). Continue?')) return;
+        if (edited && !(await askYes(edited + ' route' + (edited === 1 ? ' has' : 's have') + ' a distance you typed. Recalculate replaces it with the sea-lane distance (a split route is rebuilt, with the MT/day of its line outside the ECA). Continue?', 'Recalculate'))) return;
         const n = recalcAuto(true); renderGrid(); scheduleSave();
         toast(n ? n + ' distance' + (n === 1 ? '' : 's') + ' recalculated' : 'No automatic distances to recalculate: pick From and To ports from the list');
         return;
@@ -1406,7 +1479,7 @@
         if (!ex.length) return;
         const last = ex[ex.length - 1];
         const filled = last.legs.some((l) => !legIsBlank(l)) || Object.keys(last.stocks || {}).length;
-        if (filled && !confirm('Remove the last voyage leg and its figures?')) return;
+        if (filled && !(await askYes('Remove the last voyage leg and its figures?', 'Remove'))) return;
         ex.pop(); if (!ex.length) delete ctx.plan.extra;
         renderGrid(); scheduleSave();
         return;
@@ -1419,7 +1492,7 @@
         if (ctx.plan.fuelSlots > 1) {
           const s = ctx.plan.fuelSlots - 1;
           const used = sectionList(ctx.plan).some((sec) => sec.legs.some((l) => l.fuels[s] && num(l.fuels[s].daily) != null));
-          if (used && !confirm('The last fuel column has figures. Remove it?')) return;
+          if (used && !(await askYes('The last fuel column has figures. Remove it?', 'Remove'))) return;
           ctx.plan.fuelSlots--; sectionList(ctx.plan).forEach((sec) => sec.legs.forEach((l) => { l.fuels.length = ctx.plan.fuelSlots; }));
           renderGrid(); scheduleSave();
         }
@@ -1430,18 +1503,20 @@
         if (!h) return;
         if (t.dataset.hist === 'load') {
           const snap = JSON.parse(JSON.stringify(h)); delete snap.savedAt;
-          ctx.plan = ensurePlan(snap, ctx.fuels);
+          refreshFuels(); ctx.plan = ensurePlan(snap, ctx.fuels); conformToVessel();
           set('[data-cp="voyageNo"]', ctx.plan.voyageNo || ''); set('[data-cp="date"]', ctx.plan.date || ''); set('[data-cp="remarks"]', ctx.plan.remarks || '');
           renderGrid(); scheduleSave(); toast('Loaded saved calculation');
         } else if (t.dataset.hist === 'print') doPrint(ensurePlan(h, ctx.fuels));
-        else if (t.dataset.hist === 'del' && confirm('Delete this saved calculation?')) { ctx.history.splice(i, 1); await persistNow(); renderHistory(); }
+        else if (t.dataset.hist === 'del' && await askYes('Delete this saved calculation?', 'Delete')) { ctx.history.splice(i, 1); await persistNow(); renderHistory(); }
         return;
       }
       const btn = t.dataset.btn;
       if (btn === 'clear') {
-        if (!confirm('Clear the consumption plan?')) return;
+        if (!(await askYes('Clear the consumption plan? All lines and figures on this page are removed (saved calculations are kept).', 'Clear'))) return;
         const voyageNo = (A.voyageNo && A.voyageNo()) || ctx.plan.voyageNo || '';
-        ctx.plan = defaultPlan(ctx.fuels); ctx.plan.voyageNo = voyageNo; ctx.plan.date = new Date().toISOString().slice(0, 10);
+        const keepSea = ctx.plan.sea ? Object.assign({}, ctx.plan.sea, { manual: {} }) : null; // the route options are settings, not figures: they stay
+        refreshFuels();
+        ctx.plan = ensurePlan(defaultPlan(ctx.fuels), ctx.fuels); if (keepSea) ctx.plan.sea = keepSea; ctx.plan.voyageNo = voyageNo; ctx.plan.date = new Date().toISOString().slice(0, 10);
         set('[data-cp="voyageNo"]', voyageNo); set('[data-cp="date"]', ctx.plan.date); set('[data-cp="remarks"]', '');
         renderGrid(); scheduleSave(); toast('Consumption plan cleared');
       } else if (btn === 'print') doPrint(ctx.plan);
@@ -1456,10 +1531,15 @@
         if (b && b.onClick) {
           const r = await b.onClick({ loadRob, plan: ctx.plan, render: renderGrid });
           if (r && r.changed != null) { renderGrid(); scheduleSave(); toast(r.changed ? r.message : r.empty); }
-          if (r && r.rob) { const any = loadRob(r.rob); toast(any ? (r.message || 'ROB loaded') : (r.empty || 'No fuel weight found')); }
+          if (r && r.rob) {
+            const res = loadRob(r.rob); const mt = (x) => x.grade + ' ' + fmtN(x.mt, 1);
+            if (res.loaded.length) toast((r.message || 'ROB loaded') + ': ' + res.loaded.map(mt).join(' · ') + ' MT' + (res.unmatched.length ? ' — not placed (this vessel has no such fuel): ' + res.unmatched.map(mt).join(' · ') : ''));
+            else toast(res.unmatched.length ? 'Fuel found (' + res.unmatched.map(mt).join(' · ') + ' MT) but the vessel has no fuel of that name: check the fuel grades of its tanks' : (r.empty || 'No fuel weight found'));
+          }
         }
       }
-    });
+        };
+    host.addEventListener('click', (e) => { onHostClick(e).catch((err) => { console.error('consumption plan', err); toast('That did not work (' + (err && err.message || err) + '). Nothing was changed; try again or reopen the page.'); }); });
 
     host.addEventListener('input', (e) => {
       const t = e.target;

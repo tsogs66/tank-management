@@ -8,6 +8,7 @@ const ASSETS = [
   '/fonts/fonts.css',
   '/js/app.js',
   '/js/guide.js',
+  '/js/ui-zoom.js',
   '/js/note-reminders.js',
   '/js/notes.js',
   '/js/api.js',

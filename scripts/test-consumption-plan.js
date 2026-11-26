@@ -280,4 +280,9 @@ ok(mapParts.every((l) => l.routeFrom === 7 && l.routeTo === 9), 'the stretches o
 ok(CP.ensurePlan({ v: 2, legs: [CP.emptyLeg(2)] }, vessel).sea.approachNm === 0 && CP.ensurePlan({ v: 2, legs: [CP.emptyLeg(2)], sea: { approachNm: 12 } }, vessel).sea.approachNm === 12 && CP.ensurePlan({ v: 2, legs: [CP.emptyLeg(2)], sea: { approachNm: 900 } }, vessel).sea.approachNm === 100, 'the approach allowance is off by default, saved, and limited to 100 nm');
 ok(Array.isArray(CP.ensurePlan({ v: 2, legs: [CP.emptyLeg(2)], sea: { ecaOn: ['north_east_atlantic'] } }, vessel).sea.ecaOn), 'areas switched on before they take effect are kept with the plan');
 
+/* ---- grade names written differently still match ---- */
+ok(CP.normGrade('LS MGO') === 'LSMGO' && CP.normGrade('ulsmgo') === 'LSMGO' && CP.normGrade('LS-MGO') === 'LSMGO' && CP.normGrade('LSMGO') === 'LSMGO', 'LSMGO written in its usual ways is one grade');
+ok(CP.normGrade('VLSFO') === 'LSFO' && CP.normGrade('HSFO') === 'HFO' && CP.normGrade('MGO') === 'MDO/MGO', 'fuel names stay mapped');
+ok(CP.cleanFuels([{ id: 'HFO' }, { id: 'LSMGO' }, { id: 'MDO/MGO', active: false }]).map((f) => f.id).join() === 'HFO,LSMGO', 'an unused MDO/MGO tank is left out of the vessel fuel list when LSMGO covers distillates');
+
 console.log(`consumption plan: ${pass} checks passed`);
