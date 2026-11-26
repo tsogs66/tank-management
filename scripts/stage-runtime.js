@@ -58,10 +58,15 @@ function get(url, dest, redirects = 0) {
 
 function unzip(zip, into) {
   fs.mkdirSync(into, { recursive: true });
-  // Every supported Windows runner has PowerShell; on Linux, unzip.
+  // Windows 10+ ships bsdtar, which reads zip files. PowerShell's Expand-Archive broke on a newer runner image
+  // ("Cannot find an overload for ExtractToDirectory"), so it is only the fallback.
   if (process.platform === 'win32') {
-    execFileSync('powershell', ['-NoProfile', '-Command',
-      `Expand-Archive -LiteralPath '${zip}' -DestinationPath '${into}' -Force`], { stdio: 'inherit' });
+    try {
+      execFileSync('tar', ['-xf', zip, '-C', into], { stdio: 'inherit' });
+    } catch (e) {
+      execFileSync('powershell', ['-NoProfile', '-Command',
+        `Expand-Archive -LiteralPath '${zip}' -DestinationPath '${into}' -Force`], { stdio: 'inherit' });
+    }
   } else {
     execFileSync('unzip', ['-q', '-o', zip, '-d', into], { stdio: 'inherit' });
   }
