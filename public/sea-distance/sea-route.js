@@ -5,7 +5,7 @@
   const R_NM = 3440.065, rad = Math.PI / 180;
   const gc = (lat1, lon1, lat2, lon2) => { const h = Math.sin((lat2 - lat1) * rad / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin((lon2 - lon1) * rad / 2) ** 2; return 2 * R_NM * Math.asin(Math.min(1, Math.sqrt(h))); };
   const r1 = x => Math.round(x * 10) / 10;
-  const ALWAYS_AVOID = ['northwest']; // Arctic Northwest Passage is excluded unless {allowNorthwest:true}
+  const ALWAYS_AVOID = ['northwest', 'northeast'], SMALL_CANALS = ['kiel', 'corinth']; // the Kiel and Corinth canals are too small for deep-sea ships: avoided unless {allowSmallCanals:true} // Arctic Northwest Passage and Northern Sea Route are excluded unless {allowNorthwest:true}
   /** Passages a route can be told to avoid (the network's own tags), in the order they are offered. `common` ones are shown first. */
   const PASSAGES = [
     { id: 'suez', label: 'Suez Canal', common: true }, { id: 'panama', label: 'Panama Canal', common: true },
@@ -13,6 +13,7 @@
     { id: 'ormuz', label: 'Strait of Hormuz', common: true }, { id: 'south_africa', label: 'Cape of Good Hope', common: true },
     { id: 'sunda', label: 'Sunda Strait' }, { id: 'gibraltar', label: 'Strait of Gibraltar' }, { id: 'bosporus', label: 'Bosporus' },
     { id: 'dardanelles', label: 'Dardanelles' }, { id: 'chili', label: 'Chile / Magellan passage' }, { id: 'bering', label: 'Bering Strait' },
+    { id: 'dover', label: 'Dover Strait' },
   ];
   /** Areas a route can be told to keep out of (approximate boxes [minLon, minLat, maxLon, maxLat]; the user decides which apply: they are not official designations).
    *  A port inside an area is still reachable: lane nodes within EXEMPT_NM of the From / To point are not blocked. */
@@ -28,9 +29,22 @@
   /** Open-water regions of the passages a route can be told to avoid. A great-circle shortcut may not cut through the region of an avoided passage. */
   const PASSAGE_BOX = {
     suez: [32.0, 29.5, 32.9, 31.5], panama: [-80.2, 8.85, -79.3, 9.45], babalmandab: [42.9, 12.3, 43.6, 13.0], malacca: [99.0, 1.0, 104.0, 6.0],
-    ormuz: [55.9, 26.0, 57.0, 27.2], south_africa: [12.0, -38.0, 30.0, -33.0], sunda: [105.4, -6.7, 106.3, -5.7], gibraltar: [-5.95, 35.7, -5.2, 36.2],
+    ormuz: [55.9, 26.0, 57.0, 27.2], south_africa: [12.0, -70.0, 30.0, -33.0], sunda: [105.4, -6.7, 106.3, -5.7], gibraltar: [-5.95, 35.7, -5.2, 36.2],
     bosporus: [28.9, 40.95, 29.25, 41.35], dardanelles: [26.0, 39.9, 26.6, 40.5], chili: [-76.0, -58.0, -64.0, -50.0], bering: [-171.0, 64.5, -167.0, 66.5],
+    kiel: [9.0, 53.8, 10.2, 54.4], corinth: [22.9, 37.85, 23.1, 38.0], dover: [1.0, 50.8, 1.8, 51.2],
   };
+  /** Does the straight segment (x1,y1)-(x2,y2) touch the box [minx, miny, maxx, maxy]? (Liang-Barsky) */
+  function segHitsBox(x1, y1, x2, y2, b) {
+    if (x2 - x1 > 180) x2 -= 360; else if (x2 - x1 < -180) x2 += 360; // a leg over the 180th meridian goes the short way round
+    return hitsBox(x1, y1, x2, y2, b) || hitsBox(x1, y1, x2, y2, [b[0] - 360, b[1], b[2] - 360, b[3]]) || hitsBox(x1, y1, x2, y2, [b[0] + 360, b[1], b[2] + 360, b[3]]);
+  }
+  function hitsBox(x1, y1, x2, y2, b) {
+    let t0 = 0, t1 = 1; const dx = x2 - x1, dy = y2 - y1;
+    for (const [p, q] of [[-dx, x1 - b[0]], [dx, b[2] - x1], [-dy, y1 - b[1]], [dy, b[3] - y1]]) {
+      if (p === 0) { if (q < 0) return false; } else { const r = q / p; if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; } else { if (r < t0) return false; if (r < t1) t1 = r; } }
+    }
+    return true;
+  }
   const SHORTCUT_STEP_NM = 4, LAND_MARGIN_DEG = 0.05, ENDPOINT_FREE_NM = 12, DENSIFY_NM = 50, CELL = 0.2;
 
   /** Land rings from data/map/land.json (integers in 1/q degree, delta-encoded) -> { pts, minx, miny, maxx, maxy } per ring. */
@@ -127,8 +141,11 @@
     /** route(from, to, {avoid:[passage names e.g. 'suez','panama'], allowNorthwest:false, maxAttachNm:300, k:3}) with from/to = {lat, lon}. */
     function route(from, to, opts) {
       opts = opts || {};
-      const avoidNames = new Set((opts.avoid || []).concat(opts.allowNorthwest ? [] : ALWAYS_AVOID).map(s => String(s).toLowerCase()));
+      const avoidNames = new Set((opts.avoid || []).concat(opts.allowNorthwest ? [] : ALWAYS_AVOID, opts.allowSmallCanals ? [] : SMALL_CANALS).map(s => String(s).toLowerCase()));
       const avoidT = new Set(); net.tags.forEach((t, i) => { if (avoidNames.has(t.toLowerCase())) avoidT.add(i); });
+      // passages the network does not tag (Hormuz, Cape of Good Hope, Sunda, Bosporus, Dardanelles): no lane may cross their region
+      const tagged = new Set(net.tags.map(t => t.toLowerCase()));
+      const edgeBoxes = [...avoidNames].filter(n => PASSAGE_BOX[n] && !tagged.has(n)).map(n => PASSAGE_BOX[n]);
       const maxA = opts.maxAttachNm || 300, k = opts.k || 3, warnings = [];
       const areaIds = new Set((opts.areas || []).map(s => String(s).toLowerCase()));
       const boxes = AREAS.filter(a => areaIds.has(a.id)).map(a => a.box);
@@ -144,6 +161,8 @@
           blocked[i] = 1;
         }
       }
+      const exN = new Uint8Array(N); // lane nodes near the From / To port stay usable even inside an avoided region (a port can lie in it)
+      if (edgeBoxes.length) for (let i = 0; i < N; i++) if (gc(from.lat, from.lon, lat[i], lon[i]) <= EXEMPT_NM || gc(to.lat, to.lon, lat[i], lon[i]) <= EXEMPT_NM) exN[i] = 1;
       const dist = new Float64Array(N).fill(Infinity), prev = new Int32Array(N).fill(-1), prevT = new Int16Array(N).fill(-1), heap = new Heap();
       for (const [d, i] of A) if (d <= maxA) { dist[i] = d; heap.push(d, i); }
       let bestTotal = Infinity, bestNode = -1;
@@ -155,6 +174,7 @@
         for (const [v, nm, t] of adj[u]) {
           if (t >= 0 && avoidT.has(t)) continue;
           if (blocked[v]) continue;
+          if (edgeBoxes.length && !exN[u] && !exN[v] && edgeBoxes.some(b => segHitsBox(lon[u], lat[u], lon[v], lat[v], b))) continue;
           const nd = du + nm; if (nd < dist[v]) { dist[v] = nd; prev[v] = u; prevT[v] = t; heap.push(nd, v); }
         }
       }
@@ -173,7 +193,7 @@
         // Great-circle shortcuts: join the route's own points by the shortest line wherever the sea is open.
         const P = [[from.lat, from.lon]].concat(pathPts, [[to.lat, to.lon]]);
         const seg = [-1].concat(nodesPath.map((nd, k) => (k === 0 ? -1 : prevT[nd])), [-1]); // seg[k] = tag of the edge arriving at P[k] (attach legs and untagged lanes are -1)
-        const passTag = k => seg[k] >= 0 && net.tags[seg[k]] !== 'segment' && net.tags[seg[k]] !== 'segment2';
+        const passTag = k => seg[k] >= 0 && net.tags[seg[k]] !== 'segment' && net.tags[seg[k]] !== 'segment2' && net.tags[seg[k]] !== 'dover'; // the Dover Strait is wide: its lane may be replaced by a straight line over open sea
         const tagAhead = new Int32Array(P.length + 1); for (let k = P.length - 1; k >= 0; k--) tagAhead[k] = tagAhead[k + 1] + (passTag(k) ? 1 : 0);
         const blockedBoxes = [...avoidNames].filter(n => PASSAGE_BOX[n]).map(n => PASSAGE_BOX[n]).concat(boxes);
         const inBox = (lo, la) => blockedBoxes.some(b => lo >= b[0] && lo <= b[2] && la >= b[1] && la <= b[3]);
@@ -205,6 +225,13 @@
           dense.push(out[out.length - 1]);
           pathPts = dense.slice(1, -1);
         }
+      }
+      // passages the network does not tag (Hormuz, Cape of Good Hope, Sunda, Bosporus, Dardanelles): reported when the route crosses their region
+      const finalPts = [[from.lat, from.lon]].concat(pathPts, [[to.lat, to.lon]]);
+      for (const n of Object.keys(PASSAGE_BOX)) {
+        if (tagged.has(n) || passages.includes(n)) continue;
+        const b = PASSAGE_BOX[n];
+        for (let k = 1; k < finalPts.length; k++) if (segHitsBox(finalPts[k - 1][1], finalPts[k - 1][0], finalPts[k][1], finalPts[k][0], b)) { passages.push(n); break; }
       }
       return {
         ok: true, nm: r1(total), laneNm: r1(bestTotal - aNm - bNm), networkNm: r1(bestTotal), savedNm: r1(bestTotal - total), shortcuts,

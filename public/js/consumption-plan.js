@@ -829,7 +829,7 @@
         return `<section class="pr-section" style="page-break-inside:avoid"><h3 class="pr-section-title">Route map</h3><div class="pr-section-body">`
           + `<img src="${url}" alt="Route map" style="width:100%;height:auto;display:block;border:1px solid #999">`
           + `<div style="font-size:9pt;margin-top:4px">${legend}</div>`
-          + `<div style="font-size:8pt;margin-top:3px">Orange: stretches inside an ECA (approximate outlines, not the MARPOL limits). Planning picture from a coarse sea-lane network and a generalised coastline (Natural Earth), not a chart and not for navigation.</div></div></section>`;
+          + `<div style="font-size:8pt;margin-top:3px">Orange: stretches inside an ECA (outlines for planning, not the official limits). Planning picture from a coarse sea-lane network and a generalised coastline (Natural Earth), not a chart and not for navigation. Port data: NGA World Port Index (Pub. 150), U.S. Government work in the public domain, provided as is; no NGA endorsement.</div></div></section>`;
       } catch (e) { console.warn('route map for the printout', e); return ''; }
     }
     async function showMap(items) {
@@ -845,7 +845,7 @@
         <button type="button" class="${ui.btn}" data-map="in" aria-label="Zoom in">+</button><button type="button" class="${ui.btn}" data-map="out" aria-label="Zoom out">−</button>
         <button type="button" class="${ui.btn}" data-map="fit">Fit</button><button type="button" class="${ui.primary}" data-map="close">Close</button>
         <div class="cp-mapinfo">${info.join('<br>')}</div></div><div class="cp-mapcanvas"></div>
-        <div class="cp-mapnote">Planning picture from a coarse sea-lane network and a generalised coastline (Natural Earth), not a chart and not for navigation. ECA zones and avoided areas are approximate outlines.</div>`;
+        <div class="cp-mapnote">Planning picture from a coarse sea-lane network and a generalised coastline (Natural Earth), not a chart and not for navigation. ECA zones follow the published coordinates; avoided areas are approximate boxes.</div>`;
       document.body.appendChild(ov);
       const areas = built.areas;
       const ctl = SM.create(ov.querySelector('.cp-mapcanvas'), { land: assets.land, zones: ctx.sea.Eca ? ctx.sea.Eca.ZONES.filter((z) => ids.includes(z.id)) : [], areas });
@@ -872,13 +872,14 @@
         <div class="cp-seanote">Type a few letters in From / To and pick the port: the distance is filled in offline (a distance you type is never replaced). Port stays have no distance.</div>
         <fieldset><legend>Avoid passages</legend>${passes}</fieldset>
         <fieldset><legend>Keep out of areas (approximate boxes you choose, not official designations)</legend>${areas}</fieldset>
-        <fieldset><legend>Measure the distance inside these ECA zones (North America, US Caribbean and North-East Atlantic follow the IMO coordinates; Baltic, North Sea and Mediterranean are drawn from the regulation wording)</legend>${ecaBoxes}</fieldset>
+        <fieldset><legend>Measure the distance inside these ECA zones (IMO coordinates: North America, US Caribbean, North-East Atlantic, Canadian Arctic, Norwegian Sea, and the Mediterranean wording of MEPC.361(79); China follows the Ministry of Transport scheme; Baltic and North Sea are drawn from the regulation wording)</legend>${ecaBoxes}</fieldset>
         <fieldset><legend>When a line is split at the ECA</legend><label>Fuel 1 on the ECA lines becomes <select data-sea-ecafuel>${ecaFuelOptions}</select></label></fieldset>
         <fieldset><legend>Route</legend><label><input type="checkbox" data-sea-greatcircle ${ctx.plan.sea.greatCircle !== false ? 'checked' : ''}> Shortest route: great-circle legs wherever the sea is open (recommended)</label></fieldset>
         <fieldset><legend>Approach</legend><label>Add <input type="number" min="0" max="100" step="1" style="width:4.5em" data-sea-approach value="${ctx.plan.sea.approachNm || ''}" placeholder="0"> nm at each end for the pilot station / port approach (published tables often measure from pilot station to pilot station; leave empty for the shortest route)</label></fieldset>
         <fieldset><legend>Printout</legend><label><input type="checkbox" data-sea-printmap ${ctx.plan.sea.printMap !== false ? 'checked' : ''}> Include the route map on the printout</label></fieldset>
         <div class="btn-row"><button type="button" class="${ui.btn}" data-act="sea-recalc">Recalculate automatic distances</button> <button type="button" class="${ui.btn}" data-act="sea-map-all">Show map of all lines</button></div>
         <div class="cp-seanote">Planning estimate: a coarse sea-lane network, shortened by great-circle legs where the sea is open (checked against a generalised coastline). Not for navigation. Arctic routes are never used.</div>
+        <div class="cp-seanote"><strong>Port data</strong>: derived from the World Port Index (Pub. 150) of the U.S. National Geospatial-Intelligence Agency (NGA), a U.S. Government work in the public domain (17 U.S.C. § 105). Provided “as is”, without warranty as to accuracy, currency or completeness (10 U.S.C. § 456). For general information and planning only: not an official NGA navigational product and not for primary navigation or passage planning; consult current charts, Sailing Directions, Notices to Mariners and port authorities. No endorsement by NGA or the U.S. Government is implied (10 U.S.C. § 425). <strong>Sea lanes</strong>: Eurostat SeaRoute network (EUPL-1.2, based on Oak Ridge National Laboratory data, 2000).</div>
       </details>`;
     }
     function seaNotesHtml(sec) {
