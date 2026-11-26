@@ -35,4 +35,8 @@ assert(Math.abs(M.zoomLevel(256 / 360) ) < 1e-9 && M.zoomLevel(4 * 256 / 360) ==
 const DP = JSON.parse(fs.readFileSync(path.join(__dirname, '../public/sea-distance/detail-places.json'), 'utf8'));
 assert(DP.format === 'detail-places-v1' && DP.places.length > 5000 && DP.places.every(p => p.length === 6 && Math.abs(p[1]) <= 180 && Math.abs(p[2]) <= 90), 'places file');
 assert(DP.places.some(p => p[0] === 'Rotterdam') && DP.places.some(p => p[0] === 'Singapore') && DP.places.some(p => p[0] === 'New Orleans'), 'port cities are in the places');
+const DC = JSON.parse(fs.readFileSync(path.join(__dirname, '../public/sea-distance/detail-countries.json'), 'utf8'));
+assert(DC.format === 'detail-countries-v1' && DC.countries.length > 200 && DC.countries.some(c => c[0] === 'France') && DC.countries.some(c => c[0] === 'Brazil'), 'country names');
+assert(DW.reefs.length > 500, 'reefs');
+assert(fine.length > 9000, 'small islands are kept (fine rings: ' + fine.length + ')');
 console.log('sea-map OK (' + land.length + ' land rings)');

@@ -122,6 +122,10 @@ Canals and many passages are visible only as the sea-lane network (a separate, o
 
 Towns and cities (`detail-places.json`): Natural Earth 1:10m `ne_10m_populated_places_simple` (public domain), SHA-256 `fd3fa867a320cbd5c5b6bb5bc550afeec2939fb2cef688e508007282a55ac42f`; names in plain ASCII, shown by the zoom level Natural Earth gives each place. Port names and positions on the map come from the World Port Index (see data/world-port-index/SOURCE.md).
 
+Country names (`detail-countries.json`): Natural Earth 1:10m `ne_10m_admin_0_countries`, label point and zoom range of each name; SHA-256 `239eec57ac17f100a11e2536cffc56752c318b50ae765b0918ff7aab4ce8f255`. Names follow Natural Earth's de-facto naming; they say nothing about borders or claims and are not a statement on any dispute.
+Reefs (dotted line in `detail-water.json`): `ne_10m_reefs`, SHA-256 `4dcfb7cb57e7c04108df66ca0ac1bb4125b2b40b6bb45d7d2aa589bd4e46dc57`: a generalised outline of the larger reefs, not a hazard chart.
+Small islands: islands too small to outline at the zoom in use are drawn as dots; the smallest ones in the data are stored as a small diamond at their position (about 0.5 nm wide), so their shape is not real.
+
 ---
 
 # Emission Control Area outlines — provenance

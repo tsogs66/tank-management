@@ -69,7 +69,7 @@
     const canvas = doc.createElement('canvas'); canvas.style.cssText = 'width:100%;height:100%;display:block;touch-action:none;cursor:grab;';
     host.appendChild(canvas);
     const ctx2 = canvas.getContext('2d');
-    const st = { lon: 0, y: 0, k: 4, routes: [], w: 300, h: 300, dpr: 1, showEca: true, showAreas: true, showLanes: false, showNames: true, showRivers: true, showDepth: true, showGrid: true, showPlaces: true, showPorts: true, boxes: [], detailPlaces: null, cursor: null, detailLand: null, detailWater: null, asked: {} };
+    const st = { lon: 0, y: 0, k: 4, routes: [], w: 300, h: 300, dpr: 1, showEca: true, showAreas: true, showLanes: false, showNames: true, showRivers: true, showDepth: true, showGrid: true, showPlaces: true, showCountries: true, countries: null, showPorts: true, boxes: [], detailPlaces: null, cursor: null, detailLand: null, detailWater: null, asked: {} };
     const land = opts.land || [];
     st.edit = null; st.drag = null;
     const wrapLon = lo => ((lo + 540) % 360) - 180;
@@ -127,7 +127,8 @@
     /** Ask for the detailed layers once the view is zoomed in enough to need them. */
     function wantDetail() {
       const d = opts.detail; if (!d) return;
-      if (st.k >= 6 && !st.asked.water && d.water) { st.asked.water = 1; Promise.resolve(d.water()).then(j => { if (!j) return; st.detailWater = { lakes: decodeLand({ q: j.q, rings: j.lakes || [] }), shelf: decodeLand({ q: j.q, rings: j.shelf || [] }), rivers: decodeLines(j.rivers, j.q), names: (j.names || []).map(n => ({ name: n[0], lon: n[1], lat: n[2], cls: n[3], min: n[4] == null ? 5 : n[4], size: n[5] })).sort((p, q2) => q2.size - p.size) }; draw(); }).catch(() => { st.asked.water = 0; }); }
+      if (!st.asked.countries && d.countries) { st.asked.countries = 1; Promise.resolve(d.countries()).then(j => { if (!j) return; st.countries = (j.countries || []).map(n => ({ name: n[0], lon: n[1], lat: n[2], min: n[3], max: n[4] })); draw(); }).catch(() => { st.asked.countries = 0; }); }
+      if (st.k >= 6 && !st.asked.water && d.water) { st.asked.water = 1; Promise.resolve(d.water()).then(j => { if (!j) return; st.detailWater = { lakes: decodeLand({ q: j.q, rings: j.lakes || [] }), shelf: decodeLand({ q: j.q, rings: j.shelf || [] }), rivers: decodeLines(j.rivers, j.q), reefs: decodeLines(j.reefs, j.q), names: (j.names || []).map(n => ({ name: n[0], lon: n[1], lat: n[2], cls: n[3], min: n[4] == null ? 5 : n[4], size: n[5] })).sort((p, q2) => q2.size - p.size) }; draw(); }).catch(() => { st.asked.water = 0; }); }
       if (st.k >= 12 && !st.asked.places && d.places) { st.asked.places = 1; Promise.resolve(d.places()).then(j => { if (!j) return; st.detailPlaces = (j.places || []).map(p => ({ name: p[0], lon: p[1], lat: p[2], z: p[3], cap: p[4], pop: p[5] })); draw(); }).catch(() => { st.asked.places = 0; }); }
       if (st.k >= 10 && !st.asked.land && d.land) { st.asked.land = 1; Promise.resolve(d.land()).then(j => { if (!j) return; st.detailLand = { mid: decodeLand({ q: j.q, rings: j.mid || [] }), fine: decodeLand({ q: j.q, rings: j.fine || [] }) }; draw(); }).catch(() => { st.asked.land = 0; }); }
     }
@@ -149,6 +150,17 @@
         }
         if (pass === 0) { c.strokeStyle = 'rgba(120,200,255,.35)'; c.lineWidth = 0.8; c.setLineDash([]); } else { c.strokeStyle = 'rgba(255,214,102,.9)'; c.lineWidth = 1.6; }
         c.stroke();
+      }
+      c.restore();
+    }
+    function drawCountries(c) {
+      if (!st.countries || !st.showCountries) return; const z = zoomLevel(st.k), boxes = st.boxes;
+      c.save(); c.textAlign = 'center'; c.font = '600 12px sans-serif'; c.lineJoin = 'round';
+      for (const n of st.countries) {
+        if (z + 0.9 < n.min || z > n.max + 1.5) continue; const lon = n.lon + Math.round((st.lon - n.lon) / 360) * 360, x = X(lon), y = Y(n.lat); if (x < -60 || x > st.w + 60 || y < -10 || y > st.h + 10) continue;
+        const t = n.name.toUpperCase().split('').join(String.fromCharCode(8202)), w = c.measureText(t).width + 8, bx = [x - w / 2, y - 12, x + w / 2, y + 4];
+        if (boxes.some(b => bx[0] < b[2] && bx[2] > b[0] && bx[1] < b[3] && bx[3] > b[1])) continue; boxes.push(bx);
+        c.lineWidth = 3; c.strokeStyle = 'rgba(60,56,44,.55)'; c.strokeText(t, x, y); c.fillStyle = 'rgba(255,252,240,.92)'; c.fillText(t, x, y);
       }
       c.restore();
     }
@@ -201,9 +213,12 @@
       if (st.showEca && opts.zones) opts.zones.forEach(z => z.rings.forEach(r => polyFill(c, r, 'rgba(255,196,80,.30)', offs.filter(o => Math.abs(o) <= 360))));
       if (st.showAreas && opts.areas) opts.areas.forEach(a => { const b = a.box; polyFill(c, [[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]], 'rgba(230,60,60,.25)', offs.filter(o => Math.abs(o) <= 360)); });
       c.fillStyle = '#d9d4c2'; c.strokeStyle = '#8c8777'; c.lineWidth = 0.6;
-      const D = st.detailLand, tier = D && st.k >= 60 && D.fine.length ? D.fine : D && st.k >= 10 && D.mid.length ? D.mid : land, minPx = tier === land ? 0 : 0.7 / st.k;
+      const D = st.detailLand, tier = D && st.k >= 60 && D.fine.length ? D.fine : D && st.k >= 10 && D.mid.length ? D.mid : land, minPx = tier === land ? 0 : 2.5 / st.k;
       for (const r of tier) {
-        if (minPx && r.maxx - r.minx < minPx && r.maxy - r.miny < minPx) continue;
+        if (minPx && r.maxx - r.minx < minPx && r.maxy - r.miny < minPx) { // too small to outline: still show the island as a dot
+          for (const off of offs) { if (r.maxx + off < x0 || r.minx + off > x1 || r.maxy < yBot || r.miny > yTop) continue; const dx = X((r.minx + r.maxx) / 2 + off), dy = Y((r.miny + r.maxy) / 2); c.beginPath(); c.arc(dx, dy, 1.6, 0, 6.3); c.fill(); }
+          continue;
+        }
         for (const off of offs) {
           if (r.maxx + off < x0 || r.minx + off > x1 || r.maxy < yBot || r.miny > yTop) continue;
           ringPath(c, r.pts, off); c.fill(); c.stroke();
@@ -221,7 +236,9 @@
           }
         }
       }
+      if (W && st.showRivers && st.k >= 8) { c.save(); c.strokeStyle = '#d9a7e8'; c.lineWidth = 1.2; c.setLineDash([2, 3]); for (const l of W.reefs || []) { if (l.maxx < x0 || l.minx > x1 || l.maxy < yBot || l.miny > yTop) continue; c.beginPath(); for (let i = 0; i < l.pts.length; i += 2) { const x = X(l.pts[i]), y = Y(l.pts[i + 1]); if (i) c.lineTo(x, y); else c.moveTo(x, y); } c.stroke(); } c.restore(); }
       if (st.showLanes) drawLanes(c, offs.filter(o => Math.abs(o) <= 360));
+      drawCountries(c);
       drawNames(c);
       if (st.k >= 3.5) drawPlaces(c);
       if (st.showNames && st.k >= 5) { c.save(); c.font = '600 11px sans-serif'; c.textAlign = 'center'; for (const id of PASSAGE_NAMES) { const q = PASSAGE_AT[id], x = X(q[0] + Math.round((st.lon - q[0]) / 360) * 360), y = Y(q[1]); if (x < 0 || x > st.w || y < 0 || y > st.h) continue; c.fillStyle = '#ffd666'; c.beginPath(); c.arc(x, y, 3, 0, 6.3); c.fill(); c.lineWidth = 3; c.strokeStyle = 'rgba(8,24,38,.85)'; c.strokeText(q[2], x, y - 7); c.fillText(q[2], x, y - 7); } c.restore(); }
