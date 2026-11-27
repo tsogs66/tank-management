@@ -1,7 +1,7 @@
 // Route files for ECDIS: write and read RTZ, GPX, KML, CSV and NMEA 0183.
 'use strict';
 const assert = require('assert');
-const RX = require('./route-exchange.js');
+const RX = require('../public/sea-distance/route-exchange.js');
 let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
 const route = { name: 'Nantes to New Orleans', vessel: 'MV TEST', imo: 'IMO 9722101', voyage: '08', points: [
   { lat: 47.2, lon: -1.55, name: 'NANTES' }, { lat: 48.5, lon: -5.2 }, { lat: 25.9, lon: -79.7 }, { lat: -33.9, lon: 151.2, name: 'Cape & "Bay" <1>' }, { lat: 29.95, lon: -90.07, name: 'NEW ORLEANS' }] };
