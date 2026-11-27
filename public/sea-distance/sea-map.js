@@ -69,7 +69,7 @@
     const canvas = doc.createElement('canvas'); canvas.style.cssText = 'width:100%;height:100%;display:block;touch-action:none;cursor:grab;';
     host.appendChild(canvas);
     const ctx2 = canvas.getContext('2d');
-    const st = { lon: 0, y: 0, k: 4, routes: [], w: 300, h: 300, dpr: 1, showEca: true, showAreas: true, showLanes: false, showNames: true, showRivers: true, showDepth: true, showGrid: true, showPlaces: true, showCountries: true, countries: null, showPorts: true, boxes: [], detailPlaces: null, cursor: null, detailLand: null, detailWater: null, asked: {} };
+    const st = { lon: 0, y: 0, k: 4, routes: [], w: 300, h: 300, dpr: 1, showEca: true, showAreas: true, showLanes: false, showNames: true, showRivers: true, showDepth: true, showGrid: true, showPlaces: true, showCountries: true, showEez: true, showSeaAreas: false, showLights: true, marine: null, lights: null, countries: null, showPorts: true, boxes: [], detailPlaces: null, cursor: null, detailLand: null, detailWater: null, asked: {} };
     const land = opts.land || [];
     st.edit = null; st.drag = null;
     const wrapLon = lo => ((lo + 540) % 360) - 180;
@@ -128,6 +128,8 @@
     function wantDetail() {
       const d = opts.detail; if (!d) return;
       if (!st.asked.countries && d.countries) { st.asked.countries = 1; Promise.resolve(d.countries()).then(j => { if (!j) return; st.countries = (j.countries || []).map(n => ({ name: n[0], lon: n[1], lat: n[2], min: n[3], max: n[4] })); draw(); }).catch(() => { st.asked.countries = 0; }); }
+      if (st.k >= 2 && (st.showEez || st.showSeaAreas) && !st.asked.marine && d.marine) { st.asked.marine = 1; Promise.resolve(d.marine()).then(j => { if (!j) return; st.marine = { areas: (j.areas || []).map(a => { const rings = decodeLand({ q: j.q, rings: a.r }); let big = rings[0]; rings.forEach(r => { if (r.maxx - r.minx > (big.maxx - big.minx)) big = r; }); return { name: a.n, rings, cx: big ? (big.minx + big.maxx) / 2 : 0, cy: big ? (big.miny + big.maxy) / 2 : 0, w: big ? big.maxx - big.minx : 0 }; }), eez: decodeLines((j.eez || []).map(l => ({ f: l.f, r: l.t })), j.q) }; draw(); }).catch(() => { st.asked.marine = 0; }); }
+      if (st.k >= 6 && st.showLights && !st.asked.lights && d.lights) { st.asked.lights = 1; Promise.resolve(d.lights()).then(j => { if (!j) return; st.lights = (j.lights || []).map(l => ({ lon: l[0], lat: l[1], name: l[2], text: l[3], major: l[4] })); draw(); }).catch(() => { st.asked.lights = 0; }); }
       if (st.k >= 6 && !st.asked.water && d.water) { st.asked.water = 1; Promise.resolve(d.water()).then(j => { if (!j) return; st.detailWater = { lakes: decodeLand({ q: j.q, rings: j.lakes || [] }), shelf: decodeLand({ q: j.q, rings: j.shelf || [] }), rivers: decodeLines(j.rivers, j.q), reefs: decodeLines(j.reefs, j.q), names: (j.names || []).map(n => ({ name: n[0], lon: n[1], lat: n[2], cls: n[3], min: n[4] == null ? 5 : n[4], size: n[5] })).sort((p, q2) => q2.size - p.size) }; draw(); }).catch(() => { st.asked.water = 0; }); }
       if (st.k >= 12 && !st.asked.places && d.places) { st.asked.places = 1; Promise.resolve(d.places()).then(j => { if (!j) return; st.detailPlaces = (j.places || []).map(p => ({ name: p[0], lon: p[1], lat: p[2], z: p[3], cap: p[4], pop: p[5] })); draw(); }).catch(() => { st.asked.places = 0; }); }
       if (st.k >= 10 && !st.asked.land && d.land) { st.asked.land = 1; Promise.resolve(d.land()).then(j => { if (!j) return; st.detailLand = { mid: decodeLand({ q: j.q, rings: j.mid || [] }), fine: decodeLand({ q: j.q, rings: j.fine || [] }) }; draw(); }).catch(() => { st.asked.land = 0; }); }
@@ -150,6 +152,39 @@
         }
         if (pass === 0) { c.strokeStyle = 'rgba(120,200,255,.35)'; c.lineWidth = 0.8; c.setLineDash([]); } else { c.strokeStyle = 'rgba(255,214,102,.9)'; c.lineWidth = 1.6; }
         c.stroke();
+      }
+      c.restore();
+    }
+    /** IHO sea-area outlines and the EEZ boundary lines: 200 nm limits teal, treaty and median lines light blue, joint regimes violet, unsettled red dots. Reference only, no legal value. */
+    function drawMarine(c, offs) {
+      const M = st.marine; if (!M) return; const x0 = lonAt(0), x1 = lonAt(st.w), yT = latAt(0), yB = latAt(st.h);
+      c.save(); c.lineJoin = 'round';
+      if (st.showSeaAreas) { c.strokeStyle = 'rgba(190,215,240,.55)'; c.lineWidth = 1; c.setLineDash([9, 5]); for (const a of M.areas) for (const r of a.rings) for (const off of offs) { if (Math.abs(off) > 360 || r.maxx + off < x0 || r.minx + off > x1 || r.maxy < yB || r.miny > yT) continue; ringPath(c, r.pts, off); c.stroke(); } }
+      if (st.showEez) {
+        const sty = { e: ['#35d0c0', [7, 4]], t: ['#8fd9ff', [3, 3]], j: ['#c9a0ff', [5, 3]], u: ['#ff6b6b', [1.5, 3]] };
+        for (const l of M.eez) { const sp = sty[l.r] || sty.t; c.strokeStyle = sp[0]; c.setLineDash(sp[1]); c.lineWidth = 1.3;
+          for (const off of [-360, 0, 360]) { if (l.maxx + off < x0 || l.minx + off > x1 || l.maxy < yB || l.miny > yT) continue; c.beginPath(); for (let i = 0; i < l.pts.length; i += 2) { const x = X(l.pts[i] + off), y = Y(l.pts[i + 1]); if (i) c.lineTo(x, y); else c.moveTo(x, y); } c.stroke(); } }
+      }
+      c.restore();
+    }
+    function drawSeaAreaNames(c) {
+      const M = st.marine; if (!M || !st.showSeaAreas) return; const boxes = st.boxes; c.save(); c.textAlign = 'center'; c.font = 'italic 600 11px sans-serif';
+      for (const a of M.areas) { if (a.w * st.k < 90 || a.w * st.k > 2600) continue; const x = X(a.cx + Math.round((st.lon - a.cx) / 360) * 360), y = Y(a.cy); if (x < 0 || x > st.w || y < 0 || y > st.h) continue;
+        const t = a.name.toUpperCase(), w = c.measureText(t).width + 8, bx = [x - w / 2, y - 12, x + w / 2, y + 4]; if (boxes.some(b => bx[0] < b[2] && bx[2] > b[0] && bx[1] < b[3] && bx[3] > b[1])) continue; boxes.push(bx);
+        c.lineWidth = 3; c.strokeStyle = 'rgba(8,24,38,.85)'; c.strokeText(t, x, y); c.fillStyle = 'rgba(190,215,240,.85)'; c.fillText(t, x, y); }
+      c.restore();
+    }
+    /** Lights (OpenStreetMap / OpenSeaMap): a magenta mark; the name from zoom 9 and the characteristics (Fl(2)W 10s 17M) from zoom 10.5. */
+    function drawLights(c) {
+      if (!st.showLights || !st.lights) return; const z = zoomLevel(st.k), x0 = lonAt(0) - 1, x1 = lonAt(st.w) + 1, yT = latAt(0) + 1, yB = latAt(st.h) - 1, boxes = st.boxes; let n = 0;
+      c.save(); c.textAlign = 'left'; c.lineJoin = 'round';
+      for (const l of st.lights) {
+        if (z < (l.major ? 5.5 : 7.5)) continue; if (l.lat < yB || l.lat > yT) continue; const lo = l.lon + Math.round((st.lon - l.lon) / 360) * 360; if (lo < x0 || lo > x1) continue;
+        const x = X(lo), y = Y(l.lat); if (++n > 1200) break;
+        c.fillStyle = l.major ? '#ff4fd8' : '#d58bff'; c.strokeStyle = '#000'; c.lineWidth = 1; c.beginPath(); c.moveTo(x, y - 6); c.lineTo(x + 3.5, y); c.lineTo(x, y + 2); c.lineTo(x - 3.5, y); c.closePath(); c.fill(); c.stroke();
+        if (z < 9 || !(l.name || l.text)) continue; const label = z >= 10.5 && l.text ? (l.name ? l.name + '  ' : '') + l.text : l.name; if (!label) continue; c.font = '10px sans-serif';
+        const w = c.measureText(label).width, bx = [x + 5, y - 10, x + 9 + w, y + 3]; if (boxes.some(b => bx[0] < b[2] && bx[2] > b[0] && bx[1] < b[3] && bx[3] > b[1])) continue; boxes.push(bx);
+        c.lineWidth = 3; c.strokeStyle = 'rgba(8,24,38,.9)'; c.strokeText(label, x + 7, y); c.fillStyle = '#ffc2f2'; c.fillText(label, x + 7, y);
       }
       c.restore();
     }
@@ -237,10 +272,13 @@
         }
       }
       if (W && st.showRivers && st.k >= 8) { c.save(); c.strokeStyle = '#d9a7e8'; c.lineWidth = 1.2; c.setLineDash([2, 3]); for (const l of W.reefs || []) { if (l.maxx < x0 || l.minx > x1 || l.maxy < yBot || l.miny > yTop) continue; c.beginPath(); for (let i = 0; i < l.pts.length; i += 2) { const x = X(l.pts[i]), y = Y(l.pts[i + 1]); if (i) c.lineTo(x, y); else c.moveTo(x, y); } c.stroke(); } c.restore(); }
+      drawMarine(c, offs);
       if (st.showLanes) drawLanes(c, offs.filter(o => Math.abs(o) <= 360));
       drawCountries(c);
+      drawSeaAreaNames(c);
       drawNames(c);
       if (st.k >= 3.5) drawPlaces(c);
+      drawLights(c);
       if (st.showNames && st.k >= 5) { c.save(); c.font = '600 11px sans-serif'; c.textAlign = 'center'; for (const id of PASSAGE_NAMES) { const q = PASSAGE_AT[id], x = X(q[0] + Math.round((st.lon - q[0]) / 360) * 360), y = Y(q[1]); if (x < 0 || x > st.w || y < 0 || y > st.h) continue; c.fillStyle = '#ffd666'; c.beginPath(); c.arc(x, y, 3, 0, 6.3); c.fill(); c.lineWidth = 3; c.strokeStyle = 'rgba(8,24,38,.85)'; c.strokeText(q[2], x, y - 7); c.fillText(q[2], x, y - 7); } c.restore(); }
       // routes
       st.routes.forEach(r => {

@@ -126,6 +126,13 @@ Country names (`detail-countries.json`): Natural Earth 1:10m `ne_10m_admin_0_cou
 Reefs (dotted line in `detail-water.json`): `ne_10m_reefs`, SHA-256 `4dcfb7cb57e7c04108df66ca0ac1bb4125b2b40b6bb45d7d2aa589bd4e46dc57`: a generalised outline of the larger reefs, not a hazard chart.
 Small islands: islands too small to outline at the zoom in use are drawn as dots; the smallest ones in the data are stored as a small diamond at their position (about 0.5 nm wide), so their shape is not real.
 
+## Marine layers: sea areas, EEZ lines, lights
+Built by `node scripts/build-detail-marine.js` into `detail-marine.json` and `detail-lights.json` (raw downloads fetched into `source/mr/` and `source/osm/`, not kept in git).
+
+- **IHO sea areas** (outlines and names): Flanders Marine Institute (2018), IHO Sea Areas, version 3, https://doi.org/10.14284/323, from Marine Regions (https://www.marineregions.org), licence CC BY 4.0 (Marine Regions licence page: products are CC-BY since Maritime Boundaries v11). The file used is the simplified GeoJSON of the `oceans-seas.geojson` 0.5.0 package (MIT), SHA-256 `b205408f9731a8c644f972271acc8ac460cad5de3aaadf1560e07de62a535bd0`, simplified again to about 0.05 degrees. The boundaries come from IHO Special Publication 23 (1953).
+- **EEZ boundary lines**: Flanders Marine Institute, Marine Regions "Maritime Boundaries" `eez_boundaries` (WFS, geo.vliz.be), CC BY 4.0, downloaded 2026-11-27. Kept: 200 NM limits, treaty, median line, court ruling, joint regime, unsettled maritime lines, unilateral claims (971 lines); baselines and land boundaries are left out. Marine Regions: "The data has no legal value whatsoever" and VLIZ expresses no opinion on any delimitation.
+- **Lights**: OpenStreetMap contributors, OpenSeaMap seamarks (`seamark:type=light_major` and `man_made=lighthouse`), 8,895 nodes taken 2026-11-27 through an Overpass mirror, licence ODbL 1.0 (https://www.openstreetmap.org/copyright). This derived file stays under the ODbL: keep the attribution "© OpenStreetMap contributors" and share any changes to it under the same licence. Characteristics (Fl(2)W 10s 17M) are built from the seamark tags that exist (about 3,300 of the lights); many lights have a name and position only. Volunteer data: it is not the List of Lights, may be out of date or wrong, and must not be used for navigation.
+
 ---
 
 # Emission Control Area outlines — provenance

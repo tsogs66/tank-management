@@ -39,4 +39,8 @@ const DC = JSON.parse(fs.readFileSync(path.join(__dirname, '../public/sea-distan
 assert(DC.format === 'detail-countries-v1' && DC.countries.length > 200 && DC.countries.some(c => c[0] === 'France') && DC.countries.some(c => c[0] === 'Brazil'), 'country names');
 assert(DW.reefs.length > 500, 'reefs');
 assert(fine.length > 9000, 'small islands are kept (fine rings: ' + fine.length + ')');
+const DM = JSON.parse(fs.readFileSync(path.join(__dirname, '../public/sea-distance/detail-marine.json'), 'utf8')), DLi = JSON.parse(fs.readFileSync(path.join(__dirname, '../public/sea-distance/detail-lights.json'), 'utf8'));
+assert(DM.format === 'detail-marine-v1' && DM.areas.length > 90 && DM.areas.some(a => a.n === 'North Sea') && DM.eez.length > 500 && DM.eez.every(l => 'etju'.includes(l.t)), 'sea areas and EEZ lines');
+assert(DLi.format === 'detail-lights-v1' && DLi.lights.length > 5000 && DLi.lights.every(l => l.length === 5 && Math.abs(l[0]) <= 180 && Math.abs(l[1]) <= 90) && DLi.lights.filter(l => l[3]).length > 2000, 'lights');
+assert(DLi.lights.some(l => Math.abs(l[0] - 103.74) < 0.3 && Math.abs(l[1] - 1.2) < 0.2), 'there are lights around Singapore');
 console.log('sea-map OK (' + land.length + ' land rings)');

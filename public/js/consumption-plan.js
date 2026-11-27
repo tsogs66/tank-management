@@ -811,10 +811,10 @@
       document.head.appendChild(el);
     });
     const json = (url) => fetch(url).then((r) => { if (!r.ok) throw new Error(url + ' ' + r.status); return r.json(); });
-    let mapPending = null; let landRings = null; let lanes = null; let detailLandP = null; let detailWaterP = null; let detailPlacesP = null; let detailCountriesP = null; let portRows = null;
+    let mapPending = null; let landRings = null; let lanes = null; let detailLandP = null; let detailWaterP = null; let detailPlacesP = null; let detailCountriesP = null; let detailMarineP = null; let detailLightsP = null; let portRows = null;
     const loadMap = () => mapPending || (mapPending = Promise.all([script(base + 'sea-map.js'), script(base + 'route-exchange.js').catch(() => null)])
       .then(() => ({ SeaMap: window.SeaMap, RouteExchange: window.RouteExchange || null, land: landRings, lanes, ports: portRows,
-        detail: { land: () => detailLandP || (detailLandP = json(base + 'detail-land.json').catch((e) => { detailLandP = null; throw e; })), countries: () => detailCountriesP || (detailCountriesP = json(base + 'detail-countries.json').catch((e) => { detailCountriesP = null; throw e; })), places: () => detailPlacesP || (detailPlacesP = json(base + 'detail-places.json').catch((e) => { detailPlacesP = null; throw e; })), water: () => detailWaterP || (detailWaterP = json(base + 'detail-water.json').catch((e) => { detailWaterP = null; throw e; })) } })).catch((e) => { mapPending = null; throw e; }));
+        detail: { land: () => detailLandP || (detailLandP = json(base + 'detail-land.json').catch((e) => { detailLandP = null; throw e; })), marine: () => detailMarineP || (detailMarineP = json(base + 'detail-marine.json').catch((e) => { detailMarineP = null; throw e; })), lights: () => detailLightsP || (detailLightsP = json(base + 'detail-lights.json').catch((e) => { detailLightsP = null; throw e; })), countries: () => detailCountriesP || (detailCountriesP = json(base + 'detail-countries.json').catch((e) => { detailCountriesP = null; throw e; })), places: () => detailPlacesP || (detailPlacesP = json(base + 'detail-places.json').catch((e) => { detailPlacesP = null; throw e; })), water: () => detailWaterP || (detailWaterP = json(base + 'detail-water.json').catch((e) => { detailWaterP = null; throw e; })) } })).catch((e) => { mapPending = null; throw e; }));
     return function load() {
       if (!pending) {
         pending = Promise.all([script(base + 'port-list.js'), script(base + 'sea-route.js'), script(base + 'eca-zones.js'), json(base + 'ports.json'), json(base + 'marnet.json'), json(base + 'land.json')])
@@ -1784,7 +1784,7 @@
         <label><input type="checkbox" data-map="eca" checked> ECA zones</label><label><input type="checkbox" data-map="areas" checked> Avoided areas</label>
         <details class="cp-maplayers"><summary>Layers</summary><div>
           <label><input type="checkbox" data-map="lanes"> Sea lanes and canals</label><label><input type="checkbox" data-map="names" checked> Names (straits, channels, gulfs)</label>
-          <label><input type="checkbox" data-map="countries" checked> Country names</label><label><input type="checkbox" data-map="ports" checked> Ports</label><label><input type="checkbox" data-map="places" checked> Towns and cities</label><label><input type="checkbox" data-map="rivers" checked> Rivers and lakes</label><label><input type="checkbox" data-map="depth" checked> 200 m line (shelf)</label><label><input type="checkbox" data-map="grid" checked> Grid</label>
+          <label><input type="checkbox" data-map="eez" checked> EEZ limits (200 nm, treaty lines)</label><label><input type="checkbox" data-map="seaareas"> Sea area outlines (IHO)</label><label><input type="checkbox" data-map="lights" checked> Lights and lighthouses</label><label><input type="checkbox" data-map="countries" checked> Country names</label><label><input type="checkbox" data-map="ports" checked> Ports</label><label><input type="checkbox" data-map="places" checked> Towns and cities</label><label><input type="checkbox" data-map="rivers" checked> Rivers and lakes</label><label><input type="checkbox" data-map="depth" checked> 200 m line (shelf)</label><label><input type="checkbox" data-map="grid" checked> Grid</label>
         </div></details>
         <button type="button" class="${ui.btn}" data-map="in" aria-label="Zoom in">+</button><button type="button" class="${ui.btn}" data-map="out" aria-label="Zoom out">−</button>
         <button type="button" class="${ui.btn}" data-map="fit">Fit</button>
@@ -1813,7 +1813,7 @@
           <input type="file" data-map="xfile" accept=".rtz,.gpx,.kml,.csv,.txt,.nmea,.xml,.rt3,.rte,.wpl" hidden>
           <div class="cp-seanote" data-map="xhint"></div>
         </div><div class="cp-mapedithint" hidden>Drag a white dot to move a waypoint; drag a + to add one; double-click a waypoint to remove it. Red leg: crosses land. Yellow dashed: close to land.</div></div><div class="cp-mapcanvas"></div>
-        <div class="cp-mapnote">Planning picture from a coarse sea-lane network and a generalised coastline (Natural Earth, finer when you zoom in), not an electronic chart and not for navigation. ECA zones follow the published coordinates; avoided areas are approximate boxes.</div>`;
+        <div class="cp-mapnote">Planning picture from a coarse sea-lane network and a generalised coastline (Natural Earth, finer when you zoom in), not an electronic chart and not for navigation. ECA zones follow the published coordinates; avoided areas are approximate boxes. EEZ lines and sea-area outlines (Marine Regions, CC BY 4.0) have no legal value; lights are volunteer data from OpenStreetMap / OpenSeaMap (ODbL) and not a list of lights: always check the official List of Lights and the chart.</div>`;
       document.body.appendChild(ov);
       const areas = built.areas;
       const ctl = SM.create(ov.querySelector('.cp-mapcanvas'), { land: assets.land, lanes: assets.lanes, ports: assets.ports, detail: assets.detail, zones: ctx.sea.Eca ? ctx.sea.Eca.ZONES.filter((z) => ids.includes(z.id)) : [], areas });
@@ -1929,7 +1929,7 @@
         }
         else if (k === 'close') close(); else if (k === 'in') ctl.zoom(1.6); else if (k === 'out') ctl.zoom(1 / 1.6); else if (k === 'fit') ctl.fit();
         else if (k === 'eca') ctl.set({ showEca: e.target.checked }); else if (k === 'areas') ctl.set({ showAreas: e.target.checked });
-        else if (k === 'lanes') ctl.set({ showLanes: e.target.checked }); else if (k === 'names') ctl.set({ showNames: e.target.checked }); else if (k === 'countries') ctl.set({ showCountries: e.target.checked }); else if (k === 'ports') ctl.set({ showPorts: e.target.checked }); else if (k === 'places') ctl.set({ showPlaces: e.target.checked }); else if (k === 'rivers') ctl.set({ showRivers: e.target.checked }); else if (k === 'depth') ctl.set({ showDepth: e.target.checked }); else if (k === 'grid') ctl.set({ showGrid: e.target.checked });
+        else if (k === 'lanes') ctl.set({ showLanes: e.target.checked }); else if (k === 'names') ctl.set({ showNames: e.target.checked }); else if (k === 'eez') ctl.set({ showEez: e.target.checked }); else if (k === 'seaareas') ctl.set({ showSeaAreas: e.target.checked }); else if (k === 'lights') ctl.set({ showLights: e.target.checked }); else if (k === 'countries') ctl.set({ showCountries: e.target.checked }); else if (k === 'ports') ctl.set({ showPorts: e.target.checked }); else if (k === 'places') ctl.set({ showPlaces: e.target.checked }); else if (k === 'rivers') ctl.set({ showRivers: e.target.checked }); else if (k === 'depth') ctl.set({ showDepth: e.target.checked }); else if (k === 'grid') ctl.set({ showGrid: e.target.checked });
       });
       if (mopts && mopts.xchg) { xchgEl.hidden = false; xhint(); }
     }
