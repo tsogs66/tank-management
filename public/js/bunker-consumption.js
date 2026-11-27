@@ -142,6 +142,27 @@ const BunkerConsumption = (function () {
       },
       vesselName: () => vesselName(),
       voyageNo: () => STATE.bundle?.voyage?.voyageNo || '',
+      /* the vessel's speed and consumption profile: kept with the plan in Tank Chief */
+      profile: () => (store() && store().profile) || null,
+      saveProfile: async (p) => {
+        const st = store();
+        if (!st || !STATE.activeVesselId) return;
+        st.profile = p; st.updatedAt = new Date().toISOString();
+        await persistPart('bunkerConsumption', st);
+      },
+      condition: () => 'ballast',
+      /* about how many MT the tanks of a grade hold: capacity (m3) x density x 98 % fill. An estimate (typical density) used only to warn that a stem would not fit. */
+      capacity: (grade) => {
+        try {
+          let mt = 0;
+          (STATE.bundle?.tanks?.fuel || []).forEach((t) => {
+            if (FuelReportCore.robGradeLabel(t) !== grade) return;
+            const cap = Number(t.capacity);
+            if (cap > 0) mt += cap * (/MGO|MDO/i.test(grade) ? 0.85 : 0.95) * 0.98;
+          });
+          return mt;
+        } catch (_) { return 0; }
+      },
       toast: (m) => showToast(m),
       askName: askSaveName,
       buttons: [

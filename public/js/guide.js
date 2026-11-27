@@ -404,6 +404,31 @@
     },
     {
       group: "Problems",
+      q: 'How do I see channels, rivers and canals on the route map, and send the waypoints to the ECDIS?',
+      purpose: 'The map shows a finer coastline, rivers, lakes, the names of straits and channels and a latitude / longitude grid as you zoom in, and the route can be saved as a file the ECDIS reads.',
+      steps: [
+        'Open the route map from a line (Map) or from Routes for ECDIS…. Zoom with the wheel, the + / − buttons or a two-finger pinch; drag to move. The position of the pointer and the zoom are at the lower right, the scale bar at the lower left.',
+        'Zoomed in, the detailed layers load by themselves (about 4 MB, once; they then work offline). Layers lets you switch Sea lanes and canals (the planning network, canals in yellow), Names, Rivers and lakes, the 200 m line (lighter water is shallower than 200 m), EEZ limits (200 nm teal, treaty and median lines blue, unsettled red; no legal value), IHO sea-area outlines, Lights and lighthouses (volunteer OpenSeaMap data with name and characteristics when zoomed in: not the List of Lights), Ports, Towns and cities, Country names and the Grid.',
+        'Export / import route…: pick the route and the file type, then Save file. RTZ (IEC 61174, the usual ECDIS route exchange; set the cross-track limit, turn radius and great-circle or rhumb legs), GPX, KML, CSV (decimal and degree-minute columns) and NMEA 0183 WPL / RTE for plotters. Import file… reads the same types into the route; check the waypoints, then Apply and recalculate.',
+        'Always load the file on the ECDIS, check every leg against the ENC charts and the passage plan, and set the cross-track limits there. The map is generalised data for planning (no soundings, buoys, traffic separation schemes or charted canals) and is not for navigation. Vendor-only formats that are not RTZ (for example some native route files) are not read; export RTZ or CSV from the ECDIS instead.'
+      ]
+    },
+    {
+      group: "Problems",
+      q: "How do I plan fuel by speed (full, eco, safe) without typing the consumption on every line?",
+      purpose: "The vessel profile holds the speed and daily consumption; each plan line only picks a mode.",
+      steps: [
+        "Voyage Chief: Setup → Speed & Consumption Profile. Tank Chief: Consumption Plan → Vessel speed & consumption profile. In the plan you can open the same table too.",
+        "For Ballast and for Laden fill in the knots of Full, Eco and Safe speed and the MT per day of each fuel column at that speed, then MT per day in port and at anchorage. Fuel 1 is the main fuel (it becomes the ECA fuel inside an ECA); Fuel 2 is usually the distillate of the generators and boiler.",
+        "In the Consumption Plan the lines have no speed or MT/day boxes. Each line has a Mode box: Full / Eco / Safe (and Manoeuvring for the pilot areas) at sea, Port or Anchorage on a port stay, taken from the profile; or Leg figures, which uses the figures typed for the voyage leg.",
+        "Each voyage leg has its loading condition (Ballast or Laden); change it and the lines follow the other row of the profile. Just below the voyage description each leg has its Leg figures: speed, MT/day at sea and MT/day in port and at anchorage for each fuel, used by lines set to Leg figures. Miscellaneous (optional, charter party: incinerator) is a MT/day figure and a fuel; it is multiplied by all the days of the voyage leg, sea, anchorage and port together, and added to that fuel.",
+        "Results are one table: status per fuel (OK, TIGHT, SHORT, OVER CAPACITY) and, when a fuel runs short, the last place to bunker. Scenarios saves versions of the plan (route, mode, fuel) and compares distance, days, fuel and cost; fuel prices and canal dues are typed once. Plan against actual compares the plan with the log since departure (Voyage Chief).",
+        "Export CSV opens in Excel; Copy report text is for an e-mail; Summary prints one page; Undo / Redo (Ctrl+Z / Ctrl+Y) take back a change, also Clear and a deleted line; the ▲ ▼ buttons move a line on a phone.",
+        "On the route map, Edit route has Coordinates to type each waypoint, Snap to sea, and named saved routes for the two ports. Route reminders under the lines mention Suez / Panama transit time and dues (typed by you), high-risk and ice areas from approximate boxes: a reminder, not advice."
+      ]
+    },
+    {
+      group: "Problems",
       q: "The text is too small, or is cut off inside a box.",
       purpose: "The whole page can be made larger so small figures and cut-off text can be read.",
       steps: [

@@ -289,7 +289,31 @@
       });
       return { land, near: near || land };
     }
-    return { route, segmentCheck, nearest: (pt, kk) => nearest(pt, kk || 1).map(x => ({ nm: r1(x[0]), lat: lat[x[1]], lon: lon[x[1]] })), nodeCount: N };
+    /** Is a point on land / close to land? ([lat, lon]) */
+    function pointCheck(p) {
+      if (!lt) return { land: false, near: false };
+      const land = lt.isLand(p[1], p[0]);
+      return { land, near: land || lt.nearLand(p[1], p[0]) };
+    }
+    /** The nearest sea to a point on land: searched outwards in rings of 0.05 degrees up to 4 degrees, preferring water that is not close to the coast. Returns [lat, lon] (the same point when it is already at sea). */
+    function snapToSea(p) {
+      if (!lt || !lt.isLand(p[1], p[0])) return [p[0], p[1]];
+      let fallback = null;
+      for (let r = 0.05; r <= 4; r += 0.05) {
+        const steps = Math.max(12, Math.round(r * 160));
+        for (let k = 0; k < steps; k++) {
+          const a = (k / steps) * 2 * Math.PI;
+          const la = Math.max(-85, Math.min(85, p[0] + r * Math.sin(a))); let lo = p[1] + r * Math.cos(a) / Math.max(0.2, Math.cos(la * Math.PI / 180));
+          if (lo > 180) lo -= 360; else if (lo < -180) lo += 360;
+          if (lt.isLand(lo, la)) continue;
+          if (!lt.nearLand(lo, la)) return [Math.round(la * 1e4) / 1e4, Math.round(lo * 1e4) / 1e4];
+          if (!fallback) fallback = [Math.round(la * 1e4) / 1e4, Math.round(lo * 1e4) / 1e4];
+        }
+        if (fallback && r > 0.6) return fallback;
+      }
+      return fallback || [p[0], p[1]];
+    }
+    return { route, segmentCheck, pointCheck, snapToSea, nearest: (pt, kk) => nearest(pt, kk || 1).map(x => ({ nm: r1(x[0]), lat: lat[x[1]], lon: lon[x[1]] })), nodeCount: N };
   }
   const api = { create, decodeLand, gcPoints, PASSAGES, AREAS, gc: (a, b) => gc(a.lat, a.lon, b.lat, b.lon) };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.SeaRoute = api;
